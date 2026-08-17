@@ -1,0 +1,6 @@
+{
+  "capability": "synpp-cache-coordination-v1",
+  "repository": "https://github.com/eqasim-org/synpp",
+  "base_version": "1.6.1",
+  "commit": "0c84dcb415498f9e6d58d5651df788a81c881790"
+}

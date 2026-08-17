@@ -1,0 +1,135 @@
+# Nantes starter campaign. Every active key below is executed by Epic 1.
+campaign: @CAMPAIGN@
+campaign_root: @CAMPAIGN_ROOT@
+model:
+  config: @MODEL_CONFIG@
+  root: @MODEL_ROOT@
+context:
+  data_manifest: @DATA_MANIFEST@
+  lockfile: @LOCKFILE@
+analysis:
+  # Refuse analysis unless every unique run planned has completed.
+  completeness_threshold: 1.0
+experiment:
+  method: grid
+  seed_role: replication
+  replications:
+    # random_seed: actif as replication, not a scientific factor.
+    seeds: [1234, 5678]
+parameters:
+  # sampling_rate: actif; synthesis stage; float; changes every archived output.
+  sampling_rate:
+    values: [0.001]
+  # matching_minimum_observations: indisponible dans config_nantes.yml; integer; matching stage.
+  # matching_attributes: non transportable by scalar synpp 1.6.1 overrides; ordered priority list;
+  #   the last attribute is relaxed first; matching stage; affects population matching outputs.
+  # income_assignation_method: indisponible dans config_nantes.yml; string; income stage.
+  # projection_year: indisponible dans config_nantes.yml; integer; census stage.
+  # recodage: conditionnel et indisponible avant acceptation de la contribution amont.
+artifacts:
+  age:
+    class: Age class
+    synthetic: Proportion_EQASIM
+    references: [INSEE]
+  distance:
+    class: Distance class
+    synthetic: Proportion_EQASIM
+    references: [HTS, HTS adjust with INSEE population weights]
+  nbr_vehicle:
+    class: Number of vehicles class
+    synthetic: Proportion_EQASIM
+    references: [HTS, HTS adjust with INSEE population weights]
+indicators:
+  - pair:
+      scalarizer: tv_distance
+      artifact: age
+      reference: INSEE
+  - product:
+      scalarizers: [tv_distance]
+      artifacts: [distance, nbr_vehicle]
+execution:
+  # SLURM usage: change only execution.backend from local to slurm.
+  # Preconditions: campaign, model, data and Python paths are shared by launcher and nodes;
+  # scratch exists at the same absolute path and is node-local on every compute node.
+  # campaign must be unique among distinct campaigns sharing this scratch.
+  # workdir is disposable and may disappear between jobs; runs and archives are shared.
+  # workers controls SLURM array parallelism; overrides.processes controls CPUs per run.
+  # Optional site resources under execution.slurm are timeout_min, mem_gb, partition,
+  # account and qos; omit them to use the 1440-minute timeout and site defaults.
+  backend: local
+  workers: 1
+  scratch: @SCRATCH@
+  invocation: @INVOCATION@
+  overrides:
+    data_path: @DATA_PATH@
+    processes: 1
+@CALIBRATION@
+# Inventaire archive actuellement (12 artefacts):
+# population: persons, households, activities, trips, vehicle_types, vehicles.
+# analyse: age [Age class; INSEE], distance [Distance class; HTS; HTS adjust with INSEE population weights],
+# license [License class; HTS; HTS adjust with INSEE population weights],
+# nbr_vehicle [Number of vehicles class; HTS; HTS adjust with INSEE population weights],
+# travel [Travel class; HTS; HTS adjust with INSEE population weights], age_purpose [age_class].
+# Proportion_EQASIM est la colonne synthetique archivee, pas un indicateur calcule ici.
+# Pack indicateurs Epic 2 actif: cinq distances TV sur age, distance et nbr_vehicle.
+# La dispersion inter-seeds est produite par analyze pour le rôle replication.
+# matching_failure_rate depuis matched_counts (Epic 2, artefact absent); gini conditionnel a un stage revenu absent.
+# Morris discrete OAT contract (uncomment as one complete replacement for experiment/parameters):
+# experiment:
+#   method: morris
+#   seed_role: replication
+#   trajectories: 12
+#   design_seed: 20260814
+#   replications:
+#     seeds: [101, 102, 103]
+# parameters:
+#   sampling_rate:
+#     values: [0.005, 0.01, 0.05]
+#   matching_minimum_observations:
+#     values: [5, 10, 20, 40]
+# Morris requires completeness_threshold: 1.0 and seed_role: replication. Each factor
+# has at least two finite numeric values of one homogeneous type, distinct and strictly increasing.
+# Every transition uses adjacent declared values only; strings, categories, structured values,
+# booleans, duplicate/constant domains, matching_attributes and income_assignation_method are rejected.
+# Declare at least one indicator and one factor. T is a positive non-boolean integer with T <= M,
+# where M = D! * product(2*(L_i-1)); each trajectory changes each factor exactly once and candidates
+# are unique. design_seed is signed int64 and controls only the design, never random_seed.
+# Replication seeds are signed int64, ordered, non-empty and unique; each is constant across a
+# trajectory (common random numbers). Factor range and normalized adjacent deltas must be finite and representable.
+# Values come only from the declared domains: no interpolation or rounding. Any change to design_seed,
+# trajectories, factor domains or replication seeds requires a fresh campaign_root. Keep the active
+# indicators block when switching to Morris; plan metadata, context and structural identities are sealed.
+# Sobol discrete Saltelli contract (replace analysis/experiment/parameters as one block):
+# analysis:
+#   completeness_threshold: 1.0
+#   bootstrap_resamples: 999
+#   confidence_level: 0.95
+# experiment:
+#   method: sobol
+#   seed_role: factor
+#   base_sample_size: 1024
+#   design_seed: 20260814
+# parameters:
+#   sampling_rate:
+#     values: [0.001, 0.005, 0.01, 0.05]
+#   income_assignation_method:
+#     values: [uniform, median]
+#   seed:
+#     values: [101, 102, 103, 104]
+# Sobol requires at least one indicator and two independent factors including seed.
+# base_sample_size N is a power of two >= 2 with N(2D+2) <= 2**63-1; design_seed is unsigned int64
+# and controls only scrambled QMC, never random_seed. The complete A/B/AB/BA plan costs
+# N(2D+2) design positions before structural deduplication. Every domain is an ordered,
+# homogeneous list of at least two distinct scalar values and uses equal-width floor(u*L)
+# mapping without interpolation or weighting. The seed counts in D and sets random_seed,
+# so no separate inter-seed dispersion is computed. Keep completeness_threshold at 1.0;
+# bootstrap resampling is paired by Saltelli row and deterministic for each indicator.
+# Any change to N, design_seed, domain order/values or the sealed design requires a fresh campaign_root.
+# Le resultat Epic 1 est la campagne archivee, sans indicateurs ni classement Epic 2/4.
+# Preconditions de la preuve < 30 min: donnees Nantes preparees, Python 3.13.11,
+# synpp-cache-coordination-v1, sampling_rate=0.001, processes=1, ext4; la duree n'est pas portable.
+# Parcours de prise en main (depuis ce repertoire, sans edition):
+# @INIT_COMMAND@
+# eqasim-sa check --meta-config nantes.yml
+# eqasim-sa estimate --meta-config nantes.yml
+# eqasim-sa run --meta-config nantes.yml

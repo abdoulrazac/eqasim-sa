@@ -1,0 +1,746 @@
+import hashlib
+import importlib.metadata
+import json
+import math
+import os
+import subprocess
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+from eqasim_sa.adapters.eqasim.config import (
+    CAMPAIGN,
+    load_yaml_document,
+    load_yaml_source,
+    validate_eqasim_document,
+)
+from eqasim_sa.adapters.eqasim.simulator import DEDICATED, validate_transport
+from eqasim_sa.core.indicators import (
+    ArtifactDeclaration,
+    CustomDeclaration,
+    PairDeclaration,
+    ProductDeclaration,
+    TotalVariationIndicator,
+    resolve_indicators,
+)
+from eqasim_sa.core.plan import validate_morris_values
+from eqasim_sa.core.run import EXCLUDED_PATHS
+from eqasim_sa.ports.simulator import IndicatorRequirement
+
+SCALARIZERS = {
+    "tv_distance": lambda artifact, reference: TotalVariationIndicator(
+        artifact, reference
+    ),
+}
+
+
+@dataclass(frozen=True)
+class SlurmResources:
+    timeout_min: int = 1440
+    mem_gb: int | float | None = None
+    partition: str | None = None
+    account: str | None = None
+    qos: str | None = None
+
+
+@dataclass(frozen=True)
+class Execution:
+    backend: str
+    workers: int
+    scratch: Path
+    invocation: tuple[str, ...]
+    overrides: dict[str, object]
+    slurm: SlurmResources
+
+
+@dataclass(frozen=True)
+class MetaConfig:
+    campaign: str
+    campaign_root: Path
+    model_config: Path
+    model_root: Path
+    factors: dict[str, list]
+    seeds: tuple[int, ...]
+    seed_role: str
+    method: str
+    trajectories: int | None
+    design_seed: int | None
+    base_sample_size: int | None
+    bootstrap_resamples: int | None
+    confidence_level: float | None
+    completeness_threshold: float
+    context_descriptor: dict[str, str]
+    context_hash: str
+    model_document: dict
+    model_bytes: bytes
+    execution: Execution | None
+    calibration_meta_configs: tuple[Path, ...]
+    control_states: tuple[tuple[Path, tuple[int, int, int, int, int]], ...]
+    artifacts: dict[str, ArtifactDeclaration]
+    indicators: tuple[object, ...]
+    indicator_requirements: tuple[IndicatorRequirement, ...]
+
+
+def _mapping(value: object, name: str) -> dict:
+    if not isinstance(value, dict):
+        raise TypeError(f"{name} must be a mapping")
+    return value
+
+
+def _file(path: Path, name: str) -> Path:
+    if path.is_symlink():
+        raise ValueError(f"{name} must not be a symlink")
+    resolved = path.resolve(strict=True)
+    if not resolved.is_file():
+        raise ValueError(f"{name} must be a regular file")
+    return resolved
+
+
+def _timeout(deadline: float | None) -> float:
+    if deadline is None:
+        return 5
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("static check time budget exhausted")
+    return min(5, remaining)
+
+
+def _git(root: Path, *arguments: str, deadline: float | None = None) -> str:
+    completed = subprocess.run(
+        ["git", *arguments],
+        cwd=root,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        shell=False,
+        check=False,
+        timeout=_timeout(deadline),
+    )
+    if completed.returncode:
+        raise ValueError(
+            f"Git command failed: {' '.join(arguments)}: {completed.stderr.strip()}"
+        )
+    return completed.stdout.strip()
+
+
+def _git_stdin(
+    root: Path, data: bytes, *arguments: str, deadline: float | None = None
+) -> str:
+    completed = subprocess.run(
+        ["git", *arguments],
+        cwd=root,
+        input=data,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        shell=False,
+        check=False,
+        timeout=_timeout(deadline),
+    )
+    if completed.returncode:
+        raise ValueError(f"Git command failed: {' '.join(arguments)}")
+    return completed.stdout.decode().strip()
+
+
+def _state(path: Path) -> tuple[int, int, int, int, int]:
+    stat = path.stat()
+    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
+
+
+def _digest(path: Path, deadline: float | None = None) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            _timeout(deadline)
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _campaign_root(path: Path, model_root: Path) -> Path:
+    candidate = Path(os.path.abspath(path))
+    current = Path(candidate.anchor)
+    for part in candidate.parts[1:]:
+        current /= part
+        if current.exists() and current.is_symlink():
+            raise ValueError("campaign_root must not traverse a symlink")
+    ancestor = candidate
+    while not ancestor.exists() and ancestor != ancestor.parent:
+        ancestor = ancestor.parent
+    if ancestor.is_symlink() or not ancestor.is_dir():
+        raise ValueError("campaign_root ancestor must be a non-symlink directory")
+    resolved = ancestor.resolve(strict=True).joinpath(
+        *candidate.relative_to(ancestor).parts
+    )
+    if resolved == model_root or resolved.is_relative_to(model_root):
+        raise ValueError("campaign_root must be outside model.root")
+    return resolved
+
+
+def _execution(value: object, base: Path, model_document: dict) -> Execution:
+    document = _mapping(value, "execution")
+    required = {"backend", "workers", "scratch", "invocation"}
+    optional = {"overrides", "slurm"}
+    if not required <= set(document) or set(document) - required - optional:
+        raise ValueError(
+            "execution keys must be exactly backend, workers, scratch, invocation, with optional overrides and slurm"
+        )
+    backend, workers = document["backend"], document["workers"]
+    scratch, invocation = document["scratch"], document["invocation"]
+    if backend not in {"local", "slurm"}:
+        raise ValueError("execution.backend must be local or slurm")
+    if isinstance(workers, bool) or not isinstance(workers, int) or workers <= 0:
+        raise ValueError("execution.workers must be a strictly positive integer")
+    if not isinstance(scratch, str):
+        raise TypeError("execution.scratch must be a string path")
+    if not scratch or "\0" in scratch:
+        raise ValueError("execution.scratch must be a non-empty path without NUL")
+    scratch_path = base / scratch
+    absolute_scratch = Path(os.path.abspath(scratch_path))
+    current = Path(absolute_scratch.anchor)
+    for part in absolute_scratch.parts[1:]:
+        current /= part
+        if current.exists() and current.is_symlink():
+            raise ValueError("execution.scratch must not traverse a symlink")
+    scratch_path = scratch_path.resolve(strict=True)
+    if not scratch_path.is_dir():
+        raise ValueError("execution.scratch must be an existing directory")
+    if (
+        not isinstance(invocation, list)
+        or not invocation
+        or not all(
+            isinstance(item, str) and item and "\0" not in item for item in invocation
+        )
+    ):
+        raise ValueError(
+            "execution.invocation must be a non-empty list of non-empty strings without NUL"
+        )
+    overrides = _mapping(document.get("overrides", {}), "execution.overrides")
+    model_config = _mapping(model_document.get("config"), "model config")
+    validated = {}
+    for name, value in overrides.items():
+        if (
+            not isinstance(name, str)
+            or f"config.{name}" not in EXCLUDED_PATHS
+            or name in DEDICATED
+        ):
+            raise ValueError(f"override {name!r} is not an allowed environment option")
+        if name not in model_config:
+            raise ValueError(f"override {name!r} is absent from the sealed YAML")
+        if type(value) is not type(model_config[name]):
+            raise TypeError(f"override {name!r} must preserve the sealed YAML type")
+        validate_transport(name, value)
+        if name == "data_path":
+            candidate = base / value
+            absolute = Path(os.path.abspath(candidate))
+            current = Path(absolute.anchor)
+            for part in absolute.parts[1:]:
+                current /= part
+                if current.exists() and current.is_symlink():
+                    raise ValueError("override 'data_path' must not traverse a symlink")
+            resolved = candidate.resolve(strict=True)
+            if not resolved.is_dir():
+                raise ValueError("override 'data_path' must be an existing directory")
+            validated[name] = resolved
+        else:
+            validated[name] = value
+    processes = validated.get("processes")
+    if (
+        backend == "slurm"
+        and processes is not None
+        and (type(processes) is not int or processes <= 0)
+    ):
+        raise ValueError(
+            "execution.overrides.processes must be a strictly positive integer for slurm"
+        )
+    raw_slurm = _mapping(document.get("slurm", {}), "execution.slurm")
+    allowed_slurm = {"timeout_min", "mem_gb", "partition", "account", "qos"}
+    if set(raw_slurm) - allowed_slurm:
+        raise ValueError(
+            "execution.slurm keys must be timeout_min, mem_gb, partition, account, or qos"
+        )
+    if backend != "slurm" and "slurm" in document:
+        raise ValueError("execution.slurm requires execution.backend slurm")
+    timeout_min = raw_slurm.get("timeout_min", 1440)
+    if (
+        isinstance(timeout_min, bool)
+        or not isinstance(timeout_min, int)
+        or timeout_min <= 0
+    ):
+        raise ValueError("execution.slurm.timeout_min must be a positive integer")
+    mem_gb = raw_slurm.get("mem_gb")
+    if mem_gb is not None and (
+        isinstance(mem_gb, bool)
+        or not isinstance(mem_gb, (int, float))
+        or not math.isfinite(mem_gb)
+        or mem_gb < 1 / 1024
+    ):
+        raise ValueError("execution.slurm.mem_gb must be at least 1/1024 GiB")
+    strings = {}
+    for name in ("partition", "account", "qos"):
+        resource = raw_slurm.get(name)
+        if resource is not None and (
+            not isinstance(resource, str) or CAMPAIGN.fullmatch(resource) is None
+        ):
+            raise ValueError(
+                f"execution.slurm.{name} must be one safe resource identifier"
+            )
+        strings[name] = resource
+    return Execution(
+        backend,
+        workers,
+        scratch_path,
+        tuple(invocation),
+        validated,
+        SlurmResources(timeout_min, mem_gb, **strings),
+    )
+
+
+def _calibration(value: object, base: Path, source: Path) -> tuple[Path, ...]:
+    document = _mapping(value, "calibration")
+    if set(document) != {"meta_configs"}:
+        raise ValueError("calibration keys must be exactly meta_configs")
+    values = document["meta_configs"]
+    if not isinstance(values, list) or not values:
+        raise ValueError("calibration.meta_configs must be a non-empty list")
+    paths = []
+    for value in values:
+        if not isinstance(value, str):
+            raise TypeError("calibration meta-config paths must be strings")
+        path = _file(base / value, "calibration meta-config")
+        if path == source:
+            raise ValueError("calibration meta-config must not reference itself")
+        nested = _mapping(load_yaml_document(path), "calibration meta-config root")
+        if "calibration" in nested:
+            raise ValueError("recursive calibration declarations are not supported")
+        if path not in paths:
+            paths.append(path)
+    return tuple(paths)
+
+
+def _strings(value: object, name: str, allow_empty: bool = False) -> tuple[str, ...]:
+    if (
+        not isinstance(value, list)
+        or (not value and not allow_empty)
+        or not all(isinstance(item, str) and item for item in value)
+    ):
+        raise ValueError(
+            f"{name} must be a {'possibly empty ' if allow_empty else 'non-empty '}list of strings"
+        )
+    if len(set(value)) != len(value):
+        raise ValueError(f"{name} must not contain duplicates")
+    return tuple(value)
+
+
+def _indicator_blocks(
+    document: dict,
+) -> tuple[
+    dict[str, ArtifactDeclaration], tuple[object, ...], tuple[IndicatorRequirement, ...]
+]:
+    raw_artifacts = _mapping(document.get("artifacts", {}), "artifacts")
+    artifacts = {}
+    for name, value in raw_artifacts.items():
+        declaration = _mapping(value, f"artifact {name!r}")
+        if (
+            not isinstance(name, str)
+            or not name
+            or set(declaration) != {"class", "synthetic", "references"}
+        ):
+            raise ValueError(
+                f"artifact {name!r} keys must be exactly class, synthetic, references"
+            )
+        references = _strings(
+            declaration["references"], f"artifact {name!r} references", True
+        )
+        artifacts[name] = ArtifactDeclaration(
+            declaration["class"], declaration["synthetic"], references
+        )
+    raw_indicators = document.get("indicators", [])
+    if not isinstance(raw_indicators, list):
+        raise TypeError("indicators must be a list")
+    declarations = []
+    custom_names = set()
+    for index, value in enumerate(raw_indicators):
+        indicator = _mapping(value, f"indicator {index}")
+        if len(indicator) != 1 or next(iter(indicator), None) not in {
+            "pair",
+            "product",
+            "custom",
+        }:
+            raise ValueError(
+                f"indicator {index} must contain exactly pair, product, or custom"
+            )
+        kind, raw = next(iter(indicator.items()))
+        declaration = _mapping(raw, f"indicator {index}.{kind}")
+        if kind == "pair":
+            if set(declaration) != {"scalarizer", "artifact", "reference"}:
+                raise ValueError(
+                    "pair keys must be exactly scalarizer, artifact, reference"
+                )
+            declarations.append(
+                PairDeclaration(
+                    declaration["scalarizer"],
+                    declaration["artifact"],
+                    declaration["reference"],
+                )
+            )
+        elif kind == "product":
+            if set(declaration) != {"scalarizers", "artifacts"}:
+                raise ValueError("product keys must be exactly scalarizers, artifacts")
+            declarations.append(
+                ProductDeclaration(
+                    _strings(declaration["scalarizers"], "product scalarizers"),
+                    _strings(declaration["artifacts"], "product artifacts"),
+                )
+            )
+        else:
+            if set(declaration) != {"function", "artifact"}:
+                raise ValueError("custom keys must be exactly function, artifact")
+            declarations.append(
+                CustomDeclaration(declaration["function"], declaration["artifact"])
+            )
+            custom_names.add(declaration["function"])
+    custom = {}
+    entries = importlib.metadata.entry_points()
+    selected = entries.select(group="eqasim_sa.indicators")
+    for name in custom_names:
+        matches = [entry for entry in selected if entry.name == name]
+        if len(matches) != 1:
+            raise ValueError(
+                f"custom indicator {name!r} must have exactly one eqasim_sa.indicators entry point"
+            )
+        implementation = matches[0].load()
+        if isinstance(implementation, type):
+            try:
+                implementation = implementation()
+            except TypeError as error:
+                raise TypeError(
+                    f"custom indicator {name!r} class must be instantiable without arguments"
+                ) from error
+        if not callable(implementation) and not callable(
+            getattr(implementation, "compute", None)
+        ):
+            raise TypeError(
+                f"custom indicator {name!r} must provide compute(artifacts)"
+            )
+        custom[name] = lambda artifact, implementation=implementation: implementation
+    resolved = resolve_indicators(
+        declarations,
+        artifacts,
+        SCALARIZERS,
+        custom,
+    )
+    requirements = tuple(
+        IndicatorRequirement(
+            item.name,
+            item.identity.artifact
+            if isinstance(item, TotalVariationIndicator)
+            else item.artifact,
+        )
+        for item in resolved
+    )
+    return artifacts, resolved, requirements
+
+
+def load_meta_config(
+    path: Path, validate_factors: bool = True, deadline: float | None = None
+) -> MetaConfig:
+    source = _file(path, "meta-config")
+    source_state = _state(source)
+    base = source.parent
+    document = _mapping(load_yaml_document(source), "meta-config root")
+    required = {
+        "campaign",
+        "campaign_root",
+        "model",
+        "context",
+        "experiment",
+        "parameters",
+        "analysis",
+    }
+    optional = {"execution", "calibration", "artifacts", "indicators"}
+    if not required <= set(document) or set(document) - required - optional:
+        raise ValueError(
+            f"meta-config keys must include exactly {sorted(required)} plus supported optional blocks"
+        )
+    campaign = document["campaign"]
+    if not isinstance(campaign, str) or not CAMPAIGN.fullmatch(campaign):
+        raise ValueError("campaign must be one safe path segment")
+    model, context = (
+        _mapping(document["model"], "model"),
+        _mapping(document["context"], "context"),
+    )
+    experiment = _mapping(document["experiment"], "experiment")
+    analysis = _mapping(document["analysis"], "analysis")
+    method = experiment.get("method")
+    analysis_keys = (
+        {"completeness_threshold", "bootstrap_resamples", "confidence_level"}
+        if method == "sobol"
+        else {"completeness_threshold"}
+    )
+    if set(analysis) != analysis_keys:
+        raise ValueError(
+            f"analysis keys must be exactly {', '.join(sorted(analysis_keys))}"
+        )
+    completeness_threshold = analysis["completeness_threshold"]
+    if (
+        type(completeness_threshold) is not float
+        or not math.isfinite(completeness_threshold)
+        or not 0 <= completeness_threshold <= 1
+    ):
+        raise ValueError(
+            "analysis.completeness_threshold must be a finite float in [0,1]"
+        )
+    raw_parameters = _mapping(document["parameters"], "parameters")
+    if "replications" in experiment and "seed" in raw_parameters:
+        raise ValueError(
+            "le seed est soit un facteur, soit une réplication, jamais les deux"
+        )
+    if set(model) != {"config", "root"} or set(context) != {
+        "data_manifest",
+        "lockfile",
+    }:
+        raise ValueError("model/context keys do not match the Story 1.4 contract")
+    seed_role = experiment.get("seed_role")
+    if seed_role not in {"replication", "factor"}:
+        raise ValueError("experiment.seed_role must be replication or factor")
+    if seed_role == "factor":
+        if method == "grid":
+            raise ValueError("grid seed factor is not supported yet")
+        if (
+            method != "sobol"
+            or set(experiment)
+            != {"method", "seed_role", "base_sample_size", "design_seed"}
+            or "seed" not in raw_parameters
+        ):
+            raise ValueError(
+                "Sobol experiment keys require method, seed_role, base_sample_size, design_seed and parameters.seed"
+            )
+    expected_experiment = (
+        {"method", "seed_role", "replications"}
+        if method == "grid"
+        else {"method", "seed_role", "trajectories", "design_seed", "replications"}
+    )
+    if seed_role == "replication" and (
+        method not in {"grid", "morris"} or set(experiment) != expected_experiment
+    ):
+        raise ValueError(
+            "seed_role replication experiment keys must match grid or Morris trajectories/design_seed contract"
+        )
+    trajectories, design_seed = (
+        experiment.get("trajectories"),
+        experiment.get("design_seed"),
+    )
+    base_sample_size = experiment.get("base_sample_size")
+    if method == "morris":
+        if type(trajectories) is not int or trajectories <= 0:
+            raise ValueError(
+                "experiment.trajectories must be a strictly positive integer"
+            )
+        if type(design_seed) is not int or not -(2**63) <= design_seed < 2**63:
+            raise ValueError("experiment.design_seed must be a signed int64")
+        if completeness_threshold != 1.0:
+            raise ValueError("Morris analysis.completeness_threshold must equal 1.0")
+    if method == "sobol":
+        if (
+            type(base_sample_size) is not int
+            or base_sample_size < 2
+            or base_sample_size & (base_sample_size - 1)
+        ):
+            raise ValueError(
+                "experiment.base_sample_size must be a power of two greater than or equal to 2"
+            )
+        if type(design_seed) is not int or not 0 <= design_seed < 2**64:
+            raise ValueError(
+                "experiment.design_seed must be an unsigned 64-bit integer"
+            )
+        if completeness_threshold != 1.0:
+            raise ValueError("Sobol analysis.completeness_threshold must equal 1.0")
+        bootstrap_resamples, confidence_level = (
+            analysis["bootstrap_resamples"],
+            analysis["confidence_level"],
+        )
+        if (
+            type(bootstrap_resamples) is not int
+            or not 1 <= bootstrap_resamples <= 2**63 - 1
+        ):
+            raise ValueError(
+                "analysis.bootstrap_resamples must be a positive signed int64 integer"
+            )
+        if (
+            type(confidence_level) is not float
+            or not math.isfinite(confidence_level)
+            or not 0 < confidence_level < 1
+        ):
+            raise ValueError(
+                "analysis.confidence_level must be a finite float in (0,1)"
+            )
+        seeds = _mapping(raw_parameters["seed"], "parameters.seed").get("values")
+    else:
+        bootstrap_resamples = confidence_level = None
+        replications = _mapping(experiment["replications"], "experiment.replications")
+        if set(replications) != {"seeds"} or not isinstance(
+            replications["seeds"], list
+        ):
+            raise ValueError("experiment.replications.seeds must be a list")
+        seeds = replications["seeds"]
+    if method == "sobol" and (not isinstance(seeds, list) or len(seeds) < 2):
+        raise ValueError("Sobol parameters.seed.values requires at least two values")
+    if not seeds or any(
+        type(seed) is not int or not -(2**63) <= seed < 2**63 for seed in seeds
+    ):
+        raise ValueError(
+            "experiment.replications.seeds must be non-empty signed int64 values"
+        )
+    if len(set(seeds)) != len(seeds):
+        raise ValueError("experiment.replications.seeds must not contain duplicates")
+    root_value, config_value = model["root"], model["config"]
+    if not isinstance(root_value, str) or not isinstance(config_value, str):
+        raise TypeError("model paths must be strings")
+    root_path = base / root_value
+    if root_path.is_symlink():
+        raise ValueError("model.root must not be a symlink")
+    root = root_path.resolve(strict=True)
+    if (
+        not root.is_dir()
+        or Path(_git(root, "rev-parse", "--show-toplevel", deadline=deadline)) != root
+    ):
+        raise ValueError("model.root must be the exact Git root")
+    config = _file(base / config_value, "model.config")
+    if not config.is_relative_to(root):
+        raise ValueError("model.config must be strictly under model.root")
+    relative = config.relative_to(root)
+    _git(root, "ls-files", "--error-unmatch", "--", str(relative), deadline=deadline)
+    if _git(
+        root, "status", "--porcelain=v1", "--untracked-files=all", deadline=deadline
+    ):
+        raise ValueError("model Git repository must be clean")
+    commit = _git(root, "rev-parse", "--verify", "HEAD", deadline=deadline)
+    manifest_value, lock_value = context["data_manifest"], context["lockfile"]
+    if not isinstance(manifest_value, str) or not isinstance(lock_value, str):
+        raise TypeError("context paths must be strings")
+    config_bytes = config.read_bytes()
+    if _git_stdin(
+        root, config_bytes, "hash-object", "--stdin", deadline=deadline
+    ) != _git(root, "rev-parse", f"{commit}:{relative.as_posix()}", deadline=deadline):
+        raise ValueError("model.config does not match its sealed Git blob")
+    model_document = load_yaml_source(config_bytes.decode("utf-8"))
+    validate_eqasim_document(model_document)
+    manifest = _file(base / manifest_value, "data manifest")
+    lockfile = _file(base / lock_value, "lockfile")
+    control_states = (
+        (source, source_state),
+        (config, _state(config)),
+        (manifest, _state(manifest)),
+        (lockfile, _state(lockfile)),
+    )
+    descriptor = {
+        "eqasimCommit": commit,
+        "dataManifestSha256": _digest(manifest, deadline),
+        "lockfileSha256": _digest(lockfile, deadline),
+        "eqasimSaVersion": importlib.metadata.version("eqasim-sa"),
+    }
+    if _git(root, "rev-parse", "--verify", "HEAD", deadline=deadline) != commit or _git(
+        root, "status", "--porcelain=v1", "--untracked-files=all", deadline=deadline
+    ):
+        raise ValueError("model Git repository changed while sealing context")
+    encoded = json.dumps(
+        descriptor, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode()
+    factors = {}
+    for name, declaration in raw_parameters.items():
+        if (
+            not isinstance(name, str)
+            or not isinstance(declaration, dict)
+            or set(declaration) != {"values"}
+        ):
+            raise ValueError(f"factor {name!r} must contain only values")
+        if method == "sobol" and name == "seed":
+            continue
+        if validate_factors and name not in model_document["config"]:
+            raise ValueError(f"unknown factor: {name!r}")
+        if f"config.{name}" in EXCLUDED_PATHS or name in DEDICATED:
+            raise ValueError(f"reserved or infrastructure factor: {name!r}")
+        if not isinstance(declaration["values"], list):
+            raise TypeError(f"factor {name!r} values must be a list")
+        for value in declaration["values"]:
+            validate_transport(name, value)
+        values = declaration["values"]
+        if method == "morris":
+            validate_morris_values(name, values)
+        if method == "sobol":
+            if len(values) < 2 or len(set(values)) != len(values):
+                raise ValueError(
+                    f"Sobol factor {name!r} values must contain at least two distinct values"
+                )
+            if len({type(value) for value in values}) != 1 or type(values[0]) not in (
+                int,
+                float,
+                str,
+            ):
+                raise TypeError(
+                    f"Sobol factor {name!r} values must be homogeneous scalars"
+                )
+        factors[name] = declaration["values"]
+    if method == "morris" and not factors:
+        raise ValueError("Morris requires at least one factor")
+    if method == "morris":
+        candidates = math.factorial(len(factors)) * math.prod(
+            2 * (len(values) - 1) for values in factors.values()
+        )
+        if trajectories > candidates:
+            raise ValueError(
+                f"experiment.trajectories exceeds Morris candidate count {candidates}"
+            )
+    if method == "sobol":
+        if len(factors) + 1 < 2:
+            raise ValueError("Sobol requires at least two factors including seed")
+        if len(factors) + 1 > 10_600:
+            raise ValueError("Sobol supports at most 10600 factors")
+        if base_sample_size * (2 * (len(factors) + 1) + 2) > 2**63 - 1:
+            raise ValueError("Sobol N(2D+2) must fit in signed int64")
+    campaign_root = document["campaign_root"]
+    if not isinstance(campaign_root, str):
+        raise TypeError("campaign_root must be a string")
+    execution = (
+        _execution(document["execution"], base, model_document)
+        if "execution" in document
+        else None
+    )
+    calibrations = (
+        _calibration(document["calibration"], base, source)
+        if "calibration" in document
+        else ()
+    )
+    artifacts, indicators, indicator_requirements = _indicator_blocks(document)
+    if method == "morris" and not indicators:
+        raise ValueError("Morris requires at least one indicator")
+    if method == "sobol" and not indicators:
+        raise ValueError("Sobol requires at least one indicator")
+    if any(_state(item) != state for item, state in control_states):
+        raise RuntimeError("sealed control input changed while loading")
+    return MetaConfig(
+        campaign,
+        _campaign_root(base / campaign_root, root),
+        config,
+        root,
+        factors,
+        tuple(seeds),
+        seed_role,
+        method,
+        trajectories,
+        design_seed,
+        base_sample_size,
+        bootstrap_resamples,
+        confidence_level,
+        completeness_threshold,
+        descriptor,
+        hashlib.sha256(b"eqasim-sa:context:v1\0" + encoded).hexdigest(),
+        model_document,
+        config_bytes,
+        execution,
+        calibrations,
+        control_states,
+        artifacts,
+        indicators,
+        indicator_requirements,
+    )
