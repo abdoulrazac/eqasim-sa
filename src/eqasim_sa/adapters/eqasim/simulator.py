@@ -29,7 +29,7 @@ TERMINATION_GRACE_SECONDS = 2.0
 
 
 def _has_cache_coordination(stdout: str) -> bool:
-    return stdout.split() == [CACHE_COORDINATION_CAPABILITY]
+    return stdout == f"{CACHE_COORDINATION_CAPABILITY}\n"
 
 
 def probe_cache_coordination(

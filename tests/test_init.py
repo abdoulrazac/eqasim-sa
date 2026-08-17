@@ -51,6 +51,13 @@ def spy_invocation() -> tuple[str, ...]:
     return sys.executable, str(Path(__file__).with_name("eqasim_spy.py"))
 
 
+def generated_init_command(text: str) -> list[str]:
+    line = next(
+        line[2:] for line in text.splitlines() if " eqasim-sa init " in line
+    )
+    return shlex.split(line)
+
+
 def test_init_renders_complete_nantes_resources_and_is_idempotent(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -94,9 +101,23 @@ def test_init_renders_complete_nantes_resources_and_is_idempotent(
     assert loaded.seed_role == "replication"
     assert loaded.factors == {"sampling_rate": [0.001]} and loaded.seeds == (1234, 5678)
     assert loaded.execution.overrides == {"data_path": data.resolve(), "processes": 1}
+    assert loaded.execution.invocation == spy_invocation()
+    assert loaded.context_descriptor["lockfileSha256"]
     assert loaded.calibration_meta_configs == (calibration.resolve(),)
     assert len(loaded.indicators) == len(loaded.indicator_requirements) == 5
     assert calibration_loaded.campaign == "nantes-starter-calibration"
+    assert calibration_loaded.execution.invocation == spy_invocation()
+    assert 'lockfile: "../model/uv.lock"' in target_text
+    assert 'lockfile: "../model/uv.lock"' in calibration_text
+    project = Path(__file__).resolve().parents[1]
+    runner = shlex.join(
+        [
+            "uv", "run", "--project", os.path.relpath(project, destination),
+            "--locked", "eqasim-sa",
+        ]
+    )
+    assert f"{runner} check" in target_text
+    assert f"{runner} check" in calibration_text
     assert (
         len(tuple((calibration_loaded.campaign_root / "runs").glob("*.parquet"))) == 2
     )
@@ -105,17 +126,13 @@ def test_init_renders_complete_nantes_resources_and_is_idempotent(
         == 24
     )
     assert "config_local_nantes.yml" in target_text
-    assert "eqasim-sa init --directory ." in target_text
-    init_command = next(
-        line[2:]
-        for line in target_text.splitlines()
-        if line.startswith("# eqasim-sa init ")
-    )
-    parsed = parser().parse_args(shlex.split(init_command)[1:])
+    assert f"{runner} init --directory ." in target_text
+    command = generated_init_command(target_text)
+    parsed = parser().parse_args(command[command.index("eqasim-sa") + 1 :])
     assert parsed.invocation == list(spy_invocation())
     assert parsed.data_manifest is not None
-    assert "eqasim-sa check --meta-config nantes.yml" in target_text
-    assert target_text.rstrip().endswith("eqasim-sa run --meta-config nantes.yml")
+    assert f"{runner} check --meta-config nantes.yml" in target_text
+    assert target_text.rstrip().endswith(f"{runner} run --meta-config nantes.yml")
     for term in (
         "matching_minimum_observations",
         "matching_attributes",
@@ -251,13 +268,10 @@ def test_init_accepts_an_explicit_tracked_model_config(
     )
 
     assert "config_nantes.yml" in (destination / "nantes.yml").read_text()
-    init_command = next(
-        line[2:]
-        for line in (destination / "nantes.yml").read_text().splitlines()
-        if line.startswith("# eqasim-sa init ")
-    )
-    assert parser().parse_args(shlex.split(init_command)[1:]).model_config == Path(
-        selected.name
+    command = generated_init_command((destination / "nantes.yml").read_text())
+    assert (
+        parser().parse_args(command[command.index("eqasim-sa") + 1 :]).model_config
+        == Path(selected.name)
     )
 
 
@@ -290,11 +304,12 @@ def test_init_resolves_adjacent_data_manifest_by_default(
     assert loaded.context_descriptor["dataManifestSha256"]
     assert adjacent.name in (tmp_path / "starter" / "nantes.yml").read_text()
     assert scratch.is_dir()
-    init_command = next(
-        line[2:] for line in (tmp_path / "starter" / "nantes.yml").read_text().splitlines()
-        if line.startswith("# eqasim-sa init ")
+    command = generated_init_command(
+        (tmp_path / "starter" / "nantes.yml").read_text()
     )
-    assert parser().parse_args(shlex.split(init_command)[1:]).data_manifest is None
+    assert parser().parse_args(
+        command[command.index("eqasim-sa") + 1 :]
+    ).data_manifest is None
 
 
 def test_init_rejects_symlinked_input_ancestors(tmp_path: Path) -> None:

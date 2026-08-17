@@ -130,6 +130,6 @@ execution:
 # synpp-cache-coordination-v1, sampling_rate=0.001, processes=1, ext4; la duree n'est pas portable.
 # Parcours de prise en main (depuis ce repertoire, sans edition):
 # @INIT_COMMAND@
-# eqasim-sa check --meta-config nantes.yml
-# eqasim-sa estimate --meta-config nantes.yml
-# eqasim-sa run --meta-config nantes.yml
+# @EQASIM_SA@ check --meta-config nantes.yml
+# @EQASIM_SA@ estimate --meta-config nantes.yml
+# @EQASIM_SA@ run --meta-config nantes.yml

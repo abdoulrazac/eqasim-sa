@@ -343,44 +343,32 @@ def test_environment_probe_uses_exact_argv_cwd_and_timeout(
     assert seen["options"]["timeout"] < 60
 
 
-def test_environment_probe_accepts_conda_trailing_blank_line(
-    tmp_path: Path, monkeypatch
-) -> None:
-    from eqasim_sa.adapters.eqasim.simulator import probe_cache_coordination
-
-    monkeypatch.setattr(
-        "eqasim_sa.adapters.eqasim.simulator.subprocess.run",
-        lambda *args, **kwargs: SimpleNamespace(
-            returncode=0, stdout="synpp-cache-coordination-v1\n\n", stderr=""
-        ),
-    )
-    probe_cache_coordination(
-        ("conda", "run", "-n", "eqasim", "python", "-m", "synpp"), tmp_path
-    )
-
-
 @pytest.mark.parametrize(
-    "stdout",
+    "invalid_outputs",
     [
-        "",
-        "synpp-cache-coordination-v1 extra\n",
-        "banner\nsynpp-cache-coordination-v1\n",
-        "synpp-cache-coordination-v2\n",
+        ("", "synpp-cache-coordination-v1"),
+        (" synpp-cache-coordination-v1\n", "synpp-cache-coordination-v1 \n"),
+        ("synpp-cache-coordination-v1\n\n",),
+        ("synpp-cache-coordination-v1 extra\n", "banner\nsynpp-cache-coordination-v1\n"),
+        ("synpp-cache-coordination-v2\n",),
     ],
 )
 def test_environment_probe_rejects_any_non_exact_capability(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    stdout: str,
+    invalid_outputs: tuple[str, ...],
 ) -> None:
     from eqasim_sa.adapters.eqasim.simulator import probe_cache_coordination
 
-    monkeypatch.setattr(
-        "eqasim_sa.adapters.eqasim.simulator.subprocess.run",
-        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=stdout, stderr=""),
-    )
-    with pytest.raises(RuntimeError, match="capability mismatch"):
-        probe_cache_coordination(("synpp",), tmp_path)
+    for stdout in invalid_outputs:
+        monkeypatch.setattr(
+            "eqasim_sa.adapters.eqasim.simulator.subprocess.run",
+            lambda *args, **kwargs: SimpleNamespace(
+                returncode=0, stdout=stdout, stderr=""
+            ),
+        )
+        with pytest.raises(RuntimeError, match="capability mismatch"):
+            probe_cache_coordination(("synpp",), tmp_path)
 
 
 def test_environment_probe_reaches_timeout_within_budget(tmp_path: Path) -> None:

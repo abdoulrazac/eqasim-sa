@@ -28,6 +28,6 @@ where = ["src"]
 [tool.setuptools.package-data]
 eqasim_sa = ["templates/*.yml"]
 
-[tool.pytest]
+[tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["--import-mode=importlib", "--strict-config", "--strict-markers"]

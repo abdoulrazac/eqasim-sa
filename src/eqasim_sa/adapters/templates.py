@@ -11,6 +11,16 @@ def _relative(path: Path, directory: Path) -> str:
     return os.path.relpath(path.resolve(strict=True), directory.resolve(strict=True))
 
 
+def _runner(directory: Path) -> list[str]:
+    project = Path(__file__).resolve().parents[3]
+    if (project / "pyproject.toml").is_file():
+        return [
+            "uv", "run", "--project", _relative(project, directory),
+            "--locked", "eqasim-sa",
+        ]
+    return ["eqasim-sa"]
+
+
 def render_nantes(
     directory: Path,
     model_root: Path,
@@ -22,12 +32,13 @@ def render_nantes(
     model_config: Path = Path("config_local_nantes.yml"),
     manifest_explicit: bool = False,
 ) -> bytes:
+    runner = _runner(directory)
     manifest_option = [] if not manifest_explicit and manifest.resolve(strict=True) == Path(
         f"{data.resolve(strict=True)}.manifest.json"
     ) else ["--data-manifest", _relative(manifest, directory)]
     init_command = shlex.join(
         [
-            "eqasim-sa",
+            *runner,
             "init",
             "--directory",
             ".",
@@ -56,6 +67,7 @@ def render_nantes(
         "@CALIBRATION@": ""
         if calibration
         else "calibration:\n  meta_configs: [nantes-calibration.yml]",
+        "@EQASIM_SA@": shlex.join(runner),
         "@INIT_COMMAND@": init_command,
     }
     rendered = re.sub(
