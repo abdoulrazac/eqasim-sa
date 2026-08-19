@@ -3,6 +3,7 @@ import hashlib
 import json
 import math
 import os
+import shutil
 import re
 import time
 from dataclasses import dataclass
@@ -167,6 +168,11 @@ def execute_run(
         if interrupted is not None and interrupted():
             raise KeyboardInterrupt
         _remove_failure_log(campaign_root, run_id)
+        attempt = manifest.attempt_directory.resolve(strict=True)
+        resolved_workdir = workdir.resolve(strict=True)
+        if attempt == resolved_workdir or not attempt.is_relative_to(resolved_workdir):
+            raise ValueError("successful attempt escapes workdir")
+        shutil.rmtree(attempt)
         write_run(
             campaign_root,
             RunRecord(
@@ -177,6 +183,7 @@ def execute_run(
                 os.uname().nodename,
                 time.monotonic() - start,
                 spec.parameters,
+                manifest.scratch_bytes,
             ),
         )
         return RunResult(run_id, "completed")

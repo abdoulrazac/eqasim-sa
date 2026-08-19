@@ -39,9 +39,23 @@ class EqasimSettings:
         object.__setattr__(self, "eqasim_root", root)
         object.__setattr__(self, "scratch", scratch)
 
+    def worker(self, slot: int) -> "WorkerPaths":
+        if isinstance(slot, bool) or not isinstance(slot, int) or slot < 0:
+            raise ValueError("worker slot must be a non-negative integer")
+        root = self.scratch / "eqasim-sa" / self.campaign / "workers" / str(slot)
+        return WorkerPaths(root, root / "lease.lock", root / "state.json", root / "cache")
+
     @property
     def workdir(self) -> Path:
-        return self.scratch / "eqasim-sa" / self.campaign / "workdir"
+        return self.worker(0).root
+
+
+@dataclass(frozen=True)
+class WorkerPaths:
+    root: Path
+    lease: Path
+    state: Path
+    cache: Path
 
 
 def load_config(path: Path, seed: int) -> ResolvedConfig:

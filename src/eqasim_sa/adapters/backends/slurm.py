@@ -10,7 +10,8 @@ import submitit
 from eqasim_sa.adapters.eqasim.config import EqasimSettings
 from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator
 from eqasim_sa.adapters.meta_config import load_meta_config
-from eqasim_sa.core.run import RunResult, RunSpec, execute_run
+from eqasim_sa.adapters.worker import Indexed, WorkerBatch, execute_batch, run_lease
+from eqasim_sa.core.run import RunResult, RunSpec, compute_run_id, execute_run
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -75,7 +76,9 @@ class EqasimSlurmJob:
     expected_context_hash: str
     meta_config_sha256: str
 
-    def __call__(self, spec: RunSpec) -> RunResult:
+    def __call__(
+        self, batch: WorkerBatch[RunSpec]
+    ) -> tuple[Indexed[RunResult], ...]:
         actual_sha256 = hashlib.sha256(self.meta_config_path.read_bytes()).hexdigest()
         if actual_sha256 != self.meta_config_sha256:
             raise ValueError("meta-config content changed before remote execution")
@@ -103,7 +106,10 @@ class EqasimSlurmJob:
             raise ValueError("context descriptor does not match contextHash")
         if (
             meta.context_hash != self.expected_context_hash
-            or spec.expected_context_hash != self.expected_context_hash
+            or any(
+                item.value.expected_context_hash != self.expected_context_hash
+                for item in batch.items
+            )
         ):
             raise ValueError("contextHash changed before remote execution")
         if meta.execution is None or meta.execution.backend != "slurm":
@@ -115,12 +121,26 @@ class EqasimSlurmJob:
             meta.campaign,
             meta.execution.scratch,
         )
-        simulator = EqasimSimulator(settings, meta.model_document, meta.model_bytes)
+        simulator = EqasimSimulator(
+            settings, meta.model_document, meta.model_bytes, batch.slot
+        )
         try:
-            return execute_run(spec, simulator, meta.campaign_root, settings.workdir)
+            with simulator.lease():
+                return execute_batch(
+                    batch,
+                    lambda spec: _execute_exclusive(
+                        spec, simulator, meta.campaign_root, simulator.paths.root
+                    ),
+                )
         except BaseException:
             try:
                 simulator.interrupt()
             except BaseException:
                 pass
             raise
+
+
+def _execute_exclusive(spec, simulator, campaign_root, workdir):  # type: ignore[no-untyped-def]
+    run_id = compute_run_id(spec.resolved_config, spec.seed)
+    with run_lease(campaign_root, run_id):
+        return execute_run(spec, simulator, campaign_root, workdir)

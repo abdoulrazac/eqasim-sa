@@ -1,18 +1,22 @@
 import copy
+import fcntl
 import json
 import math
 import os
 import re
 import signal
+import stat
 import subprocess
 import threading
 import time
 import uuid
 from collections.abc import Mapping, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 
 from eqasim_sa.adapters.eqasim.artifacts import ARTIFACT_STAGE, normalize_outputs
-from eqasim_sa.adapters.eqasim.config import STAGES, EqasimSettings
+from eqasim_sa.adapters.eqasim.config import STAGES, EqasimSettings, WorkerPaths
+from eqasim_sa.core.ledger import fsync_directory
 from eqasim_sa.ports.simulator import (
     IndicatorRequirement,
     JsonValue,
@@ -24,31 +28,7 @@ from eqasim_sa.ports.simulator import (
 PREFIX = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 OPTION = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 DEDICATED = {"output_path", "output_prefix", "random_seed", "run", "working_directory"}
-CACHE_COORDINATION_CAPABILITY = "synpp-cache-coordination-v1"
 TERMINATION_GRACE_SECONDS = 2.0
-
-
-def _has_cache_coordination(stdout: str) -> bool:
-    return stdout == f"{CACHE_COORDINATION_CAPABILITY}\n"
-
-
-def probe_cache_coordination(
-    invocation: tuple[str, ...], root: Path, timeout: float = 20.0
-) -> None:
-    completed = subprocess.run(
-        [*invocation, "--cache-coordination-capability"],
-        cwd=root,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        shell=False,
-        timeout=timeout,
-    )
-    if completed.returncode or not _has_cache_coordination(completed.stdout):
-        raise RuntimeError(
-            f"cache coordination capability mismatch: returncode={completed.returncode}"
-        )
 
 
 class EqasimSimulator:
@@ -57,6 +37,7 @@ class EqasimSimulator:
         settings: EqasimSettings,
         base_config: ResolvedConfig,
         config_bytes: bytes | None = None,
+        slot: int = 0,
     ) -> None:
         self.settings = settings
         self.base_config = copy.deepcopy(base_config)
@@ -69,6 +50,140 @@ class EqasimSimulator:
         self._groups: set[int] = set()
         self._process_lock = threading.Lock()
         self._interrupted = threading.Event()
+        self.paths = settings.worker(slot)
+        self._lease_descriptor: int | None = None
+        self._root_identity: tuple[int, int] | None = None
+        self._lease_lock = threading.Lock()
+
+    @contextmanager
+    def lease(self):  # type: ignore[no-untyped-def]
+        with self._lease_lock:
+            if self._lease_descriptor is not None:
+                yield self
+                return
+            self._prepare_slot_root()
+            descriptor = os.open(
+                self.paths.lease, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600
+            )
+            try:
+                info = os.fstat(descriptor)
+                if (
+                    not stat.S_ISREG(info.st_mode)
+                    or info.st_nlink != 1
+                    or info.st_uid != os.getuid()
+                ):
+                    raise ValueError("worker lease must be a private owned regular file")
+                os.fchmod(descriptor, 0o600)
+                while True:
+                    if self._interrupted.is_set():
+                        raise KeyboardInterrupt
+                    try:
+                        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        time.sleep(0.05)
+                self._lease_descriptor = descriptor
+                root_info = self.paths.root.stat(follow_symlinks=False)
+                self._root_identity = (root_info.st_dev, root_info.st_ino)
+                self._validate_lease()
+                yield self
+            finally:
+                self._lease_descriptor = None
+                self._root_identity = None
+                os.close(descriptor)
+
+    def _validate_lease(self) -> None:
+        if self._lease_descriptor is None or self._root_identity is None:
+            raise RuntimeError("worker cache lease is not held")
+        root = self.paths.root.stat(follow_symlinks=False)
+        held = os.fstat(self._lease_descriptor)
+        visible = self.paths.lease.stat(follow_symlinks=False)
+        if (
+            not stat.S_ISDIR(root.st_mode)
+            or (root.st_dev, root.st_ino) != self._root_identity
+            or not stat.S_ISREG(visible.st_mode)
+            or (held.st_dev, held.st_ino) != (visible.st_dev, visible.st_ino)
+        ):
+            raise RuntimeError("worker slot or lease identity changed while held")
+
+    def _prepare_slot_root(self) -> None:
+        current = self.settings.scratch
+        for part in ("eqasim-sa", self.settings.campaign, "workers", self.paths.root.name):
+            current = current / part
+            if current.is_symlink():
+                raise ValueError("worker slot must not traverse a symlink")
+            current.mkdir(mode=0o700, exist_ok=True)
+            if not current.is_dir():
+                raise ValueError("worker slot must be a directory")
+            info = current.stat(follow_symlinks=False)
+            if info.st_uid != os.getuid():
+                raise ValueError("worker slot must be owned by the current user")
+            current.chmod(0o700)
+        if current.resolve(strict=True) != self.paths.root.resolve(strict=True):
+            raise ValueError("worker slot path mismatch")
+
+    def _prepare_cache(self) -> None:
+        self._validate_lease()
+        cache = self.paths.cache
+        if cache.is_symlink() or cache.exists() and not cache.is_dir():
+            raise ValueError("worker cache must be a non-symlink directory")
+        state = None
+        if self.paths.state.exists() or self.paths.state.is_symlink():
+            if self.paths.state.is_symlink() or not self.paths.state.is_file():
+                state = "invalid"
+            else:
+                try:
+                    info = self.paths.state.stat(follow_symlinks=False)
+                    if (
+                        not stat.S_ISREG(info.st_mode)
+                        or info.st_nlink != 1
+                        or info.st_uid != os.getuid()
+                    ):
+                        raise ValueError("worker state must be a private owned regular file")
+                    document = json.loads(self.paths.state.read_text(encoding="utf-8"))
+                    state = (
+                        document.get("status")
+                        if isinstance(document, dict)
+                        and set(document) == {"status"}
+                        and document.get("status") in {"active", "clean"}
+                        else "invalid"
+                    )
+                except (OSError, UnicodeError, ValueError):
+                    state = "invalid"
+        if cache.exists() and state != "clean":
+            import shutil
+
+            shutil.rmtree(cache)
+        cache.mkdir(mode=0o700, exist_ok=True)
+        self._validate_cache()
+
+    def _validate_cache(self) -> None:
+        for root, directories, files in os.walk(self.paths.cache, followlinks=False):
+            for name in (*directories, *files):
+                path = Path(root) / name
+                info = path.stat(follow_symlinks=False)
+                if path.is_symlink() or info.st_uid != os.getuid():
+                    raise ValueError("worker cache entries must be owned non-symlinks")
+                if stat.S_ISREG(info.st_mode):
+                    if info.st_nlink != 1:
+                        raise ValueError("worker cache files must not be hard links")
+                elif not stat.S_ISDIR(info.st_mode):
+                    raise ValueError("worker cache entries must be regular files or directories")
+
+    def _write_state(self, status: str) -> None:
+        self._validate_lease()
+        temporary = self.paths.root / f".state-{uuid.uuid4().hex}.tmp"
+        try:
+            with temporary.open("x", encoding="utf-8") as stream:
+                temporary.chmod(0o600)
+                json.dump({"status": status}, stream, sort_keys=True, separators=(",", ":"))
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, self.paths.state)
+            fsync_directory(self.paths.root)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def interrupt(self) -> None:
         self._interrupted.set()
@@ -107,10 +222,13 @@ class EqasimSimulator:
         return eqasim_requirements(indicators)
 
     def simulate(self, config: ResolvedConfig, seed: int, workdir: Path) -> Manifest:
-        expected_workdir = self.settings.workdir
+        if self._lease_descriptor is None:
+            with self.lease():
+                return self.simulate(config, seed, workdir)
+        expected_workdir = self.paths.root
         if workdir.resolve() != expected_workdir.resolve():
             raise ValueError(f"workdir must be {expected_workdir}")
-        workdir.mkdir(parents=True, exist_ok=True)
+        self._prepare_cache()
         resolved_workdir = workdir.resolve(strict=True)
         if not resolved_workdir.is_relative_to(self.settings.scratch):
             raise ValueError("workdir escapes scratch")
@@ -154,43 +272,11 @@ class EqasimSimulator:
         removed = base_nested.keys() - nested.keys()
         if removed:
             raise ValueError(f"resolved config removes YAML keys: {sorted(removed)}")
-        try:
-            capability = self._run_owned(
-                [*self.settings.invocation, "--cache-coordination-capability"],
-                cwd=self.settings.eqasim_root,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                shell=False,
-                check=False,
-                timeout=30,
-            )
-        except (OSError, subprocess.TimeoutExpired) as error:
-            message = f"eqasim process launch failed during cache coordination preflight: {error}"
-            log.write_text(message + "\n", encoding="utf-8")
-            raise SimulationError(
-                message,
-                log,
-                attempt,
-            ) from error
-        if capability.returncode or not _has_cache_coordination(capability.stdout):
-            log.write_text(
-                f"cache coordination preflight failed: returncode={capability.returncode}\n"
-                f"stdout={capability.stdout}\nstderr={capability.stderr}\n",
-                encoding="utf-8",
-            )
-            raise SimulationError(
-                "synpp does not provide required cache coordination capability "
-                f"{CACHE_COORDINATION_CAPABILITY!r}; install the pinned corrected synpp commit",
-                log,
-                attempt,
-            )
         command = [
             *self.settings.invocation,
             str(snapshot),
             "--working-directory",
-            str(workdir),
+            str(self.paths.cache),
         ]
         for stage in requested_stages:
             command.extend(("--run", stage))
@@ -221,6 +307,8 @@ class EqasimSimulator:
             stream.write(json.dumps({"command": command}, ensure_ascii=False) + "\n")
             stream.flush()
             try:
+                self._write_state("active")
+                self._validate_lease()
                 completed = self._run_owned(
                     command,
                     cwd=self.settings.eqasim_root,
@@ -249,7 +337,9 @@ class EqasimSimulator:
             raise SimulationError(str(error), log, attempt) from error
         if self._interrupted.is_set():
             raise KeyboardInterrupt
-        return Manifest(artifacts, attempt)
+        scratch_bytes = _directory_bytes(self.paths.cache)
+        self._write_state("clean")
+        return Manifest(artifacts, attempt, scratch_bytes)
 
     def _run_owned(self, command: list[str], **options) -> subprocess.CompletedProcess:  # type: ignore[no-untyped-def]
         options.pop("check", None)
@@ -263,6 +353,7 @@ class EqasimSimulator:
         try:
             stdout, stderr = process.communicate(timeout=timeout)
             returncode = process.returncode
+            self._terminate_remaining_group(process.pid)
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGKILL)
             process.wait()
@@ -277,6 +368,28 @@ class EqasimSimulator:
         if self._interrupted.is_set():
             raise KeyboardInterrupt
         return subprocess.CompletedProcess(command, returncode, stdout, stderr)
+
+    @staticmethod
+    def _terminate_remaining_group(group: int) -> None:
+        try:
+            os.killpg(group, 0)
+        except ProcessLookupError:
+            return
+        try:
+            os.killpg(group, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        deadline = time.monotonic() + TERMINATION_GRACE_SECONDS
+        while time.monotonic() < deadline:
+            try:
+                os.killpg(group, 0)
+            except ProcessLookupError:
+                return
+            time.sleep(0.05)
+        try:
+            os.killpg(group, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
 
 def eqasim_requirements(
@@ -295,6 +408,27 @@ def eqasim_requirements(
     return {"run": stages}
 
 
+def probe_environment(
+    invocation: tuple[str, ...], root: Path, timeout: float = 20.0
+) -> None:
+    missing = root / f".eqasim-sa-probe-{uuid.uuid4().hex}.yml"
+    completed = subprocess.run(
+        [*invocation, str(missing)],
+        cwd=root,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        shell=False,
+        timeout=timeout,
+    )
+    output = f"{completed.stdout}\n{completed.stderr}"
+    if completed.returncode == 0 or "Config file does not exist:" not in output:
+        raise RuntimeError(
+            f"synpp environment probe failed: returncode={completed.returncode}"
+        )
+
+
 def validate_transport(name: str, value: object) -> None:
     if not OPTION.fullmatch(name) or name in DEDICATED:
         raise ValueError(f"invalid or dedicated synpp option: {name!r}")
@@ -304,7 +438,7 @@ def validate_transport(name: str, value: object) -> None:
 def _scalar_argument(key: str, value: object) -> str:
     if isinstance(value, bool) or not isinstance(value, (int, float, str)):
         raise TypeError(
-            f"override {key!r} is not faithfully representable by synpp 1.6.1"
+            f"override {key!r} is not faithfully representable by synpp 1.6.2"
         )
     if isinstance(value, float) and not math.isfinite(value):
         raise ValueError(f"override {key!r} must be finite")
@@ -316,3 +450,15 @@ def _scalar_argument(key: str, value: object) -> str:
 
 def _same_value(left: object, right: object) -> bool:
     return type(left) is type(right) and left == right
+
+
+def _directory_bytes(root: Path) -> int:
+    total = 0
+    for path in root.rglob("*"):
+        if path.is_symlink():
+            raise ValueError("worker cache must not contain symlinks")
+        if path.is_file():
+            total += path.stat().st_size
+        elif not path.is_dir():
+            raise ValueError("worker cache contains an unsupported entry")
+    return total

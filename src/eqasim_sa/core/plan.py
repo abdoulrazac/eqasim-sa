@@ -75,7 +75,8 @@ def estimate_plan(
     design_positions: int,
     run_ids: tuple[str, ...],
     plan_bytes: int,
-    observations: tuple[tuple[float, int], ...],
+    observations: tuple[tuple[float, int, int], ...],
+    workers: int,
     method: str = "grid",
     formula_inputs: dict[str, int] | None = None,
 ) -> dict:
@@ -93,11 +94,15 @@ def estimate_plan(
         or duration < 0
         or type(size) is not int
         or size < 0
-        for duration, size in observations
+        or type(scratch) is not int
+        or scratch < 0
+        for duration, size, scratch in observations
     ):
         raise ValueError(
-            "observation duration and durable bytes must be finite and non-negative"
+            "observation duration, durable bytes and scratch bytes must be finite and non-negative"
         )
+    if isinstance(workers, bool) or not isinstance(workers, int) or workers <= 0:
+        raise ValueError("workers must be a strictly positive integer")
     formulas = {"sobol": "N(2D+2)", "morris": "T(D+1)R"}
     formula, inputs = (
         (formulas.get(method), formula_inputs) if method in formulas else (None, None)
@@ -125,16 +130,20 @@ def estimate_plan(
     elif method != "grid":
         raise ValueError(f"unsupported estimate method: {method}")
     count, runs = len(observations), len(set(run_ids))
-    mean_duration, mean_bytes = (sum(values) / count for values in zip(*observations))
+    durations, durable_bytes, scratch_bytes = zip(*observations)
+    mean_duration = sum(durations) / count
+    mean_bytes = sum(durable_bytes) / count
+    observed_scratch = max(scratch_bytes)
     hours, disk = runs * mean_duration / 3600, math.ceil(plan_bytes + runs * mean_bytes)
+    scratch = workers * observed_scratch
     if not all(
         math.isfinite(value) and value >= 0
-        for value in (mean_duration, mean_bytes, hours, disk)
+        for value in (mean_duration, mean_bytes, hours, disk, scratch)
     ):
         raise OverflowError("estimate exceeds finite JSON numeric range")
     return {
         "status": "estimated",
-        "estimateVersion": 1,
+        "estimateVersion": 2,
         "method": method,
         "formula": formula,
         "formulaInputs": inputs,
@@ -145,6 +154,9 @@ def estimate_plan(
         "meanDurableBytesPerRun": mean_bytes,
         "estimatedComputeHours": hours,
         "estimatedDiskBytes": disk,
+        "workers": workers,
+        "observedScratchBytesPerWorker": observed_scratch,
+        "estimatedScratchBytes": scratch,
         "error": None,
     }
 

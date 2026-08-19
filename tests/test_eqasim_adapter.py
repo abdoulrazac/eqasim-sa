@@ -63,10 +63,12 @@ def test_workdir_is_derived_only_from_scratch_and_campaign(tmp_path: Path) -> No
         first.scratch,
     )
 
-    assert first.workdir == tmp_path / "scratch" / "eqasim-sa" / "nantes.v1" / "workdir"
+    assert first.workdir == (
+        tmp_path / "scratch" / "eqasim-sa" / "nantes.v1" / "workers" / "0"
+    )
     assert same_campaign.workdir == first.workdir
     assert other_campaign.workdir == (
-        tmp_path / "scratch" / "eqasim-sa" / "nantes-calibration" / "workdir"
+        tmp_path / "scratch" / "eqasim-sa" / "nantes-calibration" / "workers" / "0"
     )
     assert other_campaign.workdir != first.workdir
 
@@ -87,8 +89,8 @@ def test_workdir_is_derived_only_from_scratch_and_campaign(tmp_path: Path) -> No
     assert tuple(
         path.relative_to(root) for path, root in zip(per_node, node_roots)
     ) == (
-        Path("eqasim-sa/nantes.v1/workdir"),
-        Path("eqasim-sa/nantes.v1/workdir"),
+        Path("eqasim-sa/nantes.v1/workers/0"),
+        Path("eqasim-sa/nantes.v1/workers/0"),
     )
 
 
@@ -167,7 +169,7 @@ def test_real_spy_subprocess_normalizes_exact_inventory(
     assert observed["argv"] == [
         str(attempt / "config.yml"),
         "--working-directory",
-        str(current.workdir),
+        str(current.worker(0).cache),
         "--run",
         "synthesis.output",
         "--run",
@@ -250,21 +252,79 @@ def test_requirements_deduplicate_stages_in_request_order() -> None:
     ) == {"run": ["synthesis.output", "analysis.synthesis.population"]}
 
 
-def test_refuses_synpp_without_cache_coordination_before_run(
+def test_failed_process_leaves_active_marker_and_next_run_purges_cache(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     current = settings(tmp_path)
     record = tmp_path / "record.json"
     monkeypatch.setenv("EQASIM_SPY_RECORD", str(record))
-    monkeypatch.setenv("EQASIM_SPY_CAPABILITY", "unsupported")
-    with pytest.raises(SimulationError, match="cache coordination"):
-        simulator(current).simulate(
+    monkeypatch.setenv("EQASIM_SPY_FAIL", "7")
+    adapter = simulator(current)
+    with pytest.raises(SimulationError, match="code 7"):
+        adapter.simulate(
             load_config(current.config_path, 42), 42, current.workdir
         )
-    assert not record.exists()
-    logs = tuple(current.workdir.glob("attempt-*/run.log"))
-    assert len(logs) == 1 and "preflight failed" in logs[0].read_text()
+    paths = current.worker(0)
+    assert json.loads(paths.state.read_text()) == {"status": "active"}
+    sentinel = paths.cache / "stale"
+    sentinel.write_text("purge me")
+    monkeypatch.delenv("EQASIM_SPY_FAIL")
+    adapter.simulate(load_config(current.config_path, 42), 42, current.workdir)
+    assert not sentinel.exists()
+    assert json.loads(paths.state.read_text()) == {"status": "clean"}
+
+
+def test_malformed_marker_purges_cache_before_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    current = settings(tmp_path)
+    monkeypatch.setenv("EQASIM_SPY_RECORD", str(tmp_path / "record.json"))
+    paths = current.worker(0)
+    paths.cache.mkdir(parents=True)
+    sentinel = paths.cache / "stale"
+    sentinel.write_text("stale")
+    paths.state.write_text("not-json")
+    simulator(current).simulate(load_config(current.config_path, 42), 42, paths.root)
+    assert not sentinel.exists()
+
+
+def test_slot_lease_wait_is_interruptible(tmp_path: Path) -> None:
+    import threading
+    import time
+
+    current = settings(tmp_path)
+    first, second = simulator(current), simulator(current)
+    acquired = threading.Event()
+    stopped = threading.Event()
+    with first.lease():
+        def wait() -> None:
+            try:
+                with second.lease():
+                    acquired.set()
+            except KeyboardInterrupt:
+                stopped.set()
+
+        thread = threading.Thread(target=wait)
+        thread.start()
+        time.sleep(0.1)
+        assert not acquired.is_set()
+        second.interrupt()
+        thread.join(timeout=2)
+    assert stopped.is_set() and not acquired.is_set()
+
+
+def test_slot_lease_rejects_hard_link(tmp_path: Path) -> None:
+    current = settings(tmp_path)
+    adapter = simulator(current)
+    adapter._prepare_slot_root()
+    source = tmp_path / "foreign-lock"
+    source.write_text("foreign")
+    os.link(source, adapter.paths.lease)
+
+    with pytest.raises(ValueError, match="private owned regular file"):
+        with adapter.lease():
+            pass
 
 
 def test_missing_output_and_process_failure_raise_logged_error(
@@ -478,7 +538,7 @@ def test_rejects_workdir_symlink_escaping_scratch(tmp_path: Path) -> None:
     outside.mkdir()
     current.workdir.parent.mkdir(parents=True)
     current.workdir.symlink_to(outside, target_is_directory=True)
-    with pytest.raises(ValueError, match="escapes scratch"):
+    with pytest.raises(ValueError, match="symlink"):
         simulator(current).simulate(
             load_config(current.config_path, 42), 42, current.workdir
         )

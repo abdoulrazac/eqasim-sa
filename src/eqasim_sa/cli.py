@@ -214,7 +214,7 @@ def dispatch(
     if arguments.command == "estimate":
         empty = {
             "status": "failed",
-            "estimateVersion": 1,
+            "estimateVersion": 2,
             "method": None,
             "formula": None,
             "formulaInputs": None,
@@ -225,6 +225,9 @@ def dispatch(
             "meanDurableBytesPerRun": None,
             "estimatedComputeHours": None,
             "estimatedDiskBytes": 0,
+            "workers": None,
+            "observedScratchBytesPerWorker": None,
+            "estimatedScratchBytes": 0,
         }
         try:
             if estimate_factory is None:
@@ -255,13 +258,16 @@ def dispatch(
             )
             payload = {
                 "status": "invalid",
-                "checkVersion": 1,
+                "checkVersion": 2,
                 "elapsedSeconds": 0.0,
                 "checks": [],
                 "estimatedDiskBytes": None,
                 "requiredDiskBytes": None,
                 "freeDiskBytes": None,
                 "missingDiskBytes": None,
+                "estimatedScratchBytes": None,
+                "freeScratchBytes": None,
+                "missingScratchBytes": None,
                 "error": message,
             }
         print(json.dumps(payload, separators=(",", ":"), allow_nan=False))

@@ -23,15 +23,21 @@ from eqasim_sa.adapters.eqasim.simulator import (
     DEDICATED,
     EqasimSimulator,
     eqasim_requirements,
-    probe_cache_coordination,
+    probe_environment,
     validate_transport,
 )
 from eqasim_sa.adapters.fake.simulator import FakeSimulator
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.adapters.templates import render_nantes
+from eqasim_sa.adapters.worker import execute_batch, ordered_results, worker_batches
 from eqasim_sa.cli import dispatch
 from eqasim_sa.core.analyze import analyze
-from eqasim_sa.core.ledger import completion_duration, completion_ids, run_path
+from eqasim_sa.core.ledger import (
+    completion_duration,
+    completion_ids,
+    completion_scratch_bytes,
+    run_path,
+)
 from eqasim_sa.core.plan import (
     GridDesign,
     MorrisDesign,
@@ -67,7 +73,8 @@ def build_eqasim(arguments: Namespace) -> tuple[EqasimSimulator, dict, object]:
         arguments.scratch,
     )
     config = load_config(settings.config_path, arguments.seed)
-    return EqasimSimulator(settings, config), config, settings.workdir
+    simulator = EqasimSimulator(settings, config)
+    return simulator, config, simulator.paths.root
 
 
 def plan_from_meta_config(path: Path) -> PlanResult:
@@ -187,25 +194,45 @@ def run_from_meta_config(path: Path) -> dict:
                 meta.campaign,
                 meta.execution.scratch,
             )
-            simulator = EqasimSimulator(settings, meta.model_document, meta.model_bytes)
             interrupted = threading.Event()
+            active: set[EqasimSimulator] = set()
+            active_lock = threading.Lock()
 
             def interrupt() -> None:
                 interrupted.set()
-                simulator.interrupt()
+                with active_lock:
+                    simulators = tuple(active)
+                for simulator in simulators:
+                    simulator.interrupt()
 
-            results = list(
-                LocalBackend(meta.execution.workers).map(
-                    lambda spec: execute_run(
-                        spec,
-                        simulator,
-                        meta.campaign_root,
-                        settings.workdir,
-                        interrupted.is_set,
-                    ),
-                    specs,
-                    interrupt,
+            def run_batch(batch):  # type: ignore[no-untyped-def]
+                simulator = EqasimSimulator(
+                    settings, meta.model_document, meta.model_bytes, batch.slot
                 )
+                with active_lock:
+                    active.add(simulator)
+                try:
+                    with simulator.lease():
+                        return execute_batch(
+                            batch,
+                            lambda spec: execute_run(
+                                spec,
+                                simulator,
+                                meta.campaign_root,
+                                simulator.paths.root,
+                                interrupted.is_set,
+                            ),
+                        )
+                finally:
+                    with active_lock:
+                        active.discard(simulator)
+
+            batches = worker_batches(specs, meta.execution.workers)
+            results = ordered_results(
+                list(
+                    LocalBackend(len(batches)).map(run_batch, batches, interrupt)
+                ),
+                len(specs),
             )
         else:
             slurm = meta.execution.slurm
@@ -238,12 +265,19 @@ def run_from_meta_config(path: Path) -> dict:
                 meta.context_hash,
                 hashlib.sha256(meta_bytes).hexdigest(),
             )
-            results = list(backend.map(job, specs))
+            batches = worker_batches(specs, meta.execution.workers)
+            results = ordered_results(list(backend.map(job, batches)), len(specs))
     finally:
         os.close(descriptor)
     return summarize_runs(
         [compute_run_id(spec.resolved_config, spec.seed) for spec in specs], results
     )
+
+
+def _execute_exclusive(spec, simulator, campaign_root, workdir, interrupted=None):  # type: ignore[no-untyped-def]
+    run_id = compute_run_id(spec.resolved_config, spec.seed)
+    with run_lease(campaign_root, run_id, interrupted):
+        return execute_run(spec, simulator, campaign_root, workdir, interrupted)
 
 
 def analyze_from_meta_config(path: Path) -> dict:
@@ -325,7 +359,7 @@ def _estimate_state(
     target_specs = ()
     target_plan_state = None
     design_positions = 0
-    observations: list[tuple[float, int]] = []
+    observations: list[tuple[float, int, int]] = []
     target_durable = 0
     seen: set[Path] = set()
     calibrations = (
@@ -385,7 +419,10 @@ def _estimate_state(
                 raise ValueError(f"invalid archive for {run_id}: {error}") from error
             _remaining(deadline)
             duration = completion_duration(root, spec)
+            scratch_bytes = completion_scratch_bytes(root, spec)
             if duration is None:
+                raise RuntimeError(f"completion marker disappeared for {run_id}")
+            if scratch_bytes is None:
                 raise RuntimeError(f"completion marker disappeared for {run_id}")
             after_entries = tuple(sorted(archive.iterdir(), key=lambda item: item.name))
             after = tuple(
@@ -395,7 +432,9 @@ def _estimate_state(
                 raise RuntimeError(f"calibration source mutated while reading {run_id}")
             if snapshot is not None:
                 snapshot.extend(((archive, archive_state), *before))
-            observations.append((duration, sum(state[2] for _, state in before)))
+            observations.append(
+                (duration, sum(state[2] for _, state in before), scratch_bytes)
+            )
             if root == target_root:
                 target_durable += before[0][1][2] + sum(
                     state[2] for _, state in before[1:]
@@ -403,11 +442,14 @@ def _estimate_state(
     target_plan = target_root / "plan.parquet"
     if target_plan_state is None or _file_state(target_plan) != target_plan_state:
         raise RuntimeError(f"target plan mutated while estimating {target_plan}")
+    if target.execution is None:
+        raise ValueError("execution section is required for estimate")
     payload = estimate_plan(
         design_positions,
         tuple(compute_run_id(spec.resolved_config, spec.seed) for spec in target_specs),
         target_plan_state[2],
         tuple(observations),
+        target.execution.workers,
         getattr(target, "method", "grid"),
         (
             {"D": len(target.factors), "T": target.trajectories, "R": len(target.seeds)}
@@ -503,7 +545,7 @@ def _static_check(path: Path, calibrations: tuple[Path, ...]):  # type: ignore[n
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError("static check time budget exhausted")
-        probe_cache_coordination(
+        probe_environment(
             meta.execution.invocation, meta.model_root, min(20, remaining)
         )
 
@@ -521,27 +563,46 @@ def _static_check(path: Path, calibrations: tuple[Path, ...]):  # type: ignore[n
         while not ancestor.exists():
             ancestor = ancestor.parent
         before = _file_state(ancestor)
+        scratch_before = _file_state(meta.execution.scratch)
         _remaining(deadline)
         free = shutil.disk_usage(ancestor).free
+        scratch_free = shutil.disk_usage(meta.execution.scratch).free
         _remaining(deadline)
         if (
             ancestor.is_symlink()
             or _file_state(ancestor)[:2] != before[:2]
+            or _file_state(meta.execution.scratch) != scratch_before
             or any(_file_state(item) != state for item, state in snapshot)
         ):
             raise RuntimeError("campaign snapshot changed while measuring disk space")
         required = max(0, estimate["estimatedDiskBytes"] - durable)
         missing = max(0, required - free)
-        return estimate["estimatedDiskBytes"], required, free, missing
+        scratch_required = estimate["estimatedScratchBytes"]
+        if ancestor.stat().st_dev == meta.execution.scratch.stat().st_dev:
+            scratch_missing = max(0, scratch_required - max(0, free - required))
+        else:
+            scratch_missing = max(0, scratch_required - scratch_free)
+        return (
+            estimate["estimatedDiskBytes"],
+            required,
+            free,
+            missing,
+            scratch_required,
+            scratch_free,
+            scratch_missing,
+        )
 
     try:
         disk_values = disk()
-        missing = disk_values[3]
+        missing, scratch_missing = disk_values[3], disk_values[6]
         item = {
             "name": "diskSpace",
-            "status": "failed" if missing else "passed",
-            "error": f"insufficient disk space: missing {missing} bytes"
-            if missing
+            "status": "failed" if missing or scratch_missing else "passed",
+            "error": (
+                "insufficient disk space: "
+                f"durable missing {missing} bytes; scratch missing {scratch_missing} bytes"
+            )
+            if missing or scratch_missing
             else None,
         }
     except Exception as error:
@@ -550,18 +611,21 @@ def _static_check(path: Path, calibrations: tuple[Path, ...]):  # type: ignore[n
             None,
         )
     checks.append(item)
-    values = disk_values or (None, None, None, None)
+    values = disk_values or (None,) * 7
     payload = {
         "status": "valid"
         if all(item["status"] == "passed" for item in checks)
         else "invalid",
-        "checkVersion": 1,
+        "checkVersion": 2,
         "elapsedSeconds": time.monotonic() - started,
         "checks": checks,
         "estimatedDiskBytes": values[0],
         "requiredDiskBytes": values[1],
         "freeDiskBytes": values[2],
         "missingDiskBytes": values[3],
+        "estimatedScratchBytes": values[4],
+        "freeScratchBytes": values[5],
+        "missingScratchBytes": values[6],
         "error": None,
     }
     return payload, meta, specs
@@ -619,7 +683,7 @@ def _smoke(meta, specs) -> None:  # type: ignore[no-untyped-def]
             )
         try:
             results = [
-                execute_run(spec, simulator, campaign_root, settings.workdir)
+                execute_run(spec, simulator, campaign_root, simulator.paths.root)
                 for spec in smoke_specs
             ]
             if any(result.status != "completed" for result in results):
@@ -735,7 +799,9 @@ def _init_campaign_allowed(
     expected_artifacts: set[str] | None = None,
 ) -> None:
     allowed = {"plan.parquet"} | (
-        {"runs", "archives", "logs", ".eqasim-sa-tmp"} if calibration else set()
+        {"runs", "archives", "logs", ".eqasim-sa-tmp", ".eqasim-sa-run-locks"}
+        if calibration
+        else set()
     )
     for entry in root.iterdir():
         if entry.is_symlink() or entry.name not in allowed:

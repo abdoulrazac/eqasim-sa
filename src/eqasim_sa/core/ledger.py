@@ -18,6 +18,7 @@ RESERVED_COLUMNS = (
     "contextHash",
     "node",
     "duration",
+    "scratchBytes",
 )
 Scalar = bool | int | float | str
 RUN_ID = re.compile(r"^[0-9a-f]{32}$")
@@ -32,6 +33,7 @@ class RunRecord:
     node: str
     duration: float
     parameters: dict[str, Scalar]
+    scratch_bytes: int = 0
 
 
 def run_path(campaign_root: Path, run_id: str) -> Path:
@@ -84,6 +86,9 @@ def _completion_duration(campaign_root: Path, expected: RunRecord) -> float | No
         duration = row["duration"]
         if type(duration) is not float or not math.isfinite(duration) or duration < 0:
             raise ValueError("duration must be a finite non-negative float")
+        scratch_bytes = row["scratchBytes"]
+        if type(scratch_bytes) is not int or scratch_bytes < 0:
+            raise ValueError("scratchBytes must be a non-negative integer")
         codecs = {
             parquet.metadata.row_group(group).column(column).compression
             for group in range(parquet.metadata.num_row_groups)
@@ -112,6 +117,20 @@ def completion_duration(campaign_root: Path, spec) -> float | None:  # type: ign
             spec.parameters,
         ),
     )
+
+
+def completion_scratch_bytes(campaign_root: Path, spec) -> int | None:  # type: ignore[no-untyped-def]
+    from eqasim_sa.core.run import compute_run_id
+
+    duration = completion_duration(campaign_root, spec)
+    if duration is None:
+        return None
+    path = run_path(campaign_root, compute_run_id(spec.resolved_config, spec.seed))
+    row = pq.ParquetFile(path).read(columns=["scratchBytes"]).to_pylist()[0]
+    value = row["scratchBytes"]
+    if type(value) is not int or value < 0:
+        raise ValueError("scratchBytes must be a non-negative integer")
+    return value
 
 
 def completion_ids(campaign_root: Path, specs) -> set[str]:  # type: ignore[no-untyped-def]
@@ -311,5 +330,6 @@ def _run_table(record: RunRecord) -> pa.Table:
         "contextHash": record.context_hash,
         "node": record.node,
         "duration": record.duration,
+        "scratchBytes": record.scratch_bytes,
     }
     return pa.Table.from_pylist([{**fixed, **record.parameters}])

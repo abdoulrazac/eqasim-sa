@@ -278,8 +278,6 @@ def test_installed_plan_creates_replays_and_refuses_conflict(tmp_path: Path) -> 
         + marker_bytes
         + archive_bytes
     )
-    preflights = tmp_path / "check-preflights"
-    environment["EQASIM_SPY_PREFLIGHT_RECORD"] = str(preflights)
     static = subprocess.run(
         [
             installed_script("eqasim-sa"),
@@ -326,9 +324,6 @@ def test_installed_plan_creates_replays_and_refuses_conflict(tmp_path: Path) -> 
         "status": "passed",
         "error": None,
     }
-    assert (
-        len(preflights.read_text().splitlines()) == 4
-    )  # one static probe per check, two smoke runs
     meta.write_text(calibration.read_text())
     (tmp_path / "campaign-record.json").unlink()
     resumed = subprocess.run(

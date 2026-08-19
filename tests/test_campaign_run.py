@@ -18,6 +18,7 @@ from eqasim_sa.adapters.application import run_from_meta_config
 from eqasim_sa.adapters.backends.local import LocalBackend
 from eqasim_sa.adapters.eqasim.simulator import eqasim_requirements
 from eqasim_sa.adapters.meta_config import load_meta_config
+from eqasim_sa.adapters.worker import Indexed, WorkerBatch
 from eqasim_sa.core.plan import GridDesign, build_plan, load_run_specs
 from eqasim_sa.core.run import RunResult, summarize_runs
 
@@ -222,8 +223,19 @@ def test_slurm_campaign_composes_remote_job_without_local_simulator(
             values = tuple(specs)
             observed.update(function=function, specs=values)
             return iter(
-                RunResult(compute_run_id(item.resolved_config, item.seed), "completed")
-                for item in values
+                tuple(
+                    Indexed(
+                        item.index,
+                        RunResult(
+                            compute_run_id(
+                                item.value.resolved_config, item.value.seed
+                            ),
+                            "completed",
+                        ),
+                    )
+                    for item in batch.items
+                )
+                for batch in values
             )
 
     monkeypatch.setattr(application, "SlurmBackend", Backend)
@@ -337,10 +349,21 @@ def test_slurm_campaign_resumes_only_missing_runs_and_complete_campaign_is_noop(
             pass
 
         def map(self, function, values):  # type: ignore[no-untyped-def]
-            submitted.extend(values)
+            submitted.extend(item.value for batch in values for item in batch.items)
             return iter(
-                RunResult(compute_run_id(item.resolved_config, item.seed), "completed")
-                for item in submitted
+                tuple(
+                    Indexed(
+                        item.index,
+                        RunResult(
+                            compute_run_id(
+                                item.value.resolved_config, item.value.seed
+                            ),
+                            "completed",
+                        ),
+                    )
+                    for item in batch.items
+                )
+                for batch in values
             )
 
     monkeypatch.setattr(application, "SlurmBackend", Backend)
@@ -411,7 +434,7 @@ def test_remote_jobs_survive_workdir_loss_and_resume_only_from_runs(
     specs = load_run_specs(
         loaded.campaign_root / "plan.parquet", design, loaded.campaign
     )
-    workdir = scratch / "eqasim-sa" / "demo" / "workdir"
+    workdir = scratch / "eqasim-sa" / "demo" / "workers" / "0"
     job = EqasimSlurmJob(
         meta,
         loaded.context_hash,
@@ -419,7 +442,8 @@ def test_remote_jobs_survive_workdir_loss_and_resume_only_from_runs(
     )
     monkeypatch.setenv("EQASIM_SPY_RECORD", str(tmp_path / "record.json"))
 
-    assert job(specs[0]).status == "completed"
+    first_batch = WorkerBatch(0, (Indexed(0, specs[0]),))
+    assert job(first_batch)[0].value.status == "completed"
     first_id = compute_run_id(specs[0].resolved_config, specs[0].seed)
     first_marker = loaded.campaign_root / "runs" / f"{first_id}.parquet"
     first_archives = tuple(
@@ -438,7 +462,8 @@ def test_remote_jobs_survive_workdir_loss_and_resume_only_from_runs(
     (workdir / "cache.lock").write_text("not authoritative")
     shutil.rmtree(workdir)
 
-    assert job(specs[1]).status == "completed"
+    second_batch = WorkerBatch(0, (Indexed(0, specs[1]),))
+    assert job(second_batch)[0].value.status == "completed"
     assert workdir.is_dir()
     assert {
         path: (path.read_bytes(), path.stat().st_mtime_ns) for path in durable
@@ -463,10 +488,21 @@ def test_remote_jobs_survive_workdir_loss_and_resume_only_from_runs(
             pass
 
         def map(self, function, values):  # type: ignore[no-untyped-def]
-            submitted.extend(values)
+            submitted.extend(item.value for batch in values for item in batch.items)
             return iter(
-                RunResult(compute_run_id(item.resolved_config, item.seed), "completed")
-                for item in submitted
+                tuple(
+                    Indexed(
+                        item.index,
+                        RunResult(
+                            compute_run_id(
+                                item.value.resolved_config, item.value.seed
+                            ),
+                            "completed",
+                        ),
+                    )
+                    for item in batch.items
+                )
+                for batch in values
             )
 
     monkeypatch.setattr(application, "SlurmBackend", Backend)
@@ -812,8 +848,19 @@ def test_sobol_capacity_warning_is_exact_and_precedes_backend_submission(
         def map(self, function, values, *args):  # type: ignore[no-untyped-def]
             seen.append(capsys.readouterr().err)
             return iter(
-                RunResult(compute_run_id(spec.resolved_config, spec.seed), "completed")
-                for spec in values
+                tuple(
+                    Indexed(
+                        item.index,
+                        RunResult(
+                            compute_run_id(
+                                item.value.resolved_config, item.value.seed
+                            ),
+                            "completed",
+                        ),
+                    )
+                    for item in batch.items
+                )
+                for batch in values
             )
 
     monkeypatch.setattr(application, "LocalBackend", Backend)
@@ -919,7 +966,6 @@ def test_real_subprocess_campaign_deduplicates_and_reports_partial_failure(
         invocation=[sys.executable, str(Path(__file__).with_name("eqasim_spy.py"))],
     )
     monkeypatch.setenv("EQASIM_SPY_RECORD", str(tmp_path / "record.json"))
-    monkeypatch.setenv("EQASIM_SPY_PREFLIGHT_RECORD", str(tmp_path / "preflights"))
     monkeypatch.setenv("EQASIM_SPY_BARRIER", str(tmp_path / "barrier"))
     monkeypatch.setenv("EQASIM_SPY_FAIL_SEED", "42")
     payload = run_from_meta_config(meta)
@@ -936,7 +982,6 @@ def test_real_subprocess_campaign_deduplicates_and_reports_partial_failure(
     assert len(tuple((tmp_path / "campaign" / "archives").iterdir())) == 1
     assert len(tuple((tmp_path / "campaign" / "logs").glob("*.log"))) == 1
     assert (tmp_path / "overlap").is_file()
-    assert len((tmp_path / "preflights").read_text().splitlines()) == 2
     second = run_from_meta_config(meta)
     assert second["total"] == 1 and second["skipped"] == 0 and second["failed"] == 1
     assert second["completed"] == 0 and len(second["failures"]) == 1
@@ -1007,7 +1052,7 @@ def test_campaign_resume_filters_before_simulator_backend_and_preflight(
         "failures": [],
         "error": None,
     }
-    assert not (scratch / "eqasim-sa" / "demo" / "workdir").exists()
+    assert not (scratch / "eqasim-sa" / "demo" / "workers").exists()
 
 
 def test_real_sigint_returns_130_and_reaps_owned_descendants(

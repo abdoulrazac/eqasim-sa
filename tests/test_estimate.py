@@ -26,12 +26,13 @@ def test_estimate_plan_uses_unique_runs_and_observed_arithmetic_means() -> None:
         design_positions=3,
         run_ids=("run-a", "run-a", "run-b"),
         plan_bytes=100,
-        observations=((2.0, 10), (4.0, 20)),
+        observations=((2.0, 10, 40), (4.0, 20, 60)),
+        workers=3,
     )
 
     assert payload == {
         "status": "estimated",
-        "estimateVersion": 1,
+        "estimateVersion": 2,
         "method": "grid",
         "formula": None,
         "formulaInputs": None,
@@ -42,12 +43,15 @@ def test_estimate_plan_uses_unique_runs_and_observed_arithmetic_means() -> None:
         "meanDurableBytesPerRun": 15.0,
         "estimatedComputeHours": 2 * 3.0 / 3600,
         "estimatedDiskBytes": 130,
+        "workers": 3,
+        "observedScratchBytesPerWorker": 60,
+        "estimatedScratchBytes": 180,
         "error": None,
     }
 
 
 def test_estimate_plan_rounds_fractional_disk_bytes_up() -> None:
-    payload = estimate_plan(2, ("a", "b"), 10, ((1.0, 1), (1.0, 2)))
+    payload = estimate_plan(2, ("a", "b"), 10, ((1.0, 1, 3), (1.0, 2, 4)), 2)
 
     assert payload["meanDurableBytesPerRun"] == 1.5
     assert payload["estimatedDiskBytes"] == 13
@@ -55,41 +59,42 @@ def test_estimate_plan_rounds_fractional_disk_bytes_up() -> None:
 
 
 @pytest.mark.parametrize(
-    "observation", [(-1.0, 1), (math.nan, 1), (math.inf, 1), (1.0, -1)]
+    "observation",
+    [(-1.0, 1, 1), (math.nan, 1, 1), (math.inf, 1, 1), (1.0, -1, 1), (1.0, 1, -1)],
 )
 def test_estimate_plan_rejects_invalid_observations(
-    observation: tuple[float, int],
+    observation: tuple[float, int, int],
 ) -> None:
     with pytest.raises(ValueError, match="observation"):
-        estimate_plan(1, ("run",), 1, (observation,))
+        estimate_plan(1, ("run",), 1, (observation,), 1)
 
 
 def test_estimate_plan_requires_calibration() -> None:
     with pytest.raises(ValueError, match="calibration meta-config"):
-        estimate_plan(1, ("run",), 1, ())
+        estimate_plan(1, ("run",), 1, (), 1)
 
 
 def test_estimate_plan_exposes_and_validates_sobol_formula() -> None:
     payload = estimate_plan(
-        12, ("a", "a", "b"), 7, ((1.0, 3),), "sobol", {"D": 2, "N": 2}
+        12, ("a", "a", "b"), 7, ((1.0, 3, 5),), 1, "sobol", {"D": 2, "N": 2}
     )
 
     assert payload["formula"] == "N(2D+2)"
     assert payload["formulaInputs"] == {"D": 2, "N": 2}
     assert payload["runs"] == 2
     with pytest.raises(ValueError, match="designPositions"):
-        estimate_plan(11, ("a",), 7, ((1.0, 3),), "sobol", {"D": 2, "N": 2})
+        estimate_plan(11, ("a",), 7, ((1.0, 3, 5),), 1, "sobol", {"D": 2, "N": 2})
 
 
 def test_estimate_plan_exposes_morris_formula_and_counts_unique_runs() -> None:
     payload = estimate_plan(
-        24, ("a", "a", "b"), 7, ((1.0, 3),), "morris", {"D": 2, "T": 4, "R": 2}
+        24, ("a", "a", "b"), 7, ((1.0, 3, 5),), 1, "morris", {"D": 2, "T": 4, "R": 2}
     )
     assert payload["formula"] == "T(D+1)R"
     assert payload["formulaInputs"] == {"D": 2, "T": 4, "R": 2}
     assert payload["designPositions"] == 24 and payload["runs"] == 2
     with pytest.raises(ValueError, match="designPositions"):
-        estimate_plan(23, ("a",), 7, ((1.0, 3),), "morris", {"D": 2, "T": 4, "R": 2})
+        estimate_plan(23, ("a",), 7, ((1.0, 3, 5),), 1, "morris", {"D": 2, "T": 4, "R": 2})
 
 
 def test_application_estimate_passes_morris_formula_inputs(
@@ -158,6 +163,7 @@ def test_application_estimate_passes_sobol_formula_inputs_and_unique_runs(
         context_hash=design.context_hash,
         context_descriptor=descriptor,
         marker=marker,
+        execution=SimpleNamespace(workers=3),
         calibration_meta_configs=(),
         indicator_requirements=(IndicatorRequirement("value", "age"),),
         method="sobol",
@@ -203,7 +209,10 @@ def campaign(
     spec = load_run_specs(root / "plan.parquet", design, "demo")[0]
     run_id = compute_run_id(spec.resolved_config, spec.seed)
     marker = write_run(
-        root, RunRecord(run_id, "demo", 7, "c" * 64, "node", duration, spec.parameters)
+        root,
+        RunRecord(
+            run_id, "demo", 7, "c" * 64, "node", duration, spec.parameters, 100
+        ),
     )
     archive = root / "archives" / run_id
     archive.mkdir(parents=True)
@@ -217,6 +226,7 @@ def campaign(
         context_hash=design.context_hash,
         context_descriptor=descriptor,
         marker=marker,
+        execution=SimpleNamespace(workers=3),
         calibration_meta_configs=(),
         indicator_requirements=(IndicatorRequirement("value", "age"),),
         method=design.method,
@@ -374,7 +384,7 @@ def test_estimate_cli_serializes_exact_success_and_failure_schema(
 ) -> None:
     from eqasim_sa.cli import dispatch
 
-    expected = estimate_plan(1, ("run",), 1, ((1.0, 2),))
+    expected = estimate_plan(1, ("run",), 1, ((1.0, 2, 3),), 1)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -409,7 +419,7 @@ def test_estimate_cli_serializes_exact_success_and_failure_schema(
     assert set(failure) == set(expected)
     assert failure == {
         "status": "failed",
-        "estimateVersion": 1,
+        "estimateVersion": 2,
         "method": None,
         "formula": None,
         "formulaInputs": None,
@@ -420,5 +430,8 @@ def test_estimate_cli_serializes_exact_success_and_failure_schema(
         "meanDurableBytesPerRun": None,
         "estimatedComputeHours": None,
         "estimatedDiskBytes": 0,
+        "workers": None,
+        "observedScratchBytesPerWorker": None,
+        "estimatedScratchBytes": 0,
         "error": "Exception",
     }

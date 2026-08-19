@@ -216,7 +216,8 @@ def test_init_renders_complete_nantes_resources_and_is_idempotent(
     for statement in (
         "scratch exists at the same absolute path and is node-local",
         "campaign must be unique among distinct campaigns sharing this scratch",
-        "workdir is disposable and may disappear between jobs",
+        "each slot owns workers/<slot>/{lease.lock,state.json,cache}",
+        "each batch is sequential",
     ):
         assert all(statement in text for text in (target_text, calibration_text))
     assert set(yaml.safe_load(target_text)["execution"]) == {

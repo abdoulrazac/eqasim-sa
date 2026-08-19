@@ -36,6 +36,7 @@ def test_writes_one_row_zstd_ledger_at_exact_path(tmp_path: Path) -> None:
         "contextHash",
         "node",
         "duration",
+        "scratchBytes",
         "rate",
     ]
     assert table.to_pylist() == [
@@ -48,6 +49,7 @@ def test_writes_one_row_zstd_ledger_at_exact_path(tmp_path: Path) -> None:
             "contextHash": "c" * 64,
             "node": "node",
             "duration": 1.25,
+            "scratchBytes": 0,
             "rate": 0.1,
         }
     ]

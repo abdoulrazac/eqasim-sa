@@ -21,7 +21,7 @@ parameters:
   sampling_rate:
     values: [0.001]
   # matching_minimum_observations: indisponible dans config_nantes.yml; integer; matching stage.
-  # matching_attributes: non transportable by scalar synpp 1.6.1 overrides; ordered priority list;
+  # matching_attributes: non transportable by scalar synpp 1.6.2 overrides; ordered priority list;
   #   the last attribute is relaxed first; matching stage; affects population matching outputs.
   # income_assignation_method: indisponible dans config_nantes.yml; string; income stage.
   # projection_year: indisponible dans config_nantes.yml; integer; census stage.
@@ -52,8 +52,8 @@ execution:
   # Preconditions: campaign, model, data and Python paths are shared by launcher and nodes;
   # scratch exists at the same absolute path and is node-local on every compute node.
   # campaign must be unique among distinct campaigns sharing this scratch.
-  # workdir is disposable and may disappear between jobs; runs and archives are shared.
-  # workers controls SLURM array parallelism; overrides.processes controls CPUs per run.
+  # each slot owns workers/<slot>/{lease.lock,state.json,cache}; caches are disposable.
+  # workers controls deterministic batches and SLURM array parallelism; each batch is sequential.
   # Optional site resources under execution.slurm are timeout_min, mem_gb, partition,
   # account and qos; omit them to use the 1440-minute timeout and site defaults.
   backend: local
@@ -127,7 +127,7 @@ execution:
 # Any change to N, design_seed, domain order/values or the sealed design requires a fresh campaign_root.
 # Le resultat Epic 1 est la campagne archivee, sans indicateurs ni classement Epic 2/4.
 # Preconditions de la preuve < 30 min: donnees Nantes preparees, Python 3.13.11,
-# synpp-cache-coordination-v1, sampling_rate=0.001, processes=1, ext4; la duree n'est pas portable.
+# synpp officiel 1.6.2, sampling_rate=0.001, processes=1, ext4; la duree n'est pas portable.
 # Parcours de prise en main (depuis ce repertoire, sans edition):
 # @INIT_COMMAND@
 # @EQASIM_SA@ check --meta-config nantes.yml

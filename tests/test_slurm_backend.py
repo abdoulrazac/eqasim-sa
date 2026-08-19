@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import socket
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,6 +10,7 @@ import cloudpickle
 import pytest
 
 from eqasim_sa.adapters.backends.slurm import EqasimSlurmJob, SlurmBackend
+from eqasim_sa.adapters.worker import Indexed, WorkerBatch
 from eqasim_sa.core.run import RunResult, RunSpec
 
 
@@ -190,13 +192,19 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
 
     def settings(*args):  # type: ignore[no-untyped-def]
         settings_calls.append(args)
-        return SimpleNamespace(workdir=node_scratch / "eqasim-sa" / "demo" / "workdir")
+        return SimpleNamespace()
 
     monkeypatch.setattr(slurm, "EqasimSettings", settings)
 
     class Simulator:
         def __init__(self) -> None:
             self.interruptions = 0
+            self.paths = SimpleNamespace(
+                root=node_scratch / "eqasim-sa" / "demo" / "workers" / "2"
+            )
+
+        def lease(self):  # type: ignore[no-untyped-def]
+            return nullcontext(self)
 
         def interrupt(self) -> None:
             self.interruptions += 1
@@ -216,7 +224,8 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
     spec = RunSpec("demo", {"config": {}}, 1, context_hash, {})
     job = EqasimSlurmJob(meta_path, context_hash, meta_sha256)
 
-    restored, restored_spec = cloudpickle.loads(cloudpickle.dumps((job, spec)))
+    batch = WorkerBatch(2, (Indexed(0, spec),))
+    restored, restored_batch = cloudpickle.loads(cloudpickle.dumps((job, batch)))
     assert type(restored).__module__ == "eqasim_sa.adapters.backends.slurm"
     assert type(restored).__name__ == "EqasimSlurmJob"
     assert vars(restored) == {
@@ -224,7 +233,7 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
         "expected_context_hash": context_hash,
         "meta_config_sha256": meta_sha256,
     }
-    assert restored(restored_spec) == RunResult("id", "completed")
+    assert restored(restored_batch) == (Indexed(0, RunResult("id", "completed")),)
     assert settings_calls == [
         (
             meta.model_config,
@@ -239,12 +248,12 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
             spec,
             simulator,
             tmp_path,
-            node_scratch / "eqasim-sa" / "demo" / "workdir",
+            node_scratch / "eqasim-sa" / "demo" / "workers" / "2",
         )
     ]
 
     with pytest.raises(ValueError, match="contextHash"):
-        EqasimSlurmJob(meta_path, "different", meta_sha256)(spec)
+        EqasimSlurmJob(meta_path, "different", meta_sha256)(batch)
 
     monkeypatch.setattr(
         slurm,
@@ -252,7 +261,7 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
         lambda *args: (_ for _ in ()).throw(RuntimeError("remote failed")),
     )
     with pytest.raises(RuntimeError, match="remote failed"):
-        job(spec)
+        job(batch)
     assert simulator.interruptions == 1
 
 
@@ -277,7 +286,7 @@ def test_remote_job_rejects_meta_config_byte_changes_before_reload(
     monkeypatch.setattr(slurm, "load_meta_config", load)
     spec = RunSpec("demo", {"config": {}}, 1, "context", {})
     with pytest.raises(ValueError, match="meta-config.*changed"):
-        job(spec)
+        job(WorkerBatch(0, (Indexed(0, spec),)))
     assert not reloaded
 
     meta_path.write_bytes(original)
@@ -288,4 +297,4 @@ def test_remote_job_rejects_meta_config_byte_changes_before_reload(
 
     monkeypatch.setattr(slurm, "load_meta_config", mutate_during_reload)
     with pytest.raises(ValueError, match="changed during remote reload"):
-        job(spec)
+        job(WorkerBatch(0, (Indexed(0, spec),)))

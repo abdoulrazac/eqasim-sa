@@ -74,7 +74,6 @@ def test_static_check_accepts_sealed_structural_coincidences_but_grid_still_reje
     monkeypatch.setattr(application, "load_meta_config", lambda *args, **kwargs: meta)
     monkeypatch.setattr(application, "load_run_specs", lambda *args: ())
     monkeypatch.setattr(application, "unique_config_seed_pairs", lambda design: False)
-    monkeypatch.setattr(application, "probe_cache_coordination", lambda *args: None)
     monkeypatch.setattr(
         application,
         "_estimate_state",
@@ -146,7 +145,6 @@ def test_check_cli_has_exact_deterministic_schema(monkeypatch, capsys) -> None:
                 "metaConfig",
                 "sealedPlan",
                 "uniqueConfigSeedPairs",
-                "eqasimEnvironment",
                 "diskSpace",
             )
         ],
@@ -184,7 +182,7 @@ def test_check_cli_has_exact_deterministic_schema(monkeypatch, capsys) -> None:
     assert seen == [(Path("target.yml"), (Path("cal.yml"),), False)]
 
 
-def test_check_aggregates_environment_duplicate_and_disk_errors(
+def test_check_aggregates_duplicate_and_disk_errors(
     tmp_path: Path, monkeypatch
 ) -> None:
     from eqasim_sa.adapters import application
@@ -219,11 +217,6 @@ def test_check_aggregates_environment_duplicate_and_disk_errors(
         "_estimate_state",
         lambda *args: (_ for _ in ()).throw(ValueError("no calibration")),
     )
-    monkeypatch.setattr(
-        application,
-        "probe_cache_coordination",
-        lambda *args: (_ for _ in ()).throw(OSError("unreachable")),
-    )
     plan.write_bytes(b"plan")
 
     payload = application.check_from_meta_config(Path("meta.yml"), (), False)
@@ -231,7 +224,6 @@ def test_check_aggregates_environment_duplicate_and_disk_errors(
     assert payload["status"] == "invalid"
     errors = {item["name"]: item["error"] for item in payload["checks"]}
     assert "duplicate" in errors["uniqueConfigSeedPairs"]
-    assert "unreachable" in errors["eqasimEnvironment"]
     assert "calibration" in errors["diskSpace"]
     assert payload["elapsedSeconds"] < 60
 
@@ -290,11 +282,16 @@ def test_check_reports_disk_measurements_when_space_is_insufficient(
     )
     monkeypatch.setattr(application, "load_meta_config", lambda *args, **kwargs: meta)
     monkeypatch.setattr(application, "load_run_specs", lambda *args: ())
-    monkeypatch.setattr(application, "probe_cache_coordination", lambda *args: None)
+    monkeypatch.setattr(application, "probe_environment", lambda *args: None)
     monkeypatch.setattr(
         application,
         "_estimate_state",
-        lambda *args: ({"estimatedDiskBytes": 100}, meta, (), 10),
+        lambda *args: (
+            {"estimatedDiskBytes": 100, "estimatedScratchBytes": 20},
+            meta,
+            (),
+            10,
+        ),
     )
     monkeypatch.setattr(
         application.shutil, "disk_usage", lambda path: SimpleNamespace(free=40)
@@ -308,8 +305,13 @@ def test_check_reports_disk_measurements_when_space_is_insufficient(
         payload["requiredDiskBytes"],
         payload["freeDiskBytes"],
         payload["missingDiskBytes"],
-    ) == (100, 90, 40, 50)
-    assert payload["checks"][-1]["error"] == "insufficient disk space: missing 50 bytes"
+        payload["estimatedScratchBytes"],
+        payload["freeScratchBytes"],
+        payload["missingScratchBytes"],
+    ) == (100, 90, 40, 50, 20, 40, 20)
+    assert payload["checks"][-1]["error"] == (
+        "insufficient disk space: durable missing 50 bytes; scratch missing 20 bytes"
+    )
 
 
 def test_smoke_requires_static_success_and_exactly_two_distinct_seeds(
@@ -325,58 +327,48 @@ def test_smoke_requires_static_success_and_exactly_two_distinct_seeds(
     assert application.check_from_meta_config(Path("meta.yml"), (), True) is invalid
 
 
-def test_environment_probe_uses_exact_argv_cwd_and_timeout(
-    tmp_path: Path, monkeypatch
+def test_environment_probe_uses_missing_config_without_loading_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from eqasim_sa.adapters.eqasim.simulator import probe_cache_coordination
+    from eqasim_sa.adapters.eqasim.simulator import probe_environment
 
     seen = {}
 
     def run(command, **options):  # type: ignore[no-untyped-def]
         seen.update(command=command, options=options)
-        return SimpleNamespace(returncode=0, stdout="synpp-cache-coordination-v1\n")
+        return SimpleNamespace(
+            returncode=1,
+            stdout="",
+            stderr=f"Config file does not exist: {command[-1]}",
+        )
 
     monkeypatch.setattr("eqasim_sa.adapters.eqasim.simulator.subprocess.run", run)
-    probe_cache_coordination(("python", "spy.py"), tmp_path)
-    assert seen["command"] == ["python", "spy.py", "--cache-coordination-capability"]
+    probe_environment(("python", "-m", "synpp"), tmp_path)
+    assert seen["command"][:3] == ["python", "-m", "synpp"]
+    assert Path(seen["command"][-1]).parent == tmp_path
+    assert not Path(seen["command"][-1]).exists()
     assert seen["options"]["cwd"] == tmp_path and seen["options"]["shell"] is False
-    assert seen["options"]["timeout"] < 60
 
 
-@pytest.mark.parametrize(
-    "invalid_outputs",
-    [
-        ("", "synpp-cache-coordination-v1"),
-        (" synpp-cache-coordination-v1\n", "synpp-cache-coordination-v1 \n"),
-        ("synpp-cache-coordination-v1\n\n",),
-        ("synpp-cache-coordination-v1 extra\n", "banner\nsynpp-cache-coordination-v1\n"),
-        ("synpp-cache-coordination-v2\n",),
-    ],
-)
-def test_environment_probe_rejects_any_non_exact_capability(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    invalid_outputs: tuple[str, ...],
+def test_environment_probe_rejects_unexpected_process_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from eqasim_sa.adapters.eqasim.simulator import probe_cache_coordination
+    from eqasim_sa.adapters.eqasim.simulator import probe_environment
 
-    for stdout in invalid_outputs:
-        monkeypatch.setattr(
-            "eqasim_sa.adapters.eqasim.simulator.subprocess.run",
-            lambda *args, **kwargs: SimpleNamespace(
-                returncode=0, stdout=stdout, stderr=""
-            ),
-        )
-        with pytest.raises(RuntimeError, match="capability mismatch"):
-            probe_cache_coordination(("synpp",), tmp_path)
+    monkeypatch.setattr(
+        "eqasim_sa.adapters.eqasim.simulator.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=2, stdout="", stderr="wrong"),
+    )
+    with pytest.raises(RuntimeError, match="environment probe"):
+        probe_environment(("synpp",), tmp_path)
 
 
 def test_environment_probe_reaches_timeout_within_budget(tmp_path: Path) -> None:
-    from eqasim_sa.adapters.eqasim.simulator import probe_cache_coordination
+    from eqasim_sa.adapters.eqasim.simulator import probe_environment
 
     started = time.monotonic()
     with pytest.raises(subprocess.TimeoutExpired):
-        probe_cache_coordination(
+        probe_environment(
             (sys.executable, "-c", "import time; time.sleep(10)"),
             tmp_path,
             timeout=0.05,
@@ -415,11 +407,16 @@ def test_static_check_never_touches_referenced_data(
         lambda path, validate_factors=True, deadline=None: meta,
     )
     monkeypatch.setattr(application, "load_run_specs", lambda *args: ())
-    monkeypatch.setattr(application, "probe_cache_coordination", lambda *args: None)
+    monkeypatch.setattr(application, "probe_environment", lambda *args: None)
     monkeypatch.setattr(
         application,
         "_estimate_state",
-        lambda *args: ({"estimatedDiskBytes": 4}, meta, (), 4),
+        lambda *args: (
+            {"estimatedDiskBytes": 4, "estimatedScratchBytes": 0},
+            meta,
+            (),
+            4,
+        ),
     )
     original_open, original_stat = Path.open, Path.stat
     original_iterdir, original_read = Path.iterdir, Path.read_bytes
@@ -473,6 +470,7 @@ def test_smoke_executes_exactly_two_runs_and_removes_owned_paths(
     class Simulator:
         def __init__(self, settings, *args):
             self.settings = settings
+            self.paths = SimpleNamespace(root=settings.worker(0).root)
             self.interrupted = False
             simulators.append(self)
 

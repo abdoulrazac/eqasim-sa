@@ -23,11 +23,14 @@ def write(
 
 
 def main() -> int:
-    if sys.argv[1:] == ["--cache-coordination-capability"]:
-        if os.environ.get("EQASIM_SPY_PREFLIGHT_RECORD"):
-            with Path(os.environ["EQASIM_SPY_PREFLIGHT_RECORD"]).open("a") as stream:
-                stream.write(f"{os.getpid()}\n")
-        print(os.environ.get("EQASIM_SPY_CAPABILITY", "synpp-cache-coordination-v1"))
+    if (
+        len(sys.argv) == 2
+        and Path(sys.argv[1]).name.startswith(".eqasim-sa-probe-")
+    ):
+        print(f"synpp.general.PipelineError: Config file does not exist: {sys.argv[1]}", file=sys.stderr)
+        return 1
+    if sys.argv[1:] == ["--help"]:
+        print("usage: eqasim-spy CONFIG [--key value ...]")
         return 0
     output = Path(option("--output_path"))
     prefix = option("--output_prefix")

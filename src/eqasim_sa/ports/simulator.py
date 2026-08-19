@@ -31,6 +31,7 @@ class IndicatorRequirement:
 class Manifest:
     artifacts: tuple[Artifact, ...]
     attempt_directory: Path
+    scratch_bytes: int = 0
 
 
 class SimulationError(RuntimeError):
