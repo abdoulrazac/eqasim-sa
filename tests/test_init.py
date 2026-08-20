@@ -14,7 +14,7 @@ from eqasim_sa.adapters.application import init_from_inputs
 from eqasim_sa.cli import dispatch, parser
 
 
-METHODS = ("calibration", "grid", "morris", "sobol")
+METHODS = ("calibration", "grid", "discrete-oat", "sobol")
 
 
 def inputs(tmp_path: Path) -> tuple[Path, Path]:
@@ -70,14 +70,14 @@ def test_init_is_a_pure_atomic_template_generator(
 
     assert result == {
         "status": "initialized",
-        "initVersion": 2,
+        "initVersion": 3,
         "projectName": "project",
         "manifest": "manifest.json",
         "readme": "README.md",
         "metaConfigs": {
             "calibration": "configs/00-calibration.yml",
             "grid": "configs/01-grid.yml",
-            "morris": "configs/02-morris.yml",
+            "discrete_oat": "configs/02-discrete-oat.yml",
             "sobol": "configs/03-sobol.yml",
         },
         "elapsedSeconds": result["elapsedSeconds"],
@@ -101,7 +101,8 @@ def test_init_is_a_pure_atomic_template_generator(
     for index, method in enumerate(METHODS):
         text = (root / f"configs/{index:02d}-{method}.yml").read_text()
         assert "data_manifest: \"../manifest.json\"" in text
-        assert f"campaign: project-{method}" in text
+        expected_campaign = "discrete_oat" if method == "discrete-oat" else method
+        assert f"campaign: project-{expected_campaign}" in text
         assert "charter:\n  status: demonstration\n" in text
         assert "HTS adjust with INSEE population weights" not in text
         assert text.count("references: [INSEE]") == 1
@@ -109,7 +110,9 @@ def test_init_is_a_pure_atomic_template_generator(
     assert "matching_age_scheme:\n    values: [matching_6, analysis_7]" in (
         root / "configs/01-grid.yml"
     ).read_text()
-    assert "matching_age_scheme" not in (root / "configs/02-morris.yml").read_text()
+    assert "matching_age_scheme" not in (
+        root / "configs/02-discrete-oat.yml"
+    ).read_text()
     assert "matching_age_scheme:\n    values: [matching_6, analysis_7]" in (
         root / "configs/03-sobol.yml"
     ).read_text()
@@ -373,10 +376,10 @@ def test_init_rejects_model_destination_and_scratch_overlap_without_side_effects
     assert set(containing.iterdir()) == {inside_model}
 
 
-def test_init_cli_v2_schema_and_removed_manifest_option(monkeypatch, capsys) -> None:
+def test_init_cli_v3_schema_and_removed_manifest_option(monkeypatch, capsys) -> None:
     captured = []
     expected = {
-        "status": "initialized", "initVersion": 2, "projectName": "demo",
+        "status": "initialized", "initVersion": 3, "projectName": "demo",
         "manifest": "manifest.json", "readme": "README.md", "metaConfigs": {},
         "elapsedSeconds": 1.0, "error": None,
     }
@@ -391,3 +394,14 @@ def test_init_cli_v2_schema_and_removed_manifest_option(monkeypatch, capsys) -> 
     assert captured[0][3] == Path("eqasim-data") and captured[0][4] is None
     assert json.loads(capsys.readouterr().out) == expected
     assert "--data-manifest" not in parser().format_help()
+
+
+def test_init_cli_failure_uses_v3_schema(monkeypatch, capsys) -> None:
+    def fail(*arguments):
+        raise ValueError("invalid init")
+
+    monkeypatch.setattr(sys, "argv", ["eqasim-sa", "init", "--project-name", "demo"])
+    assert dispatch(None, None, init_factory=fail) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "failed"
+    assert payload["initVersion"] == 3

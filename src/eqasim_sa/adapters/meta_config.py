@@ -31,7 +31,12 @@ from eqasim_sa.core.indicators import (
     TotalVariationIndicator,
     resolve_indicators,
 )
-from eqasim_sa.core.plan import validate_morris_values
+from eqasim_sa.core.plan import (
+    MAX_CANONICAL_MORRIS_CANDIDATES,
+    MAX_CANONICAL_MORRIS_DISTANCE_TERMS,
+    canonical_morris_distance_terms,
+    validate_morris_values,
+)
 from eqasim_sa.core.run import EXCLUDED_PATHS
 from eqasim_sa.ports.simulator import IndicatorRequirement
 
@@ -74,10 +79,14 @@ class MetaConfig:
     seed_role: str
     method: str
     trajectories: int | None
+    levels: int | None
+    candidate_trajectories: int | None
     design_seed: int | None
     base_sample_size: int | None
     bootstrap_resamples: int | None
     confidence_level: float | None
+    convergence_checkpoints: tuple[int, ...] | None
+    screening_top_k: int | None
     completeness_threshold: float
     context_descriptor: dict[str, str]
     context_hash: str
@@ -483,7 +492,15 @@ def load_meta_config(
     analysis = _mapping(document["analysis"], "analysis")
     method = experiment.get("method")
     analysis_keys = (
-        {"completeness_threshold", "bootstrap_resamples", "confidence_level"}
+        {
+            "completeness_threshold",
+            "bootstrap_resamples",
+            "confidence_level",
+            "convergence_checkpoints",
+            "screening_top_k",
+        }
+        if method == "canonical_morris"
+        else {"completeness_threshold", "bootstrap_resamples", "confidence_level"}
         if method == "sobol"
         else {"completeness_threshold"}
     )
@@ -502,6 +519,13 @@ def load_meta_config(
         )
     raw_parameters = _mapping(document["parameters"], "parameters")
     status = charter_status(document.get("charter"))
+    if (
+        method in {"morris", "discrete_oat"}
+        and status is not CharterStatus.DEMONSTRATION
+    ):
+        raise ValueError(f"{method} requires charter.status demonstration")
+    if method == "canonical_morris" and status is not CharterStatus.SCIENTIFIC:
+        raise ValueError("canonical_morris requires charter.status scientific")
     if "replications" in experiment and "seed" in raw_parameters:
         raise ValueError(
             "le seed est soit un facteur, soit une réplication, jamais les deux"
@@ -529,10 +553,21 @@ def load_meta_config(
     expected_experiment = (
         {"method", "seed_role", "replications"}
         if method == "grid"
+        else {
+            "method",
+            "seed_role",
+            "levels",
+            "trajectories",
+            "candidate_trajectories",
+            "design_seed",
+            "replications",
+        }
+        if method == "canonical_morris"
         else {"method", "seed_role", "trajectories", "design_seed", "replications"}
     )
     if seed_role == "replication" and (
-        method not in {"grid", "morris"} or set(experiment) != expected_experiment
+        method not in {"grid", "morris", "discrete_oat", "canonical_morris"}
+        or set(experiment) != expected_experiment
     ):
         raise ValueError(
             "seed_role replication experiment keys must match grid or Morris trajectories/design_seed contract"
@@ -541,8 +576,10 @@ def load_meta_config(
         experiment.get("trajectories"),
         experiment.get("design_seed"),
     )
+    levels = experiment.get("levels")
+    candidate_trajectories = experiment.get("candidate_trajectories")
     base_sample_size = experiment.get("base_sample_size")
-    if method == "morris":
+    if method in {"morris", "discrete_oat"}:
         if type(trajectories) is not int or trajectories <= 0:
             raise ValueError(
                 "experiment.trajectories must be a strictly positive integer"
@@ -550,7 +587,31 @@ def load_meta_config(
         if type(design_seed) is not int or not -(2**63) <= design_seed < 2**63:
             raise ValueError("experiment.design_seed must be a signed int64")
         if completeness_threshold != 1.0:
-            raise ValueError("Morris analysis.completeness_threshold must equal 1.0")
+            raise ValueError(
+                "adjacent OAT analysis.completeness_threshold must equal 1.0"
+            )
+    if method == "canonical_morris":
+        if type(levels) is not int or levels < 4 or levels % 2:
+            raise ValueError(
+                "experiment.levels must be an even integer greater than or equal to 4"
+            )
+        if type(trajectories) is not int or trajectories < 2:
+            raise ValueError("experiment.trajectories must be an integer at least 2")
+        if (
+            type(candidate_trajectories) is not int
+            or candidate_trajectories < trajectories
+            or candidate_trajectories > MAX_CANONICAL_MORRIS_CANDIDATES
+        ):
+            raise ValueError(
+                "experiment.candidate_trajectories must be an integer at least trajectories "
+                f"and at most {MAX_CANONICAL_MORRIS_CANDIDATES}"
+            )
+        if type(design_seed) is not int or not -(2**63) <= design_seed < 2**63:
+            raise ValueError("experiment.design_seed must be a signed int64")
+        if completeness_threshold != 1.0:
+            raise ValueError(
+                "canonical Morris analysis.completeness_threshold must equal 1.0"
+            )
     if method == "sobol":
         if (
             type(base_sample_size) is not int
@@ -566,16 +627,20 @@ def load_meta_config(
             )
         if completeness_threshold != 1.0:
             raise ValueError("Sobol analysis.completeness_threshold must equal 1.0")
+    convergence_checkpoints = screening_top_k = None
+    if method in {"sobol", "canonical_morris"}:
         bootstrap_resamples, confidence_level = (
             analysis["bootstrap_resamples"],
             analysis["confidence_level"],
         )
+        minimum_resamples = 100 if method == "canonical_morris" else 1
         if (
             type(bootstrap_resamples) is not int
-            or not 1 <= bootstrap_resamples <= 2**63 - 1
+            or not minimum_resamples <= bootstrap_resamples <= 2**63 - 1
         ):
             raise ValueError(
-                "analysis.bootstrap_resamples must be a positive signed int64 integer"
+                "analysis.bootstrap_resamples must be a signed int64 integer at least "
+                f"{minimum_resamples}"
             )
         if (
             type(confidence_level) is not float
@@ -585,7 +650,28 @@ def load_meta_config(
             raise ValueError(
                 "analysis.confidence_level must be a finite float in (0,1)"
             )
-        seeds = _mapping(raw_parameters["seed"], "parameters.seed").get("values")
+        if method == "sobol":
+            seeds = _mapping(raw_parameters["seed"], "parameters.seed").get("values")
+        else:
+            raw_checkpoints = analysis["convergence_checkpoints"]
+            if (
+                not isinstance(raw_checkpoints, list)
+                or not raw_checkpoints
+                or any(type(value) is not int or value < 2 for value in raw_checkpoints)
+                or sorted(set(raw_checkpoints)) != raw_checkpoints
+                or raw_checkpoints[-1] != trajectories
+            ):
+                raise ValueError(
+                    "analysis.convergence_checkpoints must be sorted unique integers at least 2 ending at trajectories"
+                )
+            convergence_checkpoints = tuple(raw_checkpoints)
+            screening_top_k = analysis["screening_top_k"]
+            replications = _mapping(experiment["replications"], "experiment.replications")
+            if set(replications) != {"seeds"} or not isinstance(
+                replications["seeds"], list
+            ):
+                raise ValueError("experiment.replications.seeds must be a list")
+            seeds = replications["seeds"]
     else:
         bootstrap_resamples = confidence_level = None
         replications = _mapping(experiment["replications"], "experiment.replications")
@@ -696,12 +782,12 @@ def load_meta_config(
                 f"scientific factor {name!r} discrete-uniform support must contain "
                 "at least two distinct values"
             )
-        if method == "morris":
+        if method in {"morris", "discrete_oat"}:
             validate_morris_values(name, values)
-        if method == "sobol":
+        if method in {"sobol", "canonical_morris"}:
             if len(values) < 2 or len(set(values)) != len(values):
                 raise ValueError(
-                    f"Sobol factor {name!r} values must contain at least two distinct values"
+                    f"factor {name!r} values must contain at least two distinct values"
                 )
             if len({type(value) for value in values}) != 1 or type(values[0]) not in (
                 int,
@@ -709,18 +795,38 @@ def load_meta_config(
                 str,
             ):
                 raise TypeError(
-                    f"Sobol factor {name!r} values must be homogeneous scalars"
+                    f"factor {name!r} values must be homogeneous scalars"
                 )
         factors[name] = declaration["values"]
-    if method == "morris" and not factors:
-        raise ValueError("Morris requires at least one factor")
-    if method == "morris":
+    if method in {"morris", "discrete_oat", "canonical_morris"} and not factors:
+        raise ValueError("trajectory design requires at least one factor")
+    if method in {"morris", "discrete_oat"}:
         candidates = math.factorial(len(factors)) * math.prod(
             2 * (len(values) - 1) for values in factors.values()
         )
         if trajectories > candidates:
             raise ValueError(
                 f"experiment.trajectories exceeds Morris candidate count {candidates}"
+            )
+    if method == "canonical_morris":
+        universe = math.factorial(len(factors)) * levels ** len(factors)
+        if candidate_trajectories > universe:
+            raise ValueError(
+                f"experiment.candidate_trajectories exceeds canonical candidate count {universe}"
+            )
+        if canonical_morris_distance_terms(
+            len(factors), candidate_trajectories, trajectories
+        ) > MAX_CANONICAL_MORRIS_DISTANCE_TERMS:
+            raise ValueError(
+                "canonical Morris candidate selection exceeds the deterministic "
+                "distance-computation budget"
+            )
+        if (
+            type(screening_top_k) is not int
+            or not 1 <= screening_top_k <= len(factors)
+        ):
+            raise ValueError(
+                "analysis.screening_top_k must be a positive integer no greater than factor count"
             )
     if method == "sobol":
         if len(factors) + 1 < 2:
@@ -745,6 +851,8 @@ def load_meta_config(
     artifacts, indicators, indicator_requirements = _indicator_blocks(document)
     if method == "morris" and not indicators:
         raise ValueError("Morris requires at least one indicator")
+    if method in {"discrete_oat", "canonical_morris"} and not indicators:
+        raise ValueError(f"{method} requires at least one indicator")
     if method == "sobol" and not indicators:
         raise ValueError("Sobol requires at least one indicator")
     charter = parse_charter(
@@ -752,6 +860,11 @@ def load_meta_config(
         set(raw_parameters),
         {item.name for item in indicators},
     )
+    if method == "canonical_morris":
+        if charter.decision.objective.value != "screening":
+            raise ValueError("canonical_morris requires sensitivity objective screening")
+        if charter.dependence.kind.value != "independent":
+            raise ValueError("canonical_morris requires independent parameter dependence")
     if any(_state(item) != state for item, state in control_states):
         raise RuntimeError("sealed control input changed while loading")
     return MetaConfig(
@@ -766,10 +879,14 @@ def load_meta_config(
         seed_role,
         method,
         trajectories,
+        levels,
+        candidate_trajectories,
         design_seed,
         base_sample_size,
         bootstrap_resamples,
         confidence_level,
+        convergence_checkpoints,
+        screening_top_k,
         completeness_threshold,
         descriptor,
         hashlib.sha256(b"eqasim-sa:context:v1\0" + encoded).hexdigest(),

@@ -8,13 +8,12 @@ Le parseur Python est normatif : le projet ne fournit pas de JSON Schema.
 ## Documentation utilisateur
 
 1. [Démarrage](getting-started.md) : installation, `init` et première campagne.
-2. [Tutoriel Nantes de bout en bout](../../tutorial-sa-init/README-fr.md) : étude complète issue de `init`.
-3. [Référence YAML](yaml-reference.md) : contrat complet d'une méta-configuration.
-4. [Paramètres et méthodes](parameters-and-methods.md) : Grid, Morris, Sobol et seeds.
-5. [Workflow et résultats](workflow-and-results.md) : identités, stockage et reprise.
-6. [Référence CLI](cli-reference.md) : commandes, JSON et codes de sortie.
-7. [Dépannage](troubleshooting.md) : erreurs fréquentes et remèdes sûrs.
-8. [Glossaire](glossary.md) : vocabulaire précis du projet.
+2. [Référence YAML](yaml-reference.md) : contrat complet d'une méta-configuration.
+3. [Paramètres et méthodes](parameters-and-methods.md) : Grid, OAT discret, Morris canonique, Sobol et seeds.
+4. [Workflow et résultats](workflow-and-results.md) : identités, stockage et reprise.
+5. [Référence CLI](cli-reference.md) : commandes, JSON et codes de sortie.
+6. [Dépannage](troubleshooting.md) : erreurs fréquentes et remèdes sûrs.
+7. [Glossaire](glossary.md) : vocabulaire précis du projet.
 
 ## Documentation contributeur
 
@@ -40,12 +39,18 @@ Retour à la [page d'accueil](../README-fr.md).
 | Méthode | Rôle de la seed | Positions | Sortie spécifique |
 | --- | --- | --- | --- |
 | Grid | réplication | produit des tailles de domaines × seeds | `replication-dispersion.parquet` |
-| Morris | réplication | `T(D+1)R` | `morris-ranking.parquet` |
+| `morris` historique | réplication | `T(D+1)R` | `morris-ranking.parquet` |
+| OAT discret | réplication | `T(D+1)R` | `discrete-oat-effects.parquet` |
+| Morris canonique | réplication dérivée par bloc de trajectoire | `T(D+1)R` | Parquet de classement, convergence et inversions de rang |
 | Sobol | facteur | `N(2D+2)` | `sobol-indices.parquet` |
 
 `D` inclut la seed pour Sobol. Le nombre de runs uniques peut être inférieur au
 nombre de positions, car plusieurs positions statistiques peuvent désigner la
 même configuration résolue.
+
+`init` génère des starters de démonstration Grid, OAT discret et Sobol. Il ne
+génère pas Morris canonique, dont le contrat de criblage scientifique doit être
+propre à l'étude. L'ancien `morris` reste lisible mais n'est pas recommandé.
 
 `init` prépare les fichiers et les empreintes. Seul le `run` de calibration
 fournit les observations de ressources utilisées par `check` et `estimate`.

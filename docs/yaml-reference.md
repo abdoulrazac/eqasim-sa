@@ -61,9 +61,10 @@ charter:
 
 A demonstration campaign validates configuration, execution, storage, and
 analysis plumbing. It cannot support inferential or decision claims. Existing
-Grid, Morris, and Sobol plans remain readable demonstration provenance; the
-current Morris and Sobol implementations are legacy inferential methods, not
-scientific evidence.
+Grid, historical `morris`, discrete OAT, and Sobol plans remain readable
+demonstration provenance. Historical `morris` is compatibility-only; discrete
+OAT is the current name for new adjacent-level demonstrations. Neither is
+canonical Morris.
 
 A scientific charter uses the complete strict schema below:
 
@@ -137,10 +138,21 @@ non-empty; each criterion has exactly `metric`, positive finite float
 `robustness.checks` is non-empty. Each check contains exactly a unique,
 non-empty `name` and a non-empty `rationale`.
 
-The charter is structurally validated by `load_meta_config`. Plan and check then
-reject every current method when `status: scientific`, before a plan can be
-sealed, because no current method satisfies the scientific contract. This
-explicitly rejects the old Morris and Sobol legacy inferential plans.
+The charter is structurally validated by `load_meta_config`. A scientific
+charter can currently be sealed only by `canonical_morris`, and then only when
+`decision.objective` is `screening` and parameter dependence is `independent`.
+Historical `morris`, discrete OAT, and Sobol are rejected by scientific charters.
+
+The canonical plan metadata stores a normalized `scientificContract` object for
+analyzers. Its root keys are exactly `charter` and `parameters`. The normalized
+`charter` has exactly `status`, `decision`, `uncertainty`, `budget`, `stopping`,
+and `robustness`; unlike YAML input, `stopping` and `robustness` are the item
+lists directly. Screening serializes `practical_tolerance: null`. Independent
+dependence serializes `groups: []`. `inventory` always has exactly the five
+categories above. `parameters` is sorted by name, and every entry contains
+exactly `name`, `support`, and the matching `distribution`. Core plan validation
+checks this complete shape and its equality with the design factors before
+publication.
 
 ## `model` and `context`
 
@@ -214,7 +226,7 @@ These are exactly the three allowed keys. `seed_role` is `replication`. `seeds`
 is a non-empty, duplicate-free list of signed 64-bit integers. Grid with the seed
 as a factor is not supported.
 
-### Morris
+### Historical `morris`
 
 ```yaml
 experiment:
@@ -226,9 +238,144 @@ experiment:
     seeds: [1301, 1302]
 ```
 
-These are exactly the five allowed keys. `trajectories` is a strictly positive
-integer no greater than the number of candidate trajectories. `design_seed` is
-a signed 64-bit integer. Replication seeds follow the Grid contract.
+This is the exact old five-key schema. `trajectories` is a strictly positive
+integer no greater than the adjacent-level candidate count, `design_seed` is a
+signed 64-bit integer, and replication seeds follow the Grid contract. It is
+accepted only with a missing or demonstration charter so old plans remain
+readable as legacy demonstration provenance. Do not use it for a new campaign.
+
+### Discrete OAT
+
+```yaml
+experiment:
+  method: discrete_oat
+  seed_role: replication
+  trajectories: 8
+  design_seed: 20260814
+  replications:
+    seeds: [1301, 1302]
+```
+
+This has exactly the same five-key shape and numeric validation as historical
+`morris`, but has an independent method identity, plan metadata identity, and
+design-ID domain. It requires a demonstration charter. Its trajectories move
+between adjacent, strictly increasing numeric levels; analysis divides each
+output difference by that local step normalized by the factor's full declared
+range. These are local normalized effects, not canonical Morris effects.
+
+### Canonical Morris
+
+```yaml
+experiment:
+  method: canonical_morris
+  seed_role: replication
+  levels: 4
+  trajectories: 8
+  candidate_trajectories: 32
+  design_seed: 20260820
+  replications:
+    seeds: [1301, 1302]
+```
+
+These are exactly the seven allowed experiment keys. Canonical Morris requires a
+scientific charter with objective `screening`, independent parameter dependence,
+and a declared distribution for every parameter. `levels` is an even integer at
+least 4; `trajectories` is at least 2; `candidate_trajectories` is at least
+`trajectories`, no greater than the finite candidate universe, and at most 500.
+A deterministic distance-computation complexity budget is enforced in addition
+to the 500 cap. `design_seed` and every replication base seed are signed 64-bit
+integers; base seeds are non-empty and unique.
+
+The common unit-probability step is stored exactly as the rational
+`Delta = p/[2(p-1)]`, where `p = levels`. Values are mapped in lexicographic
+factor order by the declared discrete-uniform generalized inverse. For support
+length `L` and grid index `z`, the support index is 0 at `z = 0`, otherwise
+`min((L*z - 1)//(p-1), L-1)`. A versioned SHA-256 derivation combines
+`design_seed`, base seed, selected trajectory identity, and replication index.
+All `D+1` points in that trajectory-replication block share the derived seed,
+providing common random numbers within each elementary-effect contrast; derived
+seeds must be unique between blocks.
+
+The candidate pool and selected trajectories are deterministic. Selection uses
+the pair with greatest sum of pairwise squared point distances, then greedily
+adds the candidate with greatest summed distance to the selected set, with
+lexicographic identity tie-breaking. The sealed algorithm is
+`greedy-sum-pairwise-squared-distance`; it is not described as maximin or as a
+Campolongo-optimal design.
+
+Before publishing the plan, unique runs must not exceed
+`floor(maximum_runs * (1 - reserve_fraction))`. The reserved fraction remains
+outside the initial execution budget. Canonical plans use plan schema v2 and
+seal the complete normalized scientific contract, distributions, supports,
+candidate identities, selected trajectories, Delta, seed derivation, and
+analysis settings. Loading and analysis reconstruct and compare that contract.
+
+`init` does not generate a canonical Morris starter because the scientific
+claim, uncertainty inventory, estimand, budget, convergence criteria, robustness
+checks, supports, and provenance must be study-specific. The following is only
+an illustrative schema fragment; it deliberately omits model, context,
+artifacts, indicators, execution, calibration, and most inventory entries, so it
+is not a ready campaign:
+
+```yaml
+charter:
+  status: scientific
+  decision:
+    claim: <study-specific screening claim>
+    use: diagnostic
+    setting: <declared decision setting>
+    objective: screening
+    estimand: <expected indicator over simulation seeds>
+    primary_indicator: <resolved indicator name>
+  uncertainty:
+    dependence:
+      kind: independent
+      rationale: <study-specific justification>
+    inventory:
+      parameters:
+        - name: sampling_rate
+          status: varied
+          provenance: <source>
+          rationale: <why varied>
+      data: []
+      structures: []
+      scenarios: []
+      numerics: []
+  budget:
+    maximum_runs: 1000
+    reserve_fraction: 0.1
+  stopping:
+    criteria:
+      - metric: <declared metric>
+        threshold: 0.05
+        consecutive_checks: 2
+  robustness:
+    checks:
+      - name: <declared check>
+        rationale: <why required>
+experiment:
+  method: canonical_morris
+  seed_role: replication
+  levels: 4
+  trajectories: 8
+  candidate_trajectories: 32
+  design_seed: 20260820
+  replications:
+    seeds: [1301, 1302]
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002, 0.005]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: <study-specific support source>
+analysis:
+  completeness_threshold: 1.0
+  bootstrap_resamples: 999
+  confidence_level: 0.95
+  convergence_checkpoints: [2, 4, 8]
+  screening_top_k: 1
+```
 
 ### Sobol
 
@@ -262,10 +409,13 @@ They are homogeneous within each domain. Booleans, `null`, lists, mappings, NaN,
 and infinities are rejected. The name must be a safe synpp option, an active key
 in `model.config.config`, and a valid, non-reserved factor identifier.
 
-Grid and Morris require at least one factor. When the plan is created or
-validated, every Grid domain must be non-empty and homogeneous. Morris requires
+Grid, historical `morris`, and discrete OAT require at least one factor. When the plan is created or
+validated, every Grid domain must be non-empty and homogeneous. Historical
+`morris` and discrete OAT require
 homogeneous numeric domains with at least two distinct, strictly increasing
-levels. Sobol requires at least two distinct values per factor.
+levels. Canonical Morris and Sobol require at least two distinct homogeneous
+scalar values per factor; canonical supports may be numeric or textual because
+mapping occurs through the declared distribution.
 
 To inspect candidate keys and their actual types before writing `parameters`,
 run the following from the model root:
@@ -319,7 +469,7 @@ uniformity applies to support points, never to repeated list positions.
 
 ## `analysis`
 
-Grid and Morris require exactly:
+Grid, historical `morris`, and discrete OAT require exactly:
 
 ```yaml
 analysis:
@@ -327,7 +477,7 @@ analysis:
 ```
 
 The threshold is a finite YAML `float` in `[0, 1]`; `1` is invalid because it
-becomes an integer. Morris requires `1.0`.
+becomes an integer. Both adjacent-level trajectory methods require `1.0`.
 
 Sobol requires exactly:
 
@@ -341,6 +491,24 @@ analysis:
 `bootstrap_resamples` is an integer in `[1, 2^63-1]`.
 `confidence_level` is a finite `float` strictly between 0 and 1. Sobol also
 requires completeness of `1.0`.
+
+Canonical Morris requires exactly:
+
+```yaml
+analysis:
+  completeness_threshold: 1.0
+  bootstrap_resamples: 999
+  confidence_level: 0.95
+  convergence_checkpoints: [2, 4, 8]
+  screening_top_k: 2
+```
+
+These are exactly the five analysis keys. It requires at least 100 bootstrap resamples. Checkpoints are sorted, unique
+integers of at least 2 and end at `trajectories`. `screening_top_k` is between 1
+and the number of factors. Bootstrap resamples whole trajectories after effects
+have first been averaged over replication seeds. It supplies finite-design
+uncertainty evidence conditional on the sealed contract, not automatic
+certification of the charter's stopping or robustness requirements.
 
 ## `artifacts`
 
@@ -422,7 +590,8 @@ Both keys are non-empty strings. `function` must match exactly one installed
 entry point in the `eqasim_sa.indicators` group. The loaded object must be
 callable or provide `compute(artifacts)` and return a finite `float`.
 
-Morris and Sobol require at least one indicator. Grid accepts an empty list.
+Historical `morris`, discrete OAT, canonical Morris, and Sobol require at least
+one indicator. Grid accepts an empty list.
 Resolved indicator names and identities must be unique within the analysis.
 
 ### Total variation distance
@@ -506,7 +675,7 @@ is 1.
 
 ## Complete valid examples
 
-The following three examples are complete at the schema level. Their contextual
+The following three generated examples are complete at the schema level. Their contextual
 validation first requires the paths to exist, `model.root` to be the exact root
 of a clean Git repository, `model.config` to be tracked and identical to its
 `HEAD` blob, the manifest and lockfile to be regular files, the scratch directory
@@ -514,16 +683,19 @@ to exist, and factors/overrides to exist in the model YAML with the indicated
 types. The referenced `00-calibration.yml` file must also exist and must not
 contain a `calibration` block.
 
-The versions rendered by `init` remain the canonical examples:
+The versions rendered by `init` are demonstration starters:
 [Grid](../src/eqasim_sa/templates/01-grid.yml),
-[Morris](../src/eqasim_sa/templates/02-morris.yml), and
+[discrete OAT](../src/eqasim_sa/templates/02-discrete-oat.yml), and
 [Sobol](../src/eqasim_sa/templates/03-sobol.yml).
+There is no generated canonical Morris starter.
 
 ### Grid
 
 ```yaml
 campaign: demo-grid
 campaign_root: ../campaigns/grid
+charter:
+  status: demonstration
 model:
   config: ../../eqasim-france/config_local_nantes.yml
   root: ../../eqasim-france
@@ -562,11 +734,13 @@ calibration:
   meta_configs: [00-calibration.yml]
 ```
 
-### Morris
+### Discrete OAT
 
 ```yaml
-campaign: demo-morris
-campaign_root: ../campaigns/morris
+campaign: demo-discrete-oat
+campaign_root: ../campaigns/discrete-oat
+charter:
+  status: demonstration
 model:
   config: ../../eqasim-france/config_local_nantes.yml
   root: ../../eqasim-france
@@ -576,7 +750,7 @@ context:
 analysis:
   completeness_threshold: 1.0
 experiment:
-  method: morris
+  method: discrete_oat
   seed_role: replication
   trajectories: 2
   design_seed: 20260814
@@ -612,6 +786,8 @@ calibration:
 ```yaml
 campaign: demo-sobol
 campaign_root: ../campaigns/sobol
+charter:
+  status: demonstration
 model:
   config: ../../eqasim-france/config_local_nantes.yml
   root: ../../eqasim-france
@@ -678,7 +854,7 @@ parameters:
     values: [1, 2]
 ```
 
-Unordered Morris domain:
+Unordered historical-Morris/discrete-OAT domain:
 
 ```yaml
 parameters:

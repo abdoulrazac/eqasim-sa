@@ -94,7 +94,7 @@ def test_installed_metadata_and_commands(tmp_path: Path) -> None:
     resources = {
         name: files("eqasim_sa.templates").joinpath(name)
         for name in (
-            "README.md", "00-calibration.yml", "01-grid.yml", "02-morris.yml", "03-sobol.yml"
+            "README.md", "00-calibration.yml", "01-grid.yml", "02-discrete-oat.yml", "03-sobol.yml"
         )
     }
     assert all(resource.is_file() for resource in resources.values())
@@ -103,20 +103,20 @@ def test_installed_metadata_and_commands(tmp_path: Path) -> None:
     assert "It did not" in readme and '"${SA[@]}" plan' in readme
     assert all(
         '@DATA_MANIFEST@' in resources[name].read_text()
-        for name in ("00-calibration.yml", "01-grid.yml", "02-morris.yml", "03-sobol.yml")
+        for name in ("00-calibration.yml", "01-grid.yml", "02-discrete-oat.yml", "03-sobol.yml")
     )
-    assert "method: morris" in resources["02-morris.yml"].read_text()
+    assert "method: discrete_oat" in resources["02-discrete-oat.yml"].read_text()
     assert "method: sobol" in resources["03-sobol.yml"].read_text()
     assert "base_sample_size: 4" in resources["03-sobol.yml"].read_text()
     assert "matching_age_scheme" in resources["01-grid.yml"].read_text()
-    assert "matching_age_scheme" not in resources["02-morris.yml"].read_text()
+    assert "matching_age_scheme" not in resources["02-discrete-oat.yml"].read_text()
     assert "matching_age_scheme" in resources["03-sobol.yml"].read_text()
     starter_configs = [
         resources[name].read_text()
         for name in (
             "00-calibration.yml",
             "01-grid.yml",
-            "02-morris.yml",
+            "02-discrete-oat.yml",
             "03-sobol.yml",
         )
     ]

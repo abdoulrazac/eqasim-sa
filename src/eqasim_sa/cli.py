@@ -120,12 +120,13 @@ def dispatch(
     if arguments.command == "init":
         empty = {
             "status": "failed",
-            "initVersion": 2,
+            "initVersion": 3,
             "projectName": arguments.project_name,
             "manifest": None,
             "readme": None,
             "metaConfigs": {
-                method: None for method in ("calibration", "grid", "morris", "sobol")
+                method: None
+                for method in ("calibration", "grid", "discrete_oat", "sobol")
             },
             "elapsedSeconds": 0.0,
             "error": None,
@@ -287,6 +288,8 @@ def dispatch(
             "dispersionPath": None,
             "sensitivityMethod": None,
             "sensitivityPath": None,
+            "convergencePath": None,
+            "rankReversalsPath": None,
         }
         try:
             if analyze_factory is None:

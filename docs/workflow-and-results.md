@@ -39,8 +39,9 @@ carries the seed separately. More precisely, the excluded binaries are
 is `java_memory`. `output_prefix` is not excluded, so its value affects `runId`.
 
 `designId` identifies a statistical position, not an execution. It includes
-level and replication indices for Grid, or the sealed design role for Morris and
-Sobol. Two distinct `designId` values can therefore share a `runId`.
+level and replication indices for Grid, or the sealed design role for historical
+Morris, discrete OAT, canonical Morris, and Sobol. Two distinct `designId` values
+can therefore share a `runId`.
 
 ## Positions and Unique Runs
 
@@ -49,12 +50,18 @@ Sobol. Two distinct `designId` values can therefore share a `runId`.
 | Column | Type | Meaning |
 | --- | --- | --- |
 | `designId` | string | position identity |
-| `method` | string | `grid`, `morris`, or `sobol` |
+| `method` | string | `grid`, legacy `morris`, `discrete_oat`, `canonical_morris`, or `sobol` |
 | `role` | string | `point`, trajectory step, or Sobol matrix |
 | `runId` | string | deduplicated execution identity |
 | `seed` | int64 | eqasim seed |
 | `contextHash` | string | scientific context |
 | `<factor>` | domain type | projected value of each factor other than seed |
+
+Historical `morris` is readable legacy demonstration provenance only. New
+adjacent-level demonstrations use `discrete_oat`; scientific screening uses
+`canonical_morris`. Canonical Morris plans have `planSchemaVersion: 2` and seal
+the normalized scientific contract and complete design/analysis definition.
+Other current and legacy plans use plan schema v1.
 
 The schema, its metadata, and all rows are recomputed when loading. For Sobol,
 the physical row order may vary, but the content indexed by `designId` must be
@@ -168,11 +175,67 @@ uses `mean ± 1.96 × std/√n`; with a single observation, the dispersion stati
 `std`, `cv`, `ci95_low`, and `ci95_high` are null; `n` is 1 and `mean` retains
 the observed value.
 
-### `morris-ranking.parquet`
+### `morris-ranking.parquet` (historical compatibility)
 
 Columns: `indicator`, `factor`, `rank`, `trajectories`, `replications`, `n`,
 `mu`, `mu_star`, `sigma`, `seed_std`. Ranking is ordered by descending `mu_star`,
-then by factor name.
+then by factor name. This output belongs only to readable legacy `method: morris`
+provenance and is not recommended for a new campaign.
+
+### `discrete-oat-effects.parquet`
+
+Produced for `method: discrete_oat`. It has the same columns as the historical
+adjacent-level table: `indicator`, `factor`, integer `rank`, `trajectories`,
+`replications`, `n`, `mu`, `mu_star`, nullable `sigma`, and nullable `seed_std`.
+Effects use adjacent numeric levels and each local step normalized by the full
+declared factor range. This demonstration output is not canonical Morris, does
+not estimate variance shares, and does not justify factor fixing.
+
+### `canonical-morris-ranking.parquet`
+
+Produced for the final checkpoint of `method: canonical_morris`. Columns are:
+`indicator`, `factor`, float `rank`, `rank_ci_low`, `rank_ci_high`,
+`top_k_probability`, `trajectories`, `replications`, `elementary_effects`,
+`delta`, `mu`, `mu_star`, `mu_star_ci_low`, `mu_star_ci_high`, nullable `sigma`,
+nullable `seed_std`, `bootstrap_resamples`, and `confidence_level`.
+
+Effects are averaged over the `R` replications within each trajectory before
+the estimates are computed across `T` trajectory means. Consequently,
+`elementary_effects` records the computed count `T*R`, while `T` trajectories,
+not `T*R` effects, are the effective bootstrap units. `seed_std` is the root
+mean square of within-trajectory sample variances over seeds and is null when
+`R=1`.
+
+Point ranks are floats because exact `mu_star` ties receive their average rank.
+Each bootstrap replicate uses the same average-rank rule. If a tied group crosses
+the declared top-k boundary, the remaining top-k slots are split fractionally
+within that group; `top_k_probability` averages those fractional allocations.
+`mu_star` interval endpoints use NumPy's default linear quantiles. Rank interval
+endpoints use empirical `lower` and `higher` quantiles so observed rank support
+is respected.
+
+### `canonical-morris-convergence.parquet`
+
+Contains the same columns and calculations as the ranking table, replacing
+`trajectories` with `checkpoint_trajectories`, for every declared checkpoint.
+Checkpoint rows are diagnostics. Their presence or apparent stability does not
+automatically certify the charter's stopping criteria or robustness checks;
+that governance is separate and remains future work.
+
+### `canonical-morris-rank-reversals.parquet`
+
+Columns: `indicator`, `checkpoint_trajectories`, `factor_a`, `factor_b`,
+`point_order`, nullable `reversal_probability`, `tie_probability`, and
+`bootstrap_resamples`. Pairs follow descending point `mu_star`. `point_order` is
+1 for that strict point ordering and 0 for a point tie. On a point tie,
+`reversal_probability` is null because neither direction is privileged;
+`tie_probability` still reports the bootstrap equality frequency. Otherwise,
+reversal probability is the fraction of trajectory-bootstrap replicates in
+which `factor_a` has lower `mu_star` than `factor_b`.
+
+The canonical trajectory bootstrap provides finite-design uncertainty evidence
+conditional on the declared and sealed scientific-screening contract. These
+tables do not by themselves provide calibrated decision evidence or FP/FF claims.
 
 ### `sobol-indices.parquet`
 
@@ -184,9 +247,11 @@ order; ties are broken by ascending factor name.
 
 ### `analysis-generation.json`
 
-Version 2 manifest containing the SHA-256 values of the outputs, the sensitivity
-method, and the `expected`, `completed`, `missing`, and `failed` counts, as well
-as `completionRate`.
+For Grid, historical Morris, discrete OAT, and Sobol this is a version 2 manifest
+containing output SHA-256 values, the sensitivity method, `expected`, `completed`,
+`missing`, `failed`, and `completionRate`. Canonical Morris publishes version 3,
+adding the names and SHA-256 values of its ranking, convergence, and rank-reversal
+tables. Publication of all canonical outputs and the manifest is transactional.
 
 ## Idempotence and Recovery
 

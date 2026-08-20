@@ -8,13 +8,12 @@ The Python parser is authoritative: the project does not provide a JSON Schema.
 ## User documentation
 
 1. [Getting started](getting-started.md): installation, `init`, and the first campaign.
-2. [End-to-end Nantes tutorial](../../tutorial-sa-init/README.md): a complete study created with `init`.
-3. [YAML reference](yaml-reference.md): the complete meta-configuration contract.
-4. [Parameters and methods](parameters-and-methods.md): Grid, Morris, Sobol, and seeds.
-5. [Workflow and results](workflow-and-results.md): identities, storage, and resumption.
-6. [CLI reference](cli-reference.md): commands, JSON, and exit codes.
-7. [Troubleshooting](troubleshooting.md): common errors and safe remedies.
-8. [Glossary](glossary.md): precise project terminology.
+2. [YAML reference](yaml-reference.md): the complete meta-configuration contract.
+3. [Parameters and methods](parameters-and-methods.md): Grid, discrete OAT, canonical Morris, Sobol, and seeds.
+4. [Workflow and results](workflow-and-results.md): identities, storage, and resumption.
+5. [CLI reference](cli-reference.md): commands, JSON, and exit codes.
+6. [Troubleshooting](troubleshooting.md): common errors and safe remedies.
+7. [Glossary](glossary.md): precise project terminology.
 
 ## Contributor documentation
 
@@ -40,12 +39,18 @@ Return to the [home page](../README.md).
 | Method | Role of the seed | Positions | Method-specific output |
 | --- | --- | --- | --- |
 | Grid | replication | product of domain sizes × seeds | `replication-dispersion.parquet` |
-| Morris | replication | `T(D+1)R` | `morris-ranking.parquet` |
+| Historical `morris` | replication | `T(D+1)R` | `morris-ranking.parquet` |
+| Discrete OAT | replication | `T(D+1)R` | `discrete-oat-effects.parquet` |
+| Canonical Morris | derived trajectory-block replication | `T(D+1)R` | ranking, convergence, and rank-reversal Parquet files |
 | Sobol | factor | `N(2D+2)` | `sobol-indices.parquet` |
 
 `D` includes the seed for Sobol. The number of unique runs may be lower than the
 number of positions because multiple statistical positions may refer to the
 same resolved configuration.
+
+`init` generates Grid, discrete OAT, and Sobol demonstration starters. It does
+not generate canonical Morris, whose scientific screening contract must be
+study-specific. Historical `morris` remains readable but is not recommended.
 
 `init` prepares the files and fingerprints. Only the calibration `run` provides
 the resource observations used by `check` and `estimate`.

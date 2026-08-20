@@ -3,17 +3,24 @@
 **English** | [Français](README-fr.md)
 
 `eqasim-sa` plans, runs, and analyzes sensitivity analysis campaigns for a
-synpp-driven eqasim pipeline. It provides deterministic Grid, Morris, and Sobol
-plans, per-run resumption, indicators computed from Parquet artifacts, and local
-and SLURM backends.
+synpp-driven eqasim pipeline. Its current vocabulary is Grid, discrete OAT,
+canonical Morris, and Sobol. It provides deterministic plans, per-run resumption,
+indicators computed from Parquet artifacts, and local and SLURM backends.
 
-The generated campaigns are demonstrations: they validate the workflow but
-cannot support inferential or decision claims. The current Morris and Sobol
-plans are legacy inferential methods and are rejected by scientific charters.
+All generated starters, including calibration, Grid, discrete OAT, and Sobol,
+are demonstrations: they
+validate configuration, execution, storage, and analysis plumbing but cannot
+support inferential or decision claims. No canonical Morris starter is generated;
+its scientific claims, uncertainty model, estimand, budget, convergence criteria,
+and robustness checks must be study-specific. Historical `method: morris` remains
+readable only as legacy demonstration provenance.
 
 The generated Grid and Sobol examples vary the scalar eqasim-france
-`matching_age_scheme`; Morris leaves this categorical factor fixed, and
+`matching_age_scheme`; discrete OAT leaves this categorical factor fixed, and
 `analysis_age_scheme` remains fixed so output distributions stay comparable.
+Discrete OAT uses adjacent numeric levels and local normalized effects; it is not
+canonical Morris. Canonical Morris is supported only for scientific screening,
+not factor prioritization or factor fixing.
 
 The package targets exactly Python 3.13 (`>=3.13,<3.14`). From this directory:
 
@@ -41,7 +48,7 @@ cd "$ROOT/mon-etude"
 data tree. It does not create a plan and does not run synpp, a campaign, or an
 analysis.
 
-## Canonical workflow
+## Standard workflow
 
 ```bash
 # First produce the resource calibration observations.

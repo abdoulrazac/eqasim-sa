@@ -46,7 +46,7 @@ mon-analyse-sa/
 ├── configs/
 │   ├── 00-calibration.yml
 │   ├── 01-grid.yml
-│   ├── 02-morris.yml
+│   ├── 02-discrete-oat.yml
 │   └── 03-sobol.yml
 ├── campaigns/
 └── scratch/
@@ -111,9 +111,10 @@ therefore be reserved for explicit pipeline validation. It does not apply
 `sampling_rate: 0.001` and the first two seeds. In particular, its `data_path`
 is the model's value, not `execution.overrides.data_path`.
 
-The provided templates are small and educational. Their sizes are not a
-scientific recommendation. Consult [Parameters and methods](parameters-and-methods.md)
-before expanding domains or plans.
+The provided templates are small demonstration campaigns. Their sizes are not a
+scientific recommendation, and `init` deliberately generates no canonical
+Morris starter. Consult [Parameters and methods](parameters-and-methods.md)
+before expanding domains or authoring a study-specific scientific campaign.
 
 ## Minimum checkpoints for generated templates
 
@@ -124,7 +125,7 @@ The `plan` commands return a JSON object with `status`, `designPositions`, and
 | --- | --- | --- |
 | Calibration | `plan`: `created`, 3 positions, 3 unique runs; `run`: `completed`, 3 completed | `campaigns/calibration/plan.parquet`, 3 markers under `runs/`, 3 archives |
 | Grid | `plan`: `created`, 8 positions, 8 unique runs; `run`: 8 completed; `analyze`: `completed` | `indicators.parquet`, `replication-dispersion.parquet`, `analysis-generation.json` |
-| Morris | `plan`: `created`, 8 positions, 6 unique runs; `run`: 6 completed; `analyze`: sensitivity `morris` | `indicators.parquet`, `replication-dispersion.parquet`, `morris-ranking.parquet`, `analysis-generation.json` |
+| Discrete OAT | `plan`: `created`, 8 positions, 6 unique runs; `run`: 6 completed; `analyze`: sensitivity `discrete_oat` | `indicators.parquet`, `replication-dispersion.parquet`, `discrete-oat-effects.parquet`, `analysis-generation.json` |
 | Sobol | `plan`: `created`, 32 positions, 8 unique runs; `run`: 8 completed; `analyze`: sensitivity `sobol` | `indicators.parquet`, `sobol-indices.parquet`, `analysis-generation.json` |
 
 An identical rerun of `plan` returns `unchanged`. For an already complete
@@ -136,8 +137,7 @@ campaign, `run` returns `status: completed` and `total: 0`.
 - Every expected `runId` has a valid marker and a readable archive.
 - `analyze` reports `status: completed` and the expected completion rate.
 - The schemas and columns of the artifact Parquet files match the YAML declarations.
-- The Grid, Morris, and Sobol outputs have been inspected, not merely created.
+- The Grid, discrete OAT, and Sobol demonstration outputs have been inspected, not merely created.
 - The model, data, lockfile, and `eqasim-sa` version are archived or traceable.
 
-See also the [detailed Nantes tutorial](../../tutorial-sa-init/README.md) and the
-[glossary](glossary.md).
+See also the [glossary](glossary.md).

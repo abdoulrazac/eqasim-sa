@@ -9,15 +9,15 @@ results. Every command below is an explicit manual step.
 - `manifest.json`: hash manifest of the selected input data tree.
 - `configs/00-calibration.yml`: three resource-calibration positions.
 - `configs/01-grid.yml`: Grid target, 8 positions and 8 unique runs.
-- `configs/02-morris.yml`: Morris target configuration.
+- `configs/02-discrete-oat.yml`: adjacent-level discrete OAT target configuration.
 - `configs/03-sobol.yml`: Sobol target, 32 positions and 8 unique runs.
 - `campaigns/`: initially empty; manual `plan` commands create campaign state.
 - `scratch/`: initially empty and disposable unless `--scratch` selected another path.
 
 All four starters are demonstration campaigns. They validate configuration,
-execution, storage, and analysis plumbing, but cannot support inferential or
-decision claims. In particular, the Morris and Sobol starters are legacy
-inferential plans and are not scientific evidence.
+execution, and storage plumbing, but cannot support inferential or decision
+claims. Discrete OAT is explicitly a demonstration design. The Sobol starter is
+a legacy inferential plan; neither is scientific evidence.
 
 Run all commands from this directory. This generated array uses the source
 checkout runner when available and the installed command otherwise.
@@ -44,7 +44,7 @@ optional afterward.
 
 ```bash
 "${SA[@]}" plan --meta-config configs/01-grid.yml
-"${SA[@]}" plan --meta-config configs/02-morris.yml
+"${SA[@]}" plan --meta-config configs/02-discrete-oat.yml
 "${SA[@]}" plan --meta-config configs/03-sobol.yml
 ```
 
@@ -56,10 +56,10 @@ optional afterward.
 "${SA[@]}" run --meta-config configs/01-grid.yml
 "${SA[@]}" analyze --meta-config configs/01-grid.yml
 
-"${SA[@]}" check --meta-config configs/02-morris.yml
-"${SA[@]}" estimate --meta-config configs/02-morris.yml
-"${SA[@]}" run --meta-config configs/02-morris.yml
-"${SA[@]}" analyze --meta-config configs/02-morris.yml
+"${SA[@]}" check --meta-config configs/02-discrete-oat.yml
+"${SA[@]}" estimate --meta-config configs/02-discrete-oat.yml
+"${SA[@]}" run --meta-config configs/02-discrete-oat.yml
+"${SA[@]}" analyze --meta-config configs/02-discrete-oat.yml
 
 "${SA[@]}" check --meta-config configs/03-sobol.yml
 "${SA[@]}" estimate --meta-config configs/03-sobol.yml
@@ -72,7 +72,7 @@ command executes only missing work. Use a new `campaign` and `campaign_root` for
 a changed design, and a new project when the sealed model or data context changes.
 
 Grid and Sobol vary the scalar `matching_age_scheme` between `matching_6` and
-`analysis_7`. Morris does not because it accepts only numeric factors. The model
+`analysis_7`. Discrete OAT does not because it accepts only numeric factors. The model
 configuration keeps `analysis_age_scheme: analysis_7` fixed so output classes
 remain comparable; changing an output scheme is not a matching effect.
 
@@ -86,8 +86,8 @@ The Nantes model also exposes optional scalar factors:
 
 | Factor | Default | Example domain | Compatible methods |
 | --- | ---: | --- | --- |
-| `matching_minimum_observations` | `20` | `[5, 20, 50]` | Grid, Morris, Sobol |
-| `matching_minimum_age` | `5` | `[0, 5, 12]` | Grid, Morris, Sobol |
+| `matching_minimum_observations` | `20` | `[5, 20, 50]` | Grid, discrete OAT, Sobol |
+| `matching_minimum_age` | `5` | `[0, 5, 12]` | Grid, discrete OAT, Sobol |
 | `income_assignation_method` | `uniform` | `[uniform, bhepop2]` | Grid, Sobol |
 
 Adding `matching_minimum_observations` to the generated Grid gives 24 positions:

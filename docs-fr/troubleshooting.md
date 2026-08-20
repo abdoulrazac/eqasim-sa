@@ -42,8 +42,39 @@ les options d'environnement autorisées dans `execution.overrides`.
 ## Erreur de type dans `parameters`
 
 Cause fréquente : booléen, `null`, niveaux mixtes, float non fini ou domaine
-Morris mal ordonné. Remède : conserver un type homogène et des nombres finis.
+Morris historique/OAT discret mal ordonné. Remède : conserver un type homogène et des nombres finis.
 Pour un float requis, écrire `1.0`, pas `1`.
+
+## `canonical_morris requires charter.status scientific`
+
+Cause : Morris canonique est configuré comme démonstration ou sans charte.
+Remède : ne transformez pas mécaniquement le starter OAT discret généré. Rédigez
+une charte scientifique, des distributions, un budget, des critères d'arrêt et
+des contrôles de robustesse propres à l'étude selon la
+[référence YAML](yaml-reference.md#morris-canonique).
+
+## Erreur d'objectif, de dépendance ou de budget Morris canonique
+
+Morris canonique accepte uniquement l'objectif `screening`, une indépendance des
+paramètres et un contrat scientifique complet. Ses runs uniques doivent tenir
+dans `floor(maximum_runs * (1 - reserve_fraction))` ; la réserve n'est pas
+disponible au plan initial. Il impose aussi au plus 500 candidats et un budget
+déterministe de calcul des distances. Réduisez le design ou augmentez un budget
+scientifiquement justifié ; ne rebaptisez pas FP ou FF en criblage.
+
+## Erreur de checkpoint ou bootstrap Morris canonique
+
+Utilisez au moins 100 rééchantillonnages. Les checkpoints sont des entiers triés,
+uniques, au moins égaux à 2 et se terminent par `trajectories` ;
+`screening_top_k` ne dépasse pas le nombre de facteurs. Ces diagnostics ne
+certifient pas à eux seuls l'arrêt ou la robustesse de la charte.
+
+## `morris` est refusé par une charte scientifique
+
+L'ancien `method: morris` reste lisible uniquement comme provenance de
+démonstration. Utilisez `discrete_oat` pour une nouvelle démonstration à niveaux
+adjacents, ou rédigez une campagne de criblage scientifique `canonical_morris`
+propre à l'étude.
 
 ## `duplicate canonical configuration and seed pair`
 

@@ -60,7 +60,7 @@ Sans `--smoke`, les contrôles sont :
 | --- | --- |
 | `metaConfig` | YAML, contexte Git, facteurs et chemins |
 | `sealedPlan` | égalité du plan avec le design recalculé |
-| `uniqueConfigSeedPairs` | absence de doublons Grid; validation scellée pour Morris/Sobol |
+| `uniqueConfigSeedPairs` | absence de doublons Grid; validation scellée pour Morris historique, OAT discret, Morris canonique et Sobol |
 | `eqasimEnvironment` | sonde synpp avec un chemin de configuration inexistant |
 | `diskSpace` | espace durable et scratch d'après les observations disponibles |
 
@@ -118,7 +118,10 @@ eqasim-sa analyze --meta-config PATH
 Recalcule les indicateurs depuis les archives et publie atomiquement les sorties
 d'analyse. Champs JSON : `status`, `path`, `runs`, `indicators`, `values`,
 `completionRate`, `expected`, `completed`, `missing`, `failed`,
-`dispersionPath`, `sensitivityMethod`, `sensitivityPath`, `error`.
+`dispersionPath`, `sensitivityMethod`, `sensitivityPath`, `convergencePath`,
+`rankReversalsPath`, `error`. Les deux derniers chemins ne sont non nuls que pour
+`canonical_morris`. L'ancien `morris` reste accepté comme provenance historique ;
+les nouvelles démonstrations générées utilisent `discrete_oat`.
 
 ## Commandes internes
 

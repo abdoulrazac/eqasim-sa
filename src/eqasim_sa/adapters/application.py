@@ -38,6 +38,7 @@ from eqasim_sa.adapters.templates import render_project
 from eqasim_sa.adapters.worker import execute_batch, ordered_results, worker_batches
 from eqasim_sa.cli import dispatch
 from eqasim_sa.core.analyze import analyze
+from eqasim_sa.core.charter import serialize_scientific_contract
 from eqasim_sa.core.ledger import (
     completion_duration,
     completion_ids,
@@ -45,6 +46,8 @@ from eqasim_sa.core.ledger import (
     run_path,
 )
 from eqasim_sa.core.plan import (
+    CanonicalMorrisDesign,
+    DiscreteOATDesign,
     GridDesign,
     MorrisDesign,
     PlanResult,
@@ -289,6 +292,9 @@ def _execute_exclusive(spec, simulator, campaign_root, workdir, interrupted=None
 def analyze_from_meta_config(path: Path) -> dict:
     meta = load_meta_config(path)
     _validate_scientific_method(meta)
+    if meta.method == "canonical_morris":
+        design = _design(meta)
+        load_run_specs(meta.campaign_root / "plan.parquet", design, meta.campaign)
     result = analyze(
         meta.campaign_root,
         meta.indicators,
@@ -298,6 +304,8 @@ def analyze_from_meta_config(path: Path) -> dict:
         method=meta.method,
         bootstrap_resamples=getattr(meta, "bootstrap_resamples", None),
         confidence_level=getattr(meta, "confidence_level", None),
+        convergence_checkpoints=getattr(meta, "convergence_checkpoints", None),
+        screening_top_k=getattr(meta, "screening_top_k", None),
     )
     return {
         "status": "completed",
@@ -317,13 +325,19 @@ def analyze_from_meta_config(path: Path) -> dict:
         "sensitivityPath": str(result.sensitivity_path)
         if result.sensitivity_path
         else None,
+        "convergencePath": str(result.convergence_path)
+        if getattr(result, "convergence_path", None)
+        else None,
+        "rankReversalsPath": str(result.rank_reversals_path)
+        if getattr(result, "rank_reversals_path", None)
+        else None,
         "error": None,
     }
 
 
 def _validate_scientific_method(meta) -> None:  # type: ignore[no-untyped-def]
     status = getattr(getattr(meta, "charter", None), "status", "demonstration")
-    if status == "scientific":
+    if status == "scientific" and meta.method != "canonical_morris":
         classification = (
             "a legacy inferential method"
             if meta.method in {"morris", "sobol"}
@@ -350,6 +364,33 @@ def _design(meta, requirements=None):  # type: ignore[no-untyped-def]
     )
     if getattr(meta, "method", "grid") == "morris":
         return MorrisDesign(*common, meta.trajectories, meta.design_seed)
+    if getattr(meta, "method", "grid") == "discrete_oat":
+        return DiscreteOATDesign(*common, meta.trajectories, meta.design_seed)
+    if getattr(meta, "method", "grid") == "canonical_morris":
+        distributions = {
+            name: {
+                "family": distribution.family,
+                "transform": distribution.transform,
+                "provenance": distribution.provenance,
+            }
+            for name, distribution in meta.distributions.items()
+        }
+        contract = serialize_scientific_contract(
+            meta.charter, meta.factors, meta.distributions
+        )
+        return CanonicalMorrisDesign(
+            *common,
+            meta.trajectories,
+            meta.levels,
+            meta.candidate_trajectories,
+            meta.design_seed,
+            distributions,
+            contract,
+            meta.bootstrap_resamples,
+            meta.confidence_level,
+            meta.convergence_checkpoints,
+            meta.screening_top_k,
+        )
     if getattr(meta, "method", "grid") == "sobol":
         return SobolDesign(*common, meta.base_sample_size, meta.design_seed)
     return GridDesign(*common)
@@ -475,7 +516,8 @@ def _estimate_state(
         getattr(target, "method", "grid"),
         (
             {"D": len(target.factors), "T": target.trajectories, "R": len(target.seeds)}
-            if getattr(target, "method", "grid") == "morris"
+            if getattr(target, "method", "grid")
+            in {"morris", "discrete_oat", "canonical_morris"}
             else {"D": len(target.factors) + 1, "N": target.base_sample_size}
             if getattr(target, "method", "grid") == "sobol"
             else None
@@ -542,13 +584,15 @@ def _static_check(path: Path, calibrations: tuple[Path, ...]):  # type: ignore[n
             lambda: (
                 (
                     sealed_valid
-                    if getattr(meta, "method", "grid") in {"morris", "sobol"}
+                    if getattr(meta, "method", "grid")
+                    in {"morris", "discrete_oat", "canonical_morris", "sobol"}
                     else unique_config_seed_pairs(design)
                 )
                 or (_ for _ in ()).throw(
                     ValueError(
                         "sealedPlan validation unavailable"
-                        if getattr(meta, "method", "grid") in {"morris", "sobol"}
+                        if getattr(meta, "method", "grid")
+                        in {"morris", "discrete_oat", "canonical_morris", "sobol"}
                         else "duplicate canonical configuration and seed pair"
                     )
                 )
@@ -791,10 +835,12 @@ def _directory_or_create(path: Path, name: str) -> Path:
     return _directory(path, name)
 
 
-INIT_METHODS = ("calibration", "grid", "morris", "sobol")
+INIT_METHODS = ("calibration", "grid", "discrete_oat", "sobol")
 INIT_CONFIGS = {
-    method: f"configs/{index:02d}-{method}.yml"
-    for index, method in enumerate(INIT_METHODS)
+    "calibration": "configs/00-calibration.yml",
+    "grid": "configs/01-grid.yml",
+    "discrete_oat": "configs/02-discrete-oat.yml",
+    "sobol": "configs/03-sobol.yml",
 }
 INIT_DERIVED = {
     "grid": {
@@ -802,9 +848,9 @@ INIT_DERIVED = {
         "replication-dispersion.parquet",
         "analysis-generation.json",
     },
-    "morris": {
+    "discrete_oat": {
         "indicators.parquet", "replication-dispersion.parquet",
-        "morris-ranking.parquet", "analysis-generation.json",
+        "discrete-oat-effects.parquet", "analysis-generation.json",
     },
     "sobol": {"indicators.parquet", "sobol-indices.parquet", "analysis-generation.json"},
 }
@@ -941,7 +987,7 @@ def _preflight_project(directory: Path, scratch_relative: Path | None) -> bool:
             raise FileExistsError(f"foreign content in init project: configs/{entry.name}")
         _regular(entry, f"configs/{entry.name}")
     if {entry.name for entry in (directory / "configs").iterdir()} != config_names:
-        raise FileExistsError("non-empty directory is not a complete init v2 state")
+        raise FileExistsError("non-empty directory is not a complete init v3 state")
     campaigns = directory / "campaigns"
     controls = _control_names(directory)
     for entry in campaigns.iterdir():
@@ -1297,7 +1343,7 @@ def init_from_inputs(
         generate_data_manifest(data, manifest, replace=True)
     return {
         "status": "initialized" if new_project or regenerate_data_manifest else "unchanged",
-        "initVersion": 2,
+        "initVersion": 3,
         "projectName": project_name,
         "manifest": "manifest.json",
         "readme": "README.md",

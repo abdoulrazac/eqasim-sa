@@ -1,6 +1,6 @@
-# Legacy Morris demonstration: eight positions, not inferential evidence.
-campaign: @PROJECT_NAME@-morris
-campaign_root: ../campaigns/morris
+# Discrete adjacent-level OAT demonstration: eight positions, not Morris inference.
+campaign: @PROJECT_NAME@-discrete_oat
+campaign_root: ../campaigns/discrete_oat
 charter:
   status: demonstration
 model:
@@ -12,7 +12,7 @@ context:
 analysis:
   completeness_threshold: 1.0
 experiment:
-  method: morris
+  method: discrete_oat
   seed_role: replication
   trajectories: 2
   design_seed: 20260814

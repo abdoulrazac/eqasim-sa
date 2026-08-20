@@ -5,7 +5,7 @@ NAMES = (
     "README.md",
     "00-calibration.yml",
     "01-grid.yml",
-    "02-morris.yml",
+    "02-discrete-oat.yml",
     "03-sobol.yml",
 )
 

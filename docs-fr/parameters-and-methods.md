@@ -54,7 +54,7 @@ s'il s'agit d'une option dédiée qui ne peut être ni facteur ni override.
 
 Les plans Grid et Sobol générés font varier `matching_age_scheme` entre ces deux
 noms. La configuration modèle conserve `analysis_age_scheme: analysis_7` fixe
-afin que les indicateurs comparés gardent les mêmes classes de sortie. Morris ne
+afin que les indicateurs comparés gardent les mêmes classes de sortie. L'OAT discret ne
 peut pas porter ce facteur catégoriel car il accepte uniquement des domaines
 numériques ordonnés. Les noms de schéma sont des facteurs scalaires ordinaires
 et participent donc au `runId`; les listes de bornes et autres recodages
@@ -63,7 +63,7 @@ structurés ne sont pas patchables par eqasim-sa.
 `init` lit le YAML modèle sélectionné sans l'exécuter. Il exige les entrées
 explicites `matching_age_scheme: matching_6` et
 `analysis_age_scheme: analysis_7`. Cela fixe le matching historique pour la
-calibration et Morris, stabilise les classes de sortie et rend l'identité des
+calibration et l'OAT discret, stabilise les classes de sortie et rend l'identité des
 runs générés explicite. Grid et Sobol remplacent toujours
 `matching_age_scheme` via leur domaine de facteur.
 
@@ -75,10 +75,10 @@ de pouvoir être déclarée comme facteur.
 
 | Paramètre | Type et valeur actuelle | Effet | Domaine d'exemple | Méthodes |
 | --- | --- | --- | --- | --- |
-| `sampling_rate` | float, `0.001` | taille de population et bruit Monte Carlo | `[0.001, 0.002, 0.005]` | Grid, Morris, Sobol |
+| `sampling_rate` | float, `0.001` | taille de population et bruit Monte Carlo | `[0.001, 0.002, 0.005]` | Grid, OAT discret, Morris canonique, Sobol |
 | `matching_age_scheme` | chaîne, `matching_6` | classes d'âge servant à sélectionner les donneurs HTS | `[matching_6, analysis_7]` | Grid, Sobol |
-| `matching_minimum_observations` | entier, `20` | taille minimale d'une cellule de donneurs acceptée | `[5, 20, 50]` | Grid, Morris, Sobol |
-| `matching_minimum_age` | entier, `5` | âge minimal des personnes cibles entrant dans le matching | `[0, 5, 12]` | Grid, Morris, Sobol |
+| `matching_minimum_observations` | entier, `20` | taille minimale d'une cellule de donneurs acceptée | `[5, 20, 50]` | Grid, OAT discret, Morris canonique, Sobol |
+| `matching_minimum_age` | entier, `5` | âge minimal des personnes cibles entrant dans le matching | `[0, 5, 12]` | Grid, OAT discret, Morris canonique, Sobol |
 | `income_assignation_method` | chaîne, `uniform` | méthode de synthèse du revenu, `uniform` ou `bhepop2` | `[uniform, bhepop2]` | Grid, Sobol |
 | `hts` | chaîne, `edgt_44` | donneurs et distributions de référence de l'enquête | `[edgt_44, entd]` | Grid, Sobol, si les deux jeux existent |
 | `projection_year` | entier si activé | population synthétique et référence INSEE projetées | `[2020, 2030, 2040]` | conditionnel aux données et au scénario de projection |
@@ -137,15 +137,15 @@ parameters:
     values: [5, 20, 50]
 ```
 
-### Exemple Morris concret
+### Exemple OAT discret concret
 
-Morris accepte uniquement des facteurs numériques ordonnés. Avec trois facteurs,
+L'OAT discret accepte uniquement des facteurs numériques ordonnés. Avec trois facteurs,
 deux trajectoires et deux seeds de réplication, cet exemple contient
 `2 × (3+1) × 2 = 16` positions :
 
 ```yaml
 experiment:
-  method: morris
+  method: discrete_oat
   seed_role: replication
   trajectories: 2
   design_seed: 20260814
@@ -185,17 +185,19 @@ parameters:
 
 ## Seed de réplication ou facteur
 
-Avec `seed_role: replication`, Grid et Morris répètent une configuration
-scientifique pour mesurer sa dispersion stochastique. La seed est dans
+Avec `seed_role: replication`, Grid et OAT discret répètent une configuration
+pour mesurer sa dispersion stochastique. Morris canonique considère plutôt les
+valeurs comme des seeds de base et dérive une seed distincte pour chaque bloc
+trajectoire-réplication. Dans les trois cas, la déclaration est dans
 `experiment.replications.seeds` et n'est pas une colonne de facteur ordinaire.
 
 Avec `seed_role: factor`, Sobol inclut la seed dans la décomposition de variance.
 Elle est dans `parameters.seed.values`. Une seed ne peut jamais être facteur et
 réplication dans la même campagne.
 
-`design_seed` ne pilote pas eqasim. Elle rend déterministe le choix des
-trajectoires Morris ou l'échantillon Sobol brouillé. Elle est indépendante de la
-seed `random_seed` injectée dans chaque run.
+`design_seed` ne pilote pas eqasim. Elle rend déterministes les trajectoires ou
+l'échantillon Sobol brouillé et, pour Morris canonique, participe à la dérivation
+versionnée des seeds de run. Elle est distincte de la seed `random_seed` injectée.
 
 ## Grid
 
@@ -213,12 +215,20 @@ Exemple : deux taux, trois méthodes de revenu et quatre seeds donnent
 `2 × 3 × 4 = 24` positions. Des configurations identiques après résolution
 peuvent réduire les runs uniques; le `check` Grid les refuse.
 
-## Morris
+## `morris` historique et OAT discret
 
-Morris accepte uniquement des facteurs numériques. Chaque domaine contient au
+L'ancien `method: morris` conserve exactement l'ancien schéma et l'ancienne
+identité de plan afin que les plans existants restent lisibles comme provenance
+de démonstration. Il n'est pas une méthode inférentielle actuelle et refuse une
+charte scientifique. Les nouvelles démonstrations à niveaux adjacents utilisent
+`method: discrete_oat`, avec la même forme d'expérience mais une identité de
+méthode, un domaine de `designId` et des métadonnées séparés.
+
+Les deux acceptent uniquement des facteurs numériques. Chaque domaine contient au
 moins deux niveaux du même type, strictement croissants et distincts. L'ordre
-est donc scientifique : il définit les pas adjacents utilisés pour les effets
-élémentaires.
+définit les pas adjacents. Chaque effet divise la différence de sortie par la
+fraction locale du pas dans l'étendue numérique déclarée. Ce sont des effets
+normalisés locaux, pas des effets élémentaires Morris canoniques.
 
 Avec `D` facteurs, `T` trajectoires et `R` seeds de réplication :
 
@@ -239,6 +249,49 @@ préserver la géométrie statistique, mais le run n'est exécuté qu'une fois.
 L'analyse classe par `mu_star` décroissant. `mu` conserve le signe moyen,
 `sigma` décrit la dispersion des effets et `seed_std` agrège la variabilité entre
 seeds au sein des trajectoires.
+
+L'OAT discret est une méthode de démonstration. Il peut signaler des changements
+locaux à conserver à l'étude, mais n'estime pas des parts de variance, n'établit
+pas une importance globale, ne soutient pas FP et ne justifie pas FF.
+
+## Morris canonique
+
+Morris canonique est réservé à une campagne scientifique d'objectif `screening`,
+avec dépendance des paramètres `independent` et, pour chaque paramètre, support
+uniforme discret, transformation identité et provenance déclarés. Il utilise un
+nombre pair `p >= 4` et le pas commun exact `Delta = p/[2(p-1)]` dans l'espace de
+probabilité unitaire.
+
+Un parcours déterministe seedé crée un pool d'au plus 500 trajectoires
+candidates. La sélection prend d'abord la paire qui maximise la somme entière
+des distances quadratiques entre points, puis ajoute gloutonnement le candidat
+qui maximise la somme de ces distances aux trajectoires retenues. Les égalités
+sont départagées par le plus petit identifiant lexicographique. Cette règle
+`greedy-sum-pairwise-squared-distance` n'est ni maximin ni un optimum de
+Campolongo. Un budget séparé de calcul des distances peut refuser un pool sous le
+plafond de 500.
+
+Les facteurs sont triés lexicalement dans le contrat scellé. Pour un support de
+longueur `L`, l'indice de grille `z` se projette par inverse généralisée uniforme
+discrète : indice 0 pour `z = 0`, sinon
+`min((L*z - 1)//(p - 1), L - 1)`. Les seeds YAML sont des seeds de base. Une seed
+signée 64 bits est dérivée par SHA-256 versionné pour chaque trajectoire et
+réplication ; les `D+1` points du bloc partagent cette seed, ce qui fournit les
+nombres aléatoires communs au contraste, et aucune seed dérivée ne se répète.
+
+L'estimand est réplication d'abord : pour chaque trajectoire et facteur, les
+effets sont moyennés sur les `R` réplications, puis `mu`, `mu_star` et `sigma`
+sont calculés sur les `T` moyennes de trajectoire. La trajectoire est donc l'unité
+effective du bootstrap, même si `elementary_effects` affiche `T*R`. `seed_std`
+est la racine carrée de la moyenne des variances intra-trajectoire entre seeds ;
+il vaut `null` avec une seule réplication.
+
+Le classement suit `mu_star` décroissant. Les égalités exactes reçoivent le rang
+moyen ; une égalité qui traverse la coupure top-k partage fractionnellement les
+places restantes. Le bootstrap de trajectoires fournit une preuve d'incertitude
+de design fini conditionnelle au contrat déclaré et scellé. Il ne fournit pas à
+lui seul une preuve décisionnelle calibrée, des parts de variance, une conclusion
+FP/FF, ni une certification automatique des critères d'arrêt et de robustesse.
 
 ## Sobol
 
@@ -270,6 +323,11 @@ Les indices produits sont de premier ordre et d'ordre total. Le rang est trié
 par indice total décroissant, puis par nom de facteur croissant en cas d'égalité.
 Les intervalles sont obtenus par bootstrap déterministe; un indicateur constant
 ou une variance non positive rend l'analyse invalide.
+
+L'implémentation Sobol actuelle emploie un seul scramble QMC randomisé
+indépendamment. Le bootstrap de lignes dans ce scramble ne remplace pas plusieurs
+scrambles indépendants. Le starter Sobol reste donc une démonstration et ses
+intervalles ne doivent pas être présentés comme preuve décisionnelle calibrée.
 
 ## Indicateurs et variation totale
 

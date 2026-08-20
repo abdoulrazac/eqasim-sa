@@ -43,8 +43,37 @@ scientific key; place only permitted environment options in
 ## Type error in `parameters`
 
 Common causes: a boolean, `null`, mixed levels, a non-finite float, or an
-incorrectly ordered Morris domain. Remedy: keep the type homogeneous and numbers
-finite. Where a float is required, write `1.0`, not `1`.
+incorrectly ordered historical-Morris/discrete-OAT domain. Remedy: keep the type
+homogeneous and numbers finite. Where a float is required, write `1.0`, not `1`.
+
+## `canonical_morris requires charter.status scientific`
+
+Cause: canonical Morris was configured as a demonstration or without a charter.
+Remedy: do not adapt the generated discrete-OAT starter mechanically. Author a
+study-specific scientific charter, parameter distributions, budget, stopping
+criteria, and robustness checks as described in the [YAML reference](yaml-reference.md#canonical-morris).
+
+## Canonical Morris objective, dependence, or budget error
+
+Canonical Morris accepts only objective `screening`, independent parameter
+dependence, and a complete scientific contract. Its unique runs must fit within
+`floor(maximum_runs * (1 - reserve_fraction))`; the reserve is not available to
+the initial plan. It also enforces at most 500 candidates and a deterministic
+distance-computation budget. Reduce the design or increase a scientifically
+justified declared budget; do not relabel FP or FF as screening.
+
+## Canonical Morris checkpoint or bootstrap error
+
+Use at least 100 bootstrap resamples. Checkpoints must be sorted, unique integers
+of at least 2 and must end at `trajectories`; `screening_top_k` cannot exceed the
+number of factors. These diagnostics do not themselves certify charter stopping
+or robustness.
+
+## `morris` is rejected by a scientific charter
+
+Historical `method: morris` is readable only as legacy demonstration provenance.
+Use `discrete_oat` for a new adjacent-level demonstration, or author a
+study-specific `canonical_morris` scientific-screening campaign.
 
 ## `duplicate canonical configuration and seed pair`
 

@@ -1472,6 +1472,8 @@ def test_cli_analyze_reports_failure(
         "dispersionPath": None,
         "sensitivityMethod": None,
         "sensitivityPath": None,
+        "convergencePath": None,
+        "rankReversalsPath": None,
         "error": "missing age",
     }
 
@@ -1503,6 +1505,8 @@ def test_cli_analyze_reports_complete_keyboard_interrupt_payload_and_returns_130
         "dispersionPath": None,
         "sensitivityMethod": None,
         "sensitivityPath": None,
+        "convergencePath": None,
+        "rankReversalsPath": None,
         "error": "KeyboardInterrupt",
     }
 

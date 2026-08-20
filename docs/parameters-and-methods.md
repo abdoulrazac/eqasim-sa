@@ -55,14 +55,14 @@ classes and defaults to `analysis_7`.
 
 The generated Grid and Sobol plans vary `matching_age_scheme` between these two
 names. The base model keeps `analysis_age_scheme: analysis_7` fixed so compared
-indicators have the same output classes. Morris cannot carry this categorical
+indicators have the same output classes. Discrete OAT cannot carry this categorical
 factor because it accepts numeric ordered domains only. Scheme names are
 ordinary scalar factors and therefore affect `runId`; boundary lists and other
 structured recodings are not patchable through eqasim-sa.
 
 `init` reads the selected model YAML without executing it. It requires explicit
 `matching_age_scheme: matching_6` and `analysis_age_scheme: analysis_7` entries.
-This fixes historical matching for calibration and Morris, keeps output classes
+This fixes historical matching for calibration and discrete OAT, keeps output classes
 stable, and gives generated runs explicit selector identity. Grid and Sobol still
 replace `matching_age_scheme` through their factor domains.
 
@@ -74,10 +74,10 @@ declared as a factor.
 
 | Parameter | Type and current value | What changes | Example domain | Methods |
 | --- | --- | --- | --- | --- |
-| `sampling_rate` | float, `0.001` | population size and Monte Carlo noise | `[0.001, 0.002, 0.005]` | Grid, Morris, Sobol |
+| `sampling_rate` | float, `0.001` | population size and Monte Carlo noise | `[0.001, 0.002, 0.005]` | Grid, discrete OAT, canonical Morris, Sobol |
 | `matching_age_scheme` | string, `matching_6` | age cells used to select HTS donors | `[matching_6, analysis_7]` | Grid, Sobol |
-| `matching_minimum_observations` | integer, `20` | minimum donor-cell size before an exact level is accepted | `[5, 20, 50]` | Grid, Morris, Sobol |
-| `matching_minimum_age` | integer, `5` | minimum age of target persons entering statistical matching | `[0, 5, 12]` | Grid, Morris, Sobol |
+| `matching_minimum_observations` | integer, `20` | minimum donor-cell size before an exact level is accepted | `[5, 20, 50]` | Grid, discrete OAT, canonical Morris, Sobol |
+| `matching_minimum_age` | integer, `5` | minimum age of target persons entering statistical matching | `[0, 5, 12]` | Grid, discrete OAT, canonical Morris, Sobol |
 | `income_assignation_method` | string, `uniform` | income synthesis stage, `uniform` or `bhepop2` | `[uniform, bhepop2]` | Grid, Sobol |
 | `hts` | string, `edgt_44` | survey donors and survey reference distributions | `[edgt_44, entd]` | Grid, Sobol, if both datasets exist |
 | `projection_year` | integer when enabled | projected synthesis population and projected INSEE reference | `[2020, 2030, 2040]` | conditional on projection data and scenario |
@@ -135,15 +135,15 @@ parameters:
     values: [5, 20, 50]
 ```
 
-### Concrete Morris example
+### Concrete discrete OAT example
 
-Morris accepts only ordered numeric factors. With three factors, two
+Discrete OAT accepts only ordered numeric factors. With three factors, two
 trajectories, and two replication seeds, this example has
 `2 × (3+1) × 2 = 16` positions:
 
 ```yaml
 experiment:
-  method: morris
+  method: discrete_oat
   seed_role: replication
   trajectories: 2
   design_seed: 20260814
@@ -183,17 +183,20 @@ parameters:
 
 ## Replication seed or factor
 
-With `seed_role: replication`, Grid and Morris repeat a scientific
-configuration to measure its stochastic variability. The seed is in
+With `seed_role: replication`, Grid and discrete OAT repeat a configuration to
+measure its stochastic variability. Canonical Morris instead treats the listed
+values as base seeds and derives a distinct seed for every trajectory-replication
+block. In all three cases the declaration is in
 `experiment.replications.seeds` and is not an ordinary factor column.
 
 With `seed_role: factor`, Sobol includes the seed in the variance decomposition.
 It is in `parameters.seed.values`. A seed can never be both a factor and a
 replication in the same campaign.
 
-`design_seed` does not control eqasim. It makes the selection of Morris
-trajectories or the scrambled Sobol sample deterministic. It is independent of
-the `random_seed` seed injected into each run.
+`design_seed` does not control eqasim. It makes trajectory construction or the
+scrambled Sobol sample deterministic and, for canonical Morris, participates in
+the versioned derivation of run seeds. It is distinct from the `random_seed`
+injected into each run.
 
 ## Grid
 
@@ -211,18 +214,27 @@ Example: two rates, three income methods, and four seeds give
 `2 × 3 × 4 = 24` positions. Configurations that are identical after resolution
 may reduce the number of unique runs; the Grid `check` rejects them.
 
-## Morris
+## Historical `morris` and discrete OAT
 
-Morris accepts only numeric factors. Each domain contains at least two levels
+Historical `method: morris` preserves the exact old schema and old plan identity
+so existing plans remain readable as demonstration provenance. It is not a
+current inferential method and cannot be combined with a scientific charter.
+New adjacent-level demonstrations use `method: discrete_oat`, with the same
+experiment shape (`method`, `seed_role`, `trajectories`, `design_seed`, and
+`replications`) but a separate method, design-ID domain, and metadata identity.
+
+Both accept only numeric factors. Each domain contains at least two levels
 of the same type, strictly increasing and distinct. The order is therefore
-scientifically meaningful: it defines the adjacent steps used for elementary
+operationally meaningful: it defines adjacent steps. Each effect divides the
+output difference by that step's local fraction of the full declared numeric
+range. These are local normalized effects, not canonical Morris elementary
 effects.
 
 With `D` factors, `T` trajectories, and `R` replication seeds:
 
 `positions = T(D+1)R`
 
-The maximum number of candidate trajectories is:
+The maximum number of adjacent-level candidate trajectories is:
 
 `D! × Π 2(Li-1)`
 
@@ -237,6 +249,61 @@ geometry, but the run is executed only once.
 The analysis ranks by decreasing `mu_star`. `mu` retains the mean sign,
 `sigma` describes the dispersion of effects, and `seed_std` aggregates
 variability between seeds within trajectories.
+
+Discrete OAT is a demonstration method. It can screen local adjacent changes for
+further attention, but it does not estimate variance shares, establish global
+importance, support factor prioritization, or justify fixing a factor.
+
+## Canonical Morris
+
+Canonical Morris is available only to a scientific campaign whose objective is
+screening, whose parameter dependence is declared independent, and whose
+parameters have declared discrete-uniform supports, identity transforms, and
+provenance. It uses an even `p >= 4` and the exact common step
+`Delta = p/[2(p-1)]` in unit probability space.
+
+A deterministic seeded traversal creates a pool of at most 500 candidate
+trajectories. Selection starts with the pair having the greatest exact integer
+sum of pairwise squared point distances, then greedily adds the candidate with
+the greatest sum of those trajectory distances to the selected set.
+Lexicographically smallest candidate IDs break ties. This is not a maximin or
+Campolongo-optimal design. A separate deterministic distance-computation budget
+can reject a pool below the 500-candidate cap. Plan metadata names the rule
+`greedy-sum-pairwise-squared-distance`, version 1.
+
+A scientific campaign uses at least two selected trajectories, every convergence
+checkpoint is at least 2, and deterministic bootstrap inference uses at least
+100 resamples.
+
+Factors are ordered lexicographically in the sealed design. For a support of
+length `L`, grid index `z` maps by the discrete-uniform
+generalized inverse: index 0 when `z = 0`, otherwise
+`min((L*z - 1)//(p - 1), L - 1)`. Replication seeds in YAML are base seeds. A
+signed 64-bit run seed is derived deterministically for each trajectory and
+replication with versioned SHA-256 metadata; all `D+1` points in that block share
+the derived seed, and derived seeds may not repeat across blocks.
+
+The estimand is replication-first: for each trajectory and factor, effects are
+first averaged over the `R` simulation replications, then `mu`, `mu_star`, and
+`sigma` are computed across the `T` trajectory means. Thus the ranking targets
+the elementary effect of the expected indicator over simulation seeds, not a
+pool of `T*R` independent effects. The trajectory is the effective bootstrap
+unit. `seed_std` is the root mean square of within-trajectory sample variances
+across seeds and is null for one replication.
+
+Canonical ranking uses decreasing `mu_star`. Exact ties receive their average
+rank. At a top-k cutoff, factors above a tied group receive weight 1, a tie group
+straddling the cutoff shares the remaining slots equally, and factors below it
+receive 0. Bootstrap top-k probabilities average these weights. Pair outputs
+report bootstrap tie frequency separately as `tie_probability`; point ties have
+`point_order: 0` and a null `reversal_probability`. Ranking and convergence
+outputs call the number of effects `elementary_effects` (`T*R`), while historical
+Morris retains `n`.
+
+The trajectory bootstrap supplies finite-design uncertainty evidence conditional
+on the declared and sealed contract. It does not by itself provide calibrated
+decision evidence, variance shares, FP/FF conclusions, or automatic proof that
+the charter's stopping and robustness requirements have been met.
 
 ## Sobol
 
@@ -268,6 +335,12 @@ The resulting indices are first-order and total-order indices. Ranking is
 sorted by decreasing total-order index, then by increasing factor name in case
 of a tie. Intervals are obtained through deterministic bootstrap; a constant
 indicator or non-positive variance makes the analysis invalid.
+
+The current Sobol implementation uses one independently randomized QMC scramble.
+Row bootstrap within that scramble does not replace evidence from several
+independent scrambles. The generated Sobol starter therefore remains a
+demonstration and its intervals must not be overclaimed as calibrated decision
+evidence.
 
 ## Indicators and total variation
 

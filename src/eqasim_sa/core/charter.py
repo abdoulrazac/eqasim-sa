@@ -1,3 +1,4 @@
+import json
 import math
 from dataclasses import dataclass
 from enum import StrEnum
@@ -416,3 +417,274 @@ def parse_charter(
         tuple(criteria),
         tuple(checks),
     )
+
+
+def validate_scientific_contract(
+    contract: object,
+    factors: dict[str, list],
+    distributions: dict[str, ParameterDistribution | dict],
+) -> None:
+    """Validate the exact normalized contract sealed into canonical plans."""
+    try:
+        json.dumps(contract, allow_nan=False)
+    except (TypeError, ValueError) as error:
+        raise ValueError("scientific_contract must be JSON-safe") from error
+    document = _mapping(contract, "scientific_contract")
+    _exact(document, {"charter", "parameters"}, "scientific_contract")
+    charter = _mapping(document["charter"], "scientific_contract.charter")
+    _exact(
+        charter,
+        {"status", "decision", "uncertainty", "budget", "stopping", "robustness"},
+        "scientific_contract.charter",
+    )
+    if charter["status"] != CharterStatus.SCIENTIFIC.value:
+        raise ValueError("scientific_contract charter status must be scientific")
+
+    decision = _mapping(charter["decision"], "scientific_contract.charter.decision")
+    _exact(
+        decision,
+        {
+            "claim",
+            "use",
+            "setting",
+            "objective",
+            "estimand",
+            "primary_indicator",
+            "practical_tolerance",
+        },
+        "scientific_contract.charter.decision",
+    )
+    for key in ("claim", "setting", "estimand", "primary_indicator"):
+        if "\0" in _text(decision[key], f"scientific_contract decision {key}"):
+            raise ValueError(f"scientific_contract decision {key} must not contain NUL")
+    if decision["use"] not in {item.value for item in DecisionUse}:
+        raise ValueError("scientific_contract decision use must be diagnostic or prognostic")
+    if decision["objective"] != SensitivityObjective.SCREENING.value:
+        raise ValueError("scientific_contract decision objective must be screening")
+    if decision["practical_tolerance"] is not None:
+        raise ValueError("scientific_contract screening practical_tolerance must be null")
+
+    uncertainty = _mapping(
+        charter["uncertainty"], "scientific_contract.charter.uncertainty"
+    )
+    _exact(
+        uncertainty,
+        {"dependence", "inventory"},
+        "scientific_contract.charter.uncertainty",
+    )
+    dependence = _mapping(
+        uncertainty["dependence"], "scientific_contract dependence"
+    )
+    _exact(dependence, {"kind", "rationale", "groups"}, "scientific_contract dependence")
+    if dependence["kind"] != DependenceKind.INDEPENDENT.value:
+        raise ValueError("scientific_contract dependence must be independent")
+    _text(dependence["rationale"], "scientific_contract dependence rationale")
+    if dependence["groups"] != []:
+        raise ValueError("scientific_contract independent dependence groups must be empty")
+
+    inventory = _mapping(uncertainty["inventory"], "scientific_contract inventory")
+    _exact(inventory, set(INVENTORY_CATEGORIES), "scientific_contract inventory")
+    varied_parameters = set()
+    for category in INVENTORY_CATEGORIES:
+        items = inventory[category]
+        if not isinstance(items, list):
+            raise TypeError(f"scientific_contract inventory {category} must be a list")
+        seen = set()
+        for index, raw_item in enumerate(items):
+            item = _mapping(raw_item, f"scientific_contract inventory {category}[{index}]")
+            _exact(
+                item,
+                {"name", "status", "provenance", "rationale"},
+                f"scientific_contract inventory {category}[{index}]",
+            )
+            name = _text(item["name"], f"scientific_contract inventory {category} name")
+            if name in seen:
+                raise ValueError(f"scientific_contract inventory {category} names must be unique")
+            seen.add(name)
+            if item["status"] not in {status.value for status in InventoryStatus}:
+                raise ValueError("scientific_contract inventory status is invalid")
+            _text(item["provenance"], "scientific_contract inventory provenance")
+            _text(item["rationale"], "scientific_contract inventory rationale")
+            if category == "parameters" and item["status"] == InventoryStatus.VARIED.value:
+                varied_parameters.add(name)
+    if varied_parameters != set(factors):
+        raise ValueError("scientific_contract varied parameters must exactly match factors")
+
+    budget = _mapping(charter["budget"], "scientific_contract budget")
+    _exact(budget, {"maximum_runs", "reserve_fraction"}, "scientific_contract budget")
+    _positive_int64(budget["maximum_runs"], "scientific_contract budget maximum_runs")
+    reserve = budget["reserve_fraction"]
+    if type(reserve) is not float or not math.isfinite(reserve) or not 0 <= reserve < 1:
+        raise ValueError("scientific_contract reserve_fraction must be a finite float in [0,1)")
+
+    stopping = charter["stopping"]
+    if not isinstance(stopping, list) or not stopping:
+        raise ValueError("scientific_contract stopping must be a non-empty list")
+    metrics = set()
+    for index, raw_criterion in enumerate(stopping):
+        criterion = _mapping(raw_criterion, f"scientific_contract stopping[{index}]")
+        _exact(
+            criterion,
+            {"metric", "threshold", "consecutive_checks"},
+            f"scientific_contract stopping[{index}]",
+        )
+        metric = _text(criterion["metric"], f"scientific_contract stopping[{index}].metric")
+        if metric in metrics:
+            raise ValueError("scientific_contract stopping metrics must be unique")
+        metrics.add(metric)
+        _float(criterion["threshold"], f"scientific_contract stopping[{index}].threshold", positive=True)
+        _positive_int64(
+            criterion["consecutive_checks"],
+            f"scientific_contract stopping[{index}].consecutive_checks",
+        )
+
+    robustness = charter["robustness"]
+    if not isinstance(robustness, list) or not robustness:
+        raise ValueError("scientific_contract robustness must be a non-empty list")
+    check_names = set()
+    for index, raw_check in enumerate(robustness):
+        check = _mapping(raw_check, f"scientific_contract robustness[{index}]")
+        _exact(check, {"name", "rationale"}, f"scientific_contract robustness[{index}]")
+        name = _text(check["name"], f"scientific_contract robustness[{index}].name")
+        if name in check_names:
+            raise ValueError("scientific_contract robustness names must be unique")
+        check_names.add(name)
+        _text(check["rationale"], f"scientific_contract robustness[{index}].rationale")
+
+    if set(factors) != set(distributions):
+        raise ValueError("scientific_contract distributions must exactly match factors")
+    parameters = document["parameters"]
+    if not isinstance(parameters, list) or len(parameters) != len(factors):
+        raise ValueError("scientific_contract parameters must exactly match factors")
+    expected_parameters = []
+    for name in sorted(factors):
+        support = factors[name]
+        if not isinstance(support, list) or len(support) < 2 or len(set(support)) != len(support):
+            raise ValueError(f"scientific_contract factor {name!r} support is invalid")
+        for value in support:
+            if type(value) not in (int, float, str):
+                raise TypeError(f"scientific_contract factor {name!r} support must contain scalars")
+            if type(value) is int and not -(2**63) <= value < 2**63:
+                raise ValueError(f"scientific_contract factor {name!r} integer is outside int64")
+            if type(value) is float and not math.isfinite(value):
+                raise ValueError(f"scientific_contract factor {name!r} float must be finite")
+            if type(value) is str and (not value or "\0" in value):
+                raise ValueError(f"scientific_contract factor {name!r} text is invalid")
+        distribution = distributions[name]
+        normalized_distribution = (
+            {
+                "family": distribution.family,
+                "transform": distribution.transform,
+                "provenance": distribution.provenance,
+            }
+            if isinstance(distribution, ParameterDistribution)
+            else distribution
+        )
+        if not isinstance(normalized_distribution, dict):
+            raise TypeError(f"scientific_contract distribution for {name!r} must be a mapping")
+        _exact(
+            normalized_distribution,
+            {"family", "transform", "provenance"},
+            f"scientific_contract distribution for {name!r}",
+        )
+        if (
+            normalized_distribution["family"] != "discrete_uniform"
+            or normalized_distribution["transform"] != "identity"
+        ):
+            raise ValueError(f"scientific_contract distribution for {name!r} is invalid")
+        _text(
+            normalized_distribution["provenance"],
+            f"scientific_contract distribution for {name!r} provenance",
+        )
+        expected_parameters.append(
+            {
+                "name": name,
+                "support": support,
+                "distribution": normalized_distribution,
+            }
+        )
+    if parameters != expected_parameters:
+        raise ValueError(
+            "scientific_contract parameters must exactly match sorted factor supports and distributions"
+        )
+
+
+def serialize_scientific_contract(
+    charter: ScientificCharter,
+    factors: dict[str, list],
+    distributions: dict[str, ParameterDistribution],
+) -> dict:
+    if not isinstance(charter, ScientificCharter):
+        raise TypeError("canonical scientific contract requires a ScientificCharter")
+    if set(factors) != set(distributions):
+        raise ValueError("scientific contract distributions must exactly match factors")
+    decision = charter.decision
+    contract = {
+        "charter": {
+            "status": charter.status.value,
+            "decision": {
+                "claim": decision.claim,
+                "use": decision.use.value,
+                "setting": decision.setting,
+                "objective": decision.objective.value,
+                "estimand": decision.estimand,
+                "primary_indicator": decision.primary_indicator,
+                "practical_tolerance": decision.practical_tolerance,
+            },
+            "uncertainty": {
+                "dependence": {
+                    "kind": charter.dependence.kind.value,
+                    "rationale": charter.dependence.rationale,
+                    "groups": [
+                        {
+                            "factors": list(group.factors),
+                            "model": group.model,
+                            "provenance": group.provenance,
+                        }
+                        for group in charter.dependence.groups
+                    ],
+                },
+                "inventory": {
+                    category: [
+                        {
+                            "name": item.name,
+                            "status": item.status.value,
+                            "provenance": item.provenance,
+                            "rationale": item.rationale,
+                        }
+                        for item in getattr(charter.inventory, category)
+                    ]
+                    for category in INVENTORY_CATEGORIES
+                },
+            },
+            "budget": {
+                "maximum_runs": charter.budget.maximum_runs,
+                "reserve_fraction": charter.budget.reserve_fraction,
+            },
+            "stopping": [
+                {
+                    "metric": criterion.metric,
+                    "threshold": criterion.threshold,
+                    "consecutive_checks": criterion.consecutive_checks,
+                }
+                for criterion in charter.stopping
+            ],
+            "robustness": [
+                {"name": check.name, "rationale": check.rationale}
+                for check in charter.robustness
+            ],
+        },
+        "parameters": [
+            {
+                "name": name,
+                "support": factors[name],
+                "distribution": {
+                    "family": distributions[name].family,
+                    "transform": distributions[name].transform,
+                    "provenance": distributions[name].provenance,
+                },
+            }
+            for name in sorted(factors)
+        ],
+    }
+    return contract

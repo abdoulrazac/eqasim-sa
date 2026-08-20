@@ -46,7 +46,7 @@ mon-analyse-sa/
 ├── configs/
 │   ├── 00-calibration.yml
 │   ├── 01-grid.yml
-│   ├── 02-morris.yml
+│   ├── 02-discrete-oat.yml
 │   └── 03-sobol.yml
 ├── campaigns/
 └── scratch/
@@ -111,9 +111,10 @@ l'espace estimé. `check --smoke` ajoute deux vrais runs temporaires et doit don
 `sampling_rate: 0.001` et les deux premières seeds. En particulier, son
 `data_path` est celui du modèle, pas `execution.overrides.data_path`.
 
-Les modèles fournis sont petits et pédagogiques. Leurs tailles ne constituent
-pas une recommandation scientifique. Consultez [Paramètres et méthodes](parameters-and-methods.md)
-avant d'étendre les domaines ou les plans.
+Les modèles fournis sont de petites campagnes de démonstration. Leurs tailles ne
+constituent pas une recommandation scientifique et `init` ne génère délibérément
+aucun starter Morris canonique. Consultez [Paramètres et méthodes](parameters-and-methods.md)
+avant d'étendre les domaines ou de rédiger une campagne scientifique propre à l'étude.
 
 ## Checkpoints minimaux des modèles générés
 
@@ -124,7 +125,7 @@ Les commandes `plan` renvoient un objet JSON avec `status`, `designPositions` et
 | --- | --- | --- |
 | Calibration | `plan`: `created`, 3 positions, 3 runs uniques; `run`: `completed`, 3 complétés | `campaigns/calibration/plan.parquet`, 3 marqueurs sous `runs/`, 3 archives |
 | Grid | `plan`: `created`, 8 positions, 8 runs uniques; `run`: 8 complétés; `analyze`: `completed` | `indicators.parquet`, `replication-dispersion.parquet`, `analysis-generation.json` |
-| Morris | `plan`: `created`, 8 positions, 6 runs uniques; `run`: 6 complétés; `analyze`: sensibilité `morris` | `indicators.parquet`, `replication-dispersion.parquet`, `morris-ranking.parquet`, `analysis-generation.json` |
+| OAT discret | `plan`: `created`, 8 positions, 6 runs uniques; `run`: 6 complétés; `analyze`: sensibilité `discrete_oat` | `indicators.parquet`, `replication-dispersion.parquet`, `discrete-oat-effects.parquet`, `analysis-generation.json` |
 | Sobol | `plan`: `created`, 32 positions, 8 runs uniques; `run`: 8 complétés; `analyze`: sensibilité `sobol` | `indicators.parquet`, `sobol-indices.parquet`, `analysis-generation.json` |
 
 Une relance identique de `plan` renvoie `unchanged`. Une campagne déjà complète
@@ -136,8 +137,7 @@ renvoie pour `run` `status: completed` et `total: 0`.
 - Chaque `runId` attendu possède un marqueur valide et une archive lisible.
 - `analyze` annonce `status: completed` et le taux de complétude attendu.
 - Les schémas et colonnes des Parquet d'artefacts correspondent aux déclarations YAML.
-- Les sorties Grid, Morris et Sobol ont été inspectées, pas seulement créées.
+- Les sorties de démonstration Grid, OAT discret et Sobol ont été inspectées, pas seulement créées.
 - Le modèle, les données, le lockfile et la version d'`eqasim-sa` sont archivés ou traçables.
 
-Voir aussi le [tutoriel Nantes détaillé](../../tutorial-sa-init/README-fr.md) et le
-[glossaire](glossary.md).
+Voir aussi le [glossaire](glossary.md).

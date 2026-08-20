@@ -17,14 +17,25 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from scipy.stats import qmc
 
+from eqasim_sa.core.charter import validate_scientific_contract
 from eqasim_sa.core.indicators import ArtifactSet, Indicator
 from eqasim_sa.core.ledger import _write_atomic, plan_run_ids, write_parquet_atomic
 from eqasim_sa.core.plan import (
+    CANONICAL_MORRIS_DOMAIN,
+    DISCRETE_OAT_DOMAIN,
+    MAX_CANONICAL_MORRIS_CANDIDATES,
+    MAX_CANONICAL_MORRIS_DISTANCE_TERMS,
+    _canonical_replication_seed,
+    _canonical_selection,
+    _discrete_uniform_generalized_inverse_index,
+    _json,
+    canonical_morris_distance_terms,
     validate_morris_values,
     validate_sobol_effective_hybrid_contrasts,
 )
 
 BOOTSTRAP_DOMAIN = b"eqasim-sa:bootstrap:sobol:v1\0"
+CANONICAL_MORRIS_BOOTSTRAP_DOMAIN = b"eqasim-sa:bootstrap:canonical-morris:v1\0"
 SOBOL_DOMAIN = b"eqasim-sa:design:sobol:v1\0"
 
 
@@ -42,6 +53,8 @@ class AnalyzeResult:
     completed: int
     missing: int
     failed: int
+    convergence_path: Path | None = None
+    rank_reversals_path: Path | None = None
 
 
 def analyze(
@@ -54,6 +67,8 @@ def analyze(
     method: str = "grid",
     bootstrap_resamples: int | None = None,
     confidence_level: float | None = None,
+    convergence_checkpoints: tuple[int, ...] | None = None,
+    screening_top_k: int | None = None,
 ) -> AnalyzeResult:
     campaign_root = campaign_root.resolve(strict=True)
     lock_name = hashlib.sha256(os.fsencode(campaign_root)).hexdigest()[:16]
@@ -70,6 +85,8 @@ def analyze(
             method,
             bootstrap_resamples,
             confidence_level,
+            convergence_checkpoints,
+            screening_top_k,
         )
     finally:
         os.close(descriptor)
@@ -84,11 +101,14 @@ def _analyze_locked(
     method: str,
     bootstrap_resamples: int | None,
     confidence_level: float | None,
+    convergence_checkpoints: tuple[int, ...] | None,
+    screening_top_k: int | None,
 ) -> AnalyzeResult:
-    if method == "morris" and seed_role != "replication":
-        raise ValueError("Morris requires seed_role replication")
-    if method == "morris" and not indicators:
-        raise ValueError("Morris requires at least one indicator")
+    oat_methods = {"morris", "discrete_oat", "canonical_morris"}
+    if method in oat_methods and seed_role != "replication":
+        raise ValueError(f"{method} requires seed_role replication")
+    if method in oat_methods and not indicators:
+        raise ValueError(f"{method} requires at least one indicator")
     if method == "sobol" and seed_role != "factor":
         raise ValueError("Sobol requires seed_role factor")
     if method == "sobol" and not indicators:
@@ -106,6 +126,37 @@ def _analyze_locked(
         or not 0 < confidence_level < 1
     ):
         raise ValueError("Sobol confidence_level must be a finite float in (0,1)")
+    if method == "canonical_morris":
+        if (
+            type(bootstrap_resamples) is not int
+            or not 100 <= bootstrap_resamples <= 2**63 - 1
+        ):
+            raise ValueError(
+                "canonical_morris bootstrap_resamples must be a signed int64 integer at least 100"
+            )
+        if (
+            type(confidence_level) is not float
+            or not math.isfinite(confidence_level)
+            or not 0 < confidence_level < 1
+        ):
+            raise ValueError(
+                "canonical_morris confidence_level must be a finite float in (0,1)"
+            )
+        if (
+            not isinstance(convergence_checkpoints, tuple)
+            or not convergence_checkpoints
+            or any(
+                type(value) is not int or value < 2
+                for value in convergence_checkpoints
+            )
+            or tuple(sorted(set(convergence_checkpoints)))
+            != convergence_checkpoints
+        ):
+            raise ValueError(
+                "canonical_morris convergence_checkpoints must be sorted unique integers at least 2"
+            )
+        if type(screening_top_k) is not int or screening_top_k <= 0:
+            raise ValueError("canonical_morris screening_top_k must be positive")
     if seed_role not in {"replication", "factor"}:
         raise ValueError("seed_role must be replication or factor")
     if (
@@ -128,22 +179,34 @@ def _analyze_locked(
     )
     if (
         len(methods) != 1
-        or method not in {"grid", "morris", "sobol"}
+        or method not in {"grid", "morris", "discrete_oat", "canonical_morris", "sobol"}
         or methods != {method}
     ):
         actual = next(iter(methods), "missing") if len(methods) <= 1 else "mixed"
         raise ValueError(
             f"plan method {actual} is incompatible with requested method {method}"
         )
-    if method in {"morris", "sobol"} and completeness_threshold != 1.0:
+    if method in {"morris", "discrete_oat", "canonical_morris", "sobol"} and completeness_threshold != 1.0:
         raise ValueError(f"{method.title()} completeness_threshold must equal 1.0")
     protected = (plan, campaign_root / "runs", campaign_root / "archives")
     output = campaign_root / "indicators.parquet"
     dispersion = campaign_root / "replication-dispersion.parquet"
     morris_sensitivity = campaign_root / "morris-ranking.parquet"
+    discrete_oat_sensitivity = campaign_root / "discrete-oat-effects.parquet"
+    canonical_morris_sensitivity = campaign_root / "canonical-morris-ranking.parquet"
+    canonical_morris_convergence = campaign_root / "canonical-morris-convergence.parquet"
+    canonical_morris_reversals = campaign_root / "canonical-morris-rank-reversals.parquet"
     sobol_sensitivity = campaign_root / "sobol-indices.parquet"
     generation = campaign_root / "analysis-generation.json"
-    derived = (output, dispersion, morris_sensitivity, sobol_sensitivity, generation)
+    sensitivity_outputs = (
+        morris_sensitivity,
+        discrete_oat_sensitivity,
+        canonical_morris_sensitivity,
+        canonical_morris_convergence,
+        canonical_morris_reversals,
+        sobol_sensitivity,
+    )
+    derived = (output, dispersion, *sensitivity_outputs, generation)
     expected_ids, completed_ids = plan_run_ids(campaign_root, plan, campaign)
     if not expected_ids:
         raise ValueError("plan contains no expected runs")
@@ -200,12 +263,34 @@ def _analyze_locked(
             elif dispersion.exists() or dispersion.is_symlink():
                 dispersion.unlink()
             sensitivity_path = None
+            convergence_path = None
+            rank_reversals_path = None
             if method == "morris":
                 sensitivity_path = write_parquet_atomic(
                     _morris_ranking(plan_table, rows), morris_sensitivity
                 )
-                if sobol_sensitivity.exists() or sobol_sensitivity.is_symlink():
-                    sobol_sensitivity.unlink()
+            elif method == "discrete_oat":
+                sensitivity_path = write_parquet_atomic(
+                    _discrete_oat_effects(plan_table, rows), discrete_oat_sensitivity
+                )
+            elif method == "canonical_morris":
+                ranking_table, convergence_table, reversal_table = _canonical_morris_tables(
+                    plan_table,
+                    rows,
+                    bootstrap_resamples,
+                    confidence_level,
+                    convergence_checkpoints,
+                    screening_top_k,
+                )
+                sensitivity_path = write_parquet_atomic(
+                    ranking_table, canonical_morris_sensitivity
+                )
+                convergence_path = write_parquet_atomic(
+                    convergence_table, canonical_morris_convergence
+                )
+                rank_reversals_path = write_parquet_atomic(
+                    reversal_table, canonical_morris_reversals
+                )
             elif method == "sobol":
                 sensitivity_path = write_parquet_atomic(
                     _sobol_ranking(
@@ -213,14 +298,16 @@ def _analyze_locked(
                     ),
                     sobol_sensitivity,
                 )
-                if morris_sensitivity.exists() or morris_sensitivity.is_symlink():
-                    morris_sensitivity.unlink()
-            else:
-                for stale in (morris_sensitivity, sobol_sensitivity):
-                    if stale.exists() or stale.is_symlink():
-                        stale.unlink()
+            current_outputs = {
+                path
+                for path in (sensitivity_path, convergence_path, rank_reversals_path)
+                if path is not None
+            }
+            for stale in sensitivity_outputs:
+                if stale not in current_outputs and (stale.exists() or stale.is_symlink()):
+                    stale.unlink()
             manifest = {
-                "version": 2,
+                "version": 3 if method == "canonical_morris" else 2,
                 "indicatorsSha256": _digest(output),
                 "dispersionSha256": _digest(dispersion) if dispersion_path else None,
                 "sensitivitySha256": _digest(sensitivity_path)
@@ -233,23 +320,37 @@ def _analyze_locked(
                 "missing": len(missing_ids),
                 "failed": len(failed_ids),
             }
+            if method == "canonical_morris":
+                manifest.update(
+                    {
+                        "sensitivityPath": sensitivity_path.name,
+                        "rankingPath": sensitivity_path.name,
+                        "rankingSha256": _digest(sensitivity_path),
+                        "convergencePath": convergence_path.name,
+                        "convergenceSha256": _digest(convergence_path),
+                        "rankReversalsPath": rank_reversals_path.name,
+                        "rankReversalsSha256": _digest(rank_reversals_path),
+                    }
+                )
             encoded = json.dumps(
                 manifest, sort_keys=True, separators=(",", ":")
             ).encode()
             _write_atomic(generation, lambda path: path.write_bytes(encoded))
             return AnalyzeResult(
-                destination,
-                dispersion_path,
-                method if sensitivity_path else None,
-                sensitivity_path,
-                len(completed_ids),
-                len(indicators),
-                len(rows),
-                completion_rate,
-                len(expected_ids),
-                len(completed_ids),
-                len(missing_ids),
-                len(failed_ids),
+                path=destination,
+                dispersion_path=dispersion_path,
+                sensitivity_method=method if sensitivity_path else None,
+                sensitivity_path=sensitivity_path,
+                runs=len(completed_ids),
+                indicators=len(indicators),
+                values=len(rows),
+                completion_rate=completion_rate,
+                expected=len(expected_ids),
+                completed=len(completed_ids),
+                missing=len(missing_ids),
+                failed=len(failed_ids),
+                convergence_path=convergence_path,
+                rank_reversals_path=rank_reversals_path,
             )
         except BaseException:
             if _snapshot(campaign_root, (*protected, *derived)) != before:
@@ -643,25 +744,60 @@ def _sobol_ranking(
 
 
 def _morris_ranking(plan: pa.Table, rows: list[tuple[str, str, float]]) -> pa.Table:
+    return _adjacent_oat_ranking(
+        plan,
+        rows,
+        design_version_key=b"morrisDesignVersion",
+        design_key=b"morrisDesign",
+        domain=b"eqasim-sa:design:morris:v1\0",
+        method=None,
+        label="Morris",
+    )
+
+
+def _discrete_oat_effects(
+    plan: pa.Table, rows: list[tuple[str, str, float]]
+) -> pa.Table:
+    return _adjacent_oat_ranking(
+        plan,
+        rows,
+        design_version_key=b"discreteOatDesignVersion",
+        design_key=b"discreteOatDesign",
+        domain=DISCRETE_OAT_DOMAIN,
+        method="discrete_oat",
+        label="Discrete OAT",
+    )
+
+
+def _adjacent_oat_ranking(
+    plan: pa.Table,
+    rows: list[tuple[str, str, float]],
+    *,
+    design_version_key: bytes,
+    design_key: bytes,
+    domain: bytes,
+    method: str | None,
+    label: str,
+) -> pa.Table:
     metadata = plan.schema.metadata or {}
     expected_metadata = {
         b"planSchemaVersion",
         b"canonicalizationVersion",
         b"contextDescriptor",
-        b"morrisDesignVersion",
-        b"morrisDesign",
+        design_version_key,
+        design_key,
     }
     if set(metadata) != expected_metadata or any(
         metadata.get(name) != b"1"
         for name in (
             b"planSchemaVersion",
             b"canonicalizationVersion",
-            b"morrisDesignVersion",
+            design_version_key,
         )
     ):
-        raise ValueError("Morris plan metadata is missing or unsupported")
+        raise ValueError(f"{label} plan metadata is missing or unsupported")
     try:
-        design = json.loads(metadata[b"morrisDesign"])
+        design = json.loads(metadata[design_key])
         descriptor = json.loads(metadata[b"contextDescriptor"])
     except Exception as error:
         raise ValueError("Morris metadata is invalid") from error
@@ -687,7 +823,7 @@ def _morris_ranking(plan: pa.Table, rows: list[tuple[str, str, float]]) -> pa.Ta
         ensure_ascii=False,
         allow_nan=False,
     ).encode()
-    if metadata[b"morrisDesign"] != canonical:
+    if metadata[design_key] != canonical:
         raise ValueError("Morris design metadata is not canonical")
     if (
         type(design["designSeed"]) is not int
@@ -787,7 +923,7 @@ def _morris_ranking(plan: pa.Table, rows: list[tuple[str, str, float]]) -> pa.Ta
             index
             for index in range(len(seeds))
             if hashlib.sha256(
-                b"eqasim-sa:design:morris:v1\0"
+                domain
                 + json.dumps(
                     {
                         "design": design,
@@ -805,7 +941,9 @@ def _morris_ranking(plan: pa.Table, rows: list[tuple[str, str, float]]) -> pa.Ta
             len(matching) != 1
             or replications.setdefault(location["seed"], matching[0]) != matching[0]
         ):
-            raise ValueError("Morris designId does not match role and replication")
+            raise ValueError(f"{label} designId does not match role and replication")
+        if method is not None and location["method"] != method:
+            raise ValueError(f"{label} method identity is invalid")
         for indicator in indicators:
             key = location["runId"], indicator
             if key not in observations:
@@ -915,6 +1053,636 @@ def _morris_ranking(plan: pa.Table, rows: list[tuple[str, str, float]]) -> pa.Ta
     return pa.Table.from_arrays(
         [
             pa.array((row[index] for row in result), type=field.type)
+            for index, field in enumerate(schema)
+        ],
+        schema=schema,
+    )
+
+
+def _canonical_morris_tables(
+    plan: pa.Table,
+    rows: list[tuple[str, str, float]],
+    bootstrap_resamples: int,
+    confidence_level: float,
+    convergence_checkpoints: tuple[int, ...],
+    screening_top_k: int,
+) -> tuple[pa.Table, pa.Table, pa.Table]:
+    metadata = plan.schema.metadata or {}
+    required_metadata = {
+        b"planSchemaVersion",
+        b"canonicalizationVersion",
+        b"contextDescriptor",
+        b"canonicalMorrisDesignVersion",
+        b"canonicalMorrisDesign",
+    }
+    if (
+        set(metadata) != required_metadata
+        or metadata.get(b"planSchemaVersion") != b"2"
+        or metadata.get(b"canonicalizationVersion") != b"1"
+        or metadata.get(b"canonicalMorrisDesignVersion") != b"1"
+    ):
+        raise ValueError("canonical Morris plan metadata is missing or unsupported")
+    try:
+        design = json.loads(metadata[b"canonicalMorrisDesign"])
+        descriptor = json.loads(metadata[b"contextDescriptor"])
+        design_bytes = _json(design)
+        descriptor_bytes = _json(descriptor)
+    except Exception as error:
+        raise ValueError("canonical Morris metadata is invalid") from error
+    if (
+        metadata[b"canonicalMorrisDesign"] != design_bytes
+        or metadata[b"contextDescriptor"] != descriptor_bytes
+    ):
+        raise ValueError("canonical Morris metadata is not canonical")
+    context_keys = {
+        "eqasimCommit",
+        "dataManifestSha256",
+        "lockfileSha256",
+        "eqasimSaVersion",
+    }
+    if (
+        not isinstance(descriptor, dict)
+        or set(descriptor) != context_keys
+        or any(type(value) is not str for value in descriptor.values())
+    ):
+        raise ValueError(
+            "canonical Morris contextDescriptor must contain exactly four string keys"
+        )
+    definition_keys = {
+        "bootstrapResamples",
+        "candidateDefinition",
+        "candidatePoolIdentities",
+        "confidenceLevel",
+        "convergenceCheckpoints",
+        "delta",
+        "distributions",
+        "factors",
+        "inverseCdfMap",
+        "p",
+        "replicationBaseSeeds",
+        "scientificContract",
+        "screeningTopK",
+        "seedDerivation",
+        "selectedTrajectories",
+        "selectionAlgorithm",
+        "selectionVersion",
+        "trajectories",
+    }
+    if not isinstance(design, dict) or set(design) != definition_keys:
+        raise ValueError("canonical Morris design metadata keys are invalid")
+
+    factors = design["factors"]
+    distributions = design["distributions"]
+    if not isinstance(factors, list) or not factors or not isinstance(distributions, list):
+        raise ValueError("canonical Morris factors or distributions are invalid")
+    supports, distribution_by_name, support_types = {}, {}, {}
+    for factor in factors:
+        if not isinstance(factor, dict) or set(factor) != {"name", "support"}:
+            raise ValueError("canonical Morris factor definition is invalid")
+        name, support = factor["name"], factor["support"]
+        if (
+            type(name) is not str
+            or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) is None
+            or name in supports
+            or name in {"designId", "method", "role", "runId", "seed", "contextHash"}
+            or not isinstance(support, list)
+            or len(support) < 2
+        ):
+            raise ValueError("canonical Morris factor support is invalid")
+        kind = type(support[0])
+        if (
+            kind not in (int, float, str)
+            or any(type(value) is not kind for value in support)
+            or len(set(support)) != len(support)
+            or kind is int
+            and any(not -(2**63) <= value < 2**63 for value in support)
+            or kind is float
+            and any(not math.isfinite(value) for value in support)
+            or kind is str
+            and any(not value or "\0" in value for value in support)
+        ):
+            raise ValueError("canonical Morris supports must contain distinct finite scalars")
+        supports[name] = support
+        support_types[name] = {int: pa.int64(), float: pa.float64(), str: pa.string()}[
+            kind
+        ]
+    names = tuple(supports)
+    if names != tuple(sorted(names)):
+        raise ValueError("canonical Morris factors must be in lexicographic order")
+    for distribution in distributions:
+        if (
+            not isinstance(distribution, dict)
+            or set(distribution) != {"name", "family", "transform", "provenance"}
+            or distribution.get("name") in distribution_by_name
+            or distribution.get("family") != "discrete_uniform"
+            or distribution.get("transform") != "identity"
+            or type(distribution.get("provenance")) is not str
+            or not distribution["provenance"]
+        ):
+            raise ValueError("canonical Morris distribution definition is invalid")
+        distribution_by_name[distribution["name"]] = {
+            key: distribution[key] for key in ("family", "transform", "provenance")
+        }
+    if tuple(distribution_by_name) != names:
+        raise ValueError("canonical Morris distributions must match sorted factors")
+
+    p = design["p"]
+    trajectories = design["trajectories"]
+    candidate_definition = design["candidateDefinition"]
+    candidate_count = (
+        candidate_definition.get("candidateTrajectories")
+        if isinstance(candidate_definition, dict)
+        else None
+    )
+    candidate_seed = (
+        candidate_definition.get("designSeed")
+        if isinstance(candidate_definition, dict)
+        else None
+    )
+    candidate_expected = {
+        "designSeed": candidate_seed,
+        "factors": [
+            {
+                "name": name,
+                "support": supports[name],
+                "distribution": distribution_by_name[name],
+            }
+            for name in names
+        ],
+        "levels": p,
+        "candidateTrajectories": candidate_count,
+    }
+    universe = math.factorial(len(names)) * p ** len(names) if type(p) is int else 0
+    if (
+        not isinstance(candidate_definition, dict)
+        or set(candidate_definition)
+        != {"designSeed", "factors", "levels", "candidateTrajectories"}
+        or candidate_definition != candidate_expected
+        or type(candidate_definition["designSeed"]) is not int
+        or not -(2**63) <= candidate_definition["designSeed"] < 2**63
+        or type(p) is not int
+        or p < 4
+        or p % 2
+        or type(trajectories) is not int
+        or trajectories < 2
+        or type(candidate_count) is not int
+        or not trajectories <= candidate_count <= min(
+            universe, MAX_CANONICAL_MORRIS_CANDIDATES
+        )
+    ):
+        raise ValueError("canonical Morris candidate definition is invalid")
+    if canonical_morris_distance_terms(
+        len(names), candidate_count, trajectories
+    ) > MAX_CANONICAL_MORRIS_DISTANCE_TERMS:
+        raise ValueError(
+            "canonical Morris candidate selection exceeds the deterministic "
+            "distance-computation budget"
+        )
+    base_seeds = design["replicationBaseSeeds"]
+    checkpoints = design["convergenceCheckpoints"]
+    if (
+        not isinstance(base_seeds, list)
+        or not base_seeds
+        or any(type(seed) is not int or not -(2**63) <= seed < 2**63 for seed in base_seeds)
+        or len(set(base_seeds)) != len(base_seeds)
+        or type(design["bootstrapResamples"]) is not int
+        or not 100 <= design["bootstrapResamples"] < 2**63
+        or type(design["confidenceLevel"]) is not float
+        or not math.isfinite(design["confidenceLevel"])
+        or not 0 < design["confidenceLevel"] < 1
+        or not isinstance(checkpoints, list)
+        or not checkpoints
+        or any(type(value) is not int or value < 2 for value in checkpoints)
+        or sorted(set(checkpoints)) != checkpoints
+        or checkpoints[-1] != trajectories
+        or type(design["screeningTopK"]) is not int
+        or not 1 <= design["screeningTopK"] <= len(names)
+    ):
+        raise ValueError("canonical Morris sealed analysis settings are invalid")
+    if (
+        bootstrap_resamples != design["bootstrapResamples"]
+        or confidence_level != design["confidenceLevel"]
+        or list(convergence_checkpoints) != checkpoints
+        or screening_top_k != design["screeningTopK"]
+    ):
+        raise ValueError("canonical Morris requested analysis settings do not match the plan")
+    if (
+        design["delta"] != {"numerator": p // 2, "denominator": p - 1}
+        or design["inverseCdfMap"]
+        != "discrete-uniform-generalized-inverse-v1"
+        or design["selectionAlgorithm"]
+        != "greedy-sum-pairwise-squared-distance"
+        or design["selectionVersion"] != 1
+        or design["seedDerivation"]
+        != {
+            "algorithm": "sha256-first-64-bits-signed",
+            "domain": "eqasim-sa:canonical-morris-seed:v1",
+            "fields": [
+                "version",
+                "designSeed",
+                "baseSeed",
+                "trajectoryId",
+                "replicationIndex",
+            ],
+            "version": 1,
+        }
+    ):
+        raise ValueError("canonical Morris algorithm versions or delta are invalid")
+    validate_scientific_contract(
+        design["scientificContract"], supports, distribution_by_name
+    )
+    pool, selected = _canonical_selection(candidate_definition, trajectories)
+    expected_selected = [
+        {"candidateId": identity, "matrix": matrix, "selectionOrder": index}
+        for index, (identity, matrix) in enumerate(selected)
+    ]
+    if (
+        design["candidatePoolIdentities"] != [identity for identity, _ in pool]
+        or design["selectedTrajectories"] != expected_selected
+    ):
+        raise ValueError("canonical Morris candidate pool or selected trajectories are invalid")
+
+    columns = [name for name in names if name != "seed"]
+    expected_schema = pa.schema(
+        [
+            *(pa.field(name, pa.string(), False) for name in ("designId", "method", "role", "runId")),
+            pa.field("seed", pa.int64(), False),
+            pa.field("contextHash", pa.string(), False),
+            *(pa.field(name, support_types[name], False) for name in columns),
+        ]
+    )
+    if plan.column_names != ["designId", "method", "role", "runId", "seed", "contextHash", *columns] or not plan.schema.remove_metadata().equals(expected_schema):
+        raise ValueError("canonical Morris plan schema does not match sealed supports")
+    context_hash = hashlib.sha256(
+        b"eqasim-sa:context:v1\0" + descriptor_bytes
+    ).hexdigest()
+    expected_locations, derived_seeds = {}, set()
+    half = p // 2
+    for trajectory, (trajectory_id, matrix) in enumerate(selected):
+        if any(
+            type(value) is not int or not 0 <= value < p
+            for point in matrix
+            for value in point
+        ):
+            raise ValueError("canonical Morris unit matrix is outside its level grid")
+        changed_factors = []
+        for before, after in zip(matrix, matrix[1:]):
+            changed = [
+                index
+                for index, (left, right) in enumerate(zip(before, after))
+                if left != right
+            ]
+            if len(changed) != 1 or after[changed[0]] - before[changed[0]] not in {-half, half}:
+                raise ValueError("canonical Morris unit step must change one coordinate by p/2")
+            changed_factors.append(changed[0])
+        if sorted(changed_factors) != list(range(len(names))):
+            raise ValueError("canonical Morris trajectory must change every factor once")
+        mapped = [
+            tuple(
+                supports[name][
+                    _discrete_uniform_generalized_inverse_index(
+                        len(supports[name]), p, grid_index
+                    )
+                ]
+                for name, grid_index in zip(names, point)
+            )
+            for point in matrix
+        ]
+        for rank, (before, after) in enumerate(zip(mapped, mapped[1:]), 1):
+            changed = [
+                index
+                for index, (left, right) in enumerate(zip(before, after))
+                if left != right
+            ]
+            if changed != [changed_factors[rank - 1]]:
+                raise ValueError(
+                    "canonical Morris mapped step must change exactly its named factor"
+                )
+        for replication, base_seed in enumerate(base_seeds):
+            seed = _canonical_replication_seed(
+                candidate_definition["designSeed"], base_seed, trajectory_id, replication
+            )
+            if seed in derived_seeds:
+                raise ValueError("canonical Morris derived seed collision between blocks")
+            derived_seeds.add(seed)
+            for rank, values in enumerate(mapped):
+                role = (
+                    f"trajectory:{trajectory}:rank:0:start"
+                    if rank == 0
+                    else f"trajectory:{trajectory}:rank:{rank}:factor:{names[changed_factors[rank - 1]]}"
+                )
+                preimage = {
+                    "design": design,
+                    "replicationIndex": replication,
+                    "role": role,
+                }
+                design_id = hashlib.sha256(
+                    CANONICAL_MORRIS_DOMAIN + _json(preimage)
+                ).hexdigest()[:32]
+                expected_locations[design_id] = (
+                    trajectory,
+                    replication,
+                    rank,
+                    role,
+                    seed,
+                    values,
+                    matrix,
+                )
+    if len(plan) != trajectories * (len(names) + 1) * len(base_seeds):
+        raise ValueError("canonical Morris plan cardinality is inconsistent")
+    locations, config_runs, run_configs = {}, {}, {}
+    for location in plan.to_pylist():
+        design_id = location["designId"]
+        if design_id in locations or design_id not in expected_locations:
+            raise ValueError("canonical Morris designId is missing, duplicate or invalid")
+        trajectory, replication, rank, role, seed, values, matrix = expected_locations[
+            design_id
+        ]
+        actual = tuple(location[name] for name in names)
+        if (
+            location["method"] != "canonical_morris"
+            or location["role"] != role
+            or location["seed"] != seed
+            or location["contextHash"] != context_hash
+            or actual != values
+            or re.fullmatch(r"[0-9a-f]{32}", location["runId"] or "") is None
+        ):
+            raise ValueError("canonical Morris sealed row identity or mapped value is invalid")
+        config = (*actual, seed)
+        run_id = location["runId"]
+        if (
+            config_runs.setdefault(config, run_id) != run_id
+            or run_configs.setdefault(run_id, config) != config
+        ):
+            raise ValueError("canonical Morris runId relation is inconsistent")
+        locations[design_id] = {**location, "trajectory": trajectory, "replication": replication, "rank": rank, "matrix": matrix}
+    if set(locations) != set(expected_locations):
+        raise ValueError("canonical Morris plan rows are incomplete")
+
+    observations = {}
+    for run_id, indicator, value in rows:
+        key = run_id, indicator
+        if key in observations:
+            raise ValueError("multiple indicator values for one canonical Morris runId")
+        observations[key] = value
+    indicators = tuple(sorted({indicator for _, indicator, _ in rows}))
+    effects = {
+        indicator: {
+            factor: [[None for _ in base_seeds] for _ in range(trajectories)]
+            for factor in names
+        }
+        for indicator in indicators
+    }
+    by_block = {}
+    for location in locations.values():
+        by_block.setdefault(
+            (location["trajectory"], location["replication"]), []
+        ).append(location)
+    delta = half / (p - 1)
+    for (trajectory, replication), points in by_block.items():
+        points.sort(key=lambda item: item["rank"])
+        if [point["rank"] for point in points] != list(range(len(names) + 1)):
+            raise ValueError("canonical Morris trajectory ranks are incomplete")
+        matrix = points[0]["matrix"]
+        for before, after in zip(points, points[1:]):
+            factor = after["role"].split(":")[-1]
+            factor_index = names.index(factor)
+            direction = (matrix[after["rank"]][factor_index] - matrix[before["rank"]][factor_index]) // half
+            for indicator in indicators:
+                try:
+                    left = observations[(before["runId"], indicator)]
+                    right = observations[(after["runId"], indicator)]
+                except KeyError as error:
+                    raise ValueError(
+                        f"canonical Morris indicator {indicator!r} is incomplete"
+                    ) from error
+                effect = (right - left) / (direction * delta)
+                if not math.isfinite(effect):
+                    raise ValueError("canonical Morris elementary effect is not finite")
+                effects[indicator][factor][trajectory][replication] = effect
+
+    ranking_rows, convergence_rows, reversal_rows = [], [], []
+    for indicator in indicators:
+        for checkpoint in checkpoints:
+            estimates, boot_mu_star, boot_ranks, boot_top_k = _canonical_checkpoint_statistics(
+                effects[indicator],
+                names,
+                checkpoint,
+                bootstrap_resamples,
+                confidence_level,
+                screening_top_k,
+                design_bytes,
+                indicator,
+            )
+            ordered = sorted(names, key=lambda name: (-estimates[name][1], name))
+            point_ranks = _average_ranks(
+                {factor: estimates[factor][1] for factor in names}
+            )
+            for factor in ordered:
+                mu, mu_star, sigma, seed_std = estimates[factor]
+                samples = boot_mu_star[factor]
+                alpha = 1 - confidence_level
+                ci_low, ci_high = np.quantile(
+                    samples, (alpha / 2, 1 - alpha / 2)
+                )  # NumPy's default linear percentile convention.
+                rank_low = float(
+                    np.quantile(boot_ranks[factor], alpha / 2, method="lower")
+                )
+                rank_high = float(
+                    np.quantile(
+                        boot_ranks[factor], 1 - alpha / 2, method="higher"
+                    )
+                )
+                top_probability = statistics.fmean(boot_top_k[factor])
+                values = (
+                    indicator,
+                    factor,
+                    point_ranks[factor],
+                    rank_low,
+                    rank_high,
+                    top_probability,
+                    checkpoint,
+                    len(base_seeds),
+                    checkpoint * len(base_seeds),
+                    delta,
+                    mu,
+                    mu_star,
+                    float(ci_low),
+                    float(ci_high),
+                    sigma,
+                    seed_std,
+                    bootstrap_resamples,
+                    confidence_level,
+                )
+                convergence_rows.append(values)
+                if checkpoint == trajectories:
+                    ranking_rows.append(values)
+            for left_index, factor_a in enumerate(ordered):
+                for factor_b in ordered[left_index + 1 :]:
+                    point_tie = estimates[factor_a][1] == estimates[factor_b][1]
+                    point_order = 0 if point_tie else 1
+                    reversal_probability = (
+                        None
+                        if point_tie
+                        else statistics.fmean(
+                            left < right
+                            for left, right in zip(
+                                boot_mu_star[factor_a], boot_mu_star[factor_b]
+                            )
+                        )
+                    )
+                    tie_probability = statistics.fmean(
+                        left == right
+                        for left, right in zip(
+                            boot_mu_star[factor_a], boot_mu_star[factor_b]
+                        )
+                    )
+                    reversal_rows.append(
+                        (
+                            indicator,
+                            checkpoint,
+                            factor_a,
+                            factor_b,
+                            point_order,
+                            reversal_probability,
+                            tie_probability,
+                            bootstrap_resamples,
+                        )
+                    )
+    convergence_schema = _canonical_effect_schema("checkpoint_trajectories")
+    ranking_schema = _canonical_effect_schema("trajectories")
+    reversal_schema = pa.schema(
+        [
+            pa.field("indicator", pa.string(), False),
+            pa.field("checkpoint_trajectories", pa.int64(), False),
+            pa.field("factor_a", pa.string(), False),
+            pa.field("factor_b", pa.string(), False),
+            pa.field("point_order", pa.int64(), False),
+            pa.field("reversal_probability", pa.float64()),
+            pa.field("tie_probability", pa.float64(), False),
+            pa.field("bootstrap_resamples", pa.int64(), False),
+        ]
+    )
+    return (
+        _rows_table(ranking_rows, ranking_schema),
+        _rows_table(convergence_rows, convergence_schema),
+        _rows_table(reversal_rows, reversal_schema),
+    )
+
+
+def _canonical_checkpoint_statistics(
+    effects: dict[str, list[list[float]]],
+    names: tuple[str, ...],
+    checkpoint: int,
+    bootstrap_resamples: int,
+    confidence_level: float,
+    screening_top_k: int,
+    design_bytes: bytes,
+    indicator: str,
+) -> tuple[dict, dict, dict, dict]:
+    del confidence_level
+    trajectory_means, estimates = {}, {}
+    for factor in names:
+        values = [list(row) for row in effects[factor][:checkpoint]]
+        if any(any(value is None for value in row) for row in values):
+            raise ValueError("canonical Morris elementary effects are incomplete")
+        means = [statistics.fmean(row) for row in values]
+        trajectory_means[factor] = means
+        mu, mu_star = statistics.fmean(means), statistics.fmean(map(abs, means))
+        sigma = statistics.stdev(means) if checkpoint > 1 else None
+        seed_std = None
+        if len(values[0]) > 1:
+            seed_std = math.sqrt(
+                statistics.fmean(statistics.variance(row) for row in values)
+            )
+        estimates[factor] = (mu, mu_star, sigma, seed_std)
+    seed = int.from_bytes(
+        hashlib.sha256(
+            CANONICAL_MORRIS_BOOTSTRAP_DOMAIN
+            + design_bytes
+            + b"\0"
+            + indicator.encode("utf-8")
+            + b"\0"
+            + str(checkpoint).encode("ascii")
+        ).digest()[:16],
+        "big",
+    )
+    rng = np.random.default_rng(seed)
+    boot_mu_star = {factor: [] for factor in names}
+    boot_ranks = {factor: [] for factor in names}
+    boot_top_k = {factor: [] for factor in names}
+    for _ in range(bootstrap_resamples):
+        selected = rng.integers(0, checkpoint, size=checkpoint)
+        current = {
+            factor: statistics.fmean(
+                abs(trajectory_means[factor][int(index)]) for index in selected
+            )
+            for factor in names
+        }
+        ranks = _average_ranks(current)
+        top_k = _top_k_weights(current, screening_top_k)
+        for factor in names:
+            boot_mu_star[factor].append(current[factor])
+            boot_ranks[factor].append(ranks[factor])
+            boot_top_k[factor].append(top_k[factor])
+    return estimates, boot_mu_star, boot_ranks, boot_top_k
+
+
+def _average_ranks(values: dict[str, float]) -> dict[str, float]:
+    return {
+        factor: 1.0
+        + sum(other > value for other in values.values())
+        + (sum(other == value for other in values.values()) - 1) / 2
+        for factor, value in values.items()
+    }
+
+
+def _top_k_weights(values: dict[str, float], top_k: int) -> dict[str, float]:
+    weights = {factor: 0.0 for factor in values}
+    remaining = top_k
+    for value in sorted(set(values.values()), reverse=True):
+        group = [factor for factor, current in values.items() if current == value]
+        if remaining >= len(group):
+            weight = 1.0
+        elif remaining > 0:
+            weight = remaining / len(group)
+        else:
+            weight = 0.0
+        for factor in group:
+            weights[factor] = weight
+        remaining = max(0, remaining - len(group))
+    return weights
+
+
+def _canonical_effect_schema(trajectory_name: str) -> pa.Schema:
+    return pa.schema(
+        [
+            pa.field("indicator", pa.string(), False),
+            pa.field("factor", pa.string(), False),
+            pa.field("rank", pa.float64(), False),
+            pa.field("rank_ci_low", pa.float64(), False),
+            pa.field("rank_ci_high", pa.float64(), False),
+            pa.field("top_k_probability", pa.float64(), False),
+            pa.field(trajectory_name, pa.int64(), False),
+            pa.field("replications", pa.int64(), False),
+            pa.field("elementary_effects", pa.int64(), False),
+            pa.field("delta", pa.float64(), False),
+            pa.field("mu", pa.float64(), False),
+            pa.field("mu_star", pa.float64(), False),
+            pa.field("mu_star_ci_low", pa.float64(), False),
+            pa.field("mu_star_ci_high", pa.float64(), False),
+            pa.field("sigma", pa.float64()),
+            pa.field("seed_std", pa.float64()),
+            pa.field("bootstrap_resamples", pa.int64(), False),
+            pa.field("confidence_level", pa.float64(), False),
+        ]
+    )
+
+
+def _rows_table(rows: list[tuple], schema: pa.Schema) -> pa.Table:
+    return pa.Table.from_arrays(
+        [
+            pa.array((row[index] for row in rows), type=field.type)
             for index, field in enumerate(schema)
         ],
         schema=schema,
