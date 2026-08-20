@@ -62,7 +62,27 @@ def test_total_variation_normalizes_archived_masses(
     assert 0.0 <= value <= 1.0
 
 
-def test_two_references_produce_distinct_indicators(tmp_path: Path) -> None:
+def test_proportional_references_have_distinct_identities_but_equal_tv(
+    tmp_path: Path,
+) -> None:
+    path = archive(
+        tmp_path,
+        **{
+            "class": ["a", "b"],
+            "synthetic": [45.8, 54.2],
+            "HTS": [40.5, 59.5],
+            "HTS globally rescaled": [81.0, 119.0],
+        },
+    )
+    artifacts = ArtifactSet({"distribution": path})
+    raw = indicator("HTS")
+    rescaled = indicator("HTS globally rescaled")
+
+    assert raw.identity != rescaled.identity
+    assert raw.compute(artifacts) == pytest.approx(rescaled.compute(artifacts))
+
+
+def test_shape_changing_references_produce_distinct_indicators(tmp_path: Path) -> None:
     path = archive(
         tmp_path,
         **{

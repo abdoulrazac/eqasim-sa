@@ -71,6 +71,12 @@ Grid and Sobol vary the scalar `matching_age_scheme` between `matching_6` and
 configuration keeps `analysis_age_scheme: analysis_7` fixed so output classes
 remain comparable; changing an output scheme is not a matching effect.
 
+Every generated configuration starts with exactly three total-variation
+signals: age against INSEE, distance against HTS, and number of vehicles against
+HTS. eqasim-france still archives `HTS adjust with INSEE population weights`
+for compatibility, but that column is a global rescaling of HTS and therefore
+has the same normalized TV value; it is intentionally not declared here.
+
 The Nantes model also exposes optional scalar factors:
 
 | Factor | Default | Example domain | Compatible methods |

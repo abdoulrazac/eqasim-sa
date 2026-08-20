@@ -80,7 +80,7 @@ declared as a factor.
 | `matching_minimum_age` | integer, `5` | minimum age of target persons entering statistical matching | `[0, 5, 12]` | Grid, Morris, Sobol |
 | `income_assignation_method` | string, `uniform` | income synthesis stage, `uniform` or `bhepop2` | `[uniform, bhepop2]` | Grid, Sobol |
 | `hts` | string, `edgt_44` | survey donors and survey reference distributions | `[edgt_44, entd]` | Grid, Sobol, if both datasets exist |
-| `projection_year` | integer when enabled | projected synthesis population; starter INSEE reference remains baseline | `[2020, 2030, 2040]` | conditional on projection data and scenario |
+| `projection_year` | integer when enabled | projected synthesis population and projected INSEE reference | `[2020, 2030, 2040]` | conditional on projection data and scenario |
 
 These example values demonstrate syntax; they are not automatically justified
 scientific domains. In particular:
@@ -99,10 +99,16 @@ scientific domains. In particular:
 - changing `hts` changes both the donor population and HTS references, and may
   require a separate prepared data cache;
 - `projection_year` requires both a compatible `projection_scenario` and the
-  projection archive. In the current starter,
-  `analysis.synthesis.population` still reads `data.census.filtered` for its
-  INSEE comparison, so do not claim that this reference follows the projected
-  synthesis without first changing and validating the producing stage.
+  projection archive. Without it, `analysis.synthesis.population` compares to
+  `data.census.filtered`; with it, the stage compares to
+  `synthesis.population.projection.reweighted`, so INSEE follows the projected
+  census.
+
+The starter declares exactly three TV signals: age against INSEE, distance
+against raw HTS, and number of vehicles against raw HTS. eqasim-france still
+outputs `HTS adjust with INSEE population weights` for compatibility, but this
+column is only a global rescaling of HTS. TV normalization removes that scale,
+so new starters do not declare it as a second reference.
 
 `matching_attributes` is scientifically important but is an ordered list, not a
 scalar. The last attribute is relaxed first. It cannot currently be transported

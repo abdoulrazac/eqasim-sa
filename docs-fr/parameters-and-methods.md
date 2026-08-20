@@ -81,7 +81,7 @@ de pouvoir être déclarée comme facteur.
 | `matching_minimum_age` | entier, `5` | âge minimal des personnes cibles entrant dans le matching | `[0, 5, 12]` | Grid, Morris, Sobol |
 | `income_assignation_method` | chaîne, `uniform` | méthode de synthèse du revenu, `uniform` ou `bhepop2` | `[uniform, bhepop2]` | Grid, Sobol |
 | `hts` | chaîne, `edgt_44` | donneurs et distributions de référence de l'enquête | `[edgt_44, entd]` | Grid, Sobol, si les deux jeux existent |
-| `projection_year` | entier si activé | population synthétique projetée; référence INSEE du starter inchangée | `[2020, 2030, 2040]` | conditionnel aux données et au scénario de projection |
+| `projection_year` | entier si activé | population synthétique et référence INSEE projetées | `[2020, 2030, 2040]` | conditionnel aux données et au scénario de projection |
 
 Ces valeurs montrent la syntaxe; elles ne constituent pas automatiquement des
 domaines scientifiquement justifiés. En particulier :
@@ -100,9 +100,17 @@ domaines scientifiquement justifiés. En particulier :
 - changer `hts` change à la fois les donneurs et les références HTS, et peut
   exiger un cache de données préparé séparément ;
 - `projection_year` exige un `projection_scenario` compatible et l'archive de
-  projection. Dans le starter actuel, `analysis.synthesis.population` lit
-  toujours `data.census.filtered` pour la comparaison INSEE : n'affirmez pas que
-  cette référence suit la synthèse projetée sans modifier et valider ce stage.
+  projection. Sans ce paramètre, `analysis.synthesis.population` compare à
+  `data.census.filtered`; avec lui, le stage compare à
+  `synthesis.population.projection.reweighted`, donc INSEE suit le recensement
+  projeté.
+
+Le starter déclare exactement trois signaux TV : âge contre INSEE, distance
+contre HTS brut et nombre de véhicules contre HTS brut. eqasim-france continue
+de produire `HTS adjust with INSEE population weights` pour compatibilité, mais
+cette colonne est une simple mise à l'échelle globale de HTS. La normalisation TV
+annule cette échelle; les nouveaux starters ne la déclarent donc pas comme
+seconde référence.
 
 `matching_attributes` est important mais prend une liste ordonnée : le dernier
 attribut est relâché en premier. Il n'est pas transportable actuellement comme

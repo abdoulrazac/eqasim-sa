@@ -111,6 +111,21 @@ def test_installed_metadata_and_commands(tmp_path: Path) -> None:
     assert "matching_age_scheme" in resources["01-grid.yml"].read_text()
     assert "matching_age_scheme" not in resources["02-morris.yml"].read_text()
     assert "matching_age_scheme" in resources["03-sobol.yml"].read_text()
+    starter_configs = [
+        resources[name].read_text()
+        for name in (
+            "00-calibration.yml",
+            "01-grid.yml",
+            "02-morris.yml",
+            "03-sobol.yml",
+        )
+    ]
+    assert all(
+        "HTS adjust with INSEE population weights" not in text
+        for text in starter_configs
+    )
+    assert all(text.count("references: [INSEE]") == 1 for text in starter_configs)
+    assert all(text.count("references: [HTS]") == 2 for text in starter_configs)
 
     base = {
         "config": {

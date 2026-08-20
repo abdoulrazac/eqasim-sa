@@ -27,11 +27,11 @@ artifacts:
   distance:
     class: Distance class
     synthetic: Proportion_EQASIM
-    references: [HTS, HTS adjust with INSEE population weights]
+    references: [HTS]
   nbr_vehicle:
     class: Number of vehicles class
     synthetic: Proportion_EQASIM
-    references: [HTS, HTS adjust with INSEE population weights]
+    references: [HTS]
 indicators:
   - pair:
       scalarizer: tv_distance
