@@ -141,7 +141,7 @@ def test_application_estimate_passes_sobol_formula_inputs_and_unique_runs(
         "c" * 64,
         descriptor,
         root,
-        base_sample_size=4,
+        base_sample_size=8,
         design_seed=7,
     )
     built = build_plan(design)
@@ -169,16 +169,16 @@ def test_application_estimate_passes_sobol_formula_inputs_and_unique_runs(
         method="sobol",
         trajectories=None,
         design_seed=7,
-        base_sample_size=4,
+        base_sample_size=8,
     )
     monkeypatch.setattr(application, "load_meta_config", lambda path: target)
 
     payload = application.estimate_from_meta_config(Path("target.yml"), ())
 
-    assert built.design_positions == 24
+    assert built.design_positions == 48
     assert payload["formula"] == "N(2D+2)"
-    assert payload["formulaInputs"] == {"D": 2, "N": 4}
-    assert payload["designPositions"] == 24
+    assert payload["formulaInputs"] == {"D": 2, "N": 8}
+    assert payload["designPositions"] == 48
     assert payload["runs"] == built.unique_runs
 
 

@@ -1,4 +1,4 @@
-# Minimal Saltelli design: N=2 and D=2 (sampling_rate plus seed).
+# N=4 and D=3: 32 positions and 8 unique runs for this deterministic sample.
 campaign: @PROJECT_NAME@-sobol
 campaign_root: ../campaigns/sobol
 model:
@@ -14,11 +14,13 @@ analysis:
 experiment:
   method: sobol
   seed_role: factor
-  base_sample_size: 2
+  base_sample_size: 4
   design_seed: 20260814
 parameters:
   sampling_rate:
     values: [0.001, 0.002]
+  matching_age_scheme:
+    values: [matching_6, analysis_7]
   seed:
     values: [1401, 1402]
 artifacts:

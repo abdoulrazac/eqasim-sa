@@ -405,6 +405,83 @@ def test_sobol_sealed_validation_rejects_tampering_and_preserves_outputs(
     assert {path: path.read_bytes() for path in outputs} == outputs
 
 
+def test_sobol_analysis_rejects_legacy_degenerate_hybrid_contrasts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import eqasim_sa.core.plan as plan_module
+
+    root = tmp_path / "legacy-degenerate"
+    descriptor = {
+        "eqasimCommit": "a",
+        "dataManifestSha256": "b",
+        "lockfileSha256": "c",
+        "eqasimSaVersion": "0.1.0",
+    }
+    descriptor_bytes = json.dumps(
+        descriptor, sort_keys=True, separators=(",", ":")
+    ).encode()
+    context_hash = hashlib.sha256(
+        b"eqasim-sa:context:v1\0" + descriptor_bytes
+    ).hexdigest()
+    design = SobolDesign(
+        {
+            "config": {
+                "sampling_rate": 0.001,
+                "matching_age_scheme": "matching_6",
+                "analysis_age_scheme": "analysis_7",
+            }
+        },
+        {
+            "sampling_rate": [0.001, 0.002],
+            "matching_age_scheme": ["matching_6", "analysis_7"],
+        },
+        (1401, 1402),
+        {},
+        context_hash,
+        descriptor,
+        root,
+        base_sample_size=2,
+        design_seed=20260814,
+    )
+    monkeypatch.setattr(
+        plan_module, "validate_sobol_effective_hybrid_contrasts", lambda *args: None
+    )
+    build_plan(design)
+    unique = {}
+    for row in pq.read_table(root / "plan.parquet").to_pylist():
+        unique.setdefault(row["runId"], row)
+    for run_id, row in unique.items():
+        write_parquet_atomic(
+            pa.table({"synthetic": [float(row["seed"])]}),
+            root / "archives" / run_id / "age.parquet",
+        )
+        write_run(
+            root,
+            RunRecord(
+                run_id,
+                "test",
+                row["seed"],
+                context_hash,
+                "node",
+                1.0,
+                {
+                    "matching_age_scheme": row["matching_age_scheme"],
+                    "sampling_rate": row["sampling_rate"],
+                },
+            ),
+        )
+    with pytest.raises(ValueError, match="no effective hybrid contrast"):
+        _analyze(
+            root,
+            (_custom_indicator(),),
+            completeness_threshold=1.0,
+            seed_role="factor",
+            method="sobol",
+            bootstrap_resamples=7,
+            confidence_level=0.9,
+        )
+
+
 def test_sobol_sealed_cardinality_is_rejected_before_qmc_allocation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

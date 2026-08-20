@@ -1,4 +1,4 @@
-# Two rates by two replication seeds: four positions and four unique runs.
+# Two rates by two matching schemes by two seeds: eight positions and eight unique runs.
 campaign: @PROJECT_NAME@-grid
 campaign_root: ../campaigns/grid
 model:
@@ -17,6 +17,8 @@ experiment:
 parameters:
   sampling_rate:
     values: [0.001, 0.002]
+  matching_age_scheme:
+    values: [matching_6, analysis_7]
 artifacts:
   age:
     class: Age class

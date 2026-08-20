@@ -189,6 +189,40 @@ def test_sobol_exact_qmc_mapping_roles_identity_metadata_and_cardinality(
     assert all(row["seed"] in domains["seed"] for row in rows)
 
 
+def test_sobol_rejects_factor_without_effective_projected_contrast(tmp_path: Path):
+    design = plan_module.SobolDesign(
+        base(),
+        {"sampling_rate": [0.001, 0.002], "matching_age_scheme": ["matching_6", "analysis_7"]},
+        (1401, 1402),
+        {},
+        "c" * 64,
+        {"version": "test"},
+        tmp_path / "degenerate",
+        2,
+        20260814,
+    )
+    with pytest.raises(ValueError, match="no effective hybrid contrast"):
+        build_plan(design)
+    assert not (design.campaign_root / "plan.parquet").exists()
+
+
+def test_sobol_accepts_identifiable_factors_with_position_deduplication(tmp_path: Path):
+    design = plan_module.SobolDesign(
+        base(),
+        {"sampling_rate": [0.001, 0.002], "matching_age_scheme": ["matching_6", "analysis_7"]},
+        (1401, 1402),
+        {},
+        "c" * 64,
+        {"version": "test"},
+        tmp_path / "valid",
+        4,
+        20260814,
+    )
+    result = build_plan(design)
+    assert result.design_positions == 32
+    assert result.unique_runs == 8 < result.design_positions
+
+
 def test_sobol_is_deterministic_parameter_order_independent_and_sensitive(
     tmp_path: Path,
 ) -> None:

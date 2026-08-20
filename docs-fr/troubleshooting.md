@@ -1,0 +1,126 @@
+# Dépannage
+
+[English](../docs/troubleshooting.md)
+
+## `model Git repository must be clean`
+
+Cause : fichier suivi modifié, fichier non suivi, index différent ou changement
+pendant le chargement. Remède : inspecter `git status --short` dans la racine du
+modèle, puis versionner ou retirer consciemment les changements. Ne contournez
+pas ce contrôle : le commit entre dans `contextHash`.
+
+## `model.config does not match its sealed Git blob`
+
+Cause : le fichier lu n'est pas identique à la version de `HEAD`. Remède :
+restaurer ou committer la configuration, puis utiliser une nouvelle campagne si
+un plan avait déjà été créé.
+
+## `plan differs; choose a new campaign_root`
+
+Cause : design, paramètres, contexte, version du paquet ou exigences d'artefacts
+différents sous une racine déjà scellée. Remède : choisir un nouveau
+`campaign_root`. Ne remplacez pas `plan.parquet`.
+
+## `campaign_root contains durable state without a plan`
+
+Cause : état résiduel ou contenu étranger dans la racine. Remède : identifier sa
+provenance. Pour une nouvelle étude, choisir une racine vide. Ne fabriquez pas
+un plan pour recouvrir un état existant.
+
+## `provide a calibration meta-config with a complete run`
+
+Cause : aucun marqueur complet n'est disponible dans la cible ou les campagnes
+de calibration. Remède : `plan`, puis `run` sur la calibration. Lancez ensuite
+`plan`, `check` et `estimate` sur la cible.
+
+## `unknown factor` ou `reserved or infrastructure factor`
+
+Cause : nom absent du bloc `config:` eqasim, option dédiée, infrastructure ou
+colonne réservée. Remède : utiliser une clé scientifique active; placer seulement
+les options d'environnement autorisées dans `execution.overrides`.
+
+## Erreur de type dans `parameters`
+
+Cause fréquente : booléen, `null`, niveaux mixtes, float non fini ou domaine
+Morris mal ordonné. Remède : conserver un type homogène et des nombres finis.
+Pour un float requis, écrire `1.0`, pas `1`.
+
+## `duplicate canonical configuration and seed pair`
+
+Cause : plusieurs positions Grid résolvent vers le même couple configuration et
+seed, souvent à cause de niveaux dupliqués. Remède : dédupliquer les domaines ou
+séparer réellement les configurations.
+
+## `campaign completeness ... is below threshold`
+
+Cause : marqueurs absents ou logs d'échec. Remède : consulter
+`logs/<runId>.log`, corriger le pipeline et relancer `run`. Ne créez pas de
+marqueur à la main.
+
+## `invalid completion marker`
+
+Cause : fichier manuel, tronqué, mauvais schéma, mauvais contexte, compression
+incorrecte ou contenu incohérent. Remède : préserver l'état pour diagnostic,
+puis reconstruire le run par le workflow normal dans une racine saine. Une
+édition manuelle rend la preuve de complétude non fiable.
+
+## `another invocation is already running this campaign`
+
+Cause : une commande `run` détient déjà le verrou de campagne. Remède : attendre
+sa fin. Après un crash, le verrou noyau est libéré automatiquement; ne supprimez
+pas les fichiers de verrou pendant une exécution.
+
+## `static check time budget exhausted`
+
+Cause : accès Git, lecture des plans/manifeste, sonde synpp ou mesure disque trop
+lente au-delà du budget de 55 secondes. Remède : vérifier les stockages réseau,
+la taille des fichiers de contrôle et le temps de démarrage de l'environnement.
+
+## `synpp environment probe failed`
+
+Cause : l'invocation ne démarre pas synpp comme attendu ou ne répond pas avec
+`Config file does not exist:` pour le fichier-sonde. Remède : exécuter la liste
+`execution.invocation` dans `model.root`, vérifier l'environnement et les
+versions. La sonde statique ne lance pas une simulation complète.
+
+## Échec de `check --smoke`
+
+Cause : moins de deux seeds, absence de `sampling_rate`, pipeline réel en échec,
+artefact absent ou Parquet invalide. Remède : satisfaire le contrat smoke et
+lire le détail retourné. Attention : cette option exécute deux simulations
+temporaires à `sampling_rate: 0.001`; elle consomme du calcul et accède aux
+données réelles. Le smoke part du YAML modèle scellé et n'applique aucun
+`execution.overrides`. Si la campagne normale dépend de
+`execution.overrides.data_path`, le smoke utilise malgré tout le `data_path` du
+modèle; rendez ce chemin accessible ou testez consciemment depuis un environnement
+où il est valide.
+
+## Espace disque ou scratch insuffisant
+
+Cause : `missingDiskBytes` ou `missingScratchBytes` positif. Remède : augmenter
+le quota, déplacer `campaign_root` ou `execution.scratch`, ou réduire
+`execution.workers`. Le scratch estimé est le maximum observé par worker multiplié
+par les workers.
+
+## `meta-config changed while preparing execution`
+
+Cause : le YAML a changé pendant `run`, ou entre soumission et job SLURM.
+Remède : arrêter les éditeurs/générateurs concurrents et relancer avec un fichier
+stable. Après changement de design ou contexte, choisir une nouvelle racine.
+
+## Analyse Sobol à variance constante
+
+Cause : toutes les valeurs de l'indicateur sont constantes, ou les bootstrap
+resamples sont dégénérés. Remède : vérifier l'indicateur, les domaines, la taille
+`N` et la diversité effective des runs. Ne masquez pas l'erreur statistique.
+
+## Avertissements de sécurité
+
+- Ne modifiez jamais `plan.parquet`.
+- Ne créez, ne copiez et ne modifiez jamais `runs/<runId>.parquet`.
+- Ne supprimez pas locks, scratch ou campagne pendant un processus ou job actif.
+- Ne réutilisez pas une racine après changement de modèle, données, lockfile ou version.
+- Ne considérez jamais une archive seule comme un run complet.
+
+Pour les définitions de marqueur, archive, scratch et override, voir le
+[glossaire](glossary.md).

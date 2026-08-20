@@ -13,7 +13,13 @@ import pyarrow.parquet as pq
 from eqasim_sa.adapters.fake.simulator import FakeSimulator
 from eqasim_sa.core.analyze import analyze
 from eqasim_sa.core.indicators import RegisteredIndicator
-from eqasim_sa.core.plan import SobolDesign, build_plan, load_run_specs
+from eqasim_sa.core.plan import (
+    GridDesign,
+    SobolDesign,
+    _table,
+    build_plan,
+    load_run_specs,
+)
 from eqasim_sa.core.run import execute_run
 
 
@@ -101,6 +107,33 @@ def test_installed_metadata_and_commands(tmp_path: Path) -> None:
     )
     assert "method: morris" in resources["02-morris.yml"].read_text()
     assert "method: sobol" in resources["03-sobol.yml"].read_text()
+    assert "base_sample_size: 4" in resources["03-sobol.yml"].read_text()
+    assert "matching_age_scheme" in resources["01-grid.yml"].read_text()
+    assert "matching_age_scheme" not in resources["02-morris.yml"].read_text()
+    assert "matching_age_scheme" in resources["03-sobol.yml"].read_text()
+
+    base = {
+        "config": {
+            "sampling_rate": 0.001,
+            "matching_age_scheme": "matching_6",
+            "analysis_age_scheme": "analysis_7",
+            "random_seed": 1,
+        }
+    }
+    factors = {
+        "sampling_rate": [0.001, 0.002],
+        "matching_age_scheme": ["matching_6", "analysis_7"],
+    }
+    grid = GridDesign(base, factors, (1201, 1202), {}, "a" * 64, {}, Path("grid"))
+    grid_table = _table(grid, tuple(sorted(factors)))
+    assert grid_table.num_rows == 8
+    assert len(set(grid_table["runId"].to_pylist())) == 8
+    sobol = SobolDesign(
+        base, factors, (1401, 1402), {}, "a" * 64, {}, Path("sobol"), 4, 20260814
+    )
+    sobol_table = _table(sobol, tuple(sorted({**factors, "seed": [1401, 1402]})))
+    assert sobol_table.num_rows == 32
+    assert len(set(sobol_table["runId"].to_pylist())) == 8
 
 
 def test_installed_init_generates_template_without_campaign_execution(tmp_path: Path) -> None:
@@ -110,6 +143,7 @@ def test_installed_init_generates_template_without_campaign_execution(tmp_path: 
     (model / "config_local_nantes.yml").write_text(
         "working_directory: /cache\nrun: []\nconfig:\n"
         "  sampling_rate: 0.001\n  random_seed: 1\n"
+        "  matching_age_scheme: matching_6\n  analysis_age_scheme: analysis_7\n"
     )
     (model / "uv.lock").write_text("version = 1\n")
     (data / "input.txt").write_text("installed wheel\n")
@@ -173,7 +207,7 @@ def test_installed_wheel_sobol_plan_fake_runs_and_analysis_end_to_end(
         context_hash,
         descriptor,
         root,
-        base_sample_size=4,
+        base_sample_size=8,
         design_seed=7,
     )
     planned = build_plan(design)
@@ -197,7 +231,7 @@ def test_installed_wheel_sobol_plan_fake_runs_and_analysis_end_to_end(
         confidence_level=0.9,
     )
     rows = pq.read_table(result.sensitivity_path).to_pylist()
-    assert planned.design_positions == 24
+    assert planned.design_positions == 48
     assert planned.unique_runs == len(specs) < planned.design_positions
     assert all(item.status == "completed" for item in results)
     assert result.sensitivity_method == "sobol"

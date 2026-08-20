@@ -619,14 +619,14 @@ def test_sobol_plan_reconstruction_deduplicates_without_losing_positions(
         "c" * 64,
         {"version": "test"},
         root,
-        base_sample_size=4,
+        base_sample_size=8,
         design_seed=7,
     )
     built = build_plan(design)
     table = pq.read_table(root / "plan.parquet")
     specs = load_run_specs(root / "plan.parquet", design, "demo")
 
-    assert built.design_positions == 4 * (2 * 2 + 2) == len(table)
+    assert built.design_positions == 8 * (2 * 2 + 2) == len(table)
     assert built.unique_runs == len(specs) == len(set(table["runId"].to_pylist()))
     assert built.unique_runs < built.design_positions
     assert len(set(table["designId"].to_pylist())) == built.design_positions

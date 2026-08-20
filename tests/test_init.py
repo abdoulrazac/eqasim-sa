@@ -23,6 +23,7 @@ def inputs(tmp_path: Path) -> tuple[Path, Path]:
     (model / "config_local_nantes.yml").write_text(
         "working_directory: /cache\nrun: [old]\nconfig:\n"
         "  processes: 4\n  sampling_rate: 0.001\n  random_seed: 1234\n"
+        "  matching_age_scheme: matching_6\n  analysis_age_scheme: analysis_7\n"
         "  data_path: /data\n  output_path: /output\n  output_prefix: nantes_\n"
     )
     (model / "uv.lock").write_text("version = 1\n")
@@ -101,6 +102,13 @@ def test_init_is_a_pure_atomic_template_generator(
         text = (root / f"configs/{index:02d}-{method}.yml").read_text()
         assert "data_manifest: \"../manifest.json\"" in text
         assert f"campaign: project-{method}" in text
+    assert "matching_age_scheme:\n    values: [matching_6, analysis_7]" in (
+        root / "configs/01-grid.yml"
+    ).read_text()
+    assert "matching_age_scheme" not in (root / "configs/02-morris.yml").read_text()
+    assert "matching_age_scheme:\n    values: [matching_6, analysis_7]" in (
+        root / "configs/03-sobol.yml"
+    ).read_text()
     readme = (root / "README.md").read_text()
     assert "did not\nplan a campaign" in readme
     project = Path(__file__).resolve().parents[1]
@@ -109,6 +117,53 @@ def test_init_is_a_pure_atomic_template_generator(
     )
     assert f"SA=({runner})" in readme
     assert readme.index('"${SA[@]}" plan') < readme.index('"${SA[@]}" check')
+
+
+@pytest.mark.parametrize(
+    ("config_lines", "message"),
+    [
+        ([], "matching_age_scheme"),
+        (["  matching_age_scheme: [matching_6]"], "matching_age_scheme"),
+        (["  matching_age_scheme: ''", "  analysis_age_scheme: analysis_7"], "matching_age_scheme"),
+        (["  matching_age_scheme: unknown", "  analysis_age_scheme: analysis_7"], "matching_age_scheme"),
+        (["  matching_age_scheme: analysis_7", "  analysis_age_scheme: analysis_7"], "matching_age_scheme"),
+        (["  matching_age_scheme: matching_6"], "analysis_age_scheme"),
+        (["  matching_age_scheme: matching_6", "  analysis_age_scheme: ''"], "analysis_age_scheme"),
+        (["  matching_age_scheme: matching_6", "  analysis_age_scheme: unknown"], "analysis_age_scheme"),
+        (["  matching_age_scheme: matching_6", "  analysis_age_scheme: matching_6"], "analysis_age_scheme"),
+    ],
+)
+def test_init_rejects_model_without_required_scalar_age_contract(
+    tmp_path: Path, config_lines: list[str], message: str,
+) -> None:
+    model, data = inputs(tmp_path)
+    config = model / "custom.yml"
+    config.write_text(
+        "working_directory: /cache\nrun: []\nconfig:\n  sampling_rate: 0.001\n"
+        + "\n".join(config_lines)
+        + "\n"
+    )
+    destination = tmp_path / "project"
+    with pytest.raises(ValueError, match=message):
+        init_from_inputs(
+            "project", destination, model, data, None, invocation(), Path("custom.yml")
+        )
+    assert not destination.exists()
+
+
+def test_init_accepts_custom_model_with_explicit_historical_age_schemes(
+    tmp_path: Path,
+) -> None:
+    model, data = inputs(tmp_path)
+    (model / "custom.yml").write_text(
+        "working_directory: /cache\nrun: []\nconfig:\n"
+        "  sampling_rate: 0.001\n  matching_age_scheme: matching_6\n"
+        "  analysis_age_scheme: analysis_7\n"
+    )
+    result = init_from_inputs(
+        "project", tmp_path / "project", model, data, None, invocation(), Path("custom.yml")
+    )
+    assert result["status"] == "initialized"
 
 
 def test_init_is_byte_and_mtime_idempotent(

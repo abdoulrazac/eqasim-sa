@@ -19,7 +19,12 @@ from eqasim_sa.adapters.backends.local import LocalBackend
 from eqasim_sa.adapters.backends.slurm import EqasimSlurmJob, SlurmBackend
 from eqasim_sa.adapters.data_manifest import DOMAIN, generate_data_manifest
 from eqasim_sa.adapters.eqasim.artifacts import ANALYSIS, POPULATION
-from eqasim_sa.adapters.eqasim.config import EqasimSettings, load_config
+from eqasim_sa.adapters.eqasim.config import (
+    EqasimSettings,
+    load_config,
+    load_yaml_document,
+    validate_eqasim_document,
+)
 from eqasim_sa.adapters.eqasim.simulator import (
     DEDICATED,
     EqasimSimulator,
@@ -1221,6 +1226,17 @@ def init_from_inputs(
     if selected_config.is_symlink() or not selected_config.is_file():
         raise ValueError(
             "model-config must be a regular non-symlink file under model-root"
+        )
+    model_document = load_yaml_document(selected_config)
+    validate_eqasim_document(model_document)
+    model_values = model_document["config"]
+    if model_values.get("matching_age_scheme") != "matching_6":
+        raise ValueError(
+            "config.matching_age_scheme must be explicitly matching_6"
+        )
+    if model_values.get("analysis_age_scheme") != "analysis_7":
+        raise ValueError(
+            "config.analysis_age_scheme must be explicitly analysis_7"
         )
     data = _directory(data_path, "data-path")
     campaign_names = {f"{project_name}-{method}" for method in INIT_METHODS}

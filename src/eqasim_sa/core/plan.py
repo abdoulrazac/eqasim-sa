@@ -372,6 +372,7 @@ def _sobol_positions(design: SobolDesign, names: tuple[str, ...]):  # type: igno
         )
         for row in sample
     ]
+    validate_sobol_effective_hybrid_contrasts(indices, names)
     for row_index, point in enumerate(indices):
         a, b = point[: len(names)], point[len(names) :]
         positions = [(f"A:row:{row_index}", a), (f"B:row:{row_index}", b)]
@@ -387,6 +388,16 @@ def _sobol_positions(design: SobolDesign, names: tuple[str, ...]):  # type: igno
         for role, selected in positions:
             values = tuple(domains[name][index] for name, index in zip(names, selected))
             yield values, role, definition
+
+
+def validate_sobol_effective_hybrid_contrasts(points, names):  # type: ignore[no-untyped-def]
+    dimensions = len(names)
+    for factor, name in enumerate(names):
+        if not any(point[factor] != point[dimensions + factor] for point in points):
+            raise ValueError(
+                f"Sobol factor {name!r} has no effective hybrid contrast after "
+                "discrete projection; increase base_sample_size or change its domain"
+            )
 
 
 def _table(

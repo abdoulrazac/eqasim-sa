@@ -1,0 +1,149 @@
+# Development Guide
+
+[Français](../docs-fr/development-guide.md)
+
+## Architecture
+
+The package follows a ports, core, and adapters separation:
+
+```text
+eqasim-sa/
+├── pyproject.toml
+├── uv.lock
+├── src/eqasim_sa/
+│   ├── cli.py
+│   ├── ports/
+│   │   ├── backend.py
+│   │   └── simulator.py
+│   ├── core/
+│   │   ├── plan.py
+│   │   ├── run.py
+│   │   ├── ledger.py
+│   │   ├── analyze.py
+│   │   └── indicators/
+│   ├── adapters/
+│   │   ├── application.py
+│   │   ├── meta_config.py
+│   │   ├── data_manifest.py
+│   │   ├── worker.py
+│   │   ├── backends/
+│   │   ├── eqasim/
+│   │   └── fake/
+│   └── templates/
+└── tests/
+```
+
+`ports/` defines the backend and simulator protocols. `core/` owns identities,
+designs, the ledger, and analyses without knowing about the CLI. `adapters/`
+loads YAML, invokes synpp, normalizes artifacts, manages local/SLURM execution,
+and wires the application together. `cli.py` is limited to parsing and JSON
+envelopes.
+
+```mermaid
+flowchart TD
+    CLI[cli.py] --> APP[adapters/application.py]
+    APP --> META[adapters/meta_config.py]
+    APP --> CORE[core plan/run/analyze/ledger]
+    APP --> LOCAL[local backend]
+    APP --> SLURM[SLURM backend]
+    CORE --> PORTS[ports]
+    EQ[eqasim adapter] --> PORTS
+    FAKE[fake adapter] --> PORTS
+```
+
+## Declared dependencies
+
+| Item | Version/constraint |
+| --- | --- |
+| Python | `>=3.13,<3.14` |
+| pyarrow | `23.0.1` |
+| PyYAML | `6.0.3` |
+| submitit | `1.5.4` |
+| numpy | `2.3.5` |
+| scipy | `1.17.1` |
+| pytest, optional dependency in the `test` extra | `9.0.2` |
+| setuptools, build-system requirement only | `>=80` |
+
+The first five libraries in the table are runtime dependencies. `pytest` is
+installed only with the `test` extra; `setuptools>=80` is used to build the
+package through `setuptools.build_meta` and is not declared as a runtime
+dependency. The package does not install synpp, eqasim, or SALib. Sobol designs
+and calculations rely on SciPy/NumPy and internal code.
+
+## Install and test
+
+From `eqasim-sa/`:
+
+```bash
+uv sync --extra test --locked
+uv lock --check
+uv run --locked pytest
+```
+
+Useful targeted tests:
+
+```bash
+uv run --locked pytest tests/test_init.py
+uv run --locked pytest tests/test_plan.py tests/test_check.py
+uv run --locked pytest tests/test_analyze.py tests/test_distribution.py
+```
+
+Check the installed commands:
+
+```bash
+uv run --locked eqasim-sa --help
+uv run --locked eqasim-sa init --help
+uv run --locked eqasim-sa-fake-pipeline --help
+```
+
+Build distributions from the current source:
+
+```bash
+uv build
+```
+
+Inspect and test the newly produced artifacts; do not assume that pre-existing
+`build/` or `dist/` directories reflect the current source.
+
+## Observed testing strategy
+
+- Unit tests for identities, plans, the ledger, indicators, and statistics.
+- Adversarial validation tests for Parquet schemas, paths, symbolic links, and atomic writes.
+- CLI integration tests with a synpp spy executable.
+- A fake pipeline for end-to-end runs and analyses.
+- Metadata tests and commands from a built installation.
+- The SLURM backend tested with Submitit doubles and reload contracts.
+- Interruption, resumption, idempotency, and concurrency tests.
+
+The SLURM tests do not demonstrate operation on a real cluster. No CI
+configuration file is claimed here; run the commands locally in the locked
+environment.
+
+## Important invariants
+
+- The model YAML must remain a clean, tracked Git blob.
+- The plan is reproducible and immutable under a given root.
+- The run marker is published after the archives and is the sole proof of completion.
+- Durable writes are atomic, and symbolic links are broadly rejected.
+- Infrastructure overrides do not modify `runId`.
+- An analysis must not mutate its sources; the code backs them up and restores them if they differ.
+
+## Add a custom indicator
+
+Publish a Python entry point in the `eqasim_sa.indicators` group. Its name must
+match `indicators[].custom.function`. The loaded object may be a class that can
+be instantiated without arguments, a callable, or an object with
+`compute(artifacts)`. The result must be exactly one finite `float`. The analysis
+name will be `function(artifact)`.
+
+The callable receives an `ArtifactSet`; use `artifacts.path("name")` to obtain a
+Parquet file copied read-only into the temporary analysis space. Add tests for
+resolution, errors, source purity, and distribution.
+
+## Distribution caveats
+
+Setuptools discovers packages under `src` and includes `templates/*.yml` and
+`templates/*.md`. The installed scripts are `eqasim-sa` and
+`eqasim-sa-fake-pipeline`. The declared Python support is intentionally narrow;
+do not broaden it in the documentation without changing and testing the package
+contract.

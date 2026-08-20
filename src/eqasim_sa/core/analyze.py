@@ -19,7 +19,10 @@ from scipy.stats import qmc
 
 from eqasim_sa.core.indicators import ArtifactSet, Indicator
 from eqasim_sa.core.ledger import _write_atomic, plan_run_ids, write_parquet_atomic
-from eqasim_sa.core.plan import validate_morris_values
+from eqasim_sa.core.plan import (
+    validate_morris_values,
+    validate_sobol_effective_hybrid_contrasts,
+)
 
 BOOTSTRAP_DOMAIN = b"eqasim-sa:bootstrap:sobol:v1\0"
 SOBOL_DOMAIN = b"eqasim-sa:design:sobol:v1\0"
@@ -482,12 +485,16 @@ def _sobol_ranking(
     sample = qmc.Sobol(
         d=2 * len(names), scramble=True, bits=64, rng=design_seed, optimization=None
     ).random_base2(m=n.bit_length() - 1)
-    expected = {}
-    for row_index, point in enumerate(sample):
-        values = tuple(
+    projected = [
+        tuple(
             domains[name][math.floor(float(value) * len(domains[name]))]
             for name, value in zip(names * 2, point)
         )
+        for point in sample
+    ]
+    validate_sobol_effective_hybrid_contrasts(projected, names)
+    expected = {}
+    for row_index, values in enumerate(projected):
         a, b = values[: len(names)], values[len(names) :]
         positions = [(f"A:row:{row_index}", a), (f"B:row:{row_index}", b)]
         for index, name in enumerate(names):

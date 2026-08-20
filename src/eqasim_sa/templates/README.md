@@ -8,9 +8,9 @@ results. Every command below is an explicit manual step.
 
 - `manifest.json`: hash manifest of the selected input data tree.
 - `configs/00-calibration.yml`: three resource-calibration positions.
-- `configs/01-grid.yml`: Grid target configuration.
+- `configs/01-grid.yml`: Grid target, 8 positions and 8 unique runs.
 - `configs/02-morris.yml`: Morris target configuration.
-- `configs/03-sobol.yml`: Sobol target configuration.
+- `configs/03-sobol.yml`: Sobol target, 32 positions and 8 unique runs.
 - `campaigns/`: initially empty; manual `plan` commands create campaign state.
 - `scratch/`: initially empty and disposable unless `--scratch` selected another path.
 
@@ -65,3 +65,12 @@ optional afterward.
 Never edit a `plan.parquet` or completion marker. Rerunning the same campaign
 command executes only missing work. Use a new project for a changed context or
 design.
+
+Grid and Sobol vary the scalar `matching_age_scheme` between `matching_6` and
+`analysis_7`. Morris does not because it accepts only numeric factors. The model
+configuration keeps `analysis_age_scheme: analysis_7` fixed so output classes
+remain comparable; changing an output scheme is not a matching effect.
+
+Before generating this project, `init` verified that the model configuration
+explicitly contains `matching_age_scheme: matching_6` and
+`analysis_age_scheme: analysis_7`.

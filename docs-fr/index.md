@@ -1,0 +1,59 @@
+# Documentation eqasim-sa
+
+[English](../docs/index.md) | **Français**
+
+Cette documentation décrit le comportement observé dans `src/` et `tests/`.
+Le parseur Python est normatif : le projet ne fournit pas de JSON Schema.
+
+## Documentation utilisateur
+
+1. [Démarrage](getting-started.md) : installation, `init` et première campagne.
+2. [Tutoriel Nantes de bout en bout](../../tutorial-sa-init/README-fr.md) : étude complète issue de `init`.
+3. [Référence YAML](yaml-reference.md) : contrat complet d'une méta-configuration.
+4. [Paramètres et méthodes](parameters-and-methods.md) : Grid, Morris, Sobol et seeds.
+5. [Workflow et résultats](workflow-and-results.md) : identités, stockage et reprise.
+6. [Référence CLI](cli-reference.md) : commandes, JSON et codes de sortie.
+7. [Dépannage](troubleshooting.md) : erreurs fréquentes et remèdes sûrs.
+8. [Glossaire](glossary.md) : vocabulaire précis du projet.
+
+## Documentation contributeur
+
+- [Guide de développement](development-guide.md) : architecture, dépendances, tests et distribution.
+- [Modèles générés](../src/eqasim_sa/templates/) : README et méta-configurations normatives de départ.
+
+Retour à la [page d'accueil](../README-fr.md).
+
+## Matrice rapide
+
+| Besoin | Commande | Prérequis durable | Effet principal |
+| --- | --- | --- | --- |
+| Générer un projet | `init` | modèle, données | prépare les fichiers et hache les données, sans exécuter le pipeline |
+| Sceller un design | `plan` | méta-config valide | `plan.parquet` immuable |
+| Valider statiquement | `check` | plan; pour une cible, calibration référencée avec au moins un run complet | contrôles sans run cible |
+| Tester réellement | `check --smoke` | conditions de `check` | deux runs temporaires réels |
+| Chiffrer une cible | `estimate` | au moins un run complet de calibration | devis JSON temps/disque/scratch |
+| Exécuter | `run` | plan scellé, bloc `execution` | archives et marqueurs manquants |
+| Recalculer l'analyse | `analyze` | complétude suffisante | Parquet d'indicateurs et de sensibilité |
+
+## Méthodes
+
+| Méthode | Rôle de la seed | Positions | Sortie spécifique |
+| --- | --- | --- | --- |
+| Grid | réplication | produit des tailles de domaines × seeds | `replication-dispersion.parquet` |
+| Morris | réplication | `T(D+1)R` | `morris-ranking.parquet` |
+| Sobol | facteur | `N(2D+2)` | `sobol-indices.parquet` |
+
+`D` inclut la seed pour Sobol. Le nombre de runs uniques peut être inférieur au
+nombre de positions, car plusieurs positions statistiques peuvent désigner la
+même configuration résolue.
+
+`init` prépare les fichiers et les empreintes. Seul le `run` de calibration
+fournit les observations de ressources utilisées par `check` et `estimate`.
+
+## Règles à retenir
+
+- Exécuter la calibration avant `check` ou `estimate` d'une cible qui la référence.
+- Ne jamais modifier `plan.parquet` ni `runs/<runId>.parquet` à la main.
+- Garder le dépôt du modèle propre et sa configuration suivie par Git.
+- Utiliser un nouveau `campaign_root` lorsque le contexte ou le design change.
+- Considérer le scratch comme jetable, jamais comme preuve de complétude.
