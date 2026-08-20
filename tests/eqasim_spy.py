@@ -56,7 +56,9 @@ def main() -> int:
         marker.unlink()
     print("spy stdout")
     print("spy stderr", file=sys.stderr)
-    if os.environ.get("EQASIM_SPY_FAIL_SEED") == option("--random_seed"):
+    fail_seed = os.environ.get("EQASIM_SPY_FAIL_SEED") == option("--random_seed")
+    fail_rate = os.environ.get("EQASIM_SPY_FAIL_SAMPLING_RATE")
+    if fail_seed and (fail_rate is None or fail_rate == option("--sampling_rate")):
         return 7
     if os.environ.get("EQASIM_SPY_FAIL"):
         return int(os.environ["EQASIM_SPY_FAIL"])
@@ -75,7 +77,7 @@ def main() -> int:
             ";",
             ["id", "label"],
             [[1, "65+"], [2, None]],
-        )
+    )
     analysis = ("age", "distance", "license", "nbr_vehicle", "travel")
     for name in analysis:
         write(

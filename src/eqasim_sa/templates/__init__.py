@@ -1,9 +1,15 @@
 from importlib.resources import files
 
 
-def nantes_template() -> str:
-    return (
-        files(__package__)
-        .joinpath("nantes-meta-config.yml")
-        .read_text(encoding="utf-8")
-    )
+NAMES = (
+    "README.md",
+    "00-calibration.yml",
+    "01-grid.yml",
+    "02-morris.yml",
+    "03-sobol.yml",
+)
+
+
+def project_templates() -> dict[str, str]:
+    root = files(__package__)
+    return {name: root.joinpath(name).read_text(encoding="utf-8") for name in NAMES}

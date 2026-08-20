@@ -1,0 +1,48 @@
+# Three real runs calibrate compute time and storage, not scientific parameters.
+campaign: @PROJECT_NAME@-calibration
+campaign_root: ../campaigns/calibration
+model:
+  config: @MODEL_CONFIG@
+  root: @MODEL_ROOT@
+context:
+  data_manifest: @DATA_MANIFEST@
+  lockfile: @LOCKFILE@
+analysis:
+  completeness_threshold: 1.0
+experiment:
+  method: grid
+  seed_role: replication
+  replications:
+    seeds: [1101]
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002, 0.003]
+artifacts:
+  age:
+    class: Age class
+    synthetic: Proportion_EQASIM
+    references: [INSEE]
+  distance:
+    class: Distance class
+    synthetic: Proportion_EQASIM
+    references: [HTS, HTS adjust with INSEE population weights]
+  nbr_vehicle:
+    class: Number of vehicles class
+    synthetic: Proportion_EQASIM
+    references: [HTS, HTS adjust with INSEE population weights]
+indicators:
+  - pair:
+      scalarizer: tv_distance
+      artifact: age
+      reference: INSEE
+  - product:
+      scalarizers: [tv_distance]
+      artifacts: [distance, nbr_vehicle]
+execution:
+  backend: local
+  workers: 2
+  scratch: @SCRATCH@
+  invocation: @INVOCATION@
+  overrides:
+    data_path: @DATA_PATH@
+    processes: 1

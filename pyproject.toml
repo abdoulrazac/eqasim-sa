@@ -26,7 +26,7 @@ eqasim-sa-fake-pipeline = "eqasim_sa.adapters.fake.executable:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-eqasim_sa = ["templates/*.yml"]
+eqasim_sa = ["templates/*.yml", "templates/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

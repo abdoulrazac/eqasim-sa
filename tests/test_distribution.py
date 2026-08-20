@@ -60,49 +60,95 @@ def test_installed_metadata_and_commands(tmp_path: Path) -> None:
     assert all(
         option in init_help.stdout
         for option in (
+            "--project-name",
             "--directory",
             "--model-root",
-            "--data-manifest",
             "--regenerate-data-manifest",
             "--data-path",
             "--scratch",
             "--invocation",
         )
     )
+    assert "--data-manifest" not in init_help.stdout
     normalized_init_help = " ".join(init_help.stdout.split())
     assert all(
         explanation in normalized_init_help
         for explanation in (
-            "default: ./nantes-starter",
+            "default: ./NAME",
             "default: ./eqasim-france",
             "relative to --model-root",
-            "<data-path>.manifest.json",
+            "<directory>/manifest.json",
             "default: ./eqasim-data",
             "created when absent",
-            "default: ./scratch",
+            "default: <directory>/scratch",
             "repeat in argv order",
-            "two calibration runs",
-            "main campaign is planned but not executed",
+            "without planning or executing any campaign",
         )
     )
-    resource = files("eqasim_sa.templates").joinpath("nantes-meta-config.yml")
-    text = resource.read_text(encoding="utf-8")
-    assert resource.is_file() and "nantes-starter" not in text
-    assert "matching_failure_rate" in text and "Epic 2" in text
-    assert all(
-        term in text
-        for term in (
-            "execution.backend",
-            "SLURM",
-            "shared",
-            "node-local",
-            "timeout_min",
-            "mem_gb",
-            "partition",
-            "account",
-            "qos",
-            "array parallelism",
+    resources = {
+        name: files("eqasim_sa.templates").joinpath(name)
+        for name in (
+            "README.md", "00-calibration.yml", "01-grid.yml", "02-morris.yml", "03-sobol.yml"
         )
+    }
+    assert all(resource.is_file() for resource in resources.values())
+    readme = resources["README.md"].read_text()
+    assert "@RUNNER@" in readme
+    assert "It did not" in readme and '"${SA[@]}" plan' in readme
+    assert all(
+        '@DATA_MANIFEST@' in resources[name].read_text()
+        for name in ("00-calibration.yml", "01-grid.yml", "02-morris.yml", "03-sobol.yml")
+    )
+    assert "method: morris" in resources["02-morris.yml"].read_text()
+    assert "method: sobol" in resources["03-sobol.yml"].read_text()
+
+
+def test_installed_init_generates_template_without_campaign_execution(tmp_path: Path) -> None:
+    model, data = tmp_path / "model", tmp_path / "data"
+    model.mkdir()
+    data.mkdir()
+    (model / "config_local_nantes.yml").write_text(
+        "working_directory: /cache\nrun: []\nconfig:\n"
+        "  sampling_rate: 0.001\n  random_seed: 1\n"
+    )
+    (model / "uv.lock").write_text("version = 1\n")
+    (data / "input.txt").write_text("installed wheel\n")
+
+    completed = subprocess.run(
+        [
+            installed_script("eqasim-sa"), "init", "--project-name", "wheel-project",
+            "--model-root", model, "--data-path", data,
+        ],
+        cwd=tmp_path,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    payload = json.loads(completed.stdout)
+    root = tmp_path / "wheel-project"
+    assert payload["manifest"] == "manifest.json"
+    assert set(payload) == {
+        "status", "initVersion", "projectName", "manifest", "readme",
+        "metaConfigs", "elapsedSeconds", "error",
+    }
+    assert (root / "manifest.json").is_file()
+    assert not any((root / "campaigns").iterdir())
+    assert not tuple(root.rglob("plan.parquet"))
+    assert all((root / path).is_file() for path in payload["metaConfigs"].values())
+    readme = (root / "README.md").read_text()
+    from eqasim_sa.adapters import templates
+
+    source_project = Path(templates.__file__).resolve().parents[3]
+    if (source_project / "pyproject.toml").is_file():
+        assert f"--project {source_project}" in readme
+    else:
+        assert "SA=(eqasim-sa)" in readme
+        assert "uv run --project" not in readme
+    assert all(
+        line.startswith('"${SA[@]}"')
+        for line in readme.splitlines()
+        if " --meta-config " in line
     )
 
 

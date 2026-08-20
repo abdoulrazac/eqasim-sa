@@ -1,516 +1,334 @@
 import json
 import os
+import shutil
 import shlex
 import subprocess
 import sys
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
-import yaml
 
-from eqasim_sa.adapters.application import (
-    check_from_meta_config,
-    estimate_from_meta_config,
-    init_from_inputs,
-    run_from_meta_config,
-)
-from eqasim_sa.adapters.meta_config import load_meta_config
-from eqasim_sa.cli import parser
+from eqasim_sa.adapters.application import init_from_inputs
+from eqasim_sa.cli import dispatch, parser
 
 
-def git(*arguments: str, cwd: Path) -> str:
-    return subprocess.run(
-        ["git", *arguments], cwd=cwd, check=True, text=True, capture_output=True
-    ).stdout.strip()
+METHODS = ("calibration", "grid", "morris", "sobol")
 
 
-def inputs(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
+def inputs(tmp_path: Path) -> tuple[Path, Path]:
     model = tmp_path / "model"
     model.mkdir()
-    git("init", "-q", cwd=model)
-    git("config", "user.email", "test@example.test", cwd=model)
-    git("config", "user.name", "Test", cwd=model)
     (model / "config_local_nantes.yml").write_text(
-        "working_directory: /path/to/my/cache\nrun: [old]\nconfig:\n"
+        "working_directory: /cache\nrun: [old]\nconfig:\n"
         "  processes: 4\n  sampling_rate: 0.001\n  random_seed: 1234\n"
-        "  data_path: /path/to/my/data\n  output_path: /path/to/my/output\n"
-        "  output_prefix: nantes_\n"
+        "  data_path: /data\n  output_path: /output\n  output_prefix: nantes_\n"
     )
     (model / "uv.lock").write_text("version = 1\n")
-    git("add", ".", cwd=model)
-    git("commit", "-qm", "fixture", cwd=model)
-    manifest = tmp_path / "manifest.json"
-    manifest.write_text("{}\n")
-    data, scratch = tmp_path / "data", tmp_path / "scratch"
+    data = tmp_path / "data"
     data.mkdir()
-    scratch.mkdir()
-    return model, manifest, data, scratch
+    (data / "input.txt").write_text("first\n")
+    return model, data
 
 
-def spy_invocation() -> tuple[str, ...]:
-    return sys.executable, str(Path(__file__).with_name("eqasim_spy.py"))
+def invocation() -> tuple[str, ...]:
+    return "python", "-m", "synpp"
 
 
-def generated_init_command(text: str) -> list[str]:
-    line = next(
-        line[2:] for line in text.splitlines() if " eqasim-sa init " in line
+def initialize(tmp_path: Path, name: str = "my-study"):
+    model, data = inputs(tmp_path)
+    root = tmp_path / name
+    result = init_from_inputs(
+        name, root, model, data, None, invocation()
     )
-    return shlex.split(line)
+    return result, root, model, data
 
 
-def test_init_renders_complete_nantes_resources_and_is_idempotent(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    model, manifest, data, scratch = inputs(tmp_path)
-    destination = tmp_path / "starter"
-    monkeypatch.setenv("EQASIM_SPY_RECORD", str(tmp_path / "record.json"))
-    before = {
-        path: path.read_bytes()
-        for path in (
-            model / "config_local_nantes.yml",
-            model / "uv.lock",
-            manifest,
-        )
-    }
-
-    first = init_from_inputs(
-        destination, model, manifest, data, scratch, spy_invocation()
-    )
-    target, calibration = (
-        destination / "nantes.yml",
-        destination / "nantes-calibration.yml",
-    )
-    target_text = target.read_text()
-    calibration_text = calibration.read_text()
-    loaded = load_meta_config(target)
-    calibration_loaded = load_meta_config(calibration)
-
-    assert first["status"] == "initialized" and first["calibrationRuns"] == 2
-    assert set(first) == {
-        "status",
-        "metaConfig",
-        "calibrationMetaConfig",
-        "plan",
-        "calibrationRuns",
-        "elapsedSeconds",
-        "error",
-    }
-    assert first["metaConfig"] == "nantes.yml"
-    assert loaded.campaign == "nantes-starter"
-    assert loaded.seed_role == "replication"
-    assert loaded.factors == {"sampling_rate": [0.001]} and loaded.seeds == (1234, 5678)
-    assert loaded.execution.overrides == {"data_path": data.resolve(), "processes": 1}
-    assert loaded.execution.invocation == spy_invocation()
-    assert loaded.context_descriptor["lockfileSha256"]
-    assert loaded.calibration_meta_configs == (calibration.resolve(),)
-    assert len(loaded.indicators) == len(loaded.indicator_requirements) == 5
-    assert calibration_loaded.campaign == "nantes-starter-calibration"
-    assert calibration_loaded.execution.invocation == spy_invocation()
-    assert 'lockfile: "../model/uv.lock"' in target_text
-    assert 'lockfile: "../model/uv.lock"' in calibration_text
-    project = Path(__file__).resolve().parents[1]
-    runner = shlex.join(
-        [
-            "uv", "run", "--project", os.path.relpath(project, destination),
-            "--locked", "eqasim-sa",
-        ]
-    )
-    assert f"{runner} check" in target_text
-    assert f"{runner} check" in calibration_text
-    assert (
-        len(tuple((calibration_loaded.campaign_root / "runs").glob("*.parquet"))) == 2
-    )
-    assert (
-        len(tuple((calibration_loaded.campaign_root / "archives").glob("*/*.parquet")))
-        == 24
-    )
-    assert "config_local_nantes.yml" in target_text
-    assert f"{runner} init --directory ." in target_text
-    command = generated_init_command(target_text)
-    parsed = parser().parse_args(command[command.index("eqasim-sa") + 1 :])
-    assert parsed.invocation == list(spy_invocation())
-    assert parsed.data_manifest is not None
-    assert f"{runner} check --meta-config nantes.yml" in target_text
-    assert target_text.rstrip().endswith(f"{runner} run --meta-config nantes.yml")
-    for term in (
-        "matching_minimum_observations",
-        "matching_attributes",
-        "income_assignation_method",
-        "sampling_rate",
-        "projection_year",
-        "random_seed",
-        "recodage",
-        "non transportable",
-        "Epic 2",
-        "persons",
-        "households",
-        "activities",
-        "trips",
-        "vehicle_types",
-        "vehicles",
-        "age",
-        "distance",
-        "license",
-        "nbr_vehicle",
-        "travel",
-        "age_purpose",
-        "INSEE",
-        "HTS",
-        "HTS adjust with INSEE population weights",
-        "Proportion_EQASIM",
-        "matching_failure_rate",
-        "gini",
-        "dispersion inter-seeds",
-        "execution.backend",
-        "SLURM",
-        "shared",
-        "node-local",
-        "timeout_min",
-        "mem_gb",
-        "partition",
-        "account",
-        "qos",
-        "array parallelism",
-    ):
-        assert term in target_text
-    assert "method: morris" in target_text and "seed_role: replication" in target_text
-    for morris_term in (
-        "trajectories: 12",
-        "design_seed: 20260814",
-        "seeds: [101, 102, 103]",
-        "values: [0.005, 0.01, 0.05]",
-        "values: [5, 10, 20, 40]",
-        "numeric",
-        "strictly increasing",
-        "adjacent",
-        "completeness_threshold: 1.0",
-        "at least one indicator",
-        "T <= M",
-        "signed int64",
-        "ordered, non-empty and unique",
-        "never random_seed",
-        "each factor exactly once",
-        "finite and representable",
-        "fresh campaign_root",
-        "no interpolation",
-    ):
-        assert morris_term in target_text
-    assert "method: sobol" in target_text and "seed_role: factor" in target_text
-    for sobol_term in (
-        "base_sample_size: 1024",
-        "design_seed: 20260814",
-        "bootstrap_resamples: 999",
-        "confidence_level: 0.95",
-        "completeness_threshold: 1.0",
-        "values: [101, 102, 103, 104]",
-        "N(2D+2)",
-        "A/B/AB/BA",
-        "power of two",
-        "equal-width",
-        "counts in D",
-        "no separate inter-seed dispersion",
-        "fresh campaign_root",
-    ):
-        assert sobol_term in target_text
-    for statement in (
-        "scratch exists at the same absolute path and is node-local",
-        "campaign must be unique among distinct campaigns sharing this scratch",
-        "each slot owns workers/<slot>/{lease.lock,state.json,cache}",
-        "each batch is sequential",
-    ):
-        assert all(statement in text for text in (target_text, calibration_text))
-    assert set(yaml.safe_load(target_text)["execution"]) == {
-        "backend",
-        "workers",
-        "scratch",
-        "invocation",
-        "overrides",
-    }
-    states = {
-        path: (path.read_bytes(), path.stat().st_mtime_ns)
-        for path in (
-            target,
-            calibration,
-            loaded.campaign_root / "plan.parquet",
-            calibration_loaded.campaign_root / "plan.parquet",
-        )
-    }
-    second = init_from_inputs(
-        destination, model, manifest, data, scratch, spy_invocation()
-    )
-    assert second["status"] == "unchanged" and second["calibrationRuns"] == 2
-    assert {
-        path: (path.read_bytes(), path.stat().st_mtime_ns) for path in states
-    } == states
-    assert {path: path.read_bytes() for path in before} == before
-
-
-def test_init_accepts_an_explicit_tracked_model_config(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    model, manifest, data, scratch = inputs(tmp_path)
-    selected = model / "config_nantes.yml"
-    selected.write_bytes((model / "config_local_nantes.yml").read_bytes())
-    git("add", selected.name, cwd=model)
-    git("commit", "-qm", "alternative config", cwd=model)
-    monkeypatch.setenv("EQASIM_SPY_RECORD", str(tmp_path / "record.json"))
-
-    destination = tmp_path / "starter"
-    init_from_inputs(
-        destination,
-        model,
-        manifest,
-        data,
-        scratch,
-        spy_invocation(),
-        Path(selected.name),
-    )
-
-    assert "config_nantes.yml" in (destination / "nantes.yml").read_text()
-    command = generated_init_command((destination / "nantes.yml").read_text())
-    assert (
-        parser().parse_args(command[command.index("eqasim-sa") + 1 :]).model_config
-        == Path(selected.name)
-    )
-
-
-def test_init_defaults_to_local_nantes_config() -> None:
-    arguments = parser().parse_args(["init"])
-    assert arguments.directory == Path("nantes-starter")
-    assert arguments.model_root == Path("eqasim-france")
-    assert arguments.model_config == Path("config_local_nantes.yml")
-    assert arguments.data_manifest is None
-    assert arguments.regenerate_data_manifest is False
-    assert arguments.data_path == Path("eqasim-data")
-    assert arguments.scratch == Path("scratch")
-
-
-def test_init_resolves_adjacent_data_manifest_by_default(
+def test_init_is_a_pure_atomic_template_generator(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    model, manifest, data, scratch = inputs(tmp_path)
-    adjacent = Path(f"{data.resolve()}.manifest.json")
-    adjacent.write_bytes(manifest.read_bytes())
-    scratch.rmdir()
-    assert not scratch.exists()
-    monkeypatch.setenv("EQASIM_SPY_RECORD", str(tmp_path / "record.json"))
+    model, data = inputs(tmp_path)
+    root = tmp_path / "project"
 
-    init_from_inputs(
-        tmp_path / "starter", model, None, data, scratch, spy_invocation(),
+    from eqasim_sa.adapters import application
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("pipeline/subprocess call from init")
+
+    for name in (
+        "plan_from_meta_config", "run_from_meta_config", "estimate_from_meta_config",
+        "check_from_meta_config", "analyze_from_meta_config",
+    ):
+        monkeypatch.setattr(application, name, forbidden)
+    monkeypatch.setattr(subprocess, "run", forbidden)
+
+    result = init_from_inputs(
+        "project", root, model, data, None, invocation()
     )
 
-    loaded = load_meta_config(tmp_path / "starter" / "nantes.yml")
-    assert loaded.context_descriptor["dataManifestSha256"]
-    assert adjacent.name in (tmp_path / "starter" / "nantes.yml").read_text()
-    assert scratch.is_dir()
-    command = generated_init_command(
-        (tmp_path / "starter" / "nantes.yml").read_text()
-    )
-    assert parser().parse_args(
-        command[command.index("eqasim-sa") + 1 :]
-    ).data_manifest is None
-
-
-def test_init_rejects_symlinked_input_ancestors(tmp_path: Path) -> None:
-    model, manifest, data, scratch = inputs(tmp_path)
-    linked_parent = tmp_path / "linked"
-    linked_parent.symlink_to(tmp_path, target_is_directory=True)
-
-    with pytest.raises(ValueError, match="traverse a symlink"):
-        init_from_inputs(
-            linked_parent / "starter", model, manifest, data, scratch, spy_invocation()
-        )
-    with pytest.raises(ValueError, match="traverse a symlink"):
-        init_from_inputs(
-            tmp_path / "starter",
-            linked_parent / "model",
-            manifest,
-            data,
-            scratch,
-            spy_invocation(),
-        )
-
-
-def test_init_resumes_only_owned_state_and_refuses_unsafe_inputs(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    model, manifest, data, scratch = inputs(tmp_path)
-    destination = tmp_path / "starter"
-    monkeypatch.setenv("EQASIM_SPY_RECORD", str(tmp_path / "record.json"))
-    monkeypatch.setenv("EQASIM_SPY_FAIL_SEED", "5678")
-    with pytest.raises(RuntimeError, match="calibration"):
-        init_from_inputs(destination, model, manifest, data, scratch, spy_invocation())
-    calibration = destination / "calibration-campaign"
-    assert len(tuple((calibration / "runs").glob("*.parquet"))) == 1
-    monkeypatch.delenv("EQASIM_SPY_FAIL_SEED")
-    assert (
-        init_from_inputs(destination, model, manifest, data, scratch, spy_invocation())[
-            "calibrationRuns"
-        ]
-        == 2
-    )
-    foreign = destination / "notes.txt"
-    foreign.write_text("do not overwrite")
-    with pytest.raises(FileExistsError, match="foreign"):
-        init_from_inputs(destination, model, manifest, data, scratch, spy_invocation())
-    assert foreign.read_text() == "do not overwrite"
-    foreign.unlink()
-    nested_foreign = destination / "calibration-campaign" / "archives" / "foreign"
-    nested_foreign.mkdir()
-    with pytest.raises(FileExistsError, match="foreign content"):
-        init_from_inputs(destination, model, manifest, data, scratch, spy_invocation())
-    nested_foreign.rmdir()
-    archive = next((destination / "calibration-campaign" / "archives").iterdir())
-    artifact_foreign = archive / "notes.txt"
-    artifact_foreign.write_text("do not overwrite")
-    with pytest.raises(FileExistsError, match="foreign content"):
-        init_from_inputs(destination, model, manifest, data, scratch, spy_invocation())
-    assert artifact_foreign.read_text() == "do not overwrite"
-    artifact_foreign.unlink()
-    dirty = model / "dirty"
-    dirty.write_text("x")
-    with pytest.raises(ValueError, match="clean"):
-        init_from_inputs(
-            tmp_path / "other", model, manifest, data, scratch, spy_invocation()
-        )
-    dirty.unlink()
-    link = tmp_path / "link"
-    link.symlink_to(tmp_path / "missing")
-    with pytest.raises(ValueError, match="symlink"):
-        init_from_inputs(link, model, manifest, data, scratch, spy_invocation())
-
-
-def test_generated_default_calibration_drives_check_estimate_run(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    model, manifest, data, scratch = inputs(tmp_path)
-    destination = tmp_path / "starter"
-    record = tmp_path / "record.json"
-    monkeypatch.setenv("EQASIM_SPY_RECORD", str(record))
-    init_from_inputs(destination, model, manifest, data, scratch, spy_invocation())
-    target = destination / "nantes.yml"
-    checked = check_from_meta_config(target, (), False)
-    estimated = estimate_from_meta_config(target, ())
-    ran = run_from_meta_config(target)
-    noop = run_from_meta_config(target)
-    invocation = json.loads(record.read_text())["argv"]
-
-    assert checked["status"] == "valid" and checked["elapsedSeconds"] < 60
-    assert (
-        estimated["status"],
-        estimated["runs"],
-        estimated["designPositions"],
-        estimated["calibrationRuns"],
-    ) == ("estimated", 2, 2, 2)
-    assert ran["completed"] == 2 and noop["total"] == 0
-    assert invocation[invocation.index("--data_path") + 1] == str(data.resolve())
-    assert invocation[invocation.index("--processes") + 1] == "1"
-
-
-def test_calibration_and_overrides_do_not_change_plan_identity(tmp_path: Path) -> None:
-    from eqasim_sa.adapters.application import plan_from_meta_config
-
-    model, manifest, data, scratch = inputs(tmp_path)
-    destination = tmp_path / "starter"
-    os.environ["EQASIM_SPY_RECORD"] = str(tmp_path / "record.json")
-    init_from_inputs(destination, model, manifest, data, scratch, spy_invocation())
-    target = destination / "nantes.yml"
-    plan = destination / "target-campaign" / "plan.parquet"
-    before = plan.read_bytes(), plan.stat().st_mtime_ns
-    text = target.read_text().replace(
-        f"data_path: {data.resolve()}", f"data_path: {data.resolve()}/.."
-    )
-    text = text.replace("processes: 1", "processes: 2")
-    text = text.replace("nantes-calibration.yml", "./nantes-calibration.yml")
-    target.write_text(text)
-    result = plan_from_meta_config(target)
-    assert (
-        result.status == "unchanged"
-        and (plan.read_bytes(), plan.stat().st_mtime_ns) == before
-    )
-
-
-@pytest.mark.parametrize(
-    "override",
-    [
-        {"random_seed": 1},
-        {"output_path": "/x"},
-        {"unknown": 1},
-        {"data_path": 1},
-        {"processes": True},
-        {"matching_attributes": ["age"]},
-    ],
-)
-def test_overrides_are_strictly_limited(tmp_path: Path, override: dict) -> None:
-    import yaml
-
-    model, manifest, data, scratch = inputs(tmp_path)
-    destination = tmp_path / "starter"
-    os.environ["EQASIM_SPY_RECORD"] = str(tmp_path / "record.json")
-    init_from_inputs(destination, model, manifest, data, scratch, spy_invocation())
-    target = destination / "nantes.yml"
-    document = yaml.safe_load(target.read_text())
-    document["execution"]["overrides"] = override
-    target.write_text(yaml.safe_dump(document, sort_keys=False))
-    with pytest.raises((TypeError, ValueError), match="override"):
-        load_meta_config(target)
-
-
-def test_init_cli_schema_hides_absolute_paths(monkeypatch, capsys) -> None:
-    from eqasim_sa.cli import dispatch
-
-    expected = {
+    assert result == {
         "status": "initialized",
-        "metaConfig": "nantes.yml",
-        "calibrationMetaConfig": "nantes-calibration.yml",
-        "plan": "target-campaign/plan.parquet",
-        "calibrationRuns": 2,
-        "elapsedSeconds": 1.0,
+        "initVersion": 2,
+        "projectName": "project",
+        "manifest": "manifest.json",
+        "readme": "README.md",
+        "metaConfigs": {
+            "calibration": "configs/00-calibration.yml",
+            "grid": "configs/01-grid.yml",
+            "morris": "configs/02-morris.yml",
+            "sobol": "configs/03-sobol.yml",
+        },
+        "elapsedSeconds": result["elapsedSeconds"],
         "error": None,
     }
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "eqasim-sa",
-            "init",
-            "--directory",
-            "starter",
-            "--model-root",
-            "model",
-            "--data-manifest",
-            "manifest",
-            "--data-path",
-            "data",
-            "--scratch",
-            "scratch",
-        ],
+    assert {path.name for path in root.iterdir()} == {
+        "manifest.json", "README.md", "configs", "campaigns", "scratch",
+    }
+    assert not any((root / "campaigns").iterdir())
+    assert not tuple(root.rglob("plan.parquet"))
+    assert not tuple(root.rglob("runs"))
+    assert not tuple(root.rglob("archives"))
+    manifest = json.loads((root / "manifest.json").read_text())
+    assert manifest["files"] == [
+        {
+            "path": "input.txt",
+            "size": 6,
+            "sha256": "b640e840b19d378660b32fb51ae18d67dccb4a8596a29e7bd72c1b2ae5928f41",
+        }
+    ]
+    for index, method in enumerate(METHODS):
+        text = (root / f"configs/{index:02d}-{method}.yml").read_text()
+        assert "data_manifest: \"../manifest.json\"" in text
+        assert f"campaign: project-{method}" in text
+    readme = (root / "README.md").read_text()
+    assert "did not\nplan a campaign" in readme
+    project = Path(__file__).resolve().parents[1]
+    runner = shlex.join(
+        ["uv", "run", "--project", str(project), "--locked", "eqasim-sa"]
     )
-    captured = []
-    def capture(*args):
-        captured.append(args)
-        return expected
-    assert dispatch(None, None, init_factory=capture) == 0
-    assert captured[0][5] == (
-        "uv", "run", "--locked", "python", "-m", "synpp",
-    )
-    assert json.loads(capsys.readouterr().out) == expected
+    assert f"SA=({runner})" in readme
+    assert readme.index('"${SA[@]}" plan') < readme.index('"${SA[@]}" check')
 
-    assert (
-        dispatch(
-            None,
-            None,
-            init_factory=lambda *args: (_ for _ in ()).throw(KeyboardInterrupt()),
+
+def test_init_is_byte_and_mtime_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result, root, model, data = initialize(tmp_path)
+    states = {
+        path: (path.read_bytes(), path.stat().st_mtime_ns)
+        for path in root.rglob("*") if path.is_file()
+    }
+
+    monkeypatch.setattr(
+        "eqasim_sa.adapters.application.generate_data_manifest",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("data rehashed")),
+    )
+    repeated = init_from_inputs(
+        "my-study", root, model, data, None, invocation()
+    )
+
+    assert result["status"] == "initialized" and repeated["status"] == "unchanged"
+    assert {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in states} == states
+
+
+def test_init_regenerates_only_the_local_manifest(tmp_path: Path) -> None:
+    _, root, model, data = initialize(tmp_path)
+    static = {
+        path: (path.read_bytes(), path.stat().st_mtime_ns)
+        for path in (root / "README.md", *sorted((root / "configs").iterdir()))
+    }
+    before = (root / "manifest.json").read_bytes()
+    (data / "second.txt").write_text("second\n")
+
+    unchanged = init_from_inputs(
+        "my-study", root, model, data, None, invocation()
+    )
+    regenerated = init_from_inputs(
+        "my-study", root, model, data, None, invocation(),
+        regenerate_data_manifest=True,
+    )
+
+    assert unchanged["status"] == "unchanged"
+    assert regenerated["status"] == "initialized"
+    assert (root / "manifest.json").read_bytes() != before
+    assert {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in static} == static
+
+
+def test_init_rejects_malformed_or_inconsistent_project_manifest(tmp_path: Path) -> None:
+    _, root, model, data = initialize(tmp_path)
+    manifest = root / "manifest.json"
+    valid = json.loads(manifest.read_text())
+    malformed = [
+        [],
+        {**valid, "schemaVersion": 2},
+        {**valid, "algorithm": "md5"},
+        {**valid, "files": "bad"},
+        {**valid, "files": [{"path": "../bad", "size": 1, "sha256": "a" * 64}]},
+        {**valid, "files": [{"path": "a", "size": -1, "sha256": "a" * 64}]},
+        {**valid, "files": [{"path": "a", "size": 1, "sha256": "not-sha256"}]},
+        {**valid, "files": [valid["files"][0], valid["files"][0]]},
+        {**valid, "treeSha256": "0" * 64},
+    ]
+    for document in malformed:
+        manifest.write_text(json.dumps(document) + "\n")
+        before = manifest.read_bytes(), manifest.stat().st_mtime_ns
+        with pytest.raises(ValueError, match="invalid project manifest"):
+            init_from_inputs("my-study", root, model, data, None, invocation())
+        assert (manifest.read_bytes(), manifest.stat().st_mtime_ns) == before
+    manifest.write_text("not json\n")
+    with pytest.raises(ValueError, match="invalid project manifest"):
+        init_from_inputs("my-study", root, model, data, None, invocation())
+
+
+def test_init_rerun_accepts_user_created_campaign_state(tmp_path: Path) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    campaign = root / "campaigns/grid"
+    campaign.mkdir()
+    run_id = "a" * 32
+    pq.write_table(pa.table({"runId": [run_id]}), campaign / "plan.parquet")
+    runs, archive = campaign / "runs", campaign / "archives" / run_id
+    runs.mkdir()
+    archive.mkdir(parents=True)
+    pq.write_table(pa.table({"runId": [run_id]}), runs / f"{run_id}.parquet")
+    marker = runs / f"{run_id}.parquet"
+    backup = runs / f".{run_id}.parquet.safe.backup"
+    os.link(marker, backup)
+    for name in (
+        "persons", "households", "activities", "trips", "vehicle_types", "vehicles",
+        "age", "distance", "license", "nbr_vehicle", "travel", "age_purpose",
+    ):
+        (archive / f"{name}.parquet").write_bytes(b"owned")
+    pq.write_table(pa.table({"value": [1.0]}), campaign / "indicators.parquet")
+    (campaign / "analysis-generation.json").write_text("{}\n")
+
+    protected = {
+        path: (path.read_bytes(), path.stat().st_mtime_ns, path.stat().st_nlink)
+        for path in (campaign / "plan.parquet", marker, backup)
+    }
+    result = init_from_inputs(
+        "project", root, model, data, None, invocation()
+    )
+
+    assert result["status"] == "unchanged"
+    assert (campaign / "plan.parquet").is_file()
+    assert {
+        path: (path.read_bytes(), path.stat().st_mtime_ns, path.stat().st_nlink)
+        for path in protected
+    } == protected
+
+
+def test_init_rejects_unsafe_or_foreign_state_without_publication(tmp_path: Path) -> None:
+    model, data = inputs(tmp_path)
+    for name in ("", "../bad", "bad/name", "x" * 65, " white"):
+        destination = tmp_path / "destination"
+        with pytest.raises(ValueError, match="project-name"):
+            init_from_inputs(name, destination, model, data, None, invocation())
+        assert not destination.exists()
+
+    old = tmp_path / "old"
+    old.mkdir()
+    (old / "nantes.yml").write_text("old")
+    with pytest.raises(FileExistsError, match="old starter"):
+        init_from_inputs("project", old, model, data, None, invocation())
+
+    linked = data / "linked"
+    linked.symlink_to(data / "input.txt")
+    root = tmp_path / "project"
+    with pytest.raises(ValueError, match="symlink"):
+        init_from_inputs("project", root, model, data, None, invocation())
+    assert not root.exists()
+    external = tmp_path / "external-scratch"
+    with pytest.raises(ValueError, match="symlink"):
+        init_from_inputs("project", root, model, data, external, invocation())
+    assert not root.exists() and not external.exists()
+
+
+def test_init_rejects_modified_and_hardlinked_static_files(tmp_path: Path) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    config = root / "configs/01-grid.yml"
+    original = config.read_bytes()
+    config.write_text(config.read_text() + "# changed\n")
+    with pytest.raises(FileExistsError, match="templates"):
+        init_from_inputs("project", root, model, data, None, invocation())
+    config.write_bytes(original)
+    # A separately linked README has matching bytes but is not owned template state.
+    saved = tmp_path / "README.md"
+    saved.write_bytes((root / "README.md").read_bytes())
+    (root / "README.md").unlink()
+    os.link(saved, root / "README.md")
+    with pytest.raises(FileExistsError, match="README"):
+        init_from_inputs("project", root, model, data, None, invocation())
+
+
+def test_init_scratch_defaults_overrides_and_overlap(tmp_path: Path) -> None:
+    model, data = inputs(tmp_path)
+    root = tmp_path / "project"
+    nested = root / "runtime/scratch"
+    init_from_inputs("project", root, model, data, nested, invocation())
+    assert nested.is_dir() and not (root / "scratch").exists()
+    shutil.rmtree(nested)
+    assert init_from_inputs(
+        "project", root, model, data, nested, invocation()
+    )["status"] == "unchanged"
+    assert nested.is_dir()
+
+    other = tmp_path / "other"
+    with pytest.raises(ValueError, match="contain"):
+        init_from_inputs("other", other, model, data, other, invocation())
+    enclosing = tmp_path / "enclosing"
+    enclosing.mkdir()
+    with pytest.raises(ValueError, match="contain"):
+        init_from_inputs(
+            "nested", enclosing / "nested", model, data, enclosing, invocation()
         )
-        == 130
-    )
-    interrupted = json.loads(capsys.readouterr().out)
-    assert set(interrupted) == set(expected)
-    assert (
-        interrupted["status"] == "failed"
-        and interrupted["error"] == "KeyboardInterrupt"
-    )
+
+
+def test_init_rejects_model_destination_and_scratch_overlap_without_side_effects(
+    tmp_path: Path,
+) -> None:
+    model, data = inputs(tmp_path)
+    nested_destination = model / "project"
+    with pytest.raises(ValueError, match="model-root"):
+        init_from_inputs(
+            "project", nested_destination, model, data, None, invocation()
+        )
+    assert not nested_destination.exists()
+
+    destination = tmp_path / "project"
+    nested_scratch = model / "scratch"
+    with pytest.raises(ValueError, match="model-root"):
+        init_from_inputs(
+            "project", destination, model, data, nested_scratch, invocation()
+        )
+    assert not destination.exists() and not nested_scratch.exists()
+
+    containing = tmp_path / "containing"
+    containing.mkdir()
+    inside_model = containing / "model"
+    model.rename(inside_model)
+    with pytest.raises(ValueError, match="model-root"):
+        init_from_inputs(
+            "project", containing, inside_model, data, None, invocation()
+        )
+    assert set(containing.iterdir()) == {inside_model}
+
+
+def test_init_cli_v2_schema_and_removed_manifest_option(monkeypatch, capsys) -> None:
+    captured = []
+    expected = {
+        "status": "initialized", "initVersion": 2, "projectName": "demo",
+        "manifest": "manifest.json", "readme": "README.md", "metaConfigs": {},
+        "elapsedSeconds": 1.0, "error": None,
+    }
+
+    def capture(*arguments):
+        captured.append(arguments)
+        return expected
+
+    monkeypatch.setattr(sys, "argv", ["eqasim-sa", "init", "--project-name", "demo"])
+    assert dispatch(None, None, init_factory=capture) == 0
+    assert captured[0][:2] == ("demo", Path("demo"))
+    assert captured[0][3] == Path("eqasim-data") and captured[0][4] is None
+    assert json.loads(capsys.readouterr().out) == expected
+    assert "--data-manifest" not in parser().format_help()

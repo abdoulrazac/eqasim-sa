@@ -14,22 +14,25 @@ def parser() -> argparse.ArgumentParser:
     commands = result.add_subparsers(dest="command")
     init = commands.add_parser(
         "init",
-        help="create and calibrate an executable Nantes starter campaign",
+        help="create a complete sensitivity-analysis project",
         description=(
-            "Create the Nantes starter and calibration configurations, seal their plans, "
-            "then execute and verify two calibration runs. The main campaign is planned "
-            "but not executed."
+            "Generate a Nantes sensitivity-analysis project template and local data "
+            "manifest without planning or executing any campaign."
         ),
         epilog=(
-            "Example: eqasim-sa init --directory starter --model-root eqasim-france "
+            "Example: eqasim-sa init --project-name my-study --model-root eqasim-france "
             "--data-path eqasim-data --scratch /tmp/eqasim-scratch. "
-            "When the adjacent manifest is absent, the first init hashes the complete data tree. "
+            "The project-local manifest hashes the complete data tree. "
             "Repeat --invocation once per command argument when overriding the default."
         ),
     )
     init.add_argument(
-        "--directory", type=Path, default=Path("nantes-starter"), metavar="PATH",
-        help="starter output directory (default: ./nantes-starter)",
+        "--project-name", required=True, metavar="NAME",
+        help="safe project and campaign prefix (1 to 64 characters)",
+    )
+    init.add_argument(
+        "--directory", type=Path, metavar="PATH",
+        help="project output directory (default: ./NAME)",
     )
     init.add_argument(
         "--model-root", type=Path, default=Path("eqasim-france"), metavar="PATH",
@@ -40,23 +43,17 @@ def parser() -> argparse.ArgumentParser:
         help="model YAML path relative to --model-root (default: config_local_nantes.yml)",
     )
     init.add_argument(
-        "--data-manifest",
-        type=Path,
-        metavar="FILE",
-        help="manifest that identifies the input dataset (default: <data-path>.manifest.json)",
-    )
-    init.add_argument(
         "--regenerate-data-manifest",
         action="store_true",
-        help="rebuild and atomically replace the data manifest after hashing the complete data tree",
+        help="rebuild and atomically replace <directory>/manifest.json",
     )
     init.add_argument(
         "--data-path", type=Path, default=Path("eqasim-data"), metavar="PATH",
         help="existing eqasim input-data directory (default: ./eqasim-data)",
     )
     init.add_argument(
-        "--scratch", type=Path, default=Path("scratch"), metavar="PATH",
-        help="local scratch directory, created when absent (default: ./scratch)",
+        "--scratch", type=Path, metavar="PATH",
+        help="local scratch directory, created when absent (default: <directory>/scratch)",
     )
     init.add_argument(
         "--invocation", action="append", default=None, metavar="ARG",
@@ -123,10 +120,13 @@ def dispatch(
     if arguments.command == "init":
         empty = {
             "status": "failed",
-            "metaConfig": None,
-            "calibrationMetaConfig": None,
-            "plan": None,
-            "calibrationRuns": 0,
+            "initVersion": 2,
+            "projectName": arguments.project_name,
+            "manifest": None,
+            "readme": None,
+            "metaConfigs": {
+                method: None for method in ("calibration", "grid", "morris", "sobol")
+            },
             "elapsedSeconds": 0.0,
             "error": None,
         }
@@ -140,9 +140,9 @@ def dispatch(
                 ]
             )
             payload = init_factory(
-                arguments.directory,
+                arguments.project_name,
+                arguments.directory or Path(arguments.project_name),
                 arguments.model_root,
-                arguments.data_manifest,
                 arguments.data_path,
                 arguments.scratch,
                 invocation,
