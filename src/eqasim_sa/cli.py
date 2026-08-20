@@ -294,6 +294,9 @@ def dispatch(
             "diagnosticsPath": None,
             "noiseFloorPath": None,
             "replicationAllocationPath": None,
+            "outputSummaryPath": None,
+            "convergenceEvidencePath": None,
+            "governedReportPath": None,
             "inferenceStatus": None,
         }
         try:

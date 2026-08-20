@@ -113,6 +113,9 @@ campaigns/grid/
 │   └── <runId>.log
 ├── indicators.parquet
 ├── replication-dispersion.parquet
+├── output-summary.parquet
+├── convergence-evidence.parquet  # scientific methods only
+├── governed-report.json
 └── analysis-generation.json
 ```
 
@@ -175,6 +178,14 @@ uses `mean ± 1.96 × std/√n`; with a single observation, the dispersion stati
 `std`, `cv`, `ci95_low`, and `ci95_high` are null; `n` is 1 and `mean` retains
 the observed value.
 
+### `output-summary.parquet`
+
+Produced for every analysis. For each indicator it reports `n`, `mean`, the
+unbiased `standardDeviation`, `minimum`, linear `q05`, `median`, linear `q95`,
+and `maximum`. Values are joined back to every row of `plan.parquet`, so
+structurally duplicated design positions retain their design weight instead of
+being collapsed to unique run IDs.
+
 ### `morris-ranking.parquet` (historical compatibility)
 
 Columns: `indicator`, `factor`, `rank`, `trajectories`, `replications`, `n`,
@@ -218,9 +229,7 @@ is respected.
 
 Contains the same columns and calculations as the ranking table, replacing
 `trajectories` with `checkpoint_trajectories`, for every declared checkpoint.
-Checkpoint rows are diagnostics. Their presence or apparent stability does not
-automatically certify the charter's stopping criteria or robustness checks;
-that governance is separate and remains future work.
+Checkpoint rows feed the separately published governed convergence evidence.
 
 ### `canonical-morris-rank-reversals.parquet`
 
@@ -287,18 +296,36 @@ indicator receives `within_practical_tolerance`: seed is non-actionable with nul
 rank and tolerance, and ordinary factors compare their total-order upper Student bound with the declared
 tolerance. FP rows and FF secondary-indicator rows contain `null`. Secondary
 indicators are diagnostics and cannot carry an FF decision classification. A
-convergence row is evidence only and never automatically satisfies a charter's
-stopping criteria.
+convergence row is evidence only; the sealed criterion is evaluated in
+`convergence-evidence.parquet`.
+
+### `convergence-evidence.parquet` and `governed-report.json`
+
+Scientific methods publish `metric`, nullable `checkpoint` and `value`,
+`threshold`, `passed`, `consecutivePasses`, `criterionMet`, and
+`evaluationStatus`. Canonical Morris `rank_stability` is the maximum absolute
+primary-indicator rank change over actionable factors divided by `max(1,D-1)`,
+starting after the first checkpoint. Multi-scramble Sobol `ci_width` is the
+maximum actionable-factor first-order width for FP or total-order width for FF.
+The final consecutive-pass count must reach the sealed requirement. Unsupported,
+incomplete, or non-finite evidence fails closed.
+
+`governed-report.json` records the sealed decision, evidence hashes, exclusions,
+non-actionable factors, objective-compatible factor evidence, criterion states,
+pending robustness checks, inference status, reason codes, and
+`claimAuthorized`. Demonstrations report `demonstration_noninferential`,
+historical Sobol reports `legacy_noninferential`, and canonical pilots report
+`pilot_only`. Scientific production reports `unstable` until stopping passes,
+then `conditional` while robustness remains pending. Under the current contract
+no report is `robust` and `claimAuthorized` remains false. FF evidence is limited
+to the sealed primary indicator and uses total-order upper bounds.
 
 ### `analysis-generation.json`
 
-For Grid, historical Morris, discrete OAT, and Sobol this is a version 2 manifest
-containing output SHA-256 values, the sensitivity method, `expected`, `completed`,
-`missing`, `failed`, and `completionRate`. Canonical Morris publishes version 4,
-adding paths and SHA-256 values for ranking, convergence, rank reversal, noise
-floor, and optional allocation, plus `inferenceStatus` (`pilot_only` or
-`scientific_conditional`). Publication is transactional. Multi-scramble Sobol
-publishes manifest version 5 with every output path and hash.
+The version 6 manifest contains completion values, sensitivity outputs, and the
+paths and SHA-256 values of `output-summary.parquet`, optional
+`convergence-evidence.parquet`, and `governed-report.json`. Method-specific
+artifacts remain present with their hashes. Publication is transactional.
 
 For scientific methods, the application adapter recomputes the design from the
 current meta-configuration and validates every run identity before invoking core

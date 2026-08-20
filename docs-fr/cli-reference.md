@@ -120,13 +120,14 @@ d'analyse. Champs JSON : `status`, `path`, `runs`, `indicators`, `values`,
 `completionRate`, `expected`, `completed`, `missing`, `failed`,
 `dispersionPath`, `sensitivityMethod`, `sensitivityPath`, `convergencePath`,
 `rankReversalsPath`, `byScramblePath`, `diagnosticsPath`, `noiseFloorPath`,
-`replicationAllocationPath`, `inferenceStatus`, `error`.
+`replicationAllocationPath`, `outputSummaryPath`, `convergenceEvidencePath`,
+`governedReportPath`, `inferenceStatus`, `error`.
 `rankReversalsPath` est propre à `canonical_morris`; les deux chemins de scramble
 sont propres à `multiscramble_sobol`. L'ancien `morris` reste accepté comme provenance historique ;
 `multiscramble_sobol` est aussi accepté pour une charte scientifique après
 reconstruction du plan scellé. En production canonique,
 `replicationAllocationPath` est nul; pilote et production exposent respectivement
-`pilot_only` et `scientific_conditional`. Le JSON d'analyse expose en option
+`pilot_only`, puis `unstable` ou `conditional`. Le JSON d'analyse expose en option
 `byScramblePath`, `diagnosticsPath` et réutilise `convergencePath`. Les nouvelles
 démonstrations générées utilisent `discrete_oat`.
 

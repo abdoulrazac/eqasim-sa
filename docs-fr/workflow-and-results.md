@@ -115,6 +115,9 @@ campaigns/grid/
 │   └── <runId>.log
 ├── indicators.parquet
 ├── replication-dispersion.parquet
+├── output-summary.parquet
+├── convergence-evidence.parquet  # méthodes scientifiques uniquement
+├── governed-report.json
 └── analysis-generation.json
 ```
 
@@ -177,6 +180,14 @@ utilise `mean ± 1.96 × std/√n`; avec une seule observation, les statistiques
 dispersion `std`, `cv`, `ci95_low` et `ci95_high` sont nulles; `n` vaut 1 et
 `mean` conserve la valeur observée.
 
+### `output-summary.parquet`
+
+Produit pour toute analyse. Pour chaque indicateur, il fournit `n`, `mean`,
+l'écart-type non biaisé `standardDeviation`, `minimum`, les quantiles linéaires
+`q05`, `median`, `q95` et `maximum`. Les valeurs sont rejointes à chaque ligne de
+`plan.parquet` : les positions de design structurellement dupliquées conservent
+donc leur poids au lieu d'être réduites aux runId uniques.
+
 ### `morris-ranking.parquet` (compatibilité historique)
 
 Colonnes : `indicator`, `factor`, `rank`, `trajectories`, `replications`, `n`,
@@ -220,9 +231,7 @@ par défaut. Les bornes de rang utilisent les quantiles empiriques `lower` et
 
 Contient les mêmes colonnes et calculs que le classement, avec
 `checkpoint_trajectories` à la place de `trajectories`, pour chaque checkpoint
-déclaré. Ces lignes sont des diagnostics. Leur présence ou leur stabilité
-apparente ne certifie pas automatiquement les critères d'arrêt ou les contrôles
-de robustesse de la charte ; cette gouvernance distincte reste ultérieure.
+déclaré. Ces lignes alimentent la preuve de convergence gouvernée distincte.
 
 ### `canonical-morris-rank-reversals.parquet`
 
@@ -283,19 +292,39 @@ supérieure totale par ordre croissant pour tous les indicateurs, mais seule
 l'indicateur primaire scellé reçoit une classification : la seed est non
 actionnable avec rang et tolérance nuls; les autres facteurs comparent leur borne
 supérieure de Student à la tolérance. Les indicateurs secondaires restent
-diagnostiques et leur classification FF est nulle. Le manifeste v5 contient tous les chemins et
-hachages. Une ligne de convergence ne satisfait pas automatiquement un critère
-d'arrêt.
+diagnostiques et leur classification FF est nulle. Une ligne de convergence ne
+satisfait pas automatiquement un critère d'arrêt; celui-ci est évalué dans
+`convergence-evidence.parquet`.
+
+### `convergence-evidence.parquet` et `governed-report.json`
+
+Les méthodes scientifiques publient `metric`, `checkpoint` et `value` nullables,
+`threshold`, `passed`, `consecutivePasses`, `criterionMet` et
+`evaluationStatus`. Pour Morris canonique, `rank_stability` est le changement de
+rang absolu maximal de l'indicateur primaire sur les facteurs actionnables,
+divisé par `max(1,D-1)`, après le premier checkpoint. Pour Sobol multi-scramble,
+`ci_width` est la largeur maximale de premier ordre en FP ou d'ordre total en FF.
+Le compte final de passages consécutifs doit atteindre la valeur scellée. Une
+métrique non prise en charge, incomplète ou non finie échoue de façon fermée.
+
+`governed-report.json` enregistre la décision scellée, les hachages des preuves,
+les exclusions, les facteurs non actionnables, les preuves compatibles avec
+l'objectif, la convergence, les contrôles de robustesse en attente, le statut
+d'inférence, les codes de raison et `claimAuthorized`. Une démonstration vaut
+`demonstration_noninferential`, Sobol historique `legacy_noninferential`, et un
+pilote canonique `pilot_only`. Une production scientifique vaut `unstable` tant
+que l'arrêt échoue, puis `conditional` tant que la robustesse reste en attente.
+Le contrat actuel ne peut donc produire ni `robust` ni une autorisation de
+revendication. Les preuves FF sont limitées à l'indicateur primaire scellé et
+utilisent les bornes supérieures d'ordre total.
 
 ### `analysis-generation.json`
 
-Pour Grid, Morris historique, OAT discret et Sobol, le manifeste est en version 2
-avec SHA-256 des sorties, méthode de sensibilité, `expected`, `completed`,
-`missing`, `failed` et `completionRate`. Morris canonique publie la version 4,
-avec chemins et SHA-256 des classements, convergence, inversions, bruit et
-allocation optionnelle, ainsi que `inferenceStatus` (`pilot_only` ou
-`scientific_conditional`). La publication est transactionnelle. Sobol
-multi-scramble publie un manifeste v5.
+Le manifeste version 6 contient la complétude, les sorties de sensibilité, et les
+chemins et SHA-256 de `output-summary.parquet`, de
+`convergence-evidence.parquet` lorsqu'il existe, et de `governed-report.json`.
+Les artefacts propres aux méthodes conservent aussi leurs chemins et hachages.
+La publication est transactionnelle.
 
 Pour les méthodes scientifiques, l'adaptateur applicatif reconstruit le design
 depuis la méta-configuration courante et valide chaque identité de run avant

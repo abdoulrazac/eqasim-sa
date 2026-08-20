@@ -347,6 +347,15 @@ def analyze_from_meta_config(path: Path) -> dict:
         "replicationAllocationPath": str(result.replication_allocation_path)
         if getattr(result, "replication_allocation_path", None)
         else None,
+        "outputSummaryPath": str(result.output_summary_path)
+        if getattr(result, "output_summary_path", None)
+        else None,
+        "convergenceEvidencePath": str(result.convergence_evidence_path)
+        if getattr(result, "convergence_evidence_path", None)
+        else None,
+        "governedReportPath": str(result.governed_report_path)
+        if getattr(result, "governed_report_path", None)
+        else None,
         "inferenceStatus": getattr(result, "inference_status", None),
         "error": None,
     }
@@ -890,13 +899,19 @@ INIT_DERIVED = {
     "grid": {
         "indicators.parquet",
         "replication-dispersion.parquet",
+        "output-summary.parquet",
+        "governed-report.json",
         "analysis-generation.json",
     },
     "discrete_oat": {
         "indicators.parquet", "replication-dispersion.parquet",
-        "discrete-oat-effects.parquet", "analysis-generation.json",
+        "discrete-oat-effects.parquet", "output-summary.parquet",
+        "governed-report.json", "analysis-generation.json",
     },
-    "sobol": {"indicators.parquet", "sobol-indices.parquet", "analysis-generation.json"},
+    "sobol": {
+        "indicators.parquet", "sobol-indices.parquet", "output-summary.parquet",
+        "governed-report.json", "analysis-generation.json",
+    },
 }
 
 

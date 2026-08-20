@@ -124,9 +124,9 @@ Les commandes `plan` renvoient un objet JSON avec `status`, `designPositions` et
 | Étape | JSON minimal à la première exécution | Fichiers attendus après `run`/`analyze` |
 | --- | --- | --- |
 | Calibration | `plan`: `created`, 3 positions, 3 runs uniques; `run`: `completed`, 3 complétés | `campaigns/calibration/plan.parquet`, 3 marqueurs sous `runs/`, 3 archives |
-| Grid | `plan`: `created`, 8 positions, 8 runs uniques; `run`: 8 complétés; `analyze`: `completed` | `indicators.parquet`, `replication-dispersion.parquet`, `analysis-generation.json` |
-| OAT discret | `plan`: `created`, 8 positions, 6 runs uniques; `run`: 6 complétés; `analyze`: sensibilité `discrete_oat` | `indicators.parquet`, `replication-dispersion.parquet`, `discrete-oat-effects.parquet`, `analysis-generation.json` |
-| Sobol | `plan`: `created`, 32 positions, 8 runs uniques; `run`: 8 complétés; `analyze`: sensibilité `sobol` | `indicators.parquet`, `sobol-indices.parquet`, `analysis-generation.json` |
+| Grid | `plan`: `created`, 8 positions, 8 runs uniques; `run`: 8 complétés; `analyze`: `completed` | `indicators.parquet`, `replication-dispersion.parquet`, `output-summary.parquet`, `governed-report.json`, `analysis-generation.json` |
+| OAT discret | `plan`: `created`, 8 positions, 6 runs uniques; `run`: 6 complétés; `analyze`: sensibilité `discrete_oat` | `indicators.parquet`, `replication-dispersion.parquet`, `discrete-oat-effects.parquet`, `output-summary.parquet`, `governed-report.json`, `analysis-generation.json` |
+| Sobol | `plan`: `created`, 32 positions, 8 runs uniques; `run`: 8 complétés; `analyze`: sensibilité `sobol` | `indicators.parquet`, `sobol-indices.parquet`, `output-summary.parquet`, `governed-report.json`, `analysis-generation.json` |
 
 Une relance identique de `plan` renvoie `unchanged`. Une campagne déjà complète
 renvoie pour `run` `status: completed` et `total: 0`.

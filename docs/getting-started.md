@@ -124,9 +124,9 @@ The `plan` commands return a JSON object with `status`, `designPositions`, and
 | Stage | Minimum JSON on first execution | Expected files after `run`/`analyze` |
 | --- | --- | --- |
 | Calibration | `plan`: `created`, 3 positions, 3 unique runs; `run`: `completed`, 3 completed | `campaigns/calibration/plan.parquet`, 3 markers under `runs/`, 3 archives |
-| Grid | `plan`: `created`, 8 positions, 8 unique runs; `run`: 8 completed; `analyze`: `completed` | `indicators.parquet`, `replication-dispersion.parquet`, `analysis-generation.json` |
-| Discrete OAT | `plan`: `created`, 8 positions, 6 unique runs; `run`: 6 completed; `analyze`: sensitivity `discrete_oat` | `indicators.parquet`, `replication-dispersion.parquet`, `discrete-oat-effects.parquet`, `analysis-generation.json` |
-| Sobol | `plan`: `created`, 32 positions, 8 unique runs; `run`: 8 completed; `analyze`: sensitivity `sobol` | `indicators.parquet`, `sobol-indices.parquet`, `analysis-generation.json` |
+| Grid | `plan`: `created`, 8 positions, 8 unique runs; `run`: 8 completed; `analyze`: `completed` | `indicators.parquet`, `replication-dispersion.parquet`, `output-summary.parquet`, `governed-report.json`, `analysis-generation.json` |
+| Discrete OAT | `plan`: `created`, 8 positions, 6 unique runs; `run`: 6 completed; `analyze`: sensitivity `discrete_oat` | `indicators.parquet`, `replication-dispersion.parquet`, `discrete-oat-effects.parquet`, `output-summary.parquet`, `governed-report.json`, `analysis-generation.json` |
+| Sobol | `plan`: `created`, 32 positions, 8 unique runs; `run`: 8 completed; `analyze`: sensitivity `sobol` | `indicators.parquet`, `sobol-indices.parquet`, `output-summary.parquet`, `governed-report.json`, `analysis-generation.json` |
 
 An identical rerun of `plan` returns `unchanged`. For an already complete
 campaign, `run` returns `status: completed` and `total: 0`.

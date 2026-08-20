@@ -324,7 +324,7 @@ def test_discrete_oat_analyzer_preserves_adjacent_effects_under_new_identity(
     manifest = json.loads(
         (design.campaign_root / "analysis-generation.json").read_text()
     )
-    assert manifest["version"] == 2
+    assert manifest["version"] == 6
     assert manifest["sensitivityMethod"] == "discrete_oat"
 
 
@@ -387,7 +387,7 @@ def test_canonical_analyze_rejects_scientific_minimum_boundaries(
         )
 
 
-def test_canonical_transactionally_publishes_noise_allocation_and_manifest_v4(
+def test_canonical_transactionally_publishes_noise_allocation_and_manifest_v6(
     tmp_path: Path,
 ) -> None:
     design, indicator = _completed_campaign(tmp_path)
@@ -411,7 +411,7 @@ def test_canonical_transactionally_publishes_noise_allocation_and_manifest_v4(
     manifest = json.loads(
         (design.campaign_root / "analysis-generation.json").read_text()
     )
-    assert manifest["version"] == 4
+    assert manifest["version"] == 6
     assert manifest["inferenceStatus"] == "pilot_only"
     assert manifest["noiseFloorPath"] == result.noise_floor_path.name
     assert manifest["replicationAllocationPath"] == result.replication_allocation_path.name
@@ -587,10 +587,10 @@ def test_canonical_production_publishes_noise_without_allocation(tmp_path: Path)
     )
     assert result.noise_floor_path.is_file()
     assert result.replication_allocation_path is None
-    assert result.inference_status == "scientific_conditional"
+    assert result.inference_status == "unstable"
     assert not stale.exists()
     manifest = json.loads((design.campaign_root / "analysis-generation.json").read_text())
-    assert manifest["inferenceStatus"] == "scientific_conditional"
+    assert manifest["inferenceStatus"] == "unstable"
     assert manifest["replicationAllocationPath"] is None
 
 
@@ -716,6 +716,9 @@ def test_application_passes_sealed_canonical_analysis_and_exposes_extra_paths(
         rank_reversals_path=root / "canonical-morris-rank-reversals.parquet",
         noise_floor_path=root / "noise-floor.parquet",
         replication_allocation_path=root / "replication-allocation.json",
+        output_summary_path=root / "output-summary.parquet",
+        convergence_evidence_path=root / "convergence-evidence.parquet",
+        governed_report_path=root / "governed-report.json",
         inference_status="pilot_only",
         runs=9,
         indicators=1,
@@ -760,6 +763,9 @@ def test_application_passes_sealed_canonical_analysis_and_exposes_extra_paths(
     )
     assert payload["noiseFloorPath"].endswith("noise-floor.parquet")
     assert payload["replicationAllocationPath"].endswith("replication-allocation.json")
+    assert payload["outputSummaryPath"].endswith("output-summary.parquet")
+    assert payload["convergenceEvidencePath"].endswith("convergence-evidence.parquet")
+    assert payload["governedReportPath"].endswith("governed-report.json")
     assert payload["inferenceStatus"] == "pilot_only"
 
 
