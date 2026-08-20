@@ -141,9 +141,14 @@ design or context change, choose a new root.
 
 ## Constant-variance Sobol analysis
 
-Cause: all indicator values are constant, or the bootstrap resamples are
-degenerate. Remedy: check the indicator, domains, `N`, and the effective
-diversity of the runs. Do not conceal the statistical error.
+For historical `sobol`, all indicator values may be constant or bootstrap
+resamples may be degenerate. Check the indicator, domains, `N`, and effective
+run diversity. Do not conceal the statistical error.
+
+For `multiscramble_sobol`, nonpositive output variance or an ineffective A/B
+projected contrast at any scramble and checkpoint is fatal. Increase the first
+declared base sample size or revise the scientifically justified support; no
+scramble is dropped and no row bootstrap fallback is used.
 
 ## Safety warnings
 

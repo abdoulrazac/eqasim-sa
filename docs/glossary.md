@@ -15,6 +15,7 @@
 | **Discrete OAT** | `method: discrete_oat`; adjacent numeric levels and local normalized effects. It is a demonstration design, not canonical Morris. |
 | **Canonical Morris** | `method: canonical_morris`; unit-probability trajectories with common Delta and declared transforms. Supported only for scientific screening. |
 | **QMC scramble** | One independently randomized Sobol low-discrepancy sequence. Uncertainty evidence requires several independent scrambles, not row bootstrap within one scramble. |
+| **Multi-scramble Sobol** | `method: multiscramble_sobol`; scientific FP/FF analysis using independent declared QMC scrambles and between-scramble Student-t uncertainty. |
 | **Resource calibration** | Preliminary campaign that measures runtime, durable bytes, and worker cache; it does not tune scientific parameters. |
 | **Design / experimental design** | Rules for generating Grid, trajectory, or Sobol positions. The sealed file is `plan.parquet`. |
 | **Design position** | Statistical row in the plan. Multiple positions may refer to the same run. |

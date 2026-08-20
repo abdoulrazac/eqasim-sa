@@ -43,13 +43,15 @@ Retour à la [page d'accueil](../README-fr.md).
 | OAT discret | réplication | `T(D+1)R` | `discrete-oat-effects.parquet` |
 | Morris canonique | réplication dérivée par bloc de trajectoire | `T(D+1)R` | Parquet de classement, convergence et inversions de rang |
 | Sobol | facteur | `N(2D+2)` | `sobol-indices.parquet` |
+| Sobol multi-scramble | facteur | `S*N(2D+2)` | quatre fichiers `multiscramble-sobol-*.parquet` |
 
 `D` inclut la seed pour Sobol. Le nombre de runs uniques peut être inférieur au
 nombre de positions, car plusieurs positions statistiques peuvent désigner la
 même configuration résolue.
 
 `init` génère des starters de démonstration Grid, OAT discret et Sobol. Il ne
-génère pas Morris canonique, dont le contrat de criblage scientifique doit être
+génère ni starter Sobol multi-scramble, dont la charte FP/FF et les seeds de
+scrambles doivent être propres à l'étude, ni Morris canonique, dont le contrat de criblage scientifique doit être
 propre à l'étude. L'ancien `morris` reste lisible mais n'est pas recommandé.
 
 `init` prépare les fichiers et les empreintes. Seul le `run` de calibration

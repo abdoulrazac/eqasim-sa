@@ -138,6 +138,8 @@ campaign, `run` returns `status: completed` and `total: 0`.
 - `analyze` reports `status: completed` and the expected completion rate.
 - The schemas and columns of the artifact Parquet files match the YAML declarations.
 - The Grid, discrete OAT, and Sobol demonstration outputs have been inspected, not merely created.
+- The generated Sobol campaign is historical and noninferential. A scientific
+  multi-scramble Sobol campaign must be authored separately; there is no starter.
 - The model, data, lockfile, and `eqasim-sa` version are archived or traceable.
 
 See also the [glossary](glossary.md).

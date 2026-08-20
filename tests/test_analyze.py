@@ -3,7 +3,10 @@ import json
 import math
 import multiprocessing
 import os
+import statistics
 import time
+import copy
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,13 +14,14 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from scipy.stats import sobol_indices
+from scipy.stats import sobol_indices, t as student_t
 
 from eqasim_sa.adapters.application import analyze_from_meta_config
 from eqasim_sa.adapters.fake.simulator import FakeSimulator
 from eqasim_sa.cli import dispatch
 from eqasim_sa.core.analyze import (
     _morris_ranking,
+    _multiscramble_sobol_tables,
     _sobol_bootstrap,
     _sobol_estimates,
     _sobol_ranking,
@@ -27,6 +31,7 @@ from eqasim_sa.core.indicators import ArtifactSet, RegisteredIndicator
 from eqasim_sa.core.ledger import RunRecord, write_parquet_atomic, write_run
 from eqasim_sa.core.plan import MorrisDesign, SobolDesign, build_plan, load_run_specs
 from eqasim_sa.core.run import execute_run
+from tests.test_multiscramble_sobol_plan import multiscramble_design
 
 
 def _artifact_value(artifacts: ArtifactSet) -> float:
@@ -360,6 +365,22 @@ def test_sobol_analysis_is_deterministic_permutation_invariant_and_has_exact_sch
         confidence_level=0.9,
     )
     assert replay.sensitivity_path.read_bytes() == expected
+    manifest = json.loads((root / "analysis-generation.json").read_text())
+    assert manifest == {
+        "version": 2,
+        "indicatorsSha256": hashlib.sha256(
+            (root / "indicators.parquet").read_bytes()
+        ).hexdigest(),
+        "dispersionSha256": None,
+        "sensitivitySha256": hashlib.sha256(ranking.read_bytes()).hexdigest(),
+        "sensitivityMethod": "sobol",
+        "inferenceStatus": "legacy_noninferential",
+        "completionRate": 1.0,
+        "expected": replay.expected,
+        "completed": replay.completed,
+        "missing": 0,
+        "failed": 0,
+    }
 
 
 @pytest.mark.parametrize("damage", ["role", "design", "value", "run", "metadata"])
@@ -600,6 +621,224 @@ def test_sobol_constant_output_is_named_and_transaction_restores_stale_views(
     assert (
         stale.read_bytes() == b"old morris" and manifest.read_bytes() == b"old manifest"
     )
+
+
+def test_multiscramble_uses_independent_estimates_student_t_and_diagnostics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    design = multiscramble_design(tmp_path / "multiscramble")
+    build_plan(design)
+    plan = pq.read_table(design.campaign_root / "plan.parquet")
+    unique = {row["runId"]: row for row in plan.to_pylist()}
+    rows = [
+        (run_id, "synthetic", float(row["a"] + row["seed"] / 10 + row["a"] * row["seed"] / 20))
+        for run_id, row in unique.items()
+    ]
+    monkeypatch.setattr(
+        "eqasim_sa.core.analyze._sobol_bootstrap",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("bootstrap called")),
+    )
+    indices, by_scramble, convergence, diagnostics = _multiscramble_sobol_tables(
+        plan, rows, design.confidence_level
+    )
+
+    assert len(by_scramble) == 2 * 4 * 2
+    assert len(convergence) == 2 * 2
+    assert len(indices) == 2
+    assert len(diagnostics) == 2 * 4
+    assert set(by_scramble["scramble"].to_pylist()) == {0, 1, 2, 3}
+    assert all(row["first_order_ci_width"] >= 0 for row in convergence.to_pylist())
+    assert all(row["objective"] == "fp" for row in convergence.to_pylist())
+    assert all(row["within_practical_tolerance"] is None for row in convergence.to_pylist())
+    assert all(row["maximum_multiplicity"] >= 1 for row in diagnostics.to_pylist())
+    by_role = {row["role"]: row for row in plan.to_pylist()}
+    observations = {run_id: value for run_id, _, value in rows}
+    by_key = {
+        (row["checkpoint"], row["scramble"], row["factor"]): row
+        for row in by_scramble.to_pylist()
+    }
+    for checkpoint in design.base_sample_sizes:
+        for scramble in range(len(design.scramble_seeds)):
+            def role_values(prefix: str, factor: str | None = None) -> np.ndarray:
+                roles = (
+                    f"scramble:{scramble}:{prefix}:row:{row}"
+                    if factor is None
+                    else f"scramble:{scramble}:{prefix}:factor:{factor}:row:{row}"
+                    for row in range(checkpoint)
+                )
+                return np.asarray([observations[by_role[role]["runId"]] for role in roles])
+
+            first, total = _sobol_estimates(
+                role_values("A"),
+                role_values("B"),
+                np.asarray([role_values("AB", factor) for factor in ("a", "seed")]),
+                np.asarray([role_values("BA", factor) for factor in ("a", "seed")]),
+                "synthetic",
+            )
+            for index, factor in enumerate(("a", "seed")):
+                assert by_key[checkpoint, scramble, factor]["first_order"] == pytest.approx(
+                    first[index]
+                )
+                assert by_key[checkpoint, scramble, factor]["total_order"] == pytest.approx(
+                    total[index]
+                )
+    per_scramble = [
+        row["first_order"]
+        for row in by_scramble.to_pylist()
+        if row["checkpoint"] == 4 and row["factor"] == "a"
+    ]
+    aggregate = next(
+        row
+        for row in convergence.to_pylist()
+        if row["checkpoint"] == 4 and row["factor"] == "a"
+    )
+    mean = statistics.fmean(per_scramble)
+    sd = statistics.stdev(per_scramble)
+    se = sd / math.sqrt(4)
+    critical = student_t.ppf(0.975, df=3)
+    assert aggregate["first_order_mean"] == pytest.approx(mean)
+    assert aggregate["first_order_sd"] == pytest.approx(sd)
+    assert aggregate["first_order_se"] == pytest.approx(se)
+    assert aggregate["first_order_ci_low"] == pytest.approx(mean - critical * se)
+    assert aggregate["first_order_ci_high"] == pytest.approx(mean + critical * se)
+
+
+def test_multiscramble_table_cell_cap_precedes_analyzer_qmc_allocation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import eqasim_sa.core.analyze as analyze_module
+
+    design = multiscramble_design(tmp_path / "multiscramble")
+    build_plan(design)
+    plan = pq.read_table(design.campaign_root / "plan.parquet")
+    metadata = dict(plan.schema.metadata)
+    sealed = json.loads(metadata[b"multiScrambleSobolDesign"])
+    sealed["baseSampleSizes"] = [2]
+    sealed["maximumBaseSampleSize"] = 2
+    sealed["factors"] = [
+        {
+            "name": f"f{index:05d}",
+            "support": [0, 1],
+            "distribution": {
+                "family": "discrete_uniform",
+                "transform": "identity",
+                "provenance": "test",
+            },
+        }
+        for index in range(10_599)
+    ] + [sealed["factors"][-1]]
+    metadata[b"multiScrambleSobolDesign"] = json.dumps(
+        sealed, sort_keys=True, separators=(",", ":")
+    ).encode()
+    damaged = plan.replace_schema_metadata(metadata)
+    monkeypatch.setattr(
+        analyze_module.qmc,
+        "Sobol",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("QMC allocated")),
+    )
+    with pytest.raises(ValueError, match="table cells"):
+        _multiscramble_sobol_tables(damaged, [], design.confidence_level)
+
+
+def test_multiscramble_ff_classifies_only_the_primary_indicator(tmp_path: Path) -> None:
+    original = multiscramble_design(tmp_path / "unused")
+    contract = copy.deepcopy(original.scientific_contract)
+    contract["charter"]["decision"].update(objective="ff", practical_tolerance=1.0)
+    design = replace(original, campaign_root=tmp_path / "ff", scientific_contract=contract)
+    build_plan(design)
+    plan = pq.read_table(design.campaign_root / "plan.parquet")
+    unique = {row["runId"]: row for row in plan.to_pylist()}
+    primary_rows = [
+        (run_id, "synthetic", float(row["a"] + row["seed"] / 10 + row["a"] * row["seed"] / 20))
+        for run_id, row in unique.items()
+    ]
+    rows = primary_rows + [
+        (run_id, "diagnostic", value + 0.5) for run_id, _, value in primary_rows
+    ]
+    indices, _, convergence, _ = _multiscramble_sobol_tables(
+        plan, rows, design.confidence_level
+    )
+    final = {
+        (row["indicator"], row["factor"]): row for row in indices.to_pylist()
+    }
+    assert all(row["objective"] == "ff" for row in convergence.to_pylist())
+    assert final["synthetic", "a"]["within_practical_tolerance"] == (
+        final["synthetic", "a"]["total_order_ci_high"] <= 1.0
+    )
+    assert final["synthetic", "seed"]["within_practical_tolerance"] is False
+    assert all(
+        final["diagnostic", factor]["within_practical_tolerance"] is None
+        for factor in ("a", "seed")
+    )
+    assert all(
+        row["is_primary_indicator"] == (row["indicator"] == "synthetic")
+        for row in convergence.to_pylist()
+    )
+    assert not indices.schema.field("is_primary_indicator").nullable
+    assert not convergence.schema.field("is_primary_indicator").nullable
+    primary = [row for row in final.values() if row["indicator"] == "synthetic"]
+    ordered = sorted(primary, key=lambda row: (row["total_order_ci_high"], row["factor"]))
+    assert [row["rank"] for row in ordered] == sorted(row["rank"] for row in ordered)
+
+
+def test_multiscramble_analyzer_rejects_tampered_ff_tolerance_above_one(
+    tmp_path: Path,
+) -> None:
+    design = multiscramble_design(tmp_path / "multiscramble")
+    build_plan(design)
+    plan = pq.read_table(design.campaign_root / "plan.parquet")
+    metadata = dict(plan.schema.metadata)
+    sealed = json.loads(metadata[b"multiScrambleSobolDesign"])
+    sealed["scientificContract"]["charter"]["decision"].update(
+        objective="ff", practical_tolerance=1.01
+    )
+    metadata[b"multiScrambleSobolDesign"] = json.dumps(
+        sealed, sort_keys=True, separators=(",", ":")
+    ).encode()
+
+    with pytest.raises(ValueError, match=r"variance-share tolerance in \[0,1\]"):
+        _multiscramble_sobol_tables(
+            plan.replace_schema_metadata(metadata), [], design.confidence_level
+        )
+
+
+def test_multiscramble_transactionally_publishes_four_outputs_and_manifest_v4(
+    tmp_path: Path,
+) -> None:
+    design = multiscramble_design(tmp_path / "published")
+    build_plan(design)
+    plan = pq.read_table(design.campaign_root / "plan.parquet")
+    unique = {row["runId"]: row for row in plan.to_pylist()}
+    for run_id, row in unique.items():
+        value = float(row["a"] + row["seed"] / 10 + row["a"] * row["seed"] / 20)
+        write_parquet_atomic(
+            pa.table({"synthetic": [value]}),
+            design.campaign_root / "archives" / run_id / "age.parquet",
+        )
+        write_run(
+            design.campaign_root,
+            RunRecord(
+                run_id, "test", row["seed"], design.context_hash, "node", 1.0,
+                {"a": row["a"]},
+            ),
+        )
+    result = analyze(
+        design.campaign_root,
+        (_custom_indicator(),),
+        campaign="test",
+        completeness_threshold=1.0,
+        seed_role="factor",
+        method="multiscramble_sobol",
+        confidence_level=design.confidence_level,
+    )
+    assert result.sensitivity_path.name == "multiscramble-sobol-indices.parquet"
+    assert result.by_scramble_path.name == "multiscramble-sobol-by-scramble.parquet"
+    assert result.convergence_path.name == "multiscramble-sobol-convergence.parquet"
+    assert result.diagnostics_path.name == "multiscramble-sobol-diagnostics.parquet"
+    manifest = json.loads((design.campaign_root / "analysis-generation.json").read_text())
+    assert manifest["version"] == 4
+    assert manifest["byScramblePath"] == result.by_scramble_path.name
+    assert manifest["diagnosticsPath"] == result.diagnostics_path.name
 
 
 def test_sobol_bootstrap_refuses_excessive_degeneracy(
@@ -1474,6 +1713,8 @@ def test_cli_analyze_reports_failure(
         "sensitivityPath": None,
         "convergencePath": None,
         "rankReversalsPath": None,
+        "byScramblePath": None,
+        "diagnosticsPath": None,
         "error": "missing age",
     }
 
@@ -1507,6 +1748,8 @@ def test_cli_analyze_reports_complete_keyboard_interrupt_payload_and_returns_130
         "sensitivityPath": None,
         "convergencePath": None,
         "rankReversalsPath": None,
+        "byScramblePath": None,
+        "diagnosticsPath": None,
         "error": "KeyboardInterrupt",
     }
 

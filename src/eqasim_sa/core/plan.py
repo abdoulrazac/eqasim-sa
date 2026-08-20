@@ -25,8 +25,13 @@ DISCRETE_OAT_DOMAIN = b"eqasim-sa:design:discrete-oat:v1\0"
 CANONICAL_MORRIS_DOMAIN = b"eqasim-sa:design:canonical-morris:v1\0"
 CANONICAL_MORRIS_SEED_DOMAIN = b"eqasim-sa:canonical-morris-seed:v1\0"
 SOBOL_DOMAIN = b"eqasim-sa:design:sobol:v1\0"
+MULTISCRAMBLE_SOBOL_DOMAIN = b"eqasim-sa:design:multiscramble-sobol:v1\0"
 MAX_CANONICAL_MORRIS_CANDIDATES = 500
 MAX_CANONICAL_MORRIS_DISTANCE_TERMS = 50_000_000
+# Keeps malformed declarations from committing multi-gigabyte QMC/Arrow allocations.
+MAX_MULTISCRAMBLE_DESIGN_POSITIONS = 1_000_000
+# D includes seed; Arrow stores D-1 factor columns plus the six fixed columns.
+MAX_MULTISCRAMBLE_TABLE_CELLS = 20_000_000
 
 
 @dataclass(frozen=True)
@@ -106,6 +111,23 @@ class SobolDesign:
 
 
 @dataclass(frozen=True)
+class MultiScrambleSobolDesign:
+    base_config: dict
+    factors: dict[str, list]
+    seeds: tuple[int, ...]
+    requirements: dict
+    context_hash: str
+    context_descriptor: dict
+    campaign_root: Path
+    base_sample_sizes: tuple[int, ...]
+    scramble_seeds: tuple[int, ...]
+    distributions: dict[str, dict]
+    scientific_contract: dict
+    confidence_level: float
+    method: str = "multiscramble_sobol"
+
+
+@dataclass(frozen=True)
 class PlanResult:
     status: str
     path: Path
@@ -151,6 +173,7 @@ def estimate_plan(
         "morris": "T(D+1)R",
         "discrete_oat": "T(D+1)R",
         "canonical_morris": "T(D+1)R",
+        "multiscramble_sobol": "S*N(2D+2)",
     }
     formula, inputs = (
         (formulas.get(method), formula_inputs) if method in formulas else (None, None)
@@ -164,6 +187,15 @@ def estimate_plan(
             raise ValueError("Sobol formula inputs D and N must be positive integers")
         if design_positions != inputs["N"] * (2 * inputs["D"] + 2):
             raise ValueError("Sobol designPositions must equal N*(2*D+2)")
+    elif method == "multiscramble_sobol":
+        if (
+            not isinstance(inputs, dict)
+            or set(inputs) != {"D", "N", "S"}
+            or any(type(value) is not int or value <= 0 for value in inputs.values())
+        ):
+            raise ValueError("multi-scramble Sobol formula inputs D, N and S must be positive integers")
+        if design_positions != inputs["S"] * inputs["N"] * (2 * inputs["D"] + 2):
+            raise ValueError("multi-scramble Sobol designPositions must equal S*N*(2*D+2)")
     elif method in {"morris", "discrete_oat", "canonical_morris"}:
         if (
             not isinstance(inputs, dict)
@@ -271,15 +303,34 @@ def canonical_morris_distance_terms(
     return (pair_distances + greedy_distances) * dimensions * (dimensions + 1) ** 2
 
 
-Design = GridDesign | MorrisDesign | DiscreteOATDesign | CanonicalMorrisDesign | SobolDesign
+def validate_multiscramble_scientific_contract(
+    contract: dict,
+    factors: dict[str, list],
+    distributions: dict,
+) -> None:
+    validate_scientific_contract(
+        contract,
+        factors,
+        distributions,
+        allowed_objectives=frozenset({"fp", "ff"}),
+    )
+    decision = contract["charter"]["decision"]
+    if decision["objective"] == "ff" and decision["practical_tolerance"] > 1:
+        raise ValueError(
+            "multi-scramble Sobol practical_tolerance must be a dimensionless "
+            "total-order variance-share tolerance in [0,1]"
+        )
+
+
+Design = GridDesign | MorrisDesign | DiscreteOATDesign | CanonicalMorrisDesign | SobolDesign | MultiScrambleSobolDesign
 
 
 def _validate(design: Design) -> tuple[str, ...]:
     if design.method not in {
-        "grid", "morris", "discrete_oat", "canonical_morris", "sobol"
+        "grid", "morris", "discrete_oat", "canonical_morris", "sobol", "multiscramble_sobol"
     }:
         raise ValueError(
-            "method must be grid, morris, discrete_oat, canonical_morris or sobol"
+            "method must be grid, morris, discrete_oat, canonical_morris, sobol or multiscramble_sobol"
         )
     if not isinstance(design.base_config, dict) or not isinstance(
         design.base_config.get("config"), dict
@@ -289,6 +340,8 @@ def _validate(design: Design) -> tuple[str, ...]:
     names = tuple(sorted(design.factors))
     if design.method == "sobol" and "seed" in design.factors:
         raise ValueError("SobolDesign factors must not contain the special factor seed")
+    if design.method == "multiscramble_sobol" and "seed" in design.factors:
+        raise ValueError("MultiScrambleSobolDesign factors must not contain the special factor seed")
     if not names and design.method != "sobol":
         raise ValueError("at least one factor is required")
     for name in names:
@@ -307,10 +360,10 @@ def _validate(design: Design) -> tuple[str, ...]:
             _scalar(name, value)
         if len({type(value) for value in values}) != 1:
             raise TypeError(f"factor {name!r} levels must have the same type")
-        if design.method in {"sobol", "canonical_morris"} and len(values) < 2:
+        if design.method in {"sobol", "canonical_morris", "multiscramble_sobol"} and len(values) < 2:
             raise ValueError(f"factor {name!r} needs two or more values")
         if (
-            design.method in {"sobol", "canonical_morris"}
+            design.method in {"sobol", "canonical_morris", "multiscramble_sobol"}
             and len(set(values)) != len(values)
         ):
             raise ValueError(f"factor {name!r} values must be distinct")
@@ -446,6 +499,61 @@ def _validate(design: Design) -> tuple[str, ...]:
         if type(design.design_seed) is not int or not 0 <= design.design_seed < 2**64:
             raise ValueError("design_seed must be an unsigned 64-bit integer")
         return tuple(sorted((*names, "seed")))
+    if design.method == "multiscramble_sobol":
+        names = tuple(sorted((*names, "seed")))
+        dimensions = len(names)
+        if not 2 <= dimensions <= 10_600:
+            raise ValueError("multi-scramble Sobol requires 2 to 10600 factors including seed")
+        sizes = design.base_sample_sizes
+        if (
+            not isinstance(sizes, tuple)
+            or not sizes
+            or any(type(value) is not int or value < 2 or value & (value - 1) for value in sizes)
+            or tuple(sorted(set(sizes))) != sizes
+            or any(right != 2 * left for left, right in zip(sizes, sizes[1:]))
+        ):
+            raise ValueError("base_sample_sizes must be sorted powers of two at least 2, each doubling")
+        if (
+            not isinstance(design.scramble_seeds, tuple)
+            or len(design.scramble_seeds) < 4
+            or any(type(seed) is not int or not 0 <= seed < 2**64 for seed in design.scramble_seeds)
+            or len(set(design.scramble_seeds)) != len(design.scramble_seeds)
+        ):
+            raise ValueError("scramble_seeds must contain at least four unique uint64 integers")
+        positions = len(design.scramble_seeds) * sizes[-1] * (2 * dimensions + 2)
+        if positions > 2**63 - 1:
+            raise ValueError("multi-scramble Sobol S*N*(2D+2) must fit in signed int64")
+        if positions > MAX_MULTISCRAMBLE_DESIGN_POSITIONS:
+            raise ValueError(
+                "multi-scramble Sobol allocation exceeds the safe cap of "
+                f"{MAX_MULTISCRAMBLE_DESIGN_POSITIONS} design positions"
+            )
+        if positions * (dimensions + 5) > MAX_MULTISCRAMBLE_TABLE_CELLS:
+            raise ValueError(
+                "multi-scramble Sobol allocation exceeds the safe cap of "
+                f"{MAX_MULTISCRAMBLE_TABLE_CELLS} table cells"
+            )
+        if set(design.distributions) != set(names):
+            raise ValueError("distributions must exactly match multi-scramble Sobol factors")
+        for name in names:
+            distribution = design.distributions[name]
+            if (
+                not isinstance(distribution, dict)
+                or set(distribution) != {"family", "transform", "provenance"}
+                or distribution["family"] != "discrete_uniform"
+                or distribution["transform"] != "identity"
+                or not isinstance(distribution["provenance"], str)
+                or not distribution["provenance"]
+            ):
+                raise ValueError(f"distribution for factor {name!r} is invalid")
+        if type(design.confidence_level) is not float or not math.isfinite(design.confidence_level) or not 0 < design.confidence_level < 1:
+            raise ValueError("confidence_level must be a finite float in (0,1)")
+        validate_multiscramble_scientific_contract(
+            design.scientific_contract,
+            {**design.factors, "seed": list(design.seeds)},
+            design.distributions,
+        )
+        return names
     return names
 
 
@@ -826,6 +934,84 @@ def validate_sobol_effective_hybrid_contrasts(points, names):  # type: ignore[no
             )
 
 
+def _multiscramble_definition(
+    design: MultiScrambleSobolDesign, names: tuple[str, ...]
+) -> dict:
+    domains = {**design.factors, "seed": list(design.seeds)}
+    return {
+        "baseSampleSizes": list(design.base_sample_sizes),
+        "confidenceLevel": design.confidence_level,
+        "factors": [
+            {
+                "name": name,
+                "support": domains[name],
+                "distribution": design.distributions[name],
+            }
+            for name in names
+        ],
+        "mapping": "equal-width-v1",
+        "maximumBaseSampleSize": design.base_sample_sizes[-1],
+        "qmc": {
+            "bits": 64,
+            "engine": "scipy.stats.qmc.Sobol",
+            "optimization": None,
+            "scramble": True,
+        },
+        "saltelliEstimator": "symmetric-ab-ba-v1",
+        "scientificContract": design.scientific_contract,
+        "scrambleSeeds": list(design.scramble_seeds),
+    }
+
+
+def _multiscramble_sobol_positions(
+    design: MultiScrambleSobolDesign,
+    names: tuple[str, ...],
+    definition: dict,
+):  # type: ignore[no-untyped-def]
+    domains = {**design.factors, "seed": list(design.seeds)}
+    maximum = design.base_sample_sizes[-1]
+    for scramble, scramble_seed in enumerate(design.scramble_seeds):
+        sample = qmc.Sobol(
+            d=2 * len(names),
+            scramble=True,
+            bits=64,
+            rng=scramble_seed,
+            optimization=None,
+        ).random_base2(m=maximum.bit_length() - 1)
+        indices = [
+            tuple(
+                math.floor(float(value) * len(domains[name]))
+                for name, value in zip(names * 2, row)
+            )
+            for row in sample
+        ]
+        for checkpoint in design.base_sample_sizes:
+            try:
+                validate_sobol_effective_hybrid_contrasts(indices[:checkpoint], names)
+            except ValueError as error:
+                raise ValueError(
+                    f"multi-scramble Sobol scramble {scramble}, checkpoint {checkpoint}: {error}"
+                ) from error
+        for row_index, point in enumerate(indices):
+            a, b = point[: len(names)], point[len(names) :]
+            positions = [
+                (f"scramble:{scramble}:A:row:{row_index}", a),
+                (f"scramble:{scramble}:B:row:{row_index}", b),
+            ]
+            for index, name in enumerate(names):
+                ab, ba = list(a), list(b)
+                ab[index], ba[index] = b[index], a[index]
+                positions.extend(
+                    (
+                        (f"scramble:{scramble}:AB:factor:{name}:row:{row_index}", tuple(ab)),
+                        (f"scramble:{scramble}:BA:factor:{name}:row:{row_index}", tuple(ba)),
+                    )
+                )
+            for role, selected in positions:
+                values = tuple(domains[name][index] for name, index in zip(names, selected))
+                yield values, role, definition
+
+
 def _table(design: Design, names: tuple[str, ...]) -> pa.Table:
     metadata = {
         b"planSchemaVersion": b"1",
@@ -877,6 +1063,15 @@ def _table(design: Design, names: tuple[str, ...]) -> pa.Table:
             "factors": [{"name": name, "values": domains[name]} for name in names],
         }
         metadata.update({b"sobolDesignVersion": b"1", b"sobolDesign": _json(sobol)})
+    if design.method == "multiscramble_sobol":
+        multiscramble = _multiscramble_definition(design, names)
+        metadata[b"planSchemaVersion"] = b"2"
+        metadata.update(
+            {
+                b"multiScrambleSobolDesignVersion": b"1",
+                b"multiScrambleSobolDesign": _json(multiscramble),
+            }
+        )
     columns = tuple(name for name in names if name != "seed")
     scalar_types = {int: pa.int64(), float: pa.float64(), str: pa.string()}
     types = (
@@ -905,9 +1100,11 @@ def _table(design: Design, names: tuple[str, ...]) -> pa.Table:
         else _canonical_morris_positions(design, names, *canonical_plan)
         if design.method == "canonical_morris"
         else _sobol_positions(design, names)
+        if design.method == "sobol"
+        else _multiscramble_sobol_positions(design, names, multiscramble)
     )
     for position in selected:
-        if design.method == "sobol":
+        if design.method in {"sobol", "multiscramble_sobol"}:
             all_values, role, definition = position
             logical = dict(zip(names, all_values))
             seed, replication, extra = logical["seed"], 0, [role, definition]
@@ -933,13 +1130,13 @@ def _table(design: Design, names: tuple[str, ...]) -> pa.Table:
             if design.method == "grid"
             else {
                 "design": extra[1]
-                if design.method == "sobol"
+                if design.method in {"sobol", "multiscramble_sobol"}
                 else extra[1]
                 if design.method == "canonical_morris"
                 else {**extra[1], "trajectories": design.trajectories},
                 **(
                     {}
-                    if design.method == "sobol"
+                    if design.method in {"sobol", "multiscramble_sobol"}
                     else {"replicationIndex": replication}
                 ),
                 "role": role,
@@ -954,6 +1151,8 @@ def _table(design: Design, names: tuple[str, ...]) -> pa.Table:
             if design.method == "discrete_oat"
             else CANONICAL_MORRIS_DOMAIN
             if design.method == "canonical_morris"
+            else MULTISCRAMBLE_SOBOL_DOMAIN
+            if design.method == "multiscramble_sobol"
             else SOBOL_DOMAIN
         )
         design_id = hashlib.sha256(domain + _json(preimage)).hexdigest()[:32]
@@ -1022,7 +1221,7 @@ def load_run_specs(
     names = _validate(design)
     expected, actual = _table(design, names), pq.ParquetFile(path).read()
     same = expected.equals(actual)
-    if design.method == "sobol" and expected.schema.equals(
+    if design.method in {"sobol", "multiscramble_sobol"} and expected.schema.equals(
         actual.schema, check_metadata=True
     ):
         expected_rows = {row["designId"]: row for row in expected.to_pylist()}
@@ -1050,7 +1249,7 @@ def load_run_specs(
 def build_plan(design: Design) -> PlanResult:
     names = _validate(design)
     candidate = _table(design, names)
-    if design.method == "canonical_morris":
+    if design.method in {"canonical_morris", "multiscramble_sobol"}:
         try:
             budget = design.scientific_contract["charter"]["budget"]
             allowed = _available_scientific_runs(
@@ -1061,7 +1260,8 @@ def build_plan(design: Design) -> PlanResult:
         unique_runs = len(set(candidate["runId"].to_pylist()))
         if allowed == 0 or unique_runs > allowed:
             raise ValueError(
-                f"canonical Morris unique runs {unique_runs} exceed scientific execution budget {allowed}"
+                f"{'canonical Morris' if design.method == 'canonical_morris' else design.method} "
+                f"unique runs {unique_runs} exceed scientific execution budget {allowed}"
             )
     root, destination = design.campaign_root, design.campaign_root / "plan.parquet"
     if destination.is_symlink() or (destination.exists() and not destination.is_file()):

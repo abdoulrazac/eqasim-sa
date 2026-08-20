@@ -141,6 +141,11 @@ stable. Après changement de design ou contexte, choisir une nouvelle racine.
 
 ## Analyse Sobol à variance constante
 
+Avec `multiscramble_sobol`, une variance non positive ou un contraste A/B
+inefficace à un scramble et checkpoint quelconque est fatal. Augmentez la
+première taille ou révisez le support scientifiquement justifié; aucun scramble
+n'est supprimé et aucun bootstrap de secours n'est appliqué.
+
 Cause : toutes les valeurs de l'indicateur sont constantes, ou les bootstrap
 resamples sont dégénérés. Remède : vérifier l'indicateur, les domaines, la taille
 `N` et la diversité effective des runs. Ne masquez pas l'erreur statistique.

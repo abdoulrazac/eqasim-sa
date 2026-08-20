@@ -119,9 +119,13 @@ Recalcule les indicateurs depuis les archives et publie atomiquement les sorties
 d'analyse. Champs JSON : `status`, `path`, `runs`, `indicators`, `values`,
 `completionRate`, `expected`, `completed`, `missing`, `failed`,
 `dispersionPath`, `sensitivityMethod`, `sensitivityPath`, `convergencePath`,
-`rankReversalsPath`, `error`. Les deux derniers chemins ne sont non nuls que pour
-`canonical_morris`. L'ancien `morris` reste accepté comme provenance historique ;
-les nouvelles démonstrations générées utilisent `discrete_oat`.
+`rankReversalsPath`, `byScramblePath`, `diagnosticsPath`, `error`.
+`rankReversalsPath` est propre à `canonical_morris`; les deux chemins de scramble
+sont propres à `multiscramble_sobol`. L'ancien `morris` reste accepté comme provenance historique ;
+`multiscramble_sobol` est aussi accepté pour une charte scientifique après
+reconstruction du plan scellé. Le JSON d'analyse expose en option
+`byScramblePath`, `diagnosticsPath` et réutilise `convergencePath`. Les nouvelles
+démonstrations générées utilisent `discrete_oat`.
 
 ## Commandes internes
 

@@ -120,7 +120,10 @@ quantity to be learned. `use` is `diagnostic` or `prognostic`; `objective` is
 screening (`screening`), factor prioritization (`fp`), or factor fixing (`ff`).
 `primary_indicator` must exactly equal a resolved indicator name. A finite
 nonnegative float `practical_tolerance` is required exactly for `ff` and
-forbidden otherwise. A scientific configuration requires at least one indicator.
+forbidden otherwise. This generic charter rule is method-independent. For
+`multiscramble_sobol` specifically, it is a dimensionless total-order
+variance-share tolerance and must lie in `[0,1]`. A scientific configuration
+requires at least one indicator.
 
 Dependence is either `independent`, with exactly `kind` and a non-empty
 `rationale`, or `declared`, adding a non-empty `groups` list. Every group has
@@ -377,7 +380,7 @@ analysis:
   screening_top_k: 1
 ```
 
-### Sobol
+### Historical Sobol
 
 ```yaml
 experiment:
@@ -390,6 +393,36 @@ experiment:
 These are exactly the four allowed keys. `base_sample_size` is a power of two
 greater than or equal to 2. `design_seed` is an unsigned 64-bit integer. The seed
 is declared in `parameters.seed`, not in `replications`.
+
+This historical method is demonstration-only and retains its single-scramble
+row bootstrap. Its manifest records `inferenceStatus: legacy_noninferential`.
+
+### Multi-scramble Sobol
+
+Scientific FP/FF campaigns use this separate exact experiment:
+
+```yaml
+experiment:
+  method: multiscramble_sobol
+  seed_role: factor
+  base_sample_sizes: [2, 4, 8, 16]
+  scramble_seeds: [101, 202, 303, 404]
+analysis:
+  completeness_threshold: 1.0
+  confidence_level: 0.95
+```
+
+`base_sample_sizes` is nonempty, sorted, starts at a power of two at least 2,
+and each value exactly doubles its predecessor. `scramble_seeds` contains at
+least four unique unsigned 64-bit integers. `design_seed` is forbidden. The
+maximum planned size is the last checkpoint. The scientific charter must have
+independent dependence and objective `fp` or `ff`; screening is rejected. FF
+requires a dimensionless total-order variance-share `practical_tolerance` in
+`[0,1]`. Every parameter, including the finite
+simulator-seed support, has a declared scientific distribution.
+The implementation rejects plans above 1,000,000 design positions or 20,000,000
+Arrow table cells before QMC or table allocation; reduce the declared design
+rather than bypassing these guards.
 
 ## `parameters`
 
@@ -479,7 +512,7 @@ analysis:
 The threshold is a finite YAML `float` in `[0, 1]`; `1` is invalid because it
 becomes an integer. Both adjacent-level trajectory methods require `1.0`.
 
-Sobol requires exactly:
+Historical Sobol requires exactly:
 
 ```yaml
 analysis:
@@ -491,6 +524,10 @@ analysis:
 `bootstrap_resamples` is an integer in `[1, 2^63-1]`.
 `confidence_level` is a finite `float` strictly between 0 and 1. Sobol also
 requires completeness of `1.0`.
+
+Multi-scramble Sobol requires exactly `completeness_threshold: 1.0` and a finite
+float `confidence_level` in `(0, 1)`. Its convergence sizes come only from
+`experiment.base_sample_sizes`; it has no bootstrap setting.
 
 Canonical Morris requires exactly:
 

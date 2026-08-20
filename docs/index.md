@@ -43,6 +43,7 @@ Return to the [home page](../README.md).
 | Discrete OAT | replication | `T(D+1)R` | `discrete-oat-effects.parquet` |
 | Canonical Morris | derived trajectory-block replication | `T(D+1)R` | ranking, convergence, and rank-reversal Parquet files |
 | Sobol | factor | `N(2D+2)` | `sobol-indices.parquet` |
+| Multi-scramble Sobol | factor | `S*N(2D+2)` | four `multiscramble-sobol-*.parquet` files |
 
 `D` includes the seed for Sobol. The number of unique runs may be lower than the
 number of positions because multiple statistical positions may refer to the
@@ -50,7 +51,9 @@ same resolved configuration.
 
 `init` generates Grid, discrete OAT, and Sobol demonstration starters. It does
 not generate canonical Morris, whose scientific screening contract must be
-study-specific. Historical `morris` remains readable but is not recommended.
+authored for the study. It also generates no multi-scramble Sobol starter; its
+scientific FP/FF contract and independent scramble seeds must be study-specific.
+Historical `morris` remains readable but is not recommended.
 
 `init` prepares the files and fingerprints. Only the calibration `run` provides
 the resource observations used by `check` and `estimate`.

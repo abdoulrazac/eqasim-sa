@@ -290,6 +290,8 @@ def dispatch(
             "sensitivityPath": None,
             "convergencePath": None,
             "rankReversalsPath": None,
+            "byScramblePath": None,
+            "diagnosticsPath": None,
         }
         try:
             if analyze_factory is None:

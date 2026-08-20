@@ -50,6 +50,7 @@ from eqasim_sa.core.plan import (
     DiscreteOATDesign,
     GridDesign,
     MorrisDesign,
+    MultiScrambleSobolDesign,
     PlanResult,
     SobolDesign,
     build_plan,
@@ -125,11 +126,12 @@ def _warn_sobol_capacity(
     pending_runs: int,
     backend: str,
     parallel_capacity: int,
+    method: str = "sobol",
 ) -> None:
     waves = (pending_runs + parallel_capacity - 1) // parallel_capacity
     try:
         print(
-            "WARNING sobol backend capacity: "
+            f"WARNING {method} backend capacity: "
             f"designPositions={design_positions}, uniqueRuns={unique_runs}, "
             f"pendingRuns={pending_runs}, backend={backend}, "
             f"parallelCapacity={parallel_capacity}, minimumWaves={waves}",
@@ -165,7 +167,7 @@ def run_from_meta_config(path: Path) -> dict:
         specs = pending_run_specs(meta.campaign_root, specs)
         if not specs:
             return summarize_runs([], [])
-        if meta.method == "sobol" and len(specs) > meta.execution.workers:
+        if meta.method in {"sobol", "multiscramble_sobol"} and len(specs) > meta.execution.workers:
             positions = pq.ParquetFile(
                 meta.campaign_root / "plan.parquet"
             ).metadata.num_rows
@@ -175,6 +177,7 @@ def run_from_meta_config(path: Path) -> dict:
                 len(specs),
                 meta.execution.backend,
                 meta.execution.workers,
+                meta.method,
             )
         if meta.execution.overrides:
             overridden = []
@@ -292,7 +295,8 @@ def _execute_exclusive(spec, simulator, campaign_root, workdir, interrupted=None
 def analyze_from_meta_config(path: Path) -> dict:
     meta = load_meta_config(path)
     _validate_scientific_method(meta)
-    if meta.method == "canonical_morris":
+    if meta.method in {"canonical_morris", "multiscramble_sobol"}:
+        # Full-context run identity is an adapter preflight: core analysis has no base config.
         design = _design(meta)
         load_run_specs(meta.campaign_root / "plan.parquet", design, meta.campaign)
     result = analyze(
@@ -331,13 +335,19 @@ def analyze_from_meta_config(path: Path) -> dict:
         "rankReversalsPath": str(result.rank_reversals_path)
         if getattr(result, "rank_reversals_path", None)
         else None,
+        "byScramblePath": str(result.by_scramble_path)
+        if getattr(result, "by_scramble_path", None)
+        else None,
+        "diagnosticsPath": str(result.diagnostics_path)
+        if getattr(result, "diagnostics_path", None)
+        else None,
         "error": None,
     }
 
 
 def _validate_scientific_method(meta) -> None:  # type: ignore[no-untyped-def]
     status = getattr(getattr(meta, "charter", None), "status", "demonstration")
-    if status == "scientific" and meta.method != "canonical_morris":
+    if status == "scientific" and meta.method not in {"canonical_morris", "multiscramble_sobol"}:
         classification = (
             "a legacy inferential method"
             if meta.method in {"morris", "sobol"}
@@ -393,6 +403,27 @@ def _design(meta, requirements=None):  # type: ignore[no-untyped-def]
         )
     if getattr(meta, "method", "grid") == "sobol":
         return SobolDesign(*common, meta.base_sample_size, meta.design_seed)
+    if getattr(meta, "method", "grid") == "multiscramble_sobol":
+        full_factors = {**meta.factors, "seed": list(meta.seeds)}
+        distributions = {
+            name: {
+                "family": distribution.family,
+                "transform": distribution.transform,
+                "provenance": distribution.provenance,
+            }
+            for name, distribution in meta.distributions.items()
+        }
+        contract = serialize_scientific_contract(
+            meta.charter, full_factors, meta.distributions
+        )
+        return MultiScrambleSobolDesign(
+            *common,
+            meta.base_sample_sizes,
+            meta.scramble_seeds,
+            distributions,
+            contract,
+            meta.confidence_level,
+        )
     return GridDesign(*common)
 
 
@@ -520,6 +551,12 @@ def _estimate_state(
             in {"morris", "discrete_oat", "canonical_morris"}
             else {"D": len(target.factors) + 1, "N": target.base_sample_size}
             if getattr(target, "method", "grid") == "sobol"
+            else {
+                "D": len(target.factors) + 1,
+                "N": target.base_sample_sizes[-1],
+                "S": len(target.scramble_seeds),
+            }
+            if getattr(target, "method", "grid") == "multiscramble_sobol"
             else None
         ),
     )
@@ -585,14 +622,14 @@ def _static_check(path: Path, calibrations: tuple[Path, ...]):  # type: ignore[n
                 (
                     sealed_valid
                     if getattr(meta, "method", "grid")
-                    in {"morris", "discrete_oat", "canonical_morris", "sobol"}
+                    in {"morris", "discrete_oat", "canonical_morris", "sobol", "multiscramble_sobol"}
                     else unique_config_seed_pairs(design)
                 )
                 or (_ for _ in ()).throw(
                     ValueError(
                         "sealedPlan validation unavailable"
                         if getattr(meta, "method", "grid")
-                        in {"morris", "discrete_oat", "canonical_morris", "sobol"}
+                        in {"morris", "discrete_oat", "canonical_morris", "sobol", "multiscramble_sobol"}
                         else "duplicate canonical configuration and seed pair"
                     )
                 )

@@ -4,7 +4,7 @@
 
 `eqasim-sa` planifie, exécute et analyse des campagnes d'analyse de sensibilité
 pour un pipeline eqasim piloté par synpp. Son vocabulaire actuel est Grid, OAT
-discret, Morris canonique et Sobol. Il fournit des plans déterministes, une
+discret, Morris canonique, Sobol historique et Sobol multi-scramble. Il fournit des plans déterministes, une
 reprise par run, des indicateurs calculés sur les artefacts Parquet et des
 backends local et SLURM.
 
@@ -15,7 +15,10 @@ mais ne peuvent soutenir aucune revendication inférentielle ou décisionnelle.
 Aucun starter Morris canonique n'est généré : ses revendications scientifiques,
 son modèle d'incertitude, son estimand, son budget, ses critères de convergence
 et ses contrôles de robustesse doivent être propres à l'étude. L'ancien
-`method: morris` reste lisible uniquement comme provenance de démonstration.
+`method: morris` reste lisible uniquement comme provenance de démonstration. Le
+fichier généré `03-sobol.yml` reste lui aussi une démonstration historique : son
+scramble unique et son bootstrap de lignes sont non inférentiels. Ses octets de
+plan, son schéma, ses sorties et son comportement restent inchangés.
 
 Les exemples Grid et Sobol générés font varier le sélecteur scalaire
 `matching_age_scheme` d'eqasim-france ; l'OAT discret garde ce facteur catégoriel fixe,
@@ -23,6 +26,14 @@ et `analysis_age_scheme` reste fixe pour comparer les distributions de sortie.
 L'OAT discret utilise des niveaux numériques adjacents et des effets normalisés
 locaux ; ce n'est pas Morris canonique. Morris canonique est pris en charge
 uniquement pour le criblage scientifique, pas pour FP ni FF.
+
+La méthode `multiscramble_sobol`, rédigée pour une étude, est exclusivement
+scientifique. Elle exige une dépendance `independent`, un objectif `fp` ou `ff`
+et au moins quatre seeds explicites de scrambles QMC indépendants. `init` ne la
+génère pas. Le support fini de `parameters.seed` est un facteur de seed du
+simulateur, pas un modèle général de tout bruit stochastique. Les tables de
+convergence apportent des éléments aux tailles déclarées sans déclarer
+automatiquement les critères d'arrêt satisfaits.
 
 Le paquet cible exactement Python 3.13 (`>=3.13,<3.14`). Depuis ce répertoire :
 

@@ -34,6 +34,8 @@ from eqasim_sa.core.indicators import (
 from eqasim_sa.core.plan import (
     MAX_CANONICAL_MORRIS_CANDIDATES,
     MAX_CANONICAL_MORRIS_DISTANCE_TERMS,
+    MAX_MULTISCRAMBLE_DESIGN_POSITIONS,
+    MAX_MULTISCRAMBLE_TABLE_CELLS,
     canonical_morris_distance_terms,
     validate_morris_values,
 )
@@ -83,6 +85,8 @@ class MetaConfig:
     candidate_trajectories: int | None
     design_seed: int | None
     base_sample_size: int | None
+    base_sample_sizes: tuple[int, ...] | None
+    scramble_seeds: tuple[int, ...] | None
     bootstrap_resamples: int | None
     confidence_level: float | None
     convergence_checkpoints: tuple[int, ...] | None
@@ -500,6 +504,8 @@ def load_meta_config(
             "screening_top_k",
         }
         if method == "canonical_morris"
+        else {"completeness_threshold", "confidence_level"}
+        if method == "multiscramble_sobol"
         else {"completeness_threshold", "bootstrap_resamples", "confidence_level"}
         if method == "sobol"
         else {"completeness_threshold"}
@@ -524,8 +530,8 @@ def load_meta_config(
         and status is not CharterStatus.DEMONSTRATION
     ):
         raise ValueError(f"{method} requires charter.status demonstration")
-    if method == "canonical_morris" and status is not CharterStatus.SCIENTIFIC:
-        raise ValueError("canonical_morris requires charter.status scientific")
+    if method in {"canonical_morris", "multiscramble_sobol"} and status is not CharterStatus.SCIENTIFIC:
+        raise ValueError(f"{method} requires charter.status scientific")
     if "replications" in experiment and "seed" in raw_parameters:
         raise ValueError(
             "le seed est soit un facteur, soit une réplication, jamais les deux"
@@ -542,13 +548,16 @@ def load_meta_config(
         if method == "grid":
             raise ValueError("grid seed factor is not supported yet")
         if (
-            method != "sobol"
-            or set(experiment)
-            != {"method", "seed_role", "base_sample_size", "design_seed"}
+            method not in {"sobol", "multiscramble_sobol"}
+            or set(experiment) != (
+                {"method", "seed_role", "base_sample_size", "design_seed"}
+                if method == "sobol"
+                else {"method", "seed_role", "base_sample_sizes", "scramble_seeds"}
+            )
             or "seed" not in raw_parameters
         ):
             raise ValueError(
-                "Sobol experiment keys require method, seed_role, base_sample_size, design_seed and parameters.seed"
+                "Sobol factor experiments require their exact sampling keys and parameters.seed"
             )
     expected_experiment = (
         {"method", "seed_role", "replications"}
@@ -579,6 +588,8 @@ def load_meta_config(
     levels = experiment.get("levels")
     candidate_trajectories = experiment.get("candidate_trajectories")
     base_sample_size = experiment.get("base_sample_size")
+    raw_base_sample_sizes = experiment.get("base_sample_sizes")
+    raw_scramble_seeds = experiment.get("scramble_seeds")
     if method in {"morris", "discrete_oat"}:
         if type(trajectories) is not int or trajectories <= 0:
             raise ValueError(
@@ -627,14 +638,35 @@ def load_meta_config(
             )
         if completeness_threshold != 1.0:
             raise ValueError("Sobol analysis.completeness_threshold must equal 1.0")
-    convergence_checkpoints = screening_top_k = None
-    if method in {"sobol", "canonical_morris"}:
-        bootstrap_resamples, confidence_level = (
-            analysis["bootstrap_resamples"],
-            analysis["confidence_level"],
-        )
-        minimum_resamples = 100 if method == "canonical_morris" else 1
+    base_sample_sizes = scramble_seeds = None
+    if method == "multiscramble_sobol":
         if (
+            not isinstance(raw_base_sample_sizes, list)
+            or not raw_base_sample_sizes
+            or any(type(value) is not int or value < 2 or value & (value - 1) for value in raw_base_sample_sizes)
+            or sorted(set(raw_base_sample_sizes)) != raw_base_sample_sizes
+            or any(right != 2 * left for left, right in zip(raw_base_sample_sizes, raw_base_sample_sizes[1:]))
+        ):
+            raise ValueError("experiment.base_sample_sizes must be sorted powers of two at least 2, each doubling")
+        if (
+            not isinstance(raw_scramble_seeds, list)
+            or len(raw_scramble_seeds) < 4
+            or any(type(seed) is not int or not 0 <= seed < 2**64 for seed in raw_scramble_seeds)
+            or len(set(raw_scramble_seeds)) != len(raw_scramble_seeds)
+        ):
+            raise ValueError("experiment.scramble_seeds must contain at least four unique uint64 integers")
+        if design_seed is not None:
+            raise ValueError("multiscramble_sobol does not permit design_seed")
+        if completeness_threshold != 1.0:
+            raise ValueError("multi-scramble Sobol analysis.completeness_threshold must equal 1.0")
+        base_sample_sizes = tuple(raw_base_sample_sizes)
+        scramble_seeds = tuple(raw_scramble_seeds)
+    convergence_checkpoints = screening_top_k = None
+    if method in {"sobol", "canonical_morris", "multiscramble_sobol"}:
+        bootstrap_resamples = analysis.get("bootstrap_resamples")
+        confidence_level = analysis["confidence_level"]
+        minimum_resamples = 100 if method == "canonical_morris" else 1
+        if method != "multiscramble_sobol" and (
             type(bootstrap_resamples) is not int
             or not minimum_resamples <= bootstrap_resamples <= 2**63 - 1
         ):
@@ -650,7 +682,7 @@ def load_meta_config(
             raise ValueError(
                 "analysis.confidence_level must be a finite float in (0,1)"
             )
-        if method == "sobol":
+        if method in {"sobol", "multiscramble_sobol"}:
             seeds = _mapping(raw_parameters["seed"], "parameters.seed").get("values")
         else:
             raw_checkpoints = analysis["convergence_checkpoints"]
@@ -680,7 +712,7 @@ def load_meta_config(
         ):
             raise ValueError("experiment.replications.seeds must be a list")
         seeds = replications["seeds"]
-    if method == "sobol" and (not isinstance(seeds, list) or len(seeds) < 2):
+    if method in {"sobol", "multiscramble_sobol"} and (not isinstance(seeds, list) or len(seeds) < 2):
         raise ValueError("Sobol parameters.seed.values requires at least two values")
     if not seeds or any(
         type(seed) is not int or not -(2**63) <= seed < 2**63 for seed in seeds
@@ -764,7 +796,7 @@ def load_meta_config(
             raise ValueError(f"factor {name!r} must contain exactly {required}")
         if status is CharterStatus.SCIENTIFIC:
             distributions[name] = parse_distribution(declaration["distribution"], name)
-        if method == "sobol" and name == "seed":
+        if method in {"sobol", "multiscramble_sobol"} and name == "seed":
             continue
         if validate_factors and name not in model_document["config"]:
             raise ValueError(f"unknown factor: {name!r}")
@@ -784,7 +816,7 @@ def load_meta_config(
             )
         if method in {"morris", "discrete_oat"}:
             validate_morris_values(name, values)
-        if method in {"sobol", "canonical_morris"}:
+        if method in {"sobol", "canonical_morris", "multiscramble_sobol"}:
             if len(values) < 2 or len(set(values)) != len(values):
                 raise ValueError(
                     f"factor {name!r} values must contain at least two distinct values"
@@ -835,6 +867,23 @@ def load_meta_config(
             raise ValueError("Sobol supports at most 10600 factors")
         if base_sample_size * (2 * (len(factors) + 1) + 2) > 2**63 - 1:
             raise ValueError("Sobol N(2D+2) must fit in signed int64")
+    if method == "multiscramble_sobol":
+        dimensions = len(factors) + 1
+        positions = len(scramble_seeds) * base_sample_sizes[-1] * (2 * dimensions + 2)
+        if not 2 <= dimensions <= 10_600:
+            raise ValueError("multi-scramble Sobol requires 2 to 10600 factors including seed")
+        if positions > 2**63 - 1:
+            raise ValueError("multi-scramble Sobol S*N*(2D+2) must fit in signed int64")
+        if positions > MAX_MULTISCRAMBLE_DESIGN_POSITIONS:
+            raise ValueError(
+                "multi-scramble Sobol allocation exceeds the safe cap of "
+                f"{MAX_MULTISCRAMBLE_DESIGN_POSITIONS} design positions"
+            )
+        if positions * (dimensions + 5) > MAX_MULTISCRAMBLE_TABLE_CELLS:
+            raise ValueError(
+                "multi-scramble Sobol allocation exceeds the safe cap of "
+                f"{MAX_MULTISCRAMBLE_TABLE_CELLS} table cells"
+            )
     campaign_root = document["campaign_root"]
     if not isinstance(campaign_root, str):
         raise TypeError("campaign_root must be a string")
@@ -853,7 +902,7 @@ def load_meta_config(
         raise ValueError("Morris requires at least one indicator")
     if method in {"discrete_oat", "canonical_morris"} and not indicators:
         raise ValueError(f"{method} requires at least one indicator")
-    if method == "sobol" and not indicators:
+    if method in {"sobol", "multiscramble_sobol"} and not indicators:
         raise ValueError("Sobol requires at least one indicator")
     charter = parse_charter(
         document.get("charter"),
@@ -865,6 +914,20 @@ def load_meta_config(
             raise ValueError("canonical_morris requires sensitivity objective screening")
         if charter.dependence.kind.value != "independent":
             raise ValueError("canonical_morris requires independent parameter dependence")
+    if method == "multiscramble_sobol":
+        if charter.decision.objective.value not in {"fp", "ff"}:
+            raise ValueError("multiscramble_sobol requires sensitivity objective fp or ff")
+        if charter.dependence.kind.value != "independent":
+            raise ValueError("multiscramble_sobol requires independent parameter dependence")
+        if (
+            charter.decision.objective.value == "ff"
+            and charter.decision.practical_tolerance is not None
+            and charter.decision.practical_tolerance > 1
+        ):
+            raise ValueError(
+                "multiscramble_sobol practical_tolerance must be a dimensionless "
+                "total-order variance-share tolerance in [0,1]"
+            )
     if any(_state(item) != state for item, state in control_states):
         raise RuntimeError("sealed control input changed while loading")
     return MetaConfig(
@@ -883,6 +946,8 @@ def load_meta_config(
         candidate_trajectories,
         design_seed,
         base_sample_size,
+        base_sample_sizes,
+        scramble_seeds,
         bootstrap_resamples,
         confidence_level,
         convergence_checkpoints,

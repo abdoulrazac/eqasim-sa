@@ -423,8 +423,10 @@ def validate_scientific_contract(
     contract: object,
     factors: dict[str, list],
     distributions: dict[str, ParameterDistribution | dict],
+    *,
+    allowed_objectives: frozenset[str] = frozenset({"screening"}),
 ) -> None:
-    """Validate the exact normalized contract sealed into canonical plans."""
+    """Validate the normalized scientific contract for a method's objectives."""
     try:
         json.dumps(contract, allow_nan=False)
     except (TypeError, ValueError) as error:
@@ -459,10 +461,18 @@ def validate_scientific_contract(
             raise ValueError(f"scientific_contract decision {key} must not contain NUL")
     if decision["use"] not in {item.value for item in DecisionUse}:
         raise ValueError("scientific_contract decision use must be diagnostic or prognostic")
-    if decision["objective"] != SensitivityObjective.SCREENING.value:
-        raise ValueError("scientific_contract decision objective must be screening")
-    if decision["practical_tolerance"] is not None:
-        raise ValueError("scientific_contract screening practical_tolerance must be null")
+    if decision["objective"] not in allowed_objectives:
+        if allowed_objectives == frozenset({SensitivityObjective.SCREENING.value}):
+            raise ValueError("scientific_contract decision objective must be screening")
+        choices = ", ".join(sorted(allowed_objectives))
+        raise ValueError(f"scientific_contract decision objective must be one of {choices}")
+    if decision["objective"] == SensitivityObjective.FACTOR_FIXING.value:
+        _float(
+            decision["practical_tolerance"],
+            "scientific_contract factor-fixing practical_tolerance",
+        )
+    elif decision["practical_tolerance"] is not None:
+        raise ValueError("scientific_contract practical_tolerance must be null unless objective is ff")
 
     uncertainty = _mapping(
         charter["uncertainty"], "scientific_contract.charter.uncertainty"

@@ -120,9 +120,13 @@ Recomputes indicators from the archives and atomically publishes analysis
 outputs. JSON fields: `status`, `path`, `runs`, `indicators`, `values`,
 `completionRate`, `expected`, `completed`, `missing`, `failed`,
 `dispersionPath`, `sensitivityMethod`, `sensitivityPath`, `convergencePath`,
-`rankReversalsPath`, `error`. The last two paths are non-null only for
-`canonical_morris`. Historical `morris` remains accepted for legacy provenance;
-new generated trajectory demonstrations use `discrete_oat`.
+`rankReversalsPath`, `byScramblePath`, `diagnosticsPath`, `error`.
+`rankReversalsPath` is specific to `canonical_morris`; the two scramble paths are
+specific to `multiscramble_sobol`. Historical `morris` remains accepted for legacy provenance;
+scientific analysis also accepts `multiscramble_sobol` after reconstructing the
+current meta-configuration and sealed plan. Analyze JSON adds optional
+`byScramblePath` and `diagnosticsPath`; `convergencePath` is reused. New generated
+trajectory demonstrations use `discrete_oat`.
 
 ## Internal Commands
 

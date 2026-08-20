@@ -15,6 +15,7 @@
 | **OAT discret** | `method: discrete_oat` ; niveaux numériques adjacents et effets normalisés locaux. C'est une démonstration, pas Morris canonique. |
 | **Morris canonique** | `method: canonical_morris` ; trajectoires dans l'espace de probabilité unitaire, Delta commun et transformations déclarées. Uniquement pour le criblage scientifique. |
 | **Scramble QMC** | Une séquence Sobol à faible discrépance randomisée indépendamment. L'incertitude exige plusieurs scrambles indépendants, pas un bootstrap des lignes d'un seul scramble. |
+| **Sobol multi-scramble** | `method: multiscramble_sobol` ; analyse scientifique FP/FF avec scrambles QMC indépendants et incertitude de Student entre scrambles. |
 | **Calibration des ressources** | Campagne préalable qui mesure durée, octets durables et cache worker; elle ne règle pas les paramètres scientifiques. |
 | **Design / plan d'expérience** | Règles de génération des positions Grid, de trajectoire ou Sobol. Le fichier scellé est `plan.parquet`. |
 | **Position de design** | Ligne statistique du plan. Plusieurs positions peuvent désigner le même run. |

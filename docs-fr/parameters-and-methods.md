@@ -293,7 +293,13 @@ de design fini conditionnelle au contrat déclaré et scellé. Il ne fournit pas
 lui seul une preuve décisionnelle calibrée, des parts de variance, une conclusion
 FP/FF, ni une certification automatique des critères d'arrêt et de robustesse.
 
-## Sobol
+## Sobol historique
+
+Le `method: sobol` généré est une provenance historique de démonstration : un
+scramble, `N(2D+2)` positions et un bootstrap déterministe des lignes. Le fichier
+inchangé `sobol-indices.parquet` classe l'ordre total décroissant et fournit les
+intervalles bootstrap. Son manifeste déclare
+`inferenceStatus: legacy_noninferential`.
 
 Chaque domaine Sobol contient au moins deux valeurs distinctes, homogènes, de
 type `int`, `float` ou `string`. L'ordre des modalités est significatif. Pour un
@@ -319,15 +325,34 @@ hybride effectif après projection discrète : un `AB_i` projeté doit différer
 identifiable et refusé. Les positions dupliquées dans les autres lignes restent
 valides et continuent à partager un run.
 
-Les indices produits sont de premier ordre et d'ordre total. Le rang est trié
-par indice total décroissant, puis par nom de facteur croissant en cas d'égalité.
-Les intervalles sont obtenus par bootstrap déterministe; un indicateur constant
-ou une variance non positive rend l'analyse invalide.
+Le bootstrap de lignes d'un scramble ne remplace pas plusieurs scrambles QMC
+indépendants. Un indicateur constant ou une variance non positive invalide
+l'analyse.
 
-L'implémentation Sobol actuelle emploie un seul scramble QMC randomisé
-indépendamment. Le bootstrap de lignes dans ce scramble ne remplace pas plusieurs
-scrambles indépendants. Le starter Sobol reste donc une démonstration et ses
-intervalles ne doivent pas être présentés comme preuve décisionnelle calibrée.
+## Sobol multi-scramble
+
+`method: multiscramble_sobol` est la méthode scientifique FP/FF. Avec `S` seeds
+de scramble, le checkpoint maximal `N` et `D` facteurs seed comprise, le plan a
+`S*N(2D+2)` positions. Chaque seed produit un net SciPy Sobol indépendant à `N`;
+les checkpoints inférieurs en sont des préfixes exacts, sans mélange des lignes.
+
+Pour les `S` estimations indépendantes, les sorties donnent moyenne, SD
+échantillonnal, `SE = SD/sqrt(S)` et intervalle bilatéral de Student à `S-1`
+degrés de liberté. Aucun bootstrap de lignes n'est utilisé. FP classe la moyenne
+de premier ordre décroissante. FF classe la borne supérieure d'ordre total
+croissante. Pour cette méthode, `practical_tolerance` est une part de variance
+d'ordre total, sans dimension et comprise dans `[0,1]`, interactions incluses.
+La classification décisionnelle FF n'est produite que pour le
+`primary_indicator` scellé. Les indicateurs secondaires conservent estimations et
+rangs à titre diagnostique, mais ne peuvent porter aucune classification de
+fixation. Pour l'indicateur primaire, la seed n'est jamais classée fixable.
+
+Les clés d'analyse exactes sont `completeness_threshold: 1.0` et
+`confidence_level`. Les quatre sorties sont `multiscramble-sobol-indices.parquet`,
+`multiscramble-sobol-by-scramble.parquet`,
+`multiscramble-sobol-convergence.parquet` et
+`multiscramble-sobol-diagnostics.parquet`. Les limites sont 1 000 000 positions
+et 20 000 000 cellules de table Arrow.
 
 ## Indicateurs et variation totale
 

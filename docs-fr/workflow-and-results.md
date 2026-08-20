@@ -246,7 +246,28 @@ Colonnes : `indicator`, `factor`, `rank`, `base_sample_size`,
 `bootstrap_resamples`, `bootstrap_attempts`, `first_order`,
 `first_order_ci_low`, `first_order_ci_high`, `total_order`,
 `total_order_ci_low`, `total_order_ci_high`. Le rang suit l'ordre total
-décroissant; les égalités sont départagées par le nom de facteur croissant.
+décroissant. Ce fichier appartient au Sobol historique; son bootstrap de lignes
+reste non inférentiel et le manifeste porte
+`inferenceStatus: legacy_noninferential`.
+
+### Sorties Sobol multi-scramble
+
+`multiscramble_sobol` publie transactionnellement quatre fichiers :
+`multiscramble-sobol-indices.parquet` pour le checkpoint final et les rangs,
+`multiscramble-sobol-by-scramble.parquet` pour chaque estimation indépendante,
+`multiscramble-sobol-convergence.parquet` pour les moyennes, SD, SE et intervalles
+de Student entre scrambles, et `multiscramble-sobol-diagnostics.parquet` pour les
+contrastes, valeurs hors plage, gaps négatifs et duplications de runId. Les
+tables agrégées portent le booléen non nul `is_primary_indicator`; les indices
+bruts ne sont pas tronqués. FP classe la moyenne de premier ordre par ordre
+décroissant et laisse `within_practical_tolerance` nul. FF classe la borne
+supérieure totale par ordre croissant pour tous les indicateurs, mais seule
+l'indicateur primaire scellé reçoit une classification : la seed vaut toujours
+`false`, les autres facteurs comparent leur borne supérieure de Student à la
+tolérance. Les indicateurs secondaires restent diagnostiques et leur
+classification FF est nulle. Le manifeste v4 contient tous les chemins et
+hachages. Une ligne de convergence ne satisfait pas automatiquement un critère
+d'arrêt.
 
 ### `analysis-generation.json`
 
@@ -256,6 +277,12 @@ avec SHA-256 des sorties, méthode de sensibilité, `expected`, `completed`,
 qui ajoute noms et SHA-256 des tables de classement, convergence et inversions de
 rang. La publication de toutes les sorties canoniques et du manifeste est
 transactionnelle.
+
+Pour les méthodes scientifiques, l'adaptateur applicatif reconstruit le design
+depuis la méta-configuration courante et valide chaque identité de run avant
+l'analyse core. Le core seul ne reçoit pas la configuration modèle de base et ne
+peut donc pas recalculer ces identités; ce contrôle complet appartient au
+préflight de l'adaptateur, sans heuristique core affaiblie.
 
 ## Idempotence et récupération
 

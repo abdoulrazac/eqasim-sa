@@ -305,7 +305,14 @@ on the declared and sealed contract. It does not by itself provide calibrated
 decision evidence, variance shares, FP/FF conclusions, or automatic proof that
 the charter's stopping and robustness requirements have been met.
 
-## Sobol
+## Historical Sobol
+
+The generated `method: sobol` plan is historical demonstration provenance. It
+uses one scramble, `N(2D+2)` positions, and deterministic row bootstrap. Its
+unchanged `sobol-indices.parquet` ranks decreasing total-order indices and reports
+bootstrap intervals. The analysis manifest records
+`inferenceStatus: legacy_noninferential`; do not reinterpret these outputs as
+multi-scramble evidence.
 
 Each Sobol domain contains at least two distinct, homogeneous values of type
 `int`, `float`, or `string`. The order of modalities is significant. For a
@@ -313,7 +320,8 @@ quasi-random draw `u` in `[0,1)` and a domain of length `L`, the selected
 modality is the one at index `floor(u × L)`. The seed is always a special integer
 factor.
 
-With `D` total factors, including the seed, and `N = base_sample_size`:
+For historical Sobol, with `D` total factors including seed and
+`N = base_sample_size`:
 
 `positions = N(2D+2)`
 
@@ -331,16 +339,34 @@ or the corresponding `BA_i` from `B`. A factor with no such contrast is
 unidentifiable and is rejected. Duplicate positions in other rows remain valid
 and continue to share a run.
 
-The resulting indices are first-order and total-order indices. Ranking is
-sorted by decreasing total-order index, then by increasing factor name in case
-of a tie. Intervals are obtained through deterministic bootstrap; a constant
-indicator or non-positive variance makes the analysis invalid.
+Row bootstrap within one scramble does not replace independent randomized QMC
+scrambles. A constant indicator or non-positive variance invalidates analysis.
 
-The current Sobol implementation uses one independently randomized QMC scramble.
-Row bootstrap within that scramble does not replace evidence from several
-independent scrambles. The generated Sobol starter therefore remains a
-demonstration and its intervals must not be overclaimed as calibrated decision
-evidence.
+## Multi-scramble Sobol
+
+`method: multiscramble_sobol` is the scientific FP/FF method. For `S` explicit
+scramble seeds, maximum checkpoint `N`, and `D` factors including seed, it creates
+`S*N(2D+2)` positions. One SciPy Sobol net is generated at `N` per seed; smaller
+declared checkpoints are exact nested prefixes and rows are never pooled across
+scrambles. Equal-width `floor(u * support_length)` projection is retained.
+
+Each scramble yields independent first- and total-order estimates. Across the
+`S` estimates, outputs report the mean, sample SD, `SE = SD/sqrt(S)`, and a
+two-sided Student interval with `S-1` degrees of freedom. No row bootstrap is
+used. FP ranks decreasing aggregate first-order means. FF ranks increasing
+total-order upper confidence bounds. For this method, `practical_tolerance` is a
+dimensionless total-order variance-share tolerance in `[0,1]`, including
+interactions. The FF decision classification is emitted only for the sealed
+`primary_indicator`; secondary indicators retain estimates and ranks as
+diagnostics but cannot carry a factor-fixing classification. For the primary
+indicator, seed is never classified as fixable.
+
+The exact analysis keys are `completeness_threshold: 1.0` and
+`confidence_level`. Results are published as `multiscramble-sobol-indices.parquet`,
+`multiscramble-sobol-by-scramble.parquet`,
+`multiscramble-sobol-convergence.parquet`, and
+`multiscramble-sobol-diagnostics.parquet`. Plans are capped at 1,000,000
+positions and 20,000,000 Arrow table cells.
 
 ## Indicators and total variation
 

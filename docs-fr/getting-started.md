@@ -138,6 +138,8 @@ renvoie pour `run` `status: completed` et `total: 0`.
 - `analyze` annonce `status: completed` et le taux de complétude attendu.
 - Les schémas et colonnes des Parquet d'artefacts correspondent aux déclarations YAML.
 - Les sorties de démonstration Grid, OAT discret et Sobol ont été inspectées, pas seulement créées.
+- Le Sobol généré reste historique et non inférentiel. Une campagne scientifique
+  multi-scramble doit être rédigée séparément; aucun starter n'est fourni.
 - Le modèle, les données, le lockfile et la version d'`eqasim-sa` sont archivés ou traçables.
 
 Voir aussi le [glossaire](glossary.md).

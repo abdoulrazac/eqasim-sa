@@ -245,6 +245,35 @@ Columns: `indicator`, `factor`, `rank`, `base_sample_size`,
 `total_order_ci_low`, `total_order_ci_high`. Ranking follows descending total
 order; ties are broken by ascending factor name.
 
+This file belongs to historical `method: sobol`, whose row bootstrap remains a
+demonstration-only uncertainty calculation. Its analysis manifest contains
+`inferenceStatus: legacy_noninferential`.
+
+### Multi-scramble Sobol outputs
+
+`method: multiscramble_sobol` publishes four files transactionally. The final
+aggregate and tie-aware objective rank are in
+`multiscramble-sobol-indices.parquet`. Per-scramble estimates at every declared
+checkpoint, including effective contrasts, variance, `ST_minus_S`, and
+out-of-range flags, are in `multiscramble-sobol-by-scramble.parquet`.
+`multiscramble-sobol-convergence.parquet` contains between-scramble means, sample
+SD, SE, two-sided Student-t intervals, widths, checkpoint changes, rank, objective,
+`is_primary_indicator`, and the nullable FF tolerance classification. Raw Sobol
+estimates are not clipped.
+`multiscramble-sobol-diagnostics.parquet` reports sums, out-of-range and negative
+gap counts, design positions, unique run IDs, duplicate fraction, and maximum
+multiplicity for each indicator, scramble, and checkpoint. Duplicated run IDs
+are valid discrete-projection reuse, not duplicated QMC evidence.
+
+FP ranks descending aggregate first-order means. FF ranks ascending total-order
+upper confidence bounds for every indicator, but only the sealed primary
+indicator receives `within_practical_tolerance`: seed is always `false`, and
+other factors compare their total-order upper Student bound with the declared
+tolerance. FP rows and FF secondary-indicator rows contain `null`. Secondary
+indicators are diagnostics and cannot carry an FF decision classification. A
+convergence row is evidence only and never automatically satisfies a charter's
+stopping criteria.
+
 ### `analysis-generation.json`
 
 For Grid, historical Morris, discrete OAT, and Sobol this is a version 2 manifest
@@ -252,6 +281,13 @@ containing output SHA-256 values, the sensitivity method, `expected`, `completed
 `missing`, `failed`, and `completionRate`. Canonical Morris publishes version 3,
 adding the names and SHA-256 values of its ranking, convergence, and rank-reversal
 tables. Publication of all canonical outputs and the manifest is transactional.
+Multi-scramble Sobol publishes manifest version 4 with every output path and hash.
+
+For scientific methods, the application adapter recomputes the design from the
+current meta-configuration and validates every run identity before invoking core
+analysis. Standalone core analysis cannot recompute run IDs because it does not
+receive the base model configuration; full-context run identity is therefore an
+adapter preflight, not a weaker core heuristic.
 
 ## Idempotence and Recovery
 
