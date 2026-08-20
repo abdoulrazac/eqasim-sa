@@ -37,6 +37,7 @@ containing that YAML file, not from the current directory.
 | `experiment` | required | mapping |
 | `parameters` | required | mapping |
 | `analysis` | required | mapping |
+| `charter` | optional; missing means legacy demonstration | mapping |
 | `execution` | optional | mapping |
 | `calibration` | optional | mapping |
 | `artifacts` | optional, default `{}` | mapping |
@@ -46,6 +47,100 @@ No other root key is allowed. `campaign` must match
 `^[A-Za-z0-9][A-Za-z0-9._-]*$`. `campaign_root` must not traverse any symbolic
 link, must be outside `model.root`, and its first existing ancestor must be a
 regular directory.
+
+## `charter`
+
+The optional charter classifies what a campaign may claim. Omitting it preserves
+old YAML as a legacy demonstration. An explicit demonstration has exactly this
+form, with no additional key:
+
+```yaml
+charter:
+  status: demonstration
+```
+
+A demonstration campaign validates configuration, execution, storage, and
+analysis plumbing. It cannot support inferential or decision claims. Existing
+Grid, Morris, and Sobol plans remain readable demonstration provenance; the
+current Morris and Sobol implementations are legacy inferential methods, not
+scientific evidence.
+
+A scientific charter uses the complete strict schema below:
+
+```yaml
+charter:
+  status: scientific
+  decision:
+    claim: Identify the factor to learn more accurately first
+    use: prognostic
+    setting: Nantes population-synthesis policy assessment
+    objective: fp
+    estimand: Expected total-variation distance over simulation seeds
+    primary_indicator: tv_distance(age, ref=INSEE)
+  uncertainty:
+    dependence:
+      kind: declared
+      rationale: Two inputs are estimated from the same survey
+      groups:
+        - factors: [sampling_rate, matching_minimum_age]
+          model: Joint empirical distribution
+          provenance: Survey methods report, section 4
+    inventory:
+      parameters:
+        - name: sampling_rate
+          status: varied
+          provenance: Design declaration
+          rationale: Material input uncertainty
+        - name: matching_minimum_age
+          status: varied
+          provenance: Design declaration
+          rationale: Material input uncertainty
+      data: []
+      structures: []
+      scenarios: []
+      numerics: []
+  budget:
+    maximum_runs: 1000
+    reserve_fraction: 0.1
+  stopping:
+    criteria:
+      - metric: rank_stability
+        threshold: 0.05
+        consecutive_checks: 3
+  robustness:
+    checks:
+      - name: Alternative dependence model
+        rationale: Assess whether the FP conclusion changes under plausible dependence
+```
+
+`decision.claim`, `setting`, `estimand`, and `primary_indicator` are non-empty
+strings. `setting` describes the decision context and `estimand` states the
+quantity to be learned. `use` is `diagnostic` or `prognostic`; `objective` is
+screening (`screening`), factor prioritization (`fp`), or factor fixing (`ff`).
+`primary_indicator` must exactly equal a resolved indicator name. A finite
+nonnegative float `practical_tolerance` is required exactly for `ff` and
+forbidden otherwise. A scientific configuration requires at least one indicator.
+
+Dependence is either `independent`, with exactly `kind` and a non-empty
+`rationale`, or `declared`, adding a non-empty `groups` list. Every group has
+exactly `factors`, `model`, and `provenance`; it contains at least two distinct
+declared parameter names. Factors may not overlap between groups. The inventory
+has exactly the five categories shown. Every item has exactly `name`, `status`,
+`provenance`, and `rationale`; text is non-empty, status is `varied`, `fixed`, or
+`excluded`, and names are unique per category. Varied names in the parameter
+inventory must exactly equal the YAML parameter names.
+
+`maximum_runs` and every `consecutive_checks` are positive signed 64-bit
+integers. `reserve_fraction` is a finite float in `[0, 1)`. `criteria` is
+non-empty; each criterion has exactly `metric`, positive finite float
+`threshold`, and `consecutive_checks`, and metrics are unique.
+`robustness.checks` is non-empty. Each check contains exactly a unique,
+non-empty `name` and a non-empty `rationale`.
+
+The charter is structurally validated by `load_meta_config`. Plan and check then
+reject every current method when `status: scientific`, before a plan can be
+sealed, because no current method satisfies the scientific contract. This
+explicitly rejects the old Morris and Sobol legacy inferential plans.
 
 ## `model` and `context`
 
@@ -151,7 +246,8 @@ is declared in `parameters.seed`, not in `replications`.
 
 ## `parameters`
 
-Each entry requires exactly one `values` key:
+For a missing or demonstration charter, each entry requires exactly one `values`
+key:
 
 ```yaml
 parameters:
@@ -200,6 +296,26 @@ parameters:
 
 `seed.values` contains at least two distinct signed 64-bit integers. The seed is
 special and does not need to exist in the model configuration.
+
+With `charter.status: scientific`, every parameter (including `seed`) instead
+requires exactly `values` and `distribution`:
+
+```yaml
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: Bounds declared in protocol version 2
+```
+
+For current list-backed domains, only `family: discrete_uniform` and
+`transform: identity` are accepted. `provenance` is a non-empty string. The
+parsed family and transform declarations are retained as typed
+meta-configuration data so future samplers can extend the supported vocabulary.
+A varied discrete-uniform support contains at least two distinct values;
+uniformity applies to support points, never to repeated list positions.
 
 ## `analysis`
 

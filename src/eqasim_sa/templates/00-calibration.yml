@@ -1,6 +1,8 @@
 # Three real runs calibrate compute time and storage, not scientific parameters.
 campaign: @PROJECT_NAME@-calibration
 campaign_root: ../campaigns/calibration
+charter:
+  status: demonstration
 model:
   config: @MODEL_CONFIG@
   root: @MODEL_ROOT@

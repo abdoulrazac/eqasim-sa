@@ -1,6 +1,8 @@
-# One factor, two trajectories and two replication seeds: eight design positions.
+# Legacy Morris demonstration: eight positions, not inferential evidence.
 campaign: @PROJECT_NAME@-morris
 campaign_root: ../campaigns/morris
+charter:
+  status: demonstration
 model:
   config: @MODEL_CONFIG@
   root: @MODEL_ROOT@

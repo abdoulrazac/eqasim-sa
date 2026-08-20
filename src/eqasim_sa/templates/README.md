@@ -14,6 +14,11 @@ results. Every command below is an explicit manual step.
 - `campaigns/`: initially empty; manual `plan` commands create campaign state.
 - `scratch/`: initially empty and disposable unless `--scratch` selected another path.
 
+All four starters are demonstration campaigns. They validate configuration,
+execution, storage, and analysis plumbing, but cannot support inferential or
+decision claims. In particular, the Morris and Sobol starters are legacy
+inferential plans and are not scientific evidence.
+
 Run all commands from this directory. This generated array uses the source
 checkout runner when available and the installed command otherwise.
 

@@ -37,6 +37,7 @@ répertoire qui contient ce fichier YAML, pas depuis le répertoire courant.
 | `experiment` | requise | mapping |
 | `parameters` | requise | mapping |
 | `analysis` | requise | mapping |
+| `charter` | optionnelle ; absence = démonstration historique | mapping |
 | `execution` | optionnelle | mapping |
 | `calibration` | optionnelle | mapping |
 | `artifacts` | optionnelle, défaut `{}` | mapping |
@@ -46,6 +47,102 @@ Aucune autre clé racine n'est admise. `campaign` doit correspondre à
 `^[A-Za-z0-9][A-Za-z0-9._-]*$`. `campaign_root` ne doit traverser aucun lien
 symbolique, doit être extérieur à `model.root`, et son premier ancêtre existant
 doit être un répertoire ordinaire.
+
+## `charter`
+
+La charte optionnelle classe les revendications permises par une campagne. Son
+absence conserve les anciens YAML comme démonstrations historiques. Une
+démonstration explicite a exactement cette forme, sans clé supplémentaire :
+
+```yaml
+charter:
+  status: demonstration
+```
+
+Une campagne de démonstration valide la configuration, l'exécution, le stockage
+et la plomberie d'analyse. Elle ne peut soutenir aucune revendication
+inférentielle ou décisionnelle. Les anciens plans Grid, Morris et Sobol restent
+lisibles comme provenance de démonstration ; les implémentations Morris et Sobol
+actuelles sont des méthodes inférentielles historiques, pas des preuves
+scientifiques.
+
+Une charte scientifique emploie le schéma strict complet suivant :
+
+```yaml
+charter:
+  status: scientific
+  decision:
+    claim: Identifier le facteur à apprendre plus précisément en premier
+    use: prognostic
+    setting: Évaluation des politiques de synthèse de population nantaise
+    objective: fp
+    estimand: Distance de variation totale espérée sur les seeds de simulation
+    primary_indicator: tv_distance(age, ref=INSEE)
+  uncertainty:
+    dependence:
+      kind: declared
+      rationale: Deux entrées sont estimées par la même enquête
+      groups:
+        - factors: [sampling_rate, matching_minimum_age]
+          model: Distribution empirique jointe
+          provenance: Rapport méthodologique, section 4
+    inventory:
+      parameters:
+        - name: sampling_rate
+          status: varied
+          provenance: Déclaration du plan
+          rationale: Incertitude d'entrée matérielle
+        - name: matching_minimum_age
+          status: varied
+          provenance: Déclaration du plan
+          rationale: Incertitude d'entrée matérielle
+      data: []
+      structures: []
+      scenarios: []
+      numerics: []
+  budget:
+    maximum_runs: 1000
+    reserve_fraction: 0.1
+  stopping:
+    criteria:
+      - metric: rank_stability
+        threshold: 0.05
+        consecutive_checks: 3
+  robustness:
+    checks:
+      - name: Modèle de dépendance alternatif
+        rationale: Vérifier la conclusion FP sous une dépendance plausible
+```
+
+`decision.claim`, `setting`, `estimand` et `primary_indicator` sont des chaînes
+non vides. `setting` décrit le contexte décisionnel et `estimand` la quantité à
+apprendre. `use` vaut `diagnostic` ou `prognostic`; `objective` vaut criblage
+(`screening`), priorisation (`fp`) ou fixation (`ff`). `primary_indicator` doit
+être exactement le nom d'un indicateur résolu. Le float fini non négatif
+`practical_tolerance` est requis exactement pour `ff` et interdit sinon. Une
+configuration scientifique exige au moins un indicateur.
+
+La dépendance est soit `independent`, avec exactement `kind` et un `rationale`
+non vide, soit `declared`, avec en plus une liste `groups` non vide. Chaque groupe
+a exactement `factors`, `model`, `provenance`, au moins deux noms distincts de
+paramètres déclarés, et aucun facteur ne chevauche deux groupes. L'inventaire a
+exactement les cinq catégories montrées. Chaque élément a exactement `name`,
+`status`, `provenance`, `rationale`; les textes sont non vides, le statut vaut
+`varied`, `fixed` ou `excluded`, et les noms sont uniques par catégorie. Les noms
+`varied` de l'inventaire des paramètres doivent correspondre exactement aux
+paramètres YAML.
+
+`maximum_runs` et chaque `consecutive_checks` sont des entiers signés 64 bits
+positifs. `reserve_fraction` est un float fini dans `[0, 1)`. `criteria` est non
+vide ; chaque critère contient exactement `metric`, un float fini positif
+`threshold`, et `consecutive_checks`, avec des métriques uniques.
+`robustness.checks` est non vide. Chaque contrôle contient exactement un `name`
+non vide et unique ainsi qu'un `rationale` non vide.
+
+`load_meta_config` valide la structure de la charte. Plan et check refusent
+ensuite toute méthode actuelle avec `status: scientific`, avant scellement d'un
+plan, car aucune ne satisfait le contrat scientifique. Les anciens plans
+inférentiels Morris et Sobol sont ainsi explicitement refusés.
 
 ## `model` et `context`
 
@@ -150,7 +247,8 @@ déclarée dans `parameters.seed`, pas dans `replications`.
 
 ## `parameters`
 
-Chaque entrée exige exactement une clé `values` :
+Avec une charte absente ou de démonstration, chaque entrée exige exactement une
+clé `values` :
 
 ```yaml
 parameters:
@@ -199,6 +297,27 @@ parameters:
 
 `seed.values` contient au moins deux entiers signés 64 bits distincts. La seed
 est spéciale et n'a pas besoin d'exister dans la configuration modèle.
+
+Avec `charter.status: scientific`, chaque paramètre, y compris `seed`, exige au
+contraire exactement `values` et `distribution` :
+
+```yaml
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: Bornes déclarées dans le protocole version 2
+```
+
+Pour les domaines actuels sous forme de listes, seuls
+`family: discrete_uniform` et `transform: identity` sont admis. `provenance` est
+une chaîne non vide. Les familles et transformations analysées sont conservées
+comme données typées afin que les futurs échantillonneurs puissent étendre le
+vocabulaire. Un support uniforme discret varié contient au moins deux valeurs
+distinctes : l'uniformité porte sur les points du support, jamais sur des
+positions répétées dans la liste.
 
 ## `analysis`
 

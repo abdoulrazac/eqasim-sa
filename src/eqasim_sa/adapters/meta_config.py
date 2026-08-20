@@ -15,6 +15,14 @@ from eqasim_sa.adapters.eqasim.config import (
     validate_eqasim_document,
 )
 from eqasim_sa.adapters.eqasim.simulator import DEDICATED, validate_transport
+from eqasim_sa.core.charter import (
+    AnalysisCharter,
+    CharterStatus,
+    ParameterDistribution,
+    charter_status,
+    parse_charter,
+    parse_distribution,
+)
 from eqasim_sa.core.indicators import (
     ArtifactDeclaration,
     CustomDeclaration,
@@ -60,6 +68,8 @@ class MetaConfig:
     model_config: Path
     model_root: Path
     factors: dict[str, list]
+    distributions: dict[str, ParameterDistribution]
+    charter: AnalysisCharter
     seeds: tuple[int, ...]
     seed_role: str
     method: str
@@ -457,7 +467,7 @@ def load_meta_config(
         "parameters",
         "analysis",
     }
-    optional = {"execution", "calibration", "artifacts", "indicators"}
+    optional = {"execution", "calibration", "artifacts", "indicators", "charter"}
     if not required <= set(document) or set(document) - required - optional:
         raise ValueError(
             f"meta-config keys must include exactly {sorted(required)} plus supported optional blocks"
@@ -491,6 +501,7 @@ def load_meta_config(
             "analysis.completeness_threshold must be a finite float in [0,1]"
         )
     raw_parameters = _mapping(document["parameters"], "parameters")
+    status = charter_status(document.get("charter"))
     if "replications" in experiment and "seed" in raw_parameters:
         raise ValueError(
             "le seed est soit un facteur, soit une réplication, jamais les deux"
@@ -647,13 +658,26 @@ def load_meta_config(
         descriptor, sort_keys=True, separators=(",", ":"), allow_nan=False
     ).encode()
     factors = {}
+    distributions = {}
     for name, declaration in raw_parameters.items():
+        expected_parameter_keys = (
+            {"values", "distribution"}
+            if status is CharterStatus.SCIENTIFIC
+            else {"values"}
+        )
         if (
             not isinstance(name, str)
             or not isinstance(declaration, dict)
-            or set(declaration) != {"values"}
+            or set(declaration) != expected_parameter_keys
         ):
-            raise ValueError(f"factor {name!r} must contain only values")
+            required = (
+                "values and distribution"
+                if status is CharterStatus.SCIENTIFIC
+                else "only values"
+            )
+            raise ValueError(f"factor {name!r} must contain exactly {required}")
+        if status is CharterStatus.SCIENTIFIC:
+            distributions[name] = parse_distribution(declaration["distribution"], name)
         if method == "sobol" and name == "seed":
             continue
         if validate_factors and name not in model_document["config"]:
@@ -665,6 +689,13 @@ def load_meta_config(
         for value in declaration["values"]:
             validate_transport(name, value)
         values = declaration["values"]
+        if status is CharterStatus.SCIENTIFIC and (
+            len(values) < 2 or len(values) != len(set(values))
+        ):
+            raise ValueError(
+                f"scientific factor {name!r} discrete-uniform support must contain "
+                "at least two distinct values"
+            )
         if method == "morris":
             validate_morris_values(name, values)
         if method == "sobol":
@@ -716,6 +747,11 @@ def load_meta_config(
         raise ValueError("Morris requires at least one indicator")
     if method == "sobol" and not indicators:
         raise ValueError("Sobol requires at least one indicator")
+    charter = parse_charter(
+        document.get("charter"),
+        set(raw_parameters),
+        {item.name for item in indicators},
+    )
     if any(_state(item) != state for item, state in control_states):
         raise RuntimeError("sealed control input changed while loading")
     return MetaConfig(
@@ -724,6 +760,8 @@ def load_meta_config(
         config,
         root,
         factors,
+        distributions,
+        charter,
         tuple(seeds),
         seed_role,
         method,

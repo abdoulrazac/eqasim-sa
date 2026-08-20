@@ -1,6 +1,8 @@
-# N=4 and D=3: 32 positions and 8 unique runs for this deterministic sample.
+# Legacy Sobol demonstration: 32 positions, not inferential evidence.
 campaign: @PROJECT_NAME@-sobol
 campaign_root: ../campaigns/sobol
+charter:
+  status: demonstration
 model:
   config: @MODEL_CONFIG@
   root: @MODEL_ROOT@

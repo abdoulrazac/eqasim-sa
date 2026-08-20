@@ -7,6 +7,10 @@ synpp-driven eqasim pipeline. It provides deterministic Grid, Morris, and Sobol
 plans, per-run resumption, indicators computed from Parquet artifacts, and local
 and SLURM backends.
 
+The generated campaigns are demonstrations: they validate the workflow but
+cannot support inferential or decision claims. The current Morris and Sobol
+plans are legacy inferential methods and are rejected by scientific charters.
+
 The generated Grid and Sobol examples vary the scalar eqasim-france
 `matching_age_scheme`; Morris leaves this categorical factor fixed, and
 `analysis_age_scheme` remains fixed so output distributions stay comparable.

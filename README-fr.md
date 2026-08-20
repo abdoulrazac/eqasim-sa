@@ -7,6 +7,11 @@ pour un pipeline eqasim piloté par synpp. Il fournit des plans Grid, Morris et
 Sobol déterministes, une reprise par run, des indicateurs calculés sur les
 artefacts Parquet et des backends local et SLURM.
 
+Les campagnes générées sont des démonstrations : elles valident le workflow mais
+ne peuvent soutenir aucune revendication inférentielle ou décisionnelle. Les
+plans Morris et Sobol actuels sont des méthodes inférentielles historiques et
+sont refusés par les chartes scientifiques.
+
 Les exemples Grid et Sobol générés font varier le sélecteur scalaire
 `matching_age_scheme` d'eqasim-france ; Morris garde ce facteur catégoriel fixe,
 et `analysis_age_scheme` reste fixe pour comparer les distributions de sortie.

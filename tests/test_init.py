@@ -102,6 +102,7 @@ def test_init_is_a_pure_atomic_template_generator(
         text = (root / f"configs/{index:02d}-{method}.yml").read_text()
         assert "data_manifest: \"../manifest.json\"" in text
         assert f"campaign: project-{method}" in text
+        assert "charter:\n  status: demonstration\n" in text
         assert "HTS adjust with INSEE population weights" not in text
         assert text.count("references: [INSEE]") == 1
         assert text.count("references: [HTS]") == 2

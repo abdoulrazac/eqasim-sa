@@ -288,6 +288,7 @@ def _execute_exclusive(spec, simulator, campaign_root, workdir, interrupted=None
 
 def analyze_from_meta_config(path: Path) -> dict:
     meta = load_meta_config(path)
+    _validate_scientific_method(meta)
     result = analyze(
         meta.campaign_root,
         meta.indicators,
@@ -320,7 +321,22 @@ def analyze_from_meta_config(path: Path) -> dict:
     }
 
 
+def _validate_scientific_method(meta) -> None:  # type: ignore[no-untyped-def]
+    status = getattr(getattr(meta, "charter", None), "status", "demonstration")
+    if status == "scientific":
+        classification = (
+            "a legacy inferential method"
+            if meta.method in {"morris", "sobol"}
+            else "demonstration-only"
+        )
+        raise ValueError(
+            "no current method satisfies the scientific contract; "
+            f"{meta.method} is {classification}"
+        )
+
+
 def _design(meta, requirements=None):  # type: ignore[no-untyped-def]
+    _validate_scientific_method(meta)
     common = (
         meta.model_document,
         meta.factors,
