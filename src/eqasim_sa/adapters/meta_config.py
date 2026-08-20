@@ -16,8 +16,11 @@ from eqasim_sa.adapters.eqasim.config import (
 )
 from eqasim_sa.adapters.eqasim.simulator import DEDICATED, validate_transport
 from eqasim_sa.core.charter import (
+    AllocationPhase,
     AnalysisCharter,
     CharterStatus,
+    ConditionalMeanStochastic,
+    FiniteSeedFactorStochastic,
     ParameterDistribution,
     charter_status,
     parse_charter,
@@ -910,11 +913,27 @@ def load_meta_config(
         {item.name for item in indicators},
     )
     if method == "canonical_morris":
+        if not isinstance(charter.stochastic, ConditionalMeanStochastic):
+            raise ValueError("canonical_morris requires stochastic.target conditional_mean")
+        allocation = charter.stochastic.allocation
+        if allocation.phase is AllocationPhase.PILOT:
+            if len(seeds) < allocation.minimum_replications:
+                raise ValueError(
+                    "canonical_morris pilot replication seed count must be at least minimum_replications"
+                )
+        elif len(seeds) != allocation.selected_replications:
+            raise ValueError(
+                "canonical_morris production replication seed count must equal selected_replications"
+            )
         if charter.decision.objective.value != "screening":
             raise ValueError("canonical_morris requires sensitivity objective screening")
         if charter.dependence.kind.value != "independent":
             raise ValueError("canonical_morris requires independent parameter dependence")
     if method == "multiscramble_sobol":
+        if not isinstance(charter.stochastic, FiniteSeedFactorStochastic):
+            raise ValueError(
+                "multiscramble_sobol requires stochastic.target finite_seed_factor"
+            )
         if charter.decision.objective.value not in {"fp", "ff"}:
             raise ValueError("multiscramble_sobol requires sensitivity objective fp or ff")
         if charter.dependence.kind.value != "independent":

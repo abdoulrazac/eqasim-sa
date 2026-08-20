@@ -25,13 +25,21 @@ Les exemples Grid et Sobol générés font varier le sélecteur scalaire
 et `analysis_age_scheme` reste fixe pour comparer les distributions de sortie.
 L'OAT discret utilise des niveaux numériques adjacents et des effets normalisés
 locaux ; ce n'est pas Morris canonique. Morris canonique est pris en charge
-uniquement pour le criblage scientifique, pas pour FP ni FF.
+uniquement pour le criblage scientifique, pas pour FP ni FF. Il cible la moyenne
+conditionnelle sur les seeds du simulateur. Le bloc `stochastic` déclare une
+allocation pilote ou production et des nombres aléatoires communs dans chaque
+trajectoire. Le pilote est une campagne immuable et séparée : l'analyse publie
+`noise-floor.parquet` et `replication-allocation.json`, qui recommande une
+nouvelle campagne/racine de production. La production conserve cette
+recommandation comme provenance et ne prolonge jamais le plan pilote.
 
 La méthode `multiscramble_sobol`, rédigée pour une étude, est exclusivement
 scientifique. Elle exige une dépendance `independent`, un objectif `fp` ou `ff`
 et au moins quatre seeds explicites de scrambles QMC indépendants. `init` ne la
-génère pas. Le support fini de `parameters.seed` est un facteur de seed du
-simulateur, pas un modèle général de tout bruit stochastique. Les tables de
+génère pas. Le support fini de `parameters.seed` est un facteur de nuisance
+déclaré, ni une entrée contrôlable ni un modèle du bruit stochastique intrinsèque.
+Ses indices restent diagnostiques, mais il est non actionnable et exclu des rangs
+FP/FF et de la classification de tolérance. Les tables de
 convergence apportent des éléments aux tailles déclarées sans déclarer
 automatiquement les critères d'arrêt satisfaits.
 

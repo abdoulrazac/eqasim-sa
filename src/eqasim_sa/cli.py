@@ -292,6 +292,9 @@ def dispatch(
             "rankReversalsPath": None,
             "byScramblePath": None,
             "diagnosticsPath": None,
+            "noiseFloorPath": None,
+            "replicationAllocationPath": None,
+            "inferenceStatus": None,
         }
         try:
             if analyze_factory is None:

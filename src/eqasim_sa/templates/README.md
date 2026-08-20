@@ -19,6 +19,12 @@ execution, and storage plumbing, but cannot support inferential or decision
 claims. Discrete OAT is explicitly a demonstration design. The Sobol starter is
 a legacy inferential plan; neither is scientific evidence.
 
+A separately authored scientific campaign must include an exact `stochastic`
+charter: `conditional_mean` with pilot/production replication allocation for
+canonical Morris, or non-actionable `finite_seed_factor` for multi-scramble
+Sobol. A canonical pilot is immutable and may only recommend a new production
+campaign/root; never convert one of these generated demonstrations in place.
+
 Run all commands from this directory. This generated array uses the source
 checkout runner when available and the installed command otherwise.
 

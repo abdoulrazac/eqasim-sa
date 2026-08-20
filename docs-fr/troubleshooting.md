@@ -53,12 +53,32 @@ une charte scientifique, des distributions, un budget, des critères d'arrêt et
 des contrôles de robustesse propres à l'étude selon la
 [référence YAML](yaml-reference.md#morris-canonique).
 
+## Bloc `stochastic` absent ou incompatible
+
+Toute charte scientifique exige un mode exact. Morris canonique exige
+`conditional_mean`, des CRN `within_trajectory` et une allocation; Sobol
+multi-scramble exige `finite_seed_factor` sans allocation. Un pilote a sélection
+et provenance nulles et au moins son minimum de seeds. La production a une
+provenance pilote non vide et exactement son nombre sélectionné. Ne réparez pas
+un pilote en ajoutant des seeds ou en changeant sa phase : choisissez une nouvelle
+racine de campagne.
+
+## Allocation `capped` ou `infeasible`
+
+`capped` signifie que la formule MCSE demande plus que
+`maximum_replications`; la cible n'est donc pas démontrée. `infeasible` signifie
+que même les positions structurelles sélectionnées `T*(D+1)*R` dépassent le
+budget hors réserve. Révisez précision, plafond, design ou budget dans une
+nouvelle campagne; n'abaissez jamais le besoin et ne comptez pas les runs
+dédupliqués.
+
 ## Erreur d'objectif, de dépendance ou de budget Morris canonique
 
 Morris canonique accepte uniquement l'objectif `screening`, une indépendance des
-paramètres et un contrat scientifique complet. Ses runs uniques doivent tenir
-dans `floor(maximum_runs * (1 - reserve_fraction))` ; la réserve n'est pas
-disponible au plan initial. Il impose aussi au plus 500 candidats et un budget
+paramètres et un contrat scientifique complet. Ses positions structurelles du
+design, sans déduplication des run IDs, doivent tenir dans
+`floor(maximum_runs * (1 - reserve_fraction))` ; la réserve n'est pas disponible
+au plan initial. Il impose aussi au plus 500 candidats et un budget
 déterministe de calcul des distances. Réduisez le design ou augmentez un budget
 scientifiquement justifié ; ne rebaptisez pas FP ou FF en criblage.
 
@@ -145,6 +165,10 @@ Avec `multiscramble_sobol`, une variance non positive ou un contraste A/B
 inefficace à un scramble et checkpoint quelconque est fatal. Augmentez la
 première taille ou révisez le support scientifiquement justifié; aucun scramble
 n'est supprimé et aucun bootstrap de secours n'est appliqué.
+
+Le support fini de seed est toujours une nuisance non actionnable. Un rang ou une
+tolérance FF nuls pour `seed` sont intentionnels : ses indices sont diagnostiques,
+ni consigne de contrôle ni estimation du bruit intrinsèque sans restriction.
 
 Cause : toutes les valeurs de l'indicateur sont constantes, ou les bootstrap
 resamples sont dégénérés. Remède : vérifier l'indicateur, les domaines, la taille

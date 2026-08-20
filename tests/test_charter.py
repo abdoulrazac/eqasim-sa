@@ -8,11 +8,16 @@ import yaml
 from eqasim_sa.adapters.application import analyze_from_meta_config, plan_from_meta_config
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.core.charter import (
+    AllocationPhase,
     CharterStatus,
+    ConditionalMeanStochastic,
+    FiniteSeedFactorStochastic,
+    ReplicationAllocation,
     DecisionUse,
     InventoryStatus,
     ScientificCharter,
     SensitivityObjective,
+    serialize_stochastic,
 )
 from tests.test_plan import meta_fixture
 
@@ -53,6 +58,21 @@ def _scientific(path: Path) -> dict:
     }
     document["charter"] = {
         "status": "scientific",
+        "stochastic": {
+            "target": "conditional_mean",
+            "random_source": "simulator_seed",
+            "intrinsic_variance": "report",
+            "common_random_numbers": "within_trajectory",
+            "allocation": {
+                "phase": "pilot",
+                "variance_quantile": 0.9,
+                "target_mcse": 0.01,
+                "minimum_replications": 2,
+                "maximum_replications": 10,
+                "selected_replications": None,
+                "provenance": None,
+            },
+        },
         "decision": {
             "claim": "Identify inputs requiring further study",
             "use": "diagnostic",
@@ -150,6 +170,107 @@ def test_valid_scientific_charter_is_fully_typed(tmp_path: Path) -> None:
     assert loaded.charter.inventory.parameters[0].status is InventoryStatus.VARIED
     assert set(loaded.distributions) == {"a", "b"}
     assert loaded.distributions["a"].family == "discrete_uniform"
+    assert isinstance(loaded.charter.stochastic, ConditionalMeanStochastic)
+    assert loaded.charter.stochastic.allocation.phase is AllocationPhase.PILOT
+
+
+@pytest.mark.parametrize(
+    "mutate,message",
+    [
+        (lambda d: d["charter"].pop("stochastic"), "scientific charter keys"),
+        (lambda d: d["charter"]["stochastic"].update(extra=True), "stochastic keys"),
+        (
+            lambda d: d["charter"]["stochastic"].update(random_source="ambient"),
+            "constants",
+        ),
+        (
+            lambda d: d["charter"]["stochastic"]["allocation"].update(
+                variance_quantile=0.0
+            ),
+            "variance_quantile",
+        ),
+        (
+            lambda d: d["charter"]["stochastic"]["allocation"].update(target_mcse=0.0),
+            "target_mcse",
+        ),
+        (
+            lambda d: d["charter"]["stochastic"]["allocation"].update(
+                minimum_replications=1
+            ),
+            "minimum_replications",
+        ),
+        (
+            lambda d: d["charter"]["stochastic"]["allocation"].update(
+                maximum_replications=1
+            ),
+            "maximum_replications",
+        ),
+        (
+            lambda d: d["charter"]["stochastic"]["allocation"].update(
+                selected_replications=2
+            ),
+            "pilot requires",
+        ),
+    ],
+)
+def test_conditional_mean_stochastic_contract_is_strict(
+    tmp_path: Path, mutate, message: str
+) -> None:  # type: ignore[no-untyped-def]
+    with pytest.raises((TypeError, ValueError), match=message):
+        _load_scientific(tmp_path, mutate)
+
+
+@pytest.mark.parametrize("quantile", [0.000001, 1.0])
+def test_conditional_mean_accepts_quantile_boundaries(
+    tmp_path: Path, quantile: float
+) -> None:
+    loaded = _load_scientific(
+        tmp_path,
+        lambda d: d["charter"]["stochastic"]["allocation"].update(
+            variance_quantile=quantile
+        ),
+    )
+    assert loaded.charter.stochastic.allocation.variance_quantile == quantile
+
+
+def test_finite_seed_factor_is_exact_typed_and_forbids_allocation(
+    tmp_path: Path,
+) -> None:
+    finite = {
+        "target": "finite_seed_factor",
+        "random_source": "simulator_seed",
+        "intrinsic_variance": "not_identified",
+        "common_random_numbers": "none",
+        "support_interpretation": "declared_finite_nuisance",
+    }
+    loaded = _load_scientific(
+        tmp_path, lambda d: d["charter"].update(stochastic=finite)
+    )
+    assert isinstance(loaded.charter.stochastic, FiniteSeedFactorStochastic)
+    (tmp_path / "invalid").mkdir()
+    with pytest.raises(ValueError, match="stochastic keys"):
+        _load_scientific(
+            tmp_path / "invalid",
+            lambda d: d["charter"].update(
+                stochastic={**finite, "allocation": {}}
+            ),
+        )
+
+
+def test_typed_stochastic_serializer_revalidates_manual_allocation() -> None:
+    stochastic = ConditionalMeanStochastic(
+        ReplicationAllocation(
+            AllocationPhase.PILOT,
+            0.9,
+            0.1,
+            1,
+            2,
+            None,
+            None,
+        )
+    )
+    with pytest.raises(ValueError, match="minimum_replications"):
+        serialize_stochastic(stochastic)
 
 
 @pytest.mark.parametrize("use", ["diagnostic", "prognostic"])

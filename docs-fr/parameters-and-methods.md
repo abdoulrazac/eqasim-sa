@@ -293,6 +293,26 @@ de design fini conditionnelle au contrat déclaré et scellé. Il ne fournit pas
 lui seul une preuve décisionnelle calibrée, des parts de variance, une conclusion
 FP/FF, ni une certification automatique des critères d'arrêt et de robustesse.
 
+Morris canonique utilise `stochastic.target: conditional_mean`. Les seeds de
+réplication passent par la dérivation existante `canonical-morris-seed:v1` : tous
+les rangs d'un bloc trajectoire/réplication partagent le même flux (CRN), tandis
+que les blocs restent distincts. Pour chaque indicateur, trajectoire et rang,
+`noise-floor.parquet` donne le nombre de réplications, la moyenne, la variance
+intrinsèque non biaisée (unités de l'indicateur au carré), le SD intrinsèque et
+`MCSE = SD/sqrt(R)` (unités de l'indicateur), ainsi que le marqueur d'indicateur
+primaire. Les réplications décrivent le bruit; les trajectoires restent les unités
+indépendantes du bootstrap.
+
+Un pilote calcule le quantile linéaire NumPy par défaut `q` des variances
+ponctuelles de l'indicateur primaire, puis
+`R_brut = max(R_min, ceil(q / target_mcse^2))` et
+`R_sélectionné = min(R_brut, R_max)`. `recommended` signifie que besoin brut et
+positions structurelles tiennent; `capped` expose `R_brut > R_max`;
+`infeasible` expose que `T*(D+1)*R_sélectionné` dépasse le plancher Decimal exact
+du budget hors réserve. Aucun besoin n'est abaissé silencieusement. La sortie
+spécifie une nouvelle campagne/racine de production immuable, avec provenance du
+pilote non vide et exactement le nombre de seeds sélectionné.
+
 ## Sobol historique
 
 Le `method: sobol` généré est une provenance historique de démonstration : un
@@ -340,12 +360,16 @@ Pour les `S` estimations indépendantes, les sorties donnent moyenne, SD
 échantillonnal, `SE = SD/sqrt(S)` et intervalle bilatéral de Student à `S-1`
 degrés de liberté. Aucun bootstrap de lignes n'est utilisé. FP classe la moyenne
 de premier ordre décroissante. FF classe la borne supérieure d'ordre total
-croissante. Pour cette méthode, `practical_tolerance` est une part de variance
+croissante. `seed` est une nuisance finie déclarée : ses estimations restent
+diagnostiques, `is_actionable` vaut faux et son rang comme sa tolérance FF sont
+nuls. Ce support n'identifie ni bruit intrinsèque ni facteur contrôlable. Pour
+cette méthode, `practical_tolerance` est une part de variance
 d'ordre total, sans dimension et comprise dans `[0,1]`, interactions incluses.
 La classification décisionnelle FF n'est produite que pour le
 `primary_indicator` scellé. Les indicateurs secondaires conservent estimations et
 rangs à titre diagnostique, mais ne peuvent porter aucune classification de
-fixation. Pour l'indicateur primaire, la seed n'est jamais classée fixable.
+fixation. Seuls les facteurs ordinaires actionnables de l'indicateur primaire
+sont classifiés.
 
 Les clés d'analyse exactes sont `completeness_threshold: 1.0` et
 `confidence_level`. Les quatre sorties sont `multiscramble-sobol-indices.parquet`,

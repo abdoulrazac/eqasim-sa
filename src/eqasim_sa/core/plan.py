@@ -314,6 +314,10 @@ def validate_multiscramble_scientific_contract(
         distributions,
         allowed_objectives=frozenset({"fp", "ff"}),
     )
+    if contract["charter"]["stochastic"]["target"] != "finite_seed_factor":
+        raise ValueError(
+            "multi-scramble Sobol scientific_contract requires finite_seed_factor"
+        )
     decision = contract["charter"]["decision"]
     if decision["objective"] == "ff" and decision["practical_tolerance"] > 1:
         raise ValueError(
@@ -452,6 +456,21 @@ def _validate(design: Design) -> tuple[str, ...]:
         validate_scientific_contract(
             design.scientific_contract, design.factors, design.distributions
         )
+        stochastic = design.scientific_contract["charter"]["stochastic"]
+        if stochastic["target"] != "conditional_mean":
+            raise ValueError(
+                "canonical Morris scientific_contract requires conditional_mean"
+            )
+        allocation = stochastic["allocation"]
+        if allocation["phase"] == "pilot":
+            if len(design.seeds) < allocation["minimum_replications"]:
+                raise ValueError(
+                    "canonical Morris pilot seed count must be at least minimum_replications"
+                )
+        elif len(design.seeds) != allocation["selected_replications"]:
+            raise ValueError(
+                "canonical Morris production seed count must equal selected_replications"
+            )
         if (
             type(design.bootstrap_resamples) is not int
             or not 100 <= design.bootstrap_resamples < 2**63
@@ -1257,11 +1276,11 @@ def build_plan(design: Design) -> PlanResult:
             )
         except (KeyError, TypeError) as error:
             raise ValueError("scientific_contract must contain charter budget") from error
-        unique_runs = len(set(candidate["runId"].to_pylist()))
-        if allowed == 0 or unique_runs > allowed:
+        design_positions = len(candidate)
+        if allowed == 0 or design_positions > allowed:
             raise ValueError(
                 f"{'canonical Morris' if design.method == 'canonical_morris' else design.method} "
-                f"unique runs {unique_runs} exceed scientific execution budget {allowed}"
+                f"design positions {design_positions} exceed scientific execution budget {allowed}"
             )
     root, destination = design.campaign_root, design.campaign_root / "plan.parquet"
     if destination.is_symlink() or (destination.exists() and not destination.is_file()):

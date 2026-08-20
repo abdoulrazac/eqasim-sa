@@ -650,6 +650,18 @@ def test_multiscramble_uses_independent_estimates_student_t_and_diagnostics(
     assert all(row["first_order_ci_width"] >= 0 for row in convergence.to_pylist())
     assert all(row["objective"] == "fp" for row in convergence.to_pylist())
     assert all(row["within_practical_tolerance"] is None for row in convergence.to_pylist())
+    assert all(
+        row["is_actionable"] == (row["factor"] != "seed")
+        for row in by_scramble.to_pylist()
+    )
+    assert all(
+        row["is_actionable"] == (row["factor"] != "seed")
+        for row in convergence.to_pylist()
+    )
+    assert all(
+        (row["rank"] is None) == (row["factor"] == "seed")
+        for row in convergence.to_pylist()
+    )
     assert all(row["maximum_multiplicity"] >= 1 for row in diagnostics.to_pylist())
     by_role = {row["role"]: row for row in plan.to_pylist()}
     observations = {run_id: value for run_id, _, value in rows}
@@ -765,7 +777,10 @@ def test_multiscramble_ff_classifies_only_the_primary_indicator(tmp_path: Path) 
     assert final["synthetic", "a"]["within_practical_tolerance"] == (
         final["synthetic", "a"]["total_order_ci_high"] <= 1.0
     )
-    assert final["synthetic", "seed"]["within_practical_tolerance"] is False
+    assert final["synthetic", "seed"]["within_practical_tolerance"] is None
+    assert final["synthetic", "seed"]["rank"] is None
+    assert final["synthetic", "seed"]["is_actionable"] is False
+    assert final["synthetic", "a"]["is_actionable"] is True
     assert all(
         final["diagnostic", factor]["within_practical_tolerance"] is None
         for factor in ("a", "seed")
@@ -776,7 +791,11 @@ def test_multiscramble_ff_classifies_only_the_primary_indicator(tmp_path: Path) 
     )
     assert not indices.schema.field("is_primary_indicator").nullable
     assert not convergence.schema.field("is_primary_indicator").nullable
-    primary = [row for row in final.values() if row["indicator"] == "synthetic"]
+    primary = [
+        row
+        for row in final.values()
+        if row["indicator"] == "synthetic" and row["is_actionable"]
+    ]
     ordered = sorted(primary, key=lambda row: (row["total_order_ci_high"], row["factor"]))
     assert [row["rank"] for row in ordered] == sorted(row["rank"] for row in ordered)
 
@@ -836,7 +855,7 @@ def test_multiscramble_transactionally_publishes_four_outputs_and_manifest_v4(
     assert result.convergence_path.name == "multiscramble-sobol-convergence.parquet"
     assert result.diagnostics_path.name == "multiscramble-sobol-diagnostics.parquet"
     manifest = json.loads((design.campaign_root / "analysis-generation.json").read_text())
-    assert manifest["version"] == 4
+    assert manifest["version"] == 5
     assert manifest["byScramblePath"] == result.by_scramble_path.name
     assert manifest["diagnosticsPath"] == result.diagnostics_path.name
 
@@ -1714,7 +1733,10 @@ def test_cli_analyze_reports_failure(
         "convergencePath": None,
         "rankReversalsPath": None,
         "byScramblePath": None,
-        "diagnosticsPath": None,
+            "diagnosticsPath": None,
+            "noiseFloorPath": None,
+            "replicationAllocationPath": None,
+            "inferenceStatus": None,
         "error": "missing age",
     }
 
@@ -1749,7 +1771,10 @@ def test_cli_analyze_reports_complete_keyboard_interrupt_payload_and_returns_130
         "convergencePath": None,
         "rankReversalsPath": None,
         "byScramblePath": None,
-        "diagnosticsPath": None,
+            "diagnosticsPath": None,
+            "noiseFloorPath": None,
+            "replicationAllocationPath": None,
+            "inferenceStatus": None,
         "error": "KeyboardInterrupt",
     }
 

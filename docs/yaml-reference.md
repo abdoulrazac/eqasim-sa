@@ -72,20 +72,16 @@ A scientific charter uses the complete strict schema below:
 charter:
   status: scientific
   decision:
-    claim: Identify the factor to learn more accurately first
-    use: prognostic
+    claim: Identify inputs that must remain under consideration
+    use: diagnostic
     setting: Nantes population-synthesis policy assessment
-    objective: fp
+    objective: screening
     estimand: Expected total-variation distance over simulation seeds
     primary_indicator: tv_distance(age, ref=INSEE)
   uncertainty:
     dependence:
-      kind: declared
-      rationale: Two inputs are estimated from the same survey
-      groups:
-        - factors: [sampling_rate, matching_minimum_age]
-          model: Joint empirical distribution
-          provenance: Survey methods report, section 4
+      kind: independent
+      rationale: The canonical Morris design assumes independent inputs
     inventory:
       parameters:
         - name: sampling_rate
@@ -112,6 +108,19 @@ charter:
     checks:
       - name: Alternative dependence model
         rationale: Assess whether the FP conclusion changes under plausible dependence
+  stochastic:
+    target: conditional_mean
+    random_source: simulator_seed
+    intrinsic_variance: report
+    common_random_numbers: within_trajectory
+    allocation:
+      phase: pilot
+      variance_quantile: 0.9
+      target_mcse: 0.01
+      minimum_replications: 2
+      maximum_replications: 20
+      selected_replications: null
+      provenance: null
 ```
 
 `decision.claim`, `setting`, `estimand`, and `primary_indicator` are non-empty
@@ -141,15 +150,40 @@ non-empty; each criterion has exactly `metric`, positive finite float
 `robustness.checks` is non-empty. Each check contains exactly a unique,
 non-empty `name` and a non-empty `rationale`.
 
-The charter is structurally validated by `load_meta_config`. A scientific
-charter can currently be sealed only by `canonical_morris`, and then only when
-`decision.objective` is `screening` and parameter dependence is `independent`.
-Historical `morris`, discrete OAT, and Sobol are rejected by scientific charters.
+Every scientific charter has exactly one typed `stochastic` mode. The
+`conditional_mean` form above is exclusive to `canonical_morris`; its constants
+are exact. Quantile is a finite float in `(0,1]`, MCSE is a positive finite float
+in primary-indicator units, minimum is at least 2, and maximum is not smaller.
+For `phase: pilot`, selected replications and provenance are null and the
+experiment provides at least the minimum number of base seeds. For
+`phase: production`, selected replications is within the declared bounds,
+provenance is non-empty, and its value exactly equals the experiment seed count.
+
+`multiscramble_sobol` instead requires exactly:
+
+```yaml
+stochastic:
+  target: finite_seed_factor
+  random_source: simulator_seed
+  intrinsic_variance: not_identified
+  common_random_numbers: none
+  support_interpretation: declared_finite_nuisance
+```
+
+It has no allocation. `parameters.seed` remains a required varied uncertainty
+item, but it is a finite nuisance support: neither controllable importance nor
+intrinsic simulator noise is identified.
+
+The charter is structurally validated by `load_meta_config`. Current scientific
+methods are `canonical_morris` for independent-input `screening` with
+`conditional_mean`, and `multiscramble_sobol` for independent-input `fp` or `ff`
+with `finite_seed_factor`. Historical `morris`, discrete OAT, and historical
+Sobol are rejected by scientific charters.
 
 The canonical plan metadata stores a normalized `scientificContract` object for
 analyzers. Its root keys are exactly `charter` and `parameters`. The normalized
 `charter` has exactly `status`, `decision`, `uncertainty`, `budget`, `stopping`,
-and `robustness`; unlike YAML input, `stopping` and `robustness` are the item
+`robustness`, and `stochastic`; unlike YAML input, `stopping` and `robustness` are the item
 lists directly. Screening serializes `practical_tolerance: null`. Independent
 dependence serializes `groups: []`. `inventory` always has exactly the five
 categories above. `parameters` is sorted by name, and every entry contains
@@ -306,7 +340,8 @@ lexicographic identity tie-breaking. The sealed algorithm is
 `greedy-sum-pairwise-squared-distance`; it is not described as maximin or as a
 Campolongo-optimal design.
 
-Before publishing the plan, unique runs must not exceed
+Before publishing a canonical Morris or multi-scramble Sobol plan, structural
+design positions, without run-ID deduplication, must not exceed
 `floor(maximum_runs * (1 - reserve_fraction))`. The reserved fraction remains
 outside the initial execution budget. Canonical plans use plan schema v2 and
 seal the complete normalized scientific contract, distributions, supports,
@@ -356,6 +391,19 @@ charter:
     checks:
       - name: <declared check>
         rationale: <why required>
+  stochastic:
+    target: conditional_mean
+    random_source: simulator_seed
+    intrinsic_variance: report
+    common_random_numbers: within_trajectory
+    allocation:
+      phase: pilot
+      variance_quantile: 0.9
+      target_mcse: 0.01
+      minimum_replications: 2
+      maximum_replications: 20
+      selected_replications: null
+      provenance: null
 experiment:
   method: canonical_morris
   seed_role: replication
@@ -383,6 +431,13 @@ analysis:
 ### Historical Sobol
 
 ```yaml
+charter:
+  stochastic:
+    target: finite_seed_factor
+    random_source: simulator_seed
+    intrinsic_variance: not_identified
+    common_random_numbers: none
+    support_interpretation: declared_finite_nuisance
 experiment:
   method: sobol
   seed_role: factor
@@ -420,6 +475,9 @@ independent dependence and objective `fp` or `ff`; screening is rejected. FF
 requires a dimensionless total-order variance-share `practical_tolerance` in
 `[0,1]`. Every parameter, including the finite
 simulator-seed support, has a declared scientific distribution.
+The seed is explicitly non-actionable; its aggregate and per-scramble rows keep
+diagnostic indices but have `is_actionable: false`, null rank, and null FF
+tolerance. The finite support does not estimate unrestricted intrinsic noise.
 The implementation rejects plans above 1,000,000 design positions or 20,000,000
 Arrow table cells before QMC or table allocation; reduce the declared design
 rather than bypassing these guards.

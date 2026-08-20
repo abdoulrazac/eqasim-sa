@@ -53,10 +53,28 @@ Remedy: do not adapt the generated discrete-OAT starter mechanically. Author a
 study-specific scientific charter, parameter distributions, budget, stopping
 criteria, and robustness checks as described in the [YAML reference](yaml-reference.md#canonical-morris).
 
+## Missing or incompatible `stochastic` block
+
+Every scientific charter requires one exact mode. Canonical Morris requires
+`conditional_mean`, CRN `within_trajectory`, and an allocation; multi-scramble
+Sobol requires `finite_seed_factor` with no allocation. A pilot has null selected
+replications/provenance and at least its declared minimum seeds. Production has
+non-empty pilot provenance and exactly its selected seed count. Do not repair a
+pilot by adding seeds or changing phase in place: choose a new campaign root.
+
+## `capped` or `infeasible` replication allocation
+
+`capped` means the MCSE formula needs more than `maximum_replications`; it is not
+evidence that the capped value meets target. `infeasible` means even the selected
+structural `T*(D+1)*R` positions exceed the non-reserve budget. Revise the
+declared precision, cap, design, or budget in a new campaign; never silently
+lower the requirement or rely on deduplicated runs.
+
 ## Canonical Morris objective, dependence, or budget error
 
 Canonical Morris accepts only objective `screening`, independent parameter
-dependence, and a complete scientific contract. Its unique runs must fit within
+dependence, and a complete scientific contract. Its structural design positions,
+without run-ID deduplication, must fit within
 `floor(maximum_runs * (1 - reserve_fraction))`; the reserve is not available to
 the initial plan. It also enforces at most 500 candidates and a deterministic
 distance-computation budget. Reduce the design or increase a scientifically
@@ -149,6 +167,10 @@ For `multiscramble_sobol`, nonpositive output variance or an ineffective A/B
 projected contrast at any scramble and checkpoint is fatal. Increase the first
 declared base sample size or revise the scientifically justified support; no
 scramble is dropped and no row bootstrap fallback is used.
+
+The finite seed support is always a non-actionable nuisance. A null seed rank or
+FF tolerance is intentional; its reported Sobol indices are diagnostics, not an
+instruction to control seeds and not an estimate of unrestricted intrinsic noise.
 
 ## Safety warnings
 

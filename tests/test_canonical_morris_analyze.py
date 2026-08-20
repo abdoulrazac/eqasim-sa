@@ -1,5 +1,7 @@
 import hashlib
 import json
+import math
+import copy
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,10 +10,15 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 import yaml
+import numpy as np
 
 from eqasim_sa.adapters.application import analyze_from_meta_config, plan_from_meta_config
 from eqasim_sa.adapters.meta_config import load_meta_config
-from eqasim_sa.core.analyze import _canonical_morris_tables, analyze
+from eqasim_sa.core.analyze import (
+    _canonical_morris_tables,
+    _replication_allocation,
+    analyze,
+)
 from eqasim_sa.core.indicators import ArtifactSet, RegisteredIndicator
 from eqasim_sa.core.ledger import RunRecord, write_parquet_atomic, write_run
 from eqasim_sa.core.plan import build_plan
@@ -55,7 +62,7 @@ def _rows(table: pa.Table) -> list[tuple[str, str, float]]:
         value = (2.0 + 2.0 * replication) * row["a"] + 3.0 * category[row["b"]]
         values.setdefault(row["runId"], value)
         assert values[row["runId"]] == value
-    return [(run_id, "synthetic", value) for run_id, value in values.items()]
+    return [(run_id, "synthetic(value)", value) for run_id, value in values.items()]
 
 
 def _tables(tmp_path: Path, **changes):  # type: ignore[no-untyped-def]
@@ -131,18 +138,16 @@ def test_canonical_bootstrap_replays_and_is_independent_of_input_order(
     assert all(0 <= value <= 1 for value in reversals["reversal_probability"].to_pylist())
 
 
-def test_canonical_two_trajectories_one_replication_has_only_null_seed_std(
+def test_canonical_rejects_one_replication_below_scientific_minimum(
     tmp_path: Path,
 ) -> None:
-    design, table, rows = _tables(
-        tmp_path,
-        trajectories=2,
-        seeds=(41,),
-        convergence_checkpoints=(2,),
-    )
-    ranking, _, _ = _analyze_tables(design, table, rows)
-    assert all(row["elementary_effects"] == 2 for row in ranking.to_pylist())
-    assert all(row["sigma"] is not None and row["seed_std"] is None for row in ranking.to_pylist())
+    with pytest.raises(ValueError, match="minimum_replications"):
+        _tables(
+            tmp_path,
+            trajectories=2,
+            seeds=(41,),
+            convergence_checkpoints=(2,),
+        )
 
 
 def test_canonical_exact_ties_use_average_ranks_fractional_top_k_and_tie_probability(
@@ -327,8 +332,8 @@ def _artifact_value(artifacts: ArtifactSet) -> float:
     return float(pq.read_table(artifacts.path("value"))["synthetic"][0].as_py())
 
 
-def _completed_campaign(tmp_path: Path):  # type: ignore[no-untyped-def]
-    design, table, rows = _tables(tmp_path)
+def _completed_campaign(tmp_path: Path, **changes):  # type: ignore[no-untyped-def]
+    design, table, rows = _tables(tmp_path, **changes)
     values = {run_id: value for run_id, _, value in rows}
     context_hash = _descriptor()[1]
     plan_rows = {row["runId"]: row for row in table.to_pylist()}
@@ -382,7 +387,7 @@ def test_canonical_analyze_rejects_scientific_minimum_boundaries(
         )
 
 
-def test_canonical_transactionally_publishes_three_outputs_and_manifest_v3(
+def test_canonical_transactionally_publishes_noise_allocation_and_manifest_v4(
     tmp_path: Path,
 ) -> None:
     design, indicator = _completed_campaign(tmp_path)
@@ -400,13 +405,193 @@ def test_canonical_transactionally_publishes_three_outputs_and_manifest_v3(
     assert result.sensitivity_path.name == "canonical-morris-ranking.parquet"
     assert result.convergence_path.name == "canonical-morris-convergence.parquet"
     assert result.rank_reversals_path.name == "canonical-morris-rank-reversals.parquet"
+    assert result.noise_floor_path.name == "noise-floor.parquet"
+    assert result.replication_allocation_path.name == "replication-allocation.json"
+    assert result.inference_status == "pilot_only"
     manifest = json.loads(
         (design.campaign_root / "analysis-generation.json").read_text()
     )
-    assert manifest["version"] == 3
+    assert manifest["version"] == 4
+    assert manifest["inferenceStatus"] == "pilot_only"
+    assert manifest["noiseFloorPath"] == result.noise_floor_path.name
+    assert manifest["replicationAllocationPath"] == result.replication_allocation_path.name
     assert manifest["sensitivityMethod"] == "canonical_morris"
     assert manifest["convergencePath"] == result.convergence_path.name
     assert manifest["rankReversalsPath"] == result.rank_reversals_path.name
+
+    noise = pq.read_table(result.noise_floor_path)
+    assert noise.schema == pa.schema(
+        [
+            pa.field("indicator", pa.string(), False),
+            pa.field("trajectory", pa.int64(), False),
+            pa.field("rank", pa.int64(), False),
+            pa.field("role", pa.string(), False),
+            pa.field("replications", pa.int64(), False),
+            pa.field("mean", pa.float64(), False),
+            pa.field("intrinsic_variance", pa.float64()),
+            pa.field("intrinsic_sd", pa.float64()),
+            pa.field("mcse", pa.float64()),
+            pa.field("is_primary_indicator", pa.bool_(), False),
+        ]
+    )
+    assert len(noise) == design.trajectories * (len(design.factors) + 1)
+    assert set(noise["replications"].to_pylist()) == {2}
+    assert all(noise["is_primary_indicator"].to_pylist())
+    for row in noise.to_pylist():
+        assert row["intrinsic_sd"] == pytest.approx(
+            math.sqrt(row["intrinsic_variance"])
+        )
+        assert row["mcse"] == pytest.approx(row["intrinsic_sd"] / math.sqrt(2))
+
+    recommendation = json.loads(result.replication_allocation_path.read_text())
+    variances = noise["intrinsic_variance"].to_pylist()
+    quantile = float(np.quantile(variances, 0.9))
+    raw = max(2, math.ceil(quantile / 0.5**2))
+    assert recommendation == {
+        "version": 1,
+        "status": "capped",
+        "primaryIndicator": "synthetic(value)",
+        "varianceQuantile": 0.9,
+        "varianceQuantileValue": quantile,
+        "targetMcse": 0.5,
+        "rawRequiredReplications": raw,
+        "selectedReplications": 10,
+        "currentReplications": 2,
+        "maximumReplications": 10,
+        "estimatedProductionPositions": 3 * 3 * 10,
+        "availableRuns": 90,
+        "withinTarget": False,
+        "seedPolicy": "canonical-morris-derived-crn-v1",
+    }
+
+
+@pytest.mark.parametrize(
+    "target,maximum,budget,status,selected",
+    [
+        (0.2, 4, 100, "recommended", 2),
+        (0.1, 4, 100, "capped", 4),
+        (0.2, 4, 10, "infeasible", 2),
+    ],
+)
+def test_pilot_allocation_status_formula_and_budget(
+    target: float,
+    maximum: int,
+    budget: int,
+    status: str,
+    selected: int,
+) -> None:
+    design = {
+        "trajectories": 3,
+        "factors": [{"name": "a"}, {"name": "b"}],
+        "replicationBaseSeeds": [1, 2],
+        "scientificContract": {
+            "charter": {
+                "decision": {"primary_indicator": "primary"},
+                "budget": {"maximum_runs": budget, "reserve_fraction": 0.1},
+                "stochastic": {
+                    "target": "conditional_mean",
+                    "allocation": {
+                        "phase": "pilot",
+                        "variance_quantile": 0.5,
+                        "target_mcse": target,
+                        "minimum_replications": 2,
+                        "maximum_replications": maximum,
+                    },
+                },
+            }
+        },
+    }
+    noise = pa.table(
+        {
+            "indicator": ["primary", "primary", "secondary"],
+            "intrinsic_variance": [0.04, 0.09, 999.0],
+        }
+    )
+    result = _replication_allocation(design, noise)
+    assert result["varianceQuantileValue"] == pytest.approx(0.065)
+    assert result["rawRequiredReplications"] == max(
+        2, math.ceil(0.065 / target**2)
+    )
+    assert result["selectedReplications"] == selected
+    assert result["status"] == status
+    assert result["availableRuns"] == math.floor(budget * 0.9)
+    assert result["estimatedProductionPositions"] == 3 * 3 * selected
+
+
+def test_pilot_allocation_handles_subnormal_positive_target() -> None:
+    design = {
+        "trajectories": 2,
+        "factors": [{"name": "a"}],
+        "replicationBaseSeeds": [1, 2],
+        "scientificContract": {
+            "charter": {
+                "decision": {"primary_indicator": "primary"},
+                "budget": {"maximum_runs": 100, "reserve_fraction": 0.0},
+                "stochastic": {
+                    "target": "conditional_mean",
+                    "allocation": {
+                        "phase": "pilot",
+                        "variance_quantile": 1.0,
+                        "target_mcse": 5e-324,
+                        "minimum_replications": 2,
+                        "maximum_replications": 4,
+                    },
+                },
+            }
+        },
+    }
+    result = _replication_allocation(
+        design,
+        pa.table({"indicator": ["primary"], "intrinsic_variance": [1.0]}),
+    )
+    assert result["status"] == "capped"
+    assert result["rawRequiredReplications"] > 4
+
+
+def test_canonical_noise_floor_requires_sealed_primary_indicator(tmp_path: Path) -> None:
+    design, table, rows = _tables(tmp_path)
+    wrong_rows = [(run_id, "other", value) for run_id, _, value in rows]
+    with pytest.raises(ValueError, match="primary indicator"):
+        _canonical_morris_tables(
+            table,
+            wrong_rows,
+            design.bootstrap_resamples,
+            design.confidence_level,
+            design.convergence_checkpoints,
+            design.screening_top_k,
+            include_noise_floor=True,
+        )
+
+
+def test_canonical_production_publishes_noise_without_allocation(tmp_path: Path) -> None:
+    original = _design(tmp_path / "unused")
+    contract = copy.deepcopy(original.scientific_contract)
+    contract["charter"]["stochastic"]["allocation"].update(
+        phase="production",
+        selected_replications=2,
+        provenance="pilot/root replication-allocation.json sha256:abc",
+    )
+    design, indicator = _completed_campaign(tmp_path, scientific_contract=contract)
+    stale = design.campaign_root / "replication-allocation.json"
+    stale.write_text("stale")
+    result = analyze(
+        design.campaign_root,
+        (indicator,),
+        campaign="test",
+        completeness_threshold=1.0,
+        method="canonical_morris",
+        bootstrap_resamples=design.bootstrap_resamples,
+        confidence_level=design.confidence_level,
+        convergence_checkpoints=design.convergence_checkpoints,
+        screening_top_k=design.screening_top_k,
+    )
+    assert result.noise_floor_path.is_file()
+    assert result.replication_allocation_path is None
+    assert result.inference_status == "scientific_conditional"
+    assert not stale.exists()
+    manifest = json.loads((design.campaign_root / "analysis-generation.json").read_text())
+    assert manifest["inferenceStatus"] == "scientific_conditional"
+    assert manifest["replicationAllocationPath"] is None
 
 
 def test_canonical_publication_failure_restores_all_outputs(
@@ -421,6 +606,8 @@ def test_canonical_publication_failure_restores_all_outputs(
         "canonical-morris-ranking.parquet",
         "canonical-morris-convergence.parquet",
         "canonical-morris-rank-reversals.parquet",
+        "noise-floor.parquet",
+        "replication-allocation.json",
         "analysis-generation.json",
     )
     previous = {design.campaign_root / name: name.encode() for name in names}
@@ -449,12 +636,48 @@ def test_canonical_publication_failure_restores_all_outputs(
     assert {path: path.read_bytes() for path in previous} == previous
 
 
+def test_canonical_allocation_failure_rolls_back_new_outputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import eqasim_sa.core.analyze as analyze_module
+
+    design, indicator = _completed_campaign(tmp_path)
+    noise = design.campaign_root / "noise-floor.parquet"
+    allocation = design.campaign_root / "replication-allocation.json"
+    noise.write_bytes(b"old-noise")
+    allocation.write_bytes(b"old-allocation")
+    real_write = analyze_module._write_atomic
+
+    def fail(destination: Path, writer) -> None:  # type: ignore[no-untyped-def]
+        if destination.name == "replication-allocation.json":
+            raise OSError("injected allocation failure")
+        real_write(destination, writer)
+
+    monkeypatch.setattr(analyze_module, "_write_atomic", fail)
+    with pytest.raises(OSError, match="allocation failure"):
+        analyze(
+            design.campaign_root,
+            (indicator,),
+            campaign="test",
+            completeness_threshold=1.0,
+            method="canonical_morris",
+            bootstrap_resamples=design.bootstrap_resamples,
+            confidence_level=design.confidence_level,
+            convergence_checkpoints=design.convergence_checkpoints,
+            screening_top_k=design.screening_top_k,
+        )
+    assert noise.read_bytes() == b"old-noise"
+    assert allocation.read_bytes() == b"old-allocation"
+
+
 def test_other_method_removes_all_stale_canonical_outputs(tmp_path: Path) -> None:
     root, _ = _campaign(tmp_path)
     stale = [
         root / "canonical-morris-ranking.parquet",
         root / "canonical-morris-convergence.parquet",
         root / "canonical-morris-rank-reversals.parquet",
+        root / "noise-floor.parquet",
+        root / "replication-allocation.json",
     ]
     for path in stale:
         path.write_bytes(b"stale")
@@ -491,6 +714,9 @@ def test_application_passes_sealed_canonical_analysis_and_exposes_extra_paths(
         sensitivity_path=root / "canonical-morris-ranking.parquet",
         convergence_path=root / "canonical-morris-convergence.parquet",
         rank_reversals_path=root / "canonical-morris-rank-reversals.parquet",
+        noise_floor_path=root / "noise-floor.parquet",
+        replication_allocation_path=root / "replication-allocation.json",
+        inference_status="pilot_only",
         runs=9,
         indicators=1,
         values=9,
@@ -532,6 +758,9 @@ def test_application_passes_sealed_canonical_analysis_and_exposes_extra_paths(
     assert payload["rankReversalsPath"].endswith(
         "canonical-morris-rank-reversals.parquet"
     )
+    assert payload["noiseFloorPath"].endswith("noise-floor.parquet")
+    assert payload["replicationAllocationPath"].endswith("replication-allocation.json")
+    assert payload["inferenceStatus"] == "pilot_only"
 
 
 @pytest.mark.parametrize("damage", ["contract", "run-id"])

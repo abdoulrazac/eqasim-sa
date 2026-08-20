@@ -10,6 +10,7 @@ import statistics
 import tempfile
 from collections import Counter
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from typing import Sequence
 
@@ -62,6 +63,9 @@ class AnalyzeResult:
     rank_reversals_path: Path | None = None
     by_scramble_path: Path | None = None
     diagnostics_path: Path | None = None
+    noise_floor_path: Path | None = None
+    replication_allocation_path: Path | None = None
+    inference_status: str | None = None
 
 
 def analyze(
@@ -209,6 +213,8 @@ def _analyze_locked(
     canonical_morris_sensitivity = campaign_root / "canonical-morris-ranking.parquet"
     canonical_morris_convergence = campaign_root / "canonical-morris-convergence.parquet"
     canonical_morris_reversals = campaign_root / "canonical-morris-rank-reversals.parquet"
+    noise_floor = campaign_root / "noise-floor.parquet"
+    replication_allocation = campaign_root / "replication-allocation.json"
     sobol_sensitivity = campaign_root / "sobol-indices.parquet"
     multiscramble_sensitivity = campaign_root / "multiscramble-sobol-indices.parquet"
     multiscramble_by_scramble = campaign_root / "multiscramble-sobol-by-scramble.parquet"
@@ -226,6 +232,8 @@ def _analyze_locked(
         multiscramble_by_scramble,
         multiscramble_convergence,
         multiscramble_diagnostics,
+        noise_floor,
+        replication_allocation,
     )
     derived = (output, dispersion, *sensitivity_outputs, generation)
     expected_ids, completed_ids = plan_run_ids(campaign_root, plan, campaign)
@@ -288,6 +296,9 @@ def _analyze_locked(
             rank_reversals_path = None
             by_scramble_path = None
             diagnostics_path = None
+            noise_floor_path = None
+            replication_allocation_path = None
+            inference_status = None
             if method == "morris":
                 sensitivity_path = write_parquet_atomic(
                     _morris_ranking(plan_table, rows), morris_sensitivity
@@ -297,13 +308,14 @@ def _analyze_locked(
                     _discrete_oat_effects(plan_table, rows), discrete_oat_sensitivity
                 )
             elif method == "canonical_morris":
-                ranking_table, convergence_table, reversal_table = _canonical_morris_tables(
+                ranking_table, convergence_table, reversal_table, noise_table = _canonical_morris_tables(
                     plan_table,
                     rows,
                     bootstrap_resamples,
                     confidence_level,
                     convergence_checkpoints,
                     screening_top_k,
+                    include_noise_floor=True,
                 )
                 sensitivity_path = write_parquet_atomic(
                     ranking_table, canonical_morris_sensitivity
@@ -314,6 +326,28 @@ def _analyze_locked(
                 rank_reversals_path = write_parquet_atomic(
                     reversal_table, canonical_morris_reversals
                 )
+                noise_floor_path = write_parquet_atomic(noise_table, noise_floor)
+                sealed = json.loads(
+                    (plan_table.schema.metadata or {})[b"canonicalMorrisDesign"]
+                )
+                allocation = sealed["scientificContract"]["charter"]["stochastic"][
+                    "allocation"
+                ]
+                inference_status = (
+                    "pilot_only"
+                    if allocation["phase"] == "pilot"
+                    else "scientific_conditional"
+                )
+                if allocation["phase"] == "pilot":
+                    recommendation = _replication_allocation(sealed, noise_table)
+                    encoded_recommendation = json.dumps(
+                        recommendation, sort_keys=True, separators=(",", ":"), allow_nan=False
+                    ).encode()
+                    _write_atomic(
+                        replication_allocation,
+                        lambda path: path.write_bytes(encoded_recommendation),
+                    )
+                    replication_allocation_path = replication_allocation
             elif method == "sobol":
                 sensitivity_path = write_parquet_atomic(
                     _sobol_ranking(
@@ -337,6 +371,8 @@ def _analyze_locked(
                     rank_reversals_path,
                     by_scramble_path,
                     diagnostics_path,
+                    noise_floor_path,
+                    replication_allocation_path,
                 )
                 if path is not None
             }
@@ -344,7 +380,7 @@ def _analyze_locked(
                 if stale not in current_outputs and (stale.exists() or stale.is_symlink()):
                     stale.unlink()
             manifest = {
-                "version": 4 if method == "multiscramble_sobol" else 3 if method == "canonical_morris" else 2,
+                "version": 5 if method == "multiscramble_sobol" else 4 if method == "canonical_morris" else 2,
                 "indicatorsSha256": _digest(output),
                 "dispersionSha256": _digest(dispersion) if dispersion_path else None,
                 "sensitivitySha256": _digest(sensitivity_path)
@@ -362,6 +398,7 @@ def _analyze_locked(
             if method == "canonical_morris":
                 manifest.update(
                     {
+                        "inferenceStatus": inference_status,
                         "sensitivityPath": sensitivity_path.name,
                         "rankingPath": sensitivity_path.name,
                         "rankingSha256": _digest(sensitivity_path),
@@ -369,6 +406,18 @@ def _analyze_locked(
                         "convergenceSha256": _digest(convergence_path),
                         "rankReversalsPath": rank_reversals_path.name,
                         "rankReversalsSha256": _digest(rank_reversals_path),
+                        "noiseFloorPath": noise_floor_path.name,
+                        "noiseFloorSha256": _digest(noise_floor_path),
+                        "replicationAllocationPath": (
+                            replication_allocation_path.name
+                            if replication_allocation_path
+                            else None
+                        ),
+                        "replicationAllocationSha256": (
+                            _digest(replication_allocation_path)
+                            if replication_allocation_path
+                            else None
+                        ),
                     }
                 )
             if method == "multiscramble_sobol":
@@ -407,6 +456,9 @@ def _analyze_locked(
                 rank_reversals_path=rank_reversals_path,
                 by_scramble_path=by_scramble_path,
                 diagnostics_path=diagnostics_path,
+                noise_floor_path=noise_floor_path,
+                replication_allocation_path=replication_allocation_path,
+                inference_status=inference_status,
             )
         except BaseException:
             if _snapshot(campaign_root, (*protected, *derived)) != before:
@@ -1055,6 +1107,7 @@ def _multiscramble_sobol_tables(
                         "checkpoint": checkpoint,
                         "scramble": scramble,
                         "factor": factor,
+                        "is_actionable": factor != "seed",
                         "first_order": float(first[index]),
                         "total_order": float(total[index]),
                         "output_variance": output_variance,
@@ -1138,19 +1191,28 @@ def _multiscramble_sobol_tables(
                     "first_order_change": first_mean - previous[indicator, factor][0] if (indicator, factor) in previous else None,
                     "total_order_change": total_mean - previous[indicator, factor][1] if (indicator, factor) in previous else None,
                     "is_primary_indicator": is_primary_indicator,
+                    "is_actionable": factor != "seed",
                     "objective": objective,
                     "within_practical_tolerance": (
-                        False if factor == "seed" else total_mean + total_margin <= tolerance
-                    ) if objective == "ff" and is_primary_indicator else None,
+                        total_mean + total_margin <= tolerance
+                    ) if objective == "ff" and is_primary_indicator and factor != "seed" else None,
                 }
             rank_values = (
-                {factor: item["first_order_mean"] for factor, item in aggregates.items()}
+                {
+                    factor: item["first_order_mean"]
+                    for factor, item in aggregates.items()
+                    if factor != "seed"
+                }
                 if objective == "fp"
-                else {factor: item["total_order_ci_high"] for factor, item in aggregates.items()}
+                else {
+                    factor: item["total_order_ci_high"]
+                    for factor, item in aggregates.items()
+                    if factor != "seed"
+                }
             )
             ranks = _objective_average_ranks(rank_values, descending=objective == "fp")
             for factor in names:
-                aggregates[factor]["rank"] = ranks[factor]
+                aggregates[factor]["rank"] = ranks.get(factor)
                 convergence_rows.append(aggregates[factor])
                 previous[indicator, factor] = (
                     aggregates[factor]["first_order_mean"],
@@ -1161,6 +1223,7 @@ def _multiscramble_sobol_tables(
     by_schema = pa.schema([
         pa.field("indicator", pa.string(), False), pa.field("checkpoint", pa.int64(), False),
         pa.field("scramble", pa.int64(), False), pa.field("factor", pa.string(), False),
+        pa.field("is_actionable", pa.bool_(), False),
         pa.field("first_order", pa.float64(), False), pa.field("total_order", pa.float64(), False),
         pa.field("output_variance", pa.float64(), False), pa.field("effective_contrasts", pa.int64(), False),
         pa.field("effective_contrast_rate", pa.float64(), False), pa.field("ST_minus_S", pa.float64(), False),
@@ -1173,8 +1236,9 @@ def _multiscramble_sobol_tables(
         *[pa.field(f"{order}_{stat}", pa.float64(), False) for order in ("first_order", "total_order") for stat in ("mean", "sd", "se", "ci_low", "ci_high", "ci_width")],
         pa.field("first_order_change", pa.float64()), pa.field("total_order_change", pa.float64()),
         pa.field("is_primary_indicator", pa.bool_(), False),
+        pa.field("is_actionable", pa.bool_(), False),
         pa.field("objective", pa.string(), False), pa.field("within_practical_tolerance", pa.bool_()),
-        pa.field("rank", pa.float64(), False),
+        pa.field("rank", pa.float64()),
     ])
     diagnostics_schema = pa.schema([
         pa.field("indicator", pa.string(), False), pa.field("checkpoint", pa.int64(), False),
@@ -1517,7 +1581,9 @@ def _canonical_morris_tables(
     confidence_level: float,
     convergence_checkpoints: tuple[int, ...],
     screening_top_k: int,
-) -> tuple[pa.Table, pa.Table, pa.Table]:
+    *,
+    include_noise_floor: bool = False,
+) -> tuple[pa.Table, pa.Table, pa.Table] | tuple[pa.Table, pa.Table, pa.Table, pa.Table]:
     metadata = plan.schema.metadata or {}
     required_metadata = {
         b"planSchemaVersion",
@@ -1742,6 +1808,19 @@ def _canonical_morris_tables(
     validate_scientific_contract(
         design["scientificContract"], supports, distribution_by_name
     )
+    stochastic = design["scientificContract"]["charter"]["stochastic"]
+    if stochastic["target"] != "conditional_mean":
+        raise ValueError("canonical Morris requires sealed conditional_mean stochastic target")
+    allocation = stochastic["allocation"]
+    if allocation["phase"] == "pilot":
+        if len(base_seeds) < allocation["minimum_replications"]:
+            raise ValueError(
+                "canonical Morris pilot replications are below sealed minimum_replications"
+            )
+    elif len(base_seeds) != allocation["selected_replications"]:
+        raise ValueError(
+            "canonical Morris production replications do not equal selected_replications"
+        )
     pool, selected = _canonical_selection(candidate_definition, trajectories)
     expected_selected = [
         {"candidateId": identity, "matrix": matrix, "selectionOrder": index}
@@ -1877,6 +1956,62 @@ def _canonical_morris_tables(
             raise ValueError("multiple indicator values for one canonical Morris runId")
         observations[key] = value
     indicators = tuple(sorted({indicator for _, indicator, _ in rows}))
+    primary_indicator = design["scientificContract"]["charter"]["decision"][
+        "primary_indicator"
+    ]
+    if include_noise_floor and primary_indicator not in indicators:
+        raise ValueError("canonical Morris primary indicator is absent from analysis rows")
+    noise_groups = {}
+    noise_roles = {}
+    for location in locations.values():
+        point = location["trajectory"], location["rank"]
+        noise_roles.setdefault(point, location["role"])
+        if noise_roles[point] != location["role"]:
+            raise ValueError("canonical Morris point role differs between replications")
+        for indicator in indicators:
+            try:
+                value = observations[location["runId"], indicator]
+            except KeyError as error:
+                raise ValueError(
+                    f"canonical Morris indicator {indicator!r} is incomplete"
+                ) from error
+            noise_groups.setdefault((indicator, *point), []).append(value)
+    noise_rows = []
+    for (indicator, trajectory, rank), values in sorted(noise_groups.items()):
+        if len(values) != len(base_seeds):
+            raise ValueError("canonical Morris noise-floor replications are incomplete")
+        variance = statistics.variance(values) if len(values) > 1 else None
+        intrinsic_sd = math.sqrt(variance) if variance is not None else None
+        mcse = intrinsic_sd / math.sqrt(len(values)) if intrinsic_sd is not None else None
+        noise_rows.append(
+            (
+                indicator,
+                trajectory,
+                rank,
+                noise_roles[trajectory, rank],
+                len(values),
+                statistics.fmean(values),
+                variance,
+                intrinsic_sd,
+                mcse,
+                indicator == primary_indicator,
+            )
+        )
+    noise_schema = pa.schema(
+        [
+            pa.field("indicator", pa.string(), False),
+            pa.field("trajectory", pa.int64(), False),
+            pa.field("rank", pa.int64(), False),
+            pa.field("role", pa.string(), False),
+            pa.field("replications", pa.int64(), False),
+            pa.field("mean", pa.float64(), False),
+            pa.field("intrinsic_variance", pa.float64()),
+            pa.field("intrinsic_sd", pa.float64()),
+            pa.field("mcse", pa.float64()),
+            pa.field("is_primary_indicator", pa.bool_(), False),
+        ]
+    )
+    noise_table = _rows_table(noise_rows, noise_schema)
     effects = {
         indicator: {
             factor: [[None for _ in base_seeds] for _ in range(trajectories)]
@@ -2014,11 +2149,66 @@ def _canonical_morris_tables(
             pa.field("bootstrap_resamples", pa.int64(), False),
         ]
     )
-    return (
+    result = (
         _rows_table(ranking_rows, ranking_schema),
         _rows_table(convergence_rows, convergence_schema),
         _rows_table(reversal_rows, reversal_schema),
     )
+    return (*result, noise_table) if include_noise_floor else result
+
+
+def _replication_allocation(design: dict, noise_floor: pa.Table) -> dict:
+    stochastic = design["scientificContract"]["charter"]["stochastic"]
+    allocation = stochastic["allocation"]
+    if stochastic["target"] != "conditional_mean" or allocation["phase"] != "pilot":
+        raise ValueError("replication allocation requires a canonical Morris pilot")
+    primary_indicator = design["scientificContract"]["charter"]["decision"][
+        "primary_indicator"
+    ]
+    variances = np.asarray(
+        [
+            row["intrinsic_variance"]
+            for row in noise_floor.to_pylist()
+            if row["indicator"] == primary_indicator
+        ],
+        dtype=np.float64,
+    )
+    if not len(variances) or not np.all(np.isfinite(variances)):
+        raise ValueError("primary-indicator noise-floor variances are incomplete")
+    quantile_value = float(np.quantile(variances, allocation["variance_quantile"]))
+    ratio = Decimal(str(quantile_value)) / Decimal(str(allocation["target_mcse"])) ** 2
+    raw_required = max(allocation["minimum_replications"], math.ceil(ratio))
+    selected = min(raw_required, allocation["maximum_replications"])
+    positions = design["trajectories"] * (len(design["factors"]) + 1) * selected
+    budget = design["scientificContract"]["charter"]["budget"]
+    available = int(
+        Decimal(budget["maximum_runs"])
+        * (Decimal(1) - Decimal(str(budget["reserve_fraction"])))
+    )
+    status = (
+        "infeasible"
+        if positions > available
+        else "capped"
+        if raw_required > allocation["maximum_replications"]
+        else "recommended"
+    )
+    current = len(design["replicationBaseSeeds"])
+    return {
+        "version": 1,
+        "status": status,
+        "primaryIndicator": primary_indicator,
+        "varianceQuantile": allocation["variance_quantile"],
+        "varianceQuantileValue": quantile_value,
+        "targetMcse": allocation["target_mcse"],
+        "rawRequiredReplications": raw_required,
+        "selectedReplications": selected,
+        "currentReplications": current,
+        "maximumReplications": allocation["maximum_replications"],
+        "estimatedProductionPositions": positions,
+        "availableRuns": available,
+        "withinTarget": current >= raw_required,
+        "seedPolicy": "canonical-morris-derived-crn-v1",
+    }
 
 
 def _canonical_checkpoint_statistics(

@@ -16,6 +16,10 @@
 | **Morris canonique** | `method: canonical_morris` ; trajectoires dans l'espace de probabilité unitaire, Delta commun et transformations déclarées. Uniquement pour le criblage scientifique. |
 | **Scramble QMC** | Une séquence Sobol à faible discrépance randomisée indépendamment. L'incertitude exige plusieurs scrambles indépendants, pas un bootstrap des lignes d'un seul scramble. |
 | **Sobol multi-scramble** | `method: multiscramble_sobol` ; analyse scientifique FP/FF avec scrambles QMC indépendants et incertitude de Student entre scrambles. |
+| **Moyenne conditionnelle** | Cible Morris canonique `E_seed[Y|X]`, estimée avec au moins deux réplications de seed et des CRN dans chaque trajectoire. |
+| **Variance intrinsèque / plancher de bruit** | Variance ponctuelle non biaisée entre réplications, en unités de l'indicateur au carré; elle reste descriptive et ne remplace pas l'incertitude entre trajectoires. |
+| **Allocation pilote** | Campagne canonique immuable qui estime un besoin de réplications et recommande une campagne/racine de production séparée. |
+| **Nuisance seed finie** | Support fini déclaré de `parameters.seed` en Sobol multi-scramble. Ses indices sont diagnostiques, non actionnables et n'identifient pas le bruit intrinsèque sans restriction. |
 | **Calibration des ressources** | Campagne préalable qui mesure durée, octets durables et cache worker; elle ne règle pas les paramètres scientifiques. |
 | **Design / plan d'expérience** | Règles de génération des positions Grid, de trajectoire ou Sobol. Le fichier scellé est `plan.parquet`. |
 | **Position de design** | Ligne statistique du plan. Plusieurs positions peuvent désigner le même run. |

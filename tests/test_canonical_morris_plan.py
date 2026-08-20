@@ -42,13 +42,28 @@ def _scientific_contract(factors: dict[str, list], distributions: dict[str, dict
     charter = parse_charter(
         {
             "status": "scientific",
+            "stochastic": {
+                "target": "conditional_mean",
+                "random_source": "simulator_seed",
+                "intrinsic_variance": "report",
+                "common_random_numbers": "within_trajectory",
+                "allocation": {
+                    "phase": "pilot",
+                    "variance_quantile": 0.9,
+                    "target_mcse": 0.5,
+                    "minimum_replications": 2,
+                    "maximum_replications": 10,
+                    "selected_replications": None,
+                    "provenance": None,
+                },
+            },
             "decision": {
                 "claim": "Identify inputs requiring further study",
                 "use": "diagnostic",
                 "setting": "Test decision setting",
                 "objective": "screening",
                 "estimand": "Expected indicator over simulation seeds",
-                "primary_indicator": "indicator",
+                "primary_indicator": "synthetic(value)",
             },
             "uncertainty": {
                 "dependence": {
@@ -83,7 +98,7 @@ def _scientific_contract(factors: dict[str, list], distributions: dict[str, dict
             },
         },
         set(factors),
-        {"indicator"},
+        {"synthetic(value)"},
     )
     typed_distributions = {
         name: parse_distribution(distribution, name)
@@ -220,6 +235,7 @@ def test_canonical_exact_delta_grid_mapping_cardinality_crn_and_metadata(
     assert len(set(metadata["candidatePoolIdentities"])) == 12
     assert [item["selectionOrder"] for item in metadata["selectedTrajectories"]] == [0, 1, 2]
     assert metadata["scientificContract"] == design.scientific_contract
+    assert metadata["scientificContract"]["charter"]["stochastic"]["target"] == "conditional_mean"
     assert not ({"unitA", "unitB"} & set(table.column_names))
     blocks = [rows[index : index + 3] for index in range(0, len(rows), 3)]
     block_seeds = []
@@ -235,6 +251,46 @@ def test_canonical_exact_delta_grid_mapping_cardinality_crn_and_metadata(
         for left, right in zip(matrix, matrix[1:]):
             differences = [abs(a - b) for a, b in zip(left, right) if a != b]
             assert differences == [2]
+
+
+def test_canonical_production_requires_exact_selected_replication_count(
+    tmp_path: Path,
+) -> None:
+    original = canonical_design(tmp_path / "unused")
+    contract = copy.deepcopy(original.scientific_contract)
+    contract["charter"]["stochastic"]["allocation"].update(
+        phase="production",
+        selected_replications=3,
+        provenance="pilot campaign / replication-allocation.json sha256:abc",
+    )
+    with pytest.raises(ValueError, match="selected_replications"):
+        build_plan(
+            canonical_design(
+                tmp_path / "wrong", scientific_contract=contract, seeds=(41, 42)
+            )
+        )
+    result = build_plan(
+        canonical_design(
+            tmp_path / "production",
+            scientific_contract=contract,
+            seeds=(41, 42, 43),
+        )
+    )
+    assert result.status == "created"
+
+
+def test_scientific_method_rejects_incompatible_stochastic_mode(tmp_path: Path) -> None:
+    canonical = canonical_design(tmp_path / "canonical")
+    wrong = copy.deepcopy(canonical.scientific_contract)
+    wrong["charter"]["stochastic"] = {
+        "target": "finite_seed_factor",
+        "random_source": "simulator_seed",
+        "intrinsic_variance": "not_identified",
+        "common_random_numbers": "none",
+        "support_interpretation": "declared_finite_nuisance",
+    }
+    with pytest.raises(ValueError, match="conditional_mean"):
+        build_plan(canonical_design(tmp_path / "wrong", scientific_contract=wrong))
 
 
 def test_canonical_is_order_independent_and_sensitive_to_seed_and_support_order(
@@ -493,7 +549,10 @@ def test_canonical_budget_rejects_before_plan_publication(tmp_path: Path) -> Non
     contract = copy.deepcopy(canonical_design(tmp_path / "unused").scientific_contract)
     contract["charter"]["budget"] = {"maximum_runs": 1, "reserve_fraction": 0.5}
     design = canonical_design(tmp_path / "campaign", scientific_contract=contract)
-    with pytest.raises(ValueError, match="execution budget 0"):
+    with pytest.raises(
+        ValueError,
+        match="canonical Morris design positions 18 exceed scientific execution budget 0",
+    ):
         build_plan(design)
     assert not (design.campaign_root / "plan.parquet").exists()
 

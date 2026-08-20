@@ -1,6 +1,6 @@
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 
@@ -29,6 +29,16 @@ class InventoryStatus(StrEnum):
 class DependenceKind(StrEnum):
     INDEPENDENT = "independent"
     DECLARED = "declared"
+
+
+class StochasticTarget(StrEnum):
+    CONDITIONAL_MEAN = "conditional_mean"
+    FINITE_SEED_FACTOR = "finite_seed_factor"
+
+
+class AllocationPhase(StrEnum):
+    PILOT = "pilot"
+    PRODUCTION = "production"
 
 
 @dataclass(frozen=True)
@@ -106,6 +116,40 @@ class RobustnessCheck:
 
 
 @dataclass(frozen=True)
+class ReplicationAllocation:
+    phase: AllocationPhase
+    variance_quantile: float
+    target_mcse: float
+    minimum_replications: int
+    maximum_replications: int
+    selected_replications: int | None
+    provenance: str | None
+
+
+@dataclass(frozen=True)
+class ConditionalMeanStochastic:
+    allocation: ReplicationAllocation
+    target: StochasticTarget = field(default=StochasticTarget.CONDITIONAL_MEAN, init=False)
+    random_source: str = field(default="simulator_seed", init=False)
+    intrinsic_variance: str = field(default="report", init=False)
+    common_random_numbers: str = field(default="within_trajectory", init=False)
+
+
+@dataclass(frozen=True)
+class FiniteSeedFactorStochastic:
+    target: StochasticTarget = field(default=StochasticTarget.FINITE_SEED_FACTOR, init=False)
+    random_source: str = field(default="simulator_seed", init=False)
+    intrinsic_variance: str = field(default="not_identified", init=False)
+    common_random_numbers: str = field(default="none", init=False)
+    support_interpretation: str = field(
+        default="declared_finite_nuisance", init=False
+    )
+
+
+ScientificStochastic = ConditionalMeanStochastic | FiniteSeedFactorStochastic
+
+
+@dataclass(frozen=True)
 class ScientificCharter:
     decision: Decision
     dependence: Dependence
@@ -113,6 +157,7 @@ class ScientificCharter:
     budget: Budget
     stopping: tuple[StoppingCriterion, ...]
     robustness: tuple[RobustnessCheck, ...]
+    stochastic: ScientificStochastic
     status: CharterStatus = CharterStatus.SCIENTIFIC
 
 
@@ -158,6 +203,149 @@ def _positive_int64(value: object, name: str) -> int:
     if type(value) is not int or not 1 <= value <= INT64_MAX:
         raise ValueError(f"{name} must be a positive signed-int64 integer")
     return value
+
+
+def _replication_count(value: object, name: str) -> int:
+    result = _positive_int64(value, name)
+    if result < 2:
+        raise ValueError(f"{name} must be an integer at least 2")
+    return result
+
+
+def parse_stochastic(value: object, name: str = "charter.stochastic") -> ScientificStochastic:
+    document = _mapping(value, name)
+    target = document.get("target")
+    if target == StochasticTarget.CONDITIONAL_MEAN:
+        _exact(
+            document,
+            {
+                "target",
+                "random_source",
+                "intrinsic_variance",
+                "common_random_numbers",
+                "allocation",
+            },
+            name,
+        )
+        if (
+            document["random_source"] != "simulator_seed"
+            or document["intrinsic_variance"] != "report"
+            or document["common_random_numbers"] != "within_trajectory"
+        ):
+            raise ValueError(f"{name} conditional_mean constants are invalid")
+        raw = _mapping(document["allocation"], f"{name}.allocation")
+        _exact(
+            raw,
+            {
+                "phase",
+                "variance_quantile",
+                "target_mcse",
+                "minimum_replications",
+                "maximum_replications",
+                "selected_replications",
+                "provenance",
+            },
+            f"{name}.allocation",
+        )
+        try:
+            phase = AllocationPhase(raw["phase"])
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"{name}.allocation.phase must be pilot or production") from error
+        quantile = raw["variance_quantile"]
+        if type(quantile) is not float or not math.isfinite(quantile) or not 0 < quantile <= 1:
+            raise ValueError(
+                f"{name}.allocation.variance_quantile must be a finite float in (0,1]"
+            )
+        target_mcse = _float(
+            raw["target_mcse"], f"{name}.allocation.target_mcse", positive=True
+        )
+        minimum = _replication_count(
+            raw["minimum_replications"], f"{name}.allocation.minimum_replications"
+        )
+        maximum = _replication_count(
+            raw["maximum_replications"], f"{name}.allocation.maximum_replications"
+        )
+        if maximum < minimum:
+            raise ValueError(
+                f"{name}.allocation.maximum_replications must be at least minimum_replications"
+            )
+        selected, provenance = raw["selected_replications"], raw["provenance"]
+        if phase is AllocationPhase.PILOT:
+            if selected is not None or provenance is not None:
+                raise ValueError(
+                    f"{name}.allocation pilot requires selected_replications and provenance null"
+                )
+        else:
+            if type(selected) is not int or not minimum <= selected <= maximum:
+                raise ValueError(
+                    f"{name}.allocation production selected_replications must be within minimum/maximum"
+                )
+            provenance = _text(provenance, f"{name}.allocation.provenance")
+        return ConditionalMeanStochastic(
+            ReplicationAllocation(
+                phase,
+                quantile,
+                target_mcse,
+                minimum,
+                maximum,
+                selected,
+                provenance,
+            )
+        )
+    if target == StochasticTarget.FINITE_SEED_FACTOR:
+        _exact(
+            document,
+            {
+                "target",
+                "random_source",
+                "intrinsic_variance",
+                "common_random_numbers",
+                "support_interpretation",
+            },
+            name,
+        )
+        if document != {
+            "target": "finite_seed_factor",
+            "random_source": "simulator_seed",
+            "intrinsic_variance": "not_identified",
+            "common_random_numbers": "none",
+            "support_interpretation": "declared_finite_nuisance",
+        }:
+            raise ValueError(f"{name} finite_seed_factor constants are invalid")
+        return FiniteSeedFactorStochastic()
+    raise ValueError(f"{name}.target must be conditional_mean or finite_seed_factor")
+
+
+def serialize_stochastic(stochastic: ScientificStochastic) -> dict:
+    if isinstance(stochastic, ConditionalMeanStochastic):
+        allocation = stochastic.allocation
+        document = {
+            "target": stochastic.target.value,
+            "random_source": stochastic.random_source,
+            "intrinsic_variance": stochastic.intrinsic_variance,
+            "common_random_numbers": stochastic.common_random_numbers,
+            "allocation": {
+                "phase": allocation.phase.value,
+                "variance_quantile": allocation.variance_quantile,
+                "target_mcse": allocation.target_mcse,
+                "minimum_replications": allocation.minimum_replications,
+                "maximum_replications": allocation.maximum_replications,
+                "selected_replications": allocation.selected_replications,
+                "provenance": allocation.provenance,
+            },
+        }
+    elif isinstance(stochastic, FiniteSeedFactorStochastic):
+        document = {
+            "target": stochastic.target.value,
+            "random_source": stochastic.random_source,
+            "intrinsic_variance": stochastic.intrinsic_variance,
+            "common_random_numbers": stochastic.common_random_numbers,
+            "support_interpretation": stochastic.support_interpretation,
+        }
+    else:
+        raise TypeError("scientific stochastic contract has an unsupported type")
+    parse_stochastic(document, "scientific stochastic contract")
+    return document
 
 
 def charter_status(value: object | None) -> CharterStatus:
@@ -346,7 +534,7 @@ def parse_charter(
     document = _mapping(value, "charter")
     _exact(
         document,
-        {"status", "decision", "uncertainty", "budget", "stopping", "robustness"},
+        {"status", "decision", "uncertainty", "budget", "stopping", "robustness", "stochastic"},
         "scientific charter",
     )
     uncertainty = _mapping(document["uncertainty"], "charter.uncertainty")
@@ -416,6 +604,7 @@ def parse_charter(
         Budget(maximum_runs, reserve),
         tuple(criteria),
         tuple(checks),
+        parse_stochastic(document["stochastic"]),
     )
 
 
@@ -436,11 +625,14 @@ def validate_scientific_contract(
     charter = _mapping(document["charter"], "scientific_contract.charter")
     _exact(
         charter,
-        {"status", "decision", "uncertainty", "budget", "stopping", "robustness"},
+        {"status", "decision", "uncertainty", "budget", "stopping", "robustness", "stochastic"},
         "scientific_contract.charter",
     )
     if charter["status"] != CharterStatus.SCIENTIFIC.value:
         raise ValueError("scientific_contract charter status must be scientific")
+    stochastic = parse_stochastic(
+        charter["stochastic"], "scientific_contract.charter.stochastic"
+    )
 
     decision = _mapping(charter["decision"], "scientific_contract.charter.decision")
     _exact(
@@ -683,6 +875,7 @@ def serialize_scientific_contract(
                 {"name": check.name, "rationale": check.rationale}
                 for check in charter.robustness
             ],
+            "stochastic": serialize_stochastic(charter.stochastic),
         },
         "parameters": [
             {

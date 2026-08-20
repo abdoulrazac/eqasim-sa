@@ -72,20 +72,16 @@ Une charte scientifique emploie le schéma strict complet suivant :
 charter:
   status: scientific
   decision:
-    claim: Identifier le facteur à apprendre plus précisément en premier
-    use: prognostic
+    claim: Identifier les entrées qui doivent rester à l'étude
+    use: diagnostic
     setting: Évaluation des politiques de synthèse de population nantaise
-    objective: fp
+    objective: screening
     estimand: Distance de variation totale espérée sur les seeds de simulation
     primary_indicator: tv_distance(age, ref=INSEE)
   uncertainty:
     dependence:
-      kind: declared
-      rationale: Deux entrées sont estimées par la même enquête
-      groups:
-        - factors: [sampling_rate, matching_minimum_age]
-          model: Distribution empirique jointe
-          provenance: Rapport méthodologique, section 4
+      kind: independent
+      rationale: Le design Morris canonique suppose les entrées indépendantes
     inventory:
       parameters:
         - name: sampling_rate
@@ -112,6 +108,19 @@ charter:
     checks:
       - name: Modèle de dépendance alternatif
         rationale: Vérifier la conclusion FP sous une dépendance plausible
+  stochastic:
+    target: conditional_mean
+    random_source: simulator_seed
+    intrinsic_variance: report
+    common_random_numbers: within_trajectory
+    allocation:
+      phase: pilot
+      variance_quantile: 0.9
+      target_mcse: 0.01
+      minimum_replications: 2
+      maximum_replications: 20
+      selected_replications: null
+      provenance: null
 ```
 
 `decision.claim`, `setting`, `estimand` et `primary_indicator` sont des chaînes
@@ -141,15 +150,40 @@ vide ; chaque critère contient exactement `metric`, un float fini positif
 `robustness.checks` est non vide. Chaque contrôle contient exactement un `name`
 non vide et unique ainsi qu'un `rationale` non vide.
 
-`load_meta_config` valide la structure de la charte. Seul `canonical_morris` peut
-actuellement sceller une charte scientifique, et seulement avec
-`decision.objective: screening` et une dépendance des paramètres `independent`.
-L'ancien `morris`, l'OAT discret et Sobol sont refusés par une charte scientifique.
+Toute charte scientifique possède exactement un mode `stochastic` typé. La forme
+`conditional_mean` ci-dessus est réservée à `canonical_morris` et ses constantes
+sont exactes. Le quantile est un float fini dans `(0,1]`, le MCSE un float fini
+positif dans les unités de l'indicateur primaire, le minimum vaut au moins 2 et
+le maximum lui est supérieur ou égal. En phase `pilot`, sélection et provenance
+sont nulles et l'expérience fournit au moins le minimum de seeds de base. En
+phase `production`, la sélection est dans les bornes, la provenance est non vide
+et le nombre de seeds lui est exactement égal.
+
+`multiscramble_sobol` exige au contraire exactement :
+
+```yaml
+stochastic:
+  target: finite_seed_factor
+  random_source: simulator_seed
+  intrinsic_variance: not_identified
+  common_random_numbers: none
+  support_interpretation: declared_finite_nuisance
+```
+
+Il n'a aucune allocation. `parameters.seed` reste une incertitude variée requise,
+mais son support fini est une nuisance : il n'identifie ni importance contrôlable
+ni bruit intrinsèque du simulateur.
+
+`load_meta_config` valide la structure de la charte. Les méthodes scientifiques
+courantes sont `canonical_morris` pour `screening` indépendant avec
+`conditional_mean`, et `multiscramble_sobol` pour `fp` ou `ff` indépendant avec
+`finite_seed_factor`. L'ancien `morris`, l'OAT discret et Sobol historique sont
+refusés par une charte scientifique.
 
 Les métadonnées du plan canonique conservent un `scientificContract` normalisé.
 Sa racine contient exactement `charter` et `parameters`. La charte normalisée
-contient exactement `status`, `decision`, `uncertainty`, `budget`, `stopping` et
-`robustness`; `stopping` et `robustness` sont directement les listes d'éléments.
+contient exactement `status`, `decision`, `uncertainty`, `budget`, `stopping`,
+`robustness` et `stochastic`; `stopping` et `robustness` sont directement les listes d'éléments.
 Le criblage sérialise `practical_tolerance: null` et l'indépendance
 `groups: []`. Les paramètres, triés par nom, contiennent exactement nom, support
 et distribution correspondante. Le cœur vérifie toute cette forme et son égalité
@@ -300,7 +334,8 @@ la somme de ces distances aux trajectoires retenues, avec départage lexical des
 identités. La règle scellée `greedy-sum-pairwise-squared-distance` n'est ni
 maximin ni un optimum de Campolongo.
 
-Avant publication, les runs uniques ne dépassent pas
+Avant publication d'un plan Morris canonique ou Sobol multi-scramble, les
+positions structurelles du design, sans déduplication des run IDs, ne dépassent pas
 `floor(maximum_runs * (1 - reserve_fraction))`; la réserve reste hors budget du
 plan initial. Le plan canonique utilise le schéma v2 et scelle contrat scientifique,
 distributions, supports, pool, sélection, Delta, dérivation des seeds et réglages
@@ -348,6 +383,19 @@ charter:
     checks:
       - name: <contrôle déclaré>
         rationale: <raison du contrôle>
+  stochastic:
+    target: conditional_mean
+    random_source: simulator_seed
+    intrinsic_variance: report
+    common_random_numbers: within_trajectory
+    allocation:
+      phase: pilot
+      variance_quantile: 0.9
+      target_mcse: 0.01
+      minimum_replications: 2
+      maximum_replications: 20
+      selected_replications: null
+      provenance: null
 experiment:
   method: canonical_morris
   seed_role: replication
@@ -379,6 +427,13 @@ bootstrap des lignes. Son manifeste déclare
 `inferenceStatus: legacy_noninferential`.
 
 ```yaml
+charter:
+  stochastic:
+    target: finite_seed_factor
+    random_source: simulator_seed
+    intrinsic_variance: not_identified
+    common_random_numbers: none
+    support_interpretation: declared_finite_nuisance
 experiment:
   method: sobol
   seed_role: factor
@@ -412,6 +467,9 @@ et doublent exactement. Il faut au moins quatre seeds uint64 uniques.
 une `practical_tolerance` sans dimension, interprétée comme part de variance
 d'ordre total et comprise dans `[0,1]`. Chaque facteur, dont le support fini de seed simulateur,
 déclare sa distribution. Il n'existe aucun réglage de bootstrap.
+La seed est explicitement non actionnable : ses lignes agrégées et par scramble
+gardent les indices diagnostiques, mais `is_actionable: false`, rang nul et
+tolérance FF nulle. Le support fini n'estime pas le bruit intrinsèque sans limite.
 Les plans dépassant 1 000 000 de positions ou 20 000 000 cellules de table Arrow
 sont refusés avant allocation QMC ou de table; réduisez le design déclaré.
 

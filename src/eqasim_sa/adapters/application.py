@@ -341,6 +341,13 @@ def analyze_from_meta_config(path: Path) -> dict:
         "diagnosticsPath": str(result.diagnostics_path)
         if getattr(result, "diagnostics_path", None)
         else None,
+        "noiseFloorPath": str(result.noise_floor_path)
+        if getattr(result, "noise_floor_path", None)
+        else None,
+        "replicationAllocationPath": str(result.replication_allocation_path)
+        if getattr(result, "replication_allocation_path", None)
+        else None,
+        "inferenceStatus": getattr(result, "inference_status", None),
         "error": None,
     }
 

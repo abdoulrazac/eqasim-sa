@@ -305,6 +305,25 @@ on the declared and sealed contract. It does not by itself provide calibrated
 decision evidence, variance shares, FP/FF conclusions, or automatic proof that
 the charter's stopping and robustness requirements have been met.
 
+Canonical Morris uses `stochastic.target: conditional_mean`. Replication seeds
+use the existing `canonical-morris-seed:v1` derivation so every rank in one
+trajectory/replication shares a random stream (CRN), while blocks remain distinct.
+At every indicator, trajectory, and rank, `noise-floor.parquet` reports the
+replication count, mean, unbiased intrinsic variance (indicator units squared),
+intrinsic SD and `MCSE = SD/sqrt(R)` (indicator units), plus the primary-indicator
+flag. Replicates describe intrinsic noise; trajectories remain the independent
+bootstrap units.
+
+A pilot computes the default-linear NumPy quantile `q` of primary-indicator
+pointwise variances and recommends
+`R_raw = max(R_min, ceil(q / target_mcse^2))`, then
+`R_selected = min(R_raw, R_max)`. `recommended` means the raw requirement and
+structural positions fit; `capped` exposes `R_raw > R_max`; `infeasible` exposes
+that `T*(D+1)*R_selected` exceeds the exact non-reserve Decimal budget floor.
+The result never lowers the requirement silently. It specifies a new immutable
+production campaign/root; production cites non-empty pilot provenance and uses
+exactly the selected seed count.
+
 ## Historical Sobol
 
 The generated `method: sobol` plan is historical demonstration provenance. It
@@ -354,12 +373,15 @@ Each scramble yields independent first- and total-order estimates. Across the
 `S` estimates, outputs report the mean, sample SD, `SE = SD/sqrt(S)`, and a
 two-sided Student interval with `S-1` degrees of freedom. No row bootstrap is
 used. FP ranks decreasing aggregate first-order means. FF ranks increasing
-total-order upper confidence bounds. For this method, `practical_tolerance` is a
+total-order upper confidence bounds. `seed` is a declared finite nuisance: its
+estimates remain diagnostic, `is_actionable` is false, and rank and FF tolerance
+are null. This support identifies neither intrinsic noise nor a controllable
+factor. For this method, `practical_tolerance` is a
 dimensionless total-order variance-share tolerance in `[0,1]`, including
 interactions. The FF decision classification is emitted only for the sealed
 `primary_indicator`; secondary indicators retain estimates and ranks as
 diagnostics but cannot carry a factor-fixing classification. For the primary
-indicator, seed is never classified as fixable.
+indicator and only actionable ordinary factors are classified.
 
 The exact analysis keys are `completeness_threshold: 1.0` and
 `confidence_level`. Results are published as `multiscramble-sobol-indices.parquet`,

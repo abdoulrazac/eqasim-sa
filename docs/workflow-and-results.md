@@ -204,7 +204,7 @@ the estimates are computed across `T` trajectory means. Consequently,
 `elementary_effects` records the computed count `T*R`, while `T` trajectories,
 not `T*R` effects, are the effective bootstrap units. `seed_std` is the root
 mean square of within-trajectory sample variances over seeds and is null when
-`R=1`.
+`R=1`; current scientific charters require `R>=2`.
 
 Point ranks are floats because exact `mu_star` ties receive their average rank.
 Each bootstrap replicate uses the same average-rank rule. If a tied group crosses
@@ -237,6 +237,22 @@ The canonical trajectory bootstrap provides finite-design uncertainty evidence
 conditional on the declared and sealed scientific-screening contract. These
 tables do not by themselves provide calibrated decision evidence or FP/FF claims.
 
+### `noise-floor.parquet` and `replication-allocation.json`
+
+Every canonical analysis publishes the strict columns `indicator`, `trajectory`,
+`rank`, `role`, `replications`, `mean`, `intrinsic_variance`, `intrinsic_sd`,
+`mcse`, and `is_primary_indicator`. The unbiased pointwise variance is in squared
+indicator units; SD, mean, and MCSE are in indicator units. Replications are
+descriptive and are never bootstrapped as trajectories.
+
+Only a pilot publishes `replication-allocation.json`. It records the quantile and
+its value, target MCSE, raw/selected/current counts, structural production
+positions, exact non-reserve available runs, `withinTarget`, and seed policy.
+Status is `recommended`, `capped`, or `infeasible`; none authorizes mutation of
+the pilot. Create a new production root, set `phase: production`, copy the
+selected count, and cite the pilot output as provenance. Production publishes
+the noise floor without a recommendation.
+
 ### `sobol-indices.parquet`
 
 Columns: `indicator`, `factor`, `rank`, `base_sample_size`,
@@ -258,7 +274,7 @@ checkpoint, including effective contrasts, variance, `ST_minus_S`, and
 out-of-range flags, are in `multiscramble-sobol-by-scramble.parquet`.
 `multiscramble-sobol-convergence.parquet` contains between-scramble means, sample
 SD, SE, two-sided Student-t intervals, widths, checkpoint changes, rank, objective,
-`is_primary_indicator`, and the nullable FF tolerance classification. Raw Sobol
+`is_primary_indicator`, non-null `is_actionable`, and the nullable FF tolerance classification. Raw Sobol
 estimates are not clipped.
 `multiscramble-sobol-diagnostics.parquet` reports sums, out-of-range and negative
 gap counts, design positions, unique run IDs, duplicate fraction, and maximum
@@ -267,8 +283,8 @@ are valid discrete-projection reuse, not duplicated QMC evidence.
 
 FP ranks descending aggregate first-order means. FF ranks ascending total-order
 upper confidence bounds for every indicator, but only the sealed primary
-indicator receives `within_practical_tolerance`: seed is always `false`, and
-other factors compare their total-order upper Student bound with the declared
+indicator receives `within_practical_tolerance`: seed is non-actionable with null
+rank and tolerance, and ordinary factors compare their total-order upper Student bound with the declared
 tolerance. FP rows and FF secondary-indicator rows contain `null`. Secondary
 indicators are diagnostics and cannot carry an FF decision classification. A
 convergence row is evidence only and never automatically satisfies a charter's
@@ -278,10 +294,11 @@ stopping criteria.
 
 For Grid, historical Morris, discrete OAT, and Sobol this is a version 2 manifest
 containing output SHA-256 values, the sensitivity method, `expected`, `completed`,
-`missing`, `failed`, and `completionRate`. Canonical Morris publishes version 3,
-adding the names and SHA-256 values of its ranking, convergence, and rank-reversal
-tables. Publication of all canonical outputs and the manifest is transactional.
-Multi-scramble Sobol publishes manifest version 4 with every output path and hash.
+`missing`, `failed`, and `completionRate`. Canonical Morris publishes version 4,
+adding paths and SHA-256 values for ranking, convergence, rank reversal, noise
+floor, and optional allocation, plus `inferenceStatus` (`pilot_only` or
+`scientific_conditional`). Publication is transactional. Multi-scramble Sobol
+publishes manifest version 5 with every output path and hash.
 
 For scientific methods, the application adapter recomputes the design from the
 current meta-configuration and validates every run identity before invoking core

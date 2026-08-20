@@ -47,6 +47,13 @@ def multiscramble_design(root: Path, **changes) -> MultiScrambleSobolDesign:
     charter = parse_charter(
         {
             "status": "scientific",
+            "stochastic": {
+                "target": "finite_seed_factor",
+                "random_source": "simulator_seed",
+                "intrinsic_variance": "not_identified",
+                "common_random_numbers": "none",
+                "support_interpretation": "declared_finite_nuisance",
+            },
             "decision": {
                 "claim": "prioritize uncertainty reduction",
                 "use": "diagnostic",
@@ -102,6 +109,13 @@ def multiscramble_design(root: Path, **changes) -> MultiScrambleSobolDesign:
 
 def multiscramble_meta_document(meta: Path, objective: str = "fp", tolerance=None) -> dict:  # type: ignore[no-untyped-def]
     document = _scientific(meta)
+    document["charter"]["stochastic"] = {
+        "target": "finite_seed_factor",
+        "random_source": "simulator_seed",
+        "intrinsic_variance": "not_identified",
+        "common_random_numbers": "none",
+        "support_interpretation": "declared_finite_nuisance",
+    }
     distribution = {
         "family": "discrete_uniform",
         "transform": "identity",
@@ -185,6 +199,10 @@ def test_multiscramble_plan_exact_scipy_roles_identity_nesting_and_cardinality(t
     assert by_role[role]["designId"] == expected_id
     assert sealed["baseSampleSizes"] == [2, 4]
     assert sealed["scientificContract"]["parameters"][-1]["name"] == "seed"
+    assert (
+        sealed["scientificContract"]["charter"]["stochastic"]["target"]
+        == "finite_seed_factor"
+    )
 
 
 def test_multiscramble_load_is_row_order_insensitive_and_tamper_evident(tmp_path: Path) -> None:
@@ -213,6 +231,32 @@ def test_multiscramble_load_is_row_order_insensitive_and_tamper_evident(tmp_path
 def test_multiscramble_validation_boundaries(tmp_path: Path, changes: dict, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         build_plan(multiscramble_design(tmp_path / "campaign", **changes))
+
+
+def test_multiscramble_rejects_conditional_mean_stochastic_mode(tmp_path: Path) -> None:
+    design = multiscramble_design(tmp_path / "unused")
+    contract = json.loads(json.dumps(design.scientific_contract))
+    contract["charter"]["stochastic"] = {
+        "target": "conditional_mean",
+        "random_source": "simulator_seed",
+        "intrinsic_variance": "report",
+        "common_random_numbers": "within_trajectory",
+        "allocation": {
+            "phase": "pilot",
+            "variance_quantile": 0.9,
+            "target_mcse": 0.1,
+            "minimum_replications": 2,
+            "maximum_replications": 4,
+            "selected_replications": None,
+            "provenance": None,
+        },
+    }
+    with pytest.raises(ValueError, match="finite_seed_factor"):
+        build_plan(
+            multiscramble_design(
+                tmp_path / "wrong", scientific_contract=contract
+            )
+        )
 
 
 def test_multiscramble_ff_tolerance_one_is_accepted_by_core(tmp_path: Path) -> None:
@@ -268,11 +312,45 @@ def test_multiscramble_estimate_formula() -> None:
     assert result["formula"] == "S*N(2D+2)"
 
 
+def test_multiscramble_budget_uses_structural_positions_not_unique_runs(
+    tmp_path: Path,
+) -> None:
+    permissive = multiscramble_design(tmp_path / "permissive")
+    result = build_plan(permissive)
+    assert result.design_positions == 96
+    assert result.unique_runs == 4
+
+    contract = json.loads(json.dumps(permissive.scientific_contract))
+    contract["charter"]["budget"] = {
+        "maximum_runs": 50,
+        "reserve_fraction": 0.0,
+    }
+    restricted = multiscramble_design(
+        tmp_path / "restricted", scientific_contract=contract
+    )
+    with pytest.raises(
+        ValueError,
+        match=(
+            "multiscramble_sobol design positions 96 "
+            "exceed scientific execution budget 50"
+        ),
+    ):
+        build_plan(restricted)
+    assert not (restricted.campaign_root / "plan.parquet").exists()
+
+
 def test_multiscramble_meta_serializes_seed_as_scientific_factor(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     meta, _, _, _ = meta_fixture(tmp_path)
     document = _scientific(meta)
+    document["charter"]["stochastic"] = {
+        "target": "finite_seed_factor",
+        "random_source": "simulator_seed",
+        "intrinsic_variance": "not_identified",
+        "common_random_numbers": "none",
+        "support_interpretation": "declared_finite_nuisance",
+    }
     distribution = {
         "family": "discrete_uniform",
         "transform": "identity",
@@ -295,6 +373,7 @@ def test_multiscramble_meta_serializes_seed_as_scientific_factor(
         "scramble_seeds": [13, 14, 29, 31],
     }
     document["analysis"] = {"completeness_threshold": 1.0, "confidence_level": 0.95}
+    document["charter"]["budget"]["maximum_runs"] = 200
     meta.write_text(yaml.safe_dump(document, sort_keys=False))
 
     loaded = load_meta_config(meta)
@@ -330,6 +409,13 @@ def test_application_refuses_multiscramble_contract_substitution_before_analyze(
 ) -> None:
     meta, _, _, _ = meta_fixture(tmp_path)
     document = _scientific(meta)
+    document["charter"]["stochastic"] = {
+        "target": "finite_seed_factor",
+        "random_source": "simulator_seed",
+        "intrinsic_variance": "not_identified",
+        "common_random_numbers": "none",
+        "support_interpretation": "declared_finite_nuisance",
+    }
     distribution = {
         "family": "discrete_uniform",
         "transform": "identity",
@@ -347,6 +433,7 @@ def test_application_refuses_multiscramble_contract_substitution_before_analyze(
         "scramble_seeds": [13, 14, 29, 31],
     }
     document["analysis"] = {"completeness_threshold": 1.0, "confidence_level": 0.95}
+    document["charter"]["budget"]["maximum_runs"] = 200
     meta.write_text(yaml.safe_dump(document, sort_keys=False))
     plan_from_meta_config(meta)
     document["charter"]["budget"]["maximum_runs"] += 1

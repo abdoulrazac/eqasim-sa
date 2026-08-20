@@ -206,7 +206,7 @@ puis les estimations sont calculées sur les `T` moyennes de trajectoire. Ainsi,
 `elementary_effects` enregistre le compte calculé `T*R`, mais les unités
 effectives du bootstrap sont les `T` trajectoires, pas `T*R` effets. `seed_std`
 est la racine carrée de la moyenne des variances intra-trajectoire sur les seeds
-et vaut `null` pour `R=1`.
+et vaut `null` pour `R=1`; les chartes scientifiques courantes exigent `R>=2`.
 
 Les rangs sont des floats car les égalités exactes de `mu_star` reçoivent leur
 rang moyen. Chaque réplication bootstrap applique la même règle. Si un groupe
@@ -240,6 +240,23 @@ design fini conditionnelle au contrat de criblage scientifique déclaré et
 scellé. Ces tables ne fournissent pas seules une preuve décisionnelle calibrée
 ni des conclusions FP/FF.
 
+### `noise-floor.parquet` et `replication-allocation.json`
+
+Toute analyse canonique publie les colonnes strictes `indicator`, `trajectory`,
+`rank`, `role`, `replications`, `mean`, `intrinsic_variance`, `intrinsic_sd`,
+`mcse` et `is_primary_indicator`. La variance non biaisée ponctuelle est en unités
+de l'indicateur au carré; SD, moyenne et MCSE sont dans les unités de l'indicateur.
+Les réplications restent descriptives et ne sont jamais bootstrapées comme des
+trajectoires.
+
+Seul un pilote publie `replication-allocation.json` : quantile déclaré et valeur,
+MCSE cible, nombres brut/sélectionné/courant, positions structurelles de
+production, runs disponibles hors réserve, `withinTarget` et politique de seed.
+Le statut vaut `recommended`, `capped` ou `infeasible`; aucun n'autorise à muter
+le pilote. Créez une nouvelle racine de production, passez à `phase: production`,
+reprenez le nombre sélectionné et citez la sortie pilote comme provenance. La
+production publie le bruit, sans recommandation.
+
 ### `sobol-indices.parquet`
 
 Colonnes : `indicator`, `factor`, `rank`, `base_sample_size`,
@@ -258,14 +275,15 @@ reste non inférentiel et le manifeste porte
 `multiscramble-sobol-convergence.parquet` pour les moyennes, SD, SE et intervalles
 de Student entre scrambles, et `multiscramble-sobol-diagnostics.parquet` pour les
 contrastes, valeurs hors plage, gaps négatifs et duplications de runId. Les
-tables agrégées portent le booléen non nul `is_primary_indicator`; les indices
+tables facteur portent le booléen non nul `is_actionable` et les tables agrégées
+portent aussi `is_primary_indicator`; les indices
 bruts ne sont pas tronqués. FP classe la moyenne de premier ordre par ordre
 décroissant et laisse `within_practical_tolerance` nul. FF classe la borne
 supérieure totale par ordre croissant pour tous les indicateurs, mais seule
-l'indicateur primaire scellé reçoit une classification : la seed vaut toujours
-`false`, les autres facteurs comparent leur borne supérieure de Student à la
-tolérance. Les indicateurs secondaires restent diagnostiques et leur
-classification FF est nulle. Le manifeste v4 contient tous les chemins et
+l'indicateur primaire scellé reçoit une classification : la seed est non
+actionnable avec rang et tolérance nuls; les autres facteurs comparent leur borne
+supérieure de Student à la tolérance. Les indicateurs secondaires restent
+diagnostiques et leur classification FF est nulle. Le manifeste v5 contient tous les chemins et
 hachages. Une ligne de convergence ne satisfait pas automatiquement un critère
 d'arrêt.
 
@@ -273,10 +291,11 @@ d'arrêt.
 
 Pour Grid, Morris historique, OAT discret et Sobol, le manifeste est en version 2
 avec SHA-256 des sorties, méthode de sensibilité, `expected`, `completed`,
-`missing`, `failed` et `completionRate`. Morris canonique publie la version 3,
-qui ajoute noms et SHA-256 des tables de classement, convergence et inversions de
-rang. La publication de toutes les sorties canoniques et du manifeste est
-transactionnelle.
+`missing`, `failed` et `completionRate`. Morris canonique publie la version 4,
+avec chemins et SHA-256 des classements, convergence, inversions, bruit et
+allocation optionnelle, ainsi que `inferenceStatus` (`pilot_only` ou
+`scientific_conditional`). La publication est transactionnelle. Sobol
+multi-scramble publie un manifeste v5.
 
 Pour les méthodes scientifiques, l'adaptateur applicatif reconstruit le design
 depuis la méta-configuration courante et valide chaque identité de run avant
