@@ -67,6 +67,114 @@ calibration et Morris, stabilise les classes de sortie et rend l'identité des
 runs générés explicite. Grid et Sobol remplacent toujours
 `matching_age_scheme` via leur domaine de facteur.
 
+## Catalogue des paramètres Nantes
+
+Les paramètres suivants sont des candidats scientifiquement pertinents. Une clé
+doit être explicitement présente sous `config:` dans le YAML modèle scellé avant
+de pouvoir être déclarée comme facteur.
+
+| Paramètre | Type et valeur actuelle | Effet | Domaine d'exemple | Méthodes |
+| --- | --- | --- | --- | --- |
+| `sampling_rate` | float, `0.001` | taille de population et bruit Monte Carlo | `[0.001, 0.002, 0.005]` | Grid, Morris, Sobol |
+| `matching_age_scheme` | chaîne, `matching_6` | classes d'âge servant à sélectionner les donneurs HTS | `[matching_6, analysis_7]` | Grid, Sobol |
+| `matching_minimum_observations` | entier, `20` | taille minimale d'une cellule de donneurs acceptée | `[5, 20, 50]` | Grid, Morris, Sobol |
+| `matching_minimum_age` | entier, `5` | âge minimal des personnes cibles entrant dans le matching | `[0, 5, 12]` | Grid, Morris, Sobol |
+| `income_assignation_method` | chaîne, `uniform` | méthode de synthèse du revenu, `uniform` ou `bhepop2` | `[uniform, bhepop2]` | Grid, Sobol |
+| `hts` | chaîne, `edgt_44` | donneurs et distributions de référence de l'enquête | `[edgt_44, entd]` | Grid, Sobol, si les deux jeux existent |
+| `projection_year` | entier si activé | population synthétique projetée; référence INSEE du starter inchangée | `[2020, 2030, 2040]` | conditionnel aux données et au scénario de projection |
+
+Ces valeurs montrent la syntaxe; elles ne constituent pas automatiquement des
+domaines scientifiquement justifiés. En particulier :
+
+- augmenter `matching_minimum_observations` force un relâchement plus précoce
+  vers moins d'attributs lorsque les cellules de donneurs sont petites ;
+- `matching_minimum_age` change les personnes cibles recevant un donneur HTS,
+  pas seulement les classes d'âge utilisées pour comparer les résultats ;
+- `income_assignation_method: bhepop2` exige des distributions Filosofi valides
+  par attribut et peut retomber sur `uniform` pour certaines communes ; la
+  méthode effectivement appliquée n'est pas conservée dans la sortie actuelle,
+  donc ce fallback doit être instrumenté avant une comparaison stricte ;
+- le revenu est déjà archivé dans l'artefact `households`, mais le pack initial
+  ne définit aucun scalaire de revenu ; enregistrez un indicateur personnalisé
+  sur cet artefact avant d'interpréter ce facteur ;
+- changer `hts` change à la fois les donneurs et les références HTS, et peut
+  exiger un cache de données préparé séparément ;
+- `projection_year` exige un `projection_scenario` compatible et l'archive de
+  projection. Dans le starter actuel, `analysis.synthesis.population` lit
+  toujours `data.census.filtered` pour la comparaison INSEE : n'affirmez pas que
+  cette référence suit la synthèse projetée sans modifier et valider ce stage.
+
+`matching_attributes` est important mais prend une liste ordonnée : le dernier
+attribut est relâché en premier. Il n'est pas transportable actuellement comme
+facteur eqasim-sa. `random_seed` ne se déclare jamais comme paramètre modèle
+ordinaire; utilisez le mécanisme de seed propre à la méthode décrit plus bas.
+
+### Exemple Grid concret
+
+Ce design croise taille de population, recodage de l'âge et seuil de cellule de
+donneurs. Deux seeds de réplication donnent `2 × 2 × 3 × 2 = 24` positions :
+
+```yaml
+experiment:
+  method: grid
+  seed_role: replication
+  replications:
+    seeds: [1201, 1202]
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002]
+  matching_age_scheme:
+    values: [matching_6, analysis_7]
+  matching_minimum_observations:
+    values: [5, 20, 50]
+```
+
+### Exemple Morris concret
+
+Morris accepte uniquement des facteurs numériques ordonnés. Avec trois facteurs,
+deux trajectoires et deux seeds de réplication, cet exemple contient
+`2 × (3+1) × 2 = 16` positions :
+
+```yaml
+experiment:
+  method: morris
+  seed_role: replication
+  trajectories: 2
+  design_seed: 20260814
+  replications:
+    seeds: [1301, 1302]
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002, 0.003]
+  matching_minimum_observations:
+    values: [5, 20, 50]
+  matching_minimum_age:
+    values: [0, 5, 12]
+```
+
+### Exemple Sobol concret
+
+Pour Sobol, la seed est elle-même un facteur. Ajouter le seuil de cellule aux
+facteurs générés donne `D=4`; avec `N=64`, le plan Saltelli complet contient
+`64 × (2×4+2) = 640` positions avant déduplication :
+
+```yaml
+experiment:
+  method: sobol
+  seed_role: factor
+  base_sample_size: 64
+  design_seed: 20260814
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002, 0.005]
+  matching_age_scheme:
+    values: [matching_6, analysis_7]
+  matching_minimum_observations:
+    values: [5, 20, 50]
+  seed:
+    values: [1401, 1402, 1403, 1404]
+```
+
 ## Seed de réplication ou facteur
 
 Avec `seed_role: replication`, Grid et Morris répètent une configuration

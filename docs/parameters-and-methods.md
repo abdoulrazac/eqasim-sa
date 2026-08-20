@@ -66,6 +66,115 @@ This fixes historical matching for calibration and Morris, keeps output classes
 stable, and gives generated runs explicit selector identity. Grid and Sobol still
 replace `matching_age_scheme` through their factor domains.
 
+## Nantes parameter catalogue
+
+The following parameters are scientifically meaningful candidates. A key must
+be explicitly present under `config:` in the sealed model YAML before it can be
+declared as a factor.
+
+| Parameter | Type and current value | What changes | Example domain | Methods |
+| --- | --- | --- | --- | --- |
+| `sampling_rate` | float, `0.001` | population size and Monte Carlo noise | `[0.001, 0.002, 0.005]` | Grid, Morris, Sobol |
+| `matching_age_scheme` | string, `matching_6` | age cells used to select HTS donors | `[matching_6, analysis_7]` | Grid, Sobol |
+| `matching_minimum_observations` | integer, `20` | minimum donor-cell size before an exact level is accepted | `[5, 20, 50]` | Grid, Morris, Sobol |
+| `matching_minimum_age` | integer, `5` | minimum age of target persons entering statistical matching | `[0, 5, 12]` | Grid, Morris, Sobol |
+| `income_assignation_method` | string, `uniform` | income synthesis stage, `uniform` or `bhepop2` | `[uniform, bhepop2]` | Grid, Sobol |
+| `hts` | string, `edgt_44` | survey donors and survey reference distributions | `[edgt_44, entd]` | Grid, Sobol, if both datasets exist |
+| `projection_year` | integer when enabled | projected synthesis population; starter INSEE reference remains baseline | `[2020, 2030, 2040]` | conditional on projection data and scenario |
+
+These example values demonstrate syntax; they are not automatically justified
+scientific domains. In particular:
+
+- a larger `matching_minimum_observations` forces earlier relaxation toward
+  fewer matching attributes when donor cells are small;
+- `matching_minimum_age` changes which target persons receive HTS donors, not
+  only the age labels used for comparison;
+- `income_assignation_method: bhepop2` requires valid Filosofi attribute
+  distributions and can fall back to `uniform` for individual municipalities;
+  the selected method is not retained in the current output, so this fallback
+  must be instrumented before a strict method comparison;
+- household income is already archived in the `households` artifact, but the
+  starter pack defines no income scalar; register a custom income indicator on
+  that artifact before interpreting this factor;
+- changing `hts` changes both the donor population and HTS references, and may
+  require a separate prepared data cache;
+- `projection_year` requires both a compatible `projection_scenario` and the
+  projection archive. In the current starter,
+  `analysis.synthesis.population` still reads `data.census.filtered` for its
+  INSEE comparison, so do not claim that this reference follows the projected
+  synthesis without first changing and validating the producing stage.
+
+`matching_attributes` is scientifically important but is an ordered list, not a
+scalar. The last attribute is relaxed first. It cannot currently be transported
+as an eqasim-sa factor. `random_seed` is never declared as an ordinary model
+parameter; use the method-specific seed mechanism described below.
+
+### Concrete Grid example
+
+This design crosses population size, age recoding, and donor-cell threshold. Two
+replication seeds produce `2 × 2 × 3 × 2 = 24` positions:
+
+```yaml
+experiment:
+  method: grid
+  seed_role: replication
+  replications:
+    seeds: [1201, 1202]
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002]
+  matching_age_scheme:
+    values: [matching_6, analysis_7]
+  matching_minimum_observations:
+    values: [5, 20, 50]
+```
+
+### Concrete Morris example
+
+Morris accepts only ordered numeric factors. With three factors, two
+trajectories, and two replication seeds, this example has
+`2 × (3+1) × 2 = 16` positions:
+
+```yaml
+experiment:
+  method: morris
+  seed_role: replication
+  trajectories: 2
+  design_seed: 20260814
+  replications:
+    seeds: [1301, 1302]
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002, 0.003]
+  matching_minimum_observations:
+    values: [5, 20, 50]
+  matching_minimum_age:
+    values: [0, 5, 12]
+```
+
+### Concrete Sobol example
+
+For Sobol, the seed is itself a factor. Adding the donor-cell threshold to the
+generated factors gives `D=4`; with `N=64`, the full Saltelli design contains
+`64 × (2×4+2) = 640` positions before deduplication:
+
+```yaml
+experiment:
+  method: sobol
+  seed_role: factor
+  base_sample_size: 64
+  design_seed: 20260814
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002, 0.005]
+  matching_age_scheme:
+    values: [matching_6, analysis_7]
+  matching_minimum_observations:
+    values: [5, 20, 50]
+  seed:
+    values: [1401, 1402, 1403, 1404]
+```
+
 ## Replication seed or factor
 
 With `seed_role: replication`, Grid and Morris repeat a scientific

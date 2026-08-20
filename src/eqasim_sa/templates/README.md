@@ -63,13 +63,30 @@ optional afterward.
 ```
 
 Never edit a `plan.parquet` or completion marker. Rerunning the same campaign
-command executes only missing work. Use a new project for a changed context or
-design.
+command executes only missing work. Use a new `campaign` and `campaign_root` for
+a changed design, and a new project when the sealed model or data context changes.
 
 Grid and Sobol vary the scalar `matching_age_scheme` between `matching_6` and
 `analysis_7`. Morris does not because it accepts only numeric factors. The model
 configuration keeps `analysis_age_scheme: analysis_7` fixed so output classes
 remain comparable; changing an output scheme is not a matching effect.
+
+The Nantes model also exposes optional scalar factors:
+
+| Factor | Default | Example domain | Compatible methods |
+| --- | ---: | --- | --- |
+| `matching_minimum_observations` | `20` | `[5, 20, 50]` | Grid, Morris, Sobol |
+| `matching_minimum_age` | `5` | `[0, 5, 12]` | Grid, Morris, Sobol |
+| `income_assignation_method` | `uniform` | `[uniform, bhepop2]` | Grid, Sobol |
+
+Adding `matching_minimum_observations` to the generated Grid gives 24 positions:
+two rates by two matching schemes by three thresholds by two replication seeds.
+Use a new `campaign` and `campaign_root` for that modified design. The starter
+indicators do not measure income directly. The `households` artifact already
+contains household income; register a custom scalar indicator on it before
+interpreting `income_assignation_method`. Note that `bhepop2` can fall back to
+`uniform` for municipalities with invalid Filosofi distributions, and the
+current output does not retain the applied method.
 
 Before generating this project, `init` verified that the model configuration
 explicitly contains `matching_age_scheme: matching_6` and
