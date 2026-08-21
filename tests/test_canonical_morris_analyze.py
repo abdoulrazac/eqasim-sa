@@ -31,7 +31,7 @@ def _descriptor() -> tuple[dict[str, str], str]:
         "eqasimCommit": "a",
         "dataManifestSha256": "b",
         "lockfileSha256": "c",
-        "eqasimSaVersion": "0.2.0",
+        "eqasimSaVersion": "0.3.0",
     }
     encoded = json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
     context_hash = hashlib.sha256(b"eqasim-sa:context:v1\0" + encoded).hexdigest()

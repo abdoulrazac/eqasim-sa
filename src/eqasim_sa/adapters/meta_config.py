@@ -529,7 +529,7 @@ def load_meta_config(
     raw_parameters = _mapping(document["parameters"], "parameters")
     status = charter_status(document.get("charter"))
     if (
-        method in {"morris", "discrete_oat"}
+        method in {"morris", "discrete_oat", "sobol"}
         and status is not CharterStatus.DEMONSTRATION
     ):
         raise ValueError(f"{method} requires charter.status demonstration")

@@ -14,6 +14,7 @@ The Python parser is authoritative: the project does not provide a JSON Schema.
 5. [CLI reference](cli-reference.md): commands, JSON, and exit codes.
 6. [Troubleshooting](troubleshooting.md): common errors and safe remedies.
 7. [Glossary](glossary.md): precise project terminology.
+8. [Release compatibility](compatibility.md): schema, method, inference, refusal, and release matrices.
 
 ## Contributor documentation
 

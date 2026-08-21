@@ -14,6 +14,7 @@ Le parseur Python est normatif : le projet ne fournit pas de JSON Schema.
 5. [Référence CLI](cli-reference.md) : commandes, JSON et codes de sortie.
 6. [Dépannage](troubleshooting.md) : erreurs fréquentes et remèdes sûrs.
 7. [Glossaire](glossary.md) : vocabulaire précis du projet.
+8. [Compatibilité de version](compatibility.md) : matrices des schémas, méthodes, statuts, refus et versions.
 
 ## Documentation contributeur
 

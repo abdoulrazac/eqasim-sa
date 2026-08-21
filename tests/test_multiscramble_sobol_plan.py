@@ -86,7 +86,7 @@ def multiscramble_design(root: Path, **changes) -> MultiScrambleSobolDesign:
         "eqasimCommit": "a",
         "dataManifestSha256": "b",
         "lockfileSha256": "c",
-        "eqasimSaVersion": "0.2.0",
+        "eqasimSaVersion": "0.3.0",
     }
     descriptor_bytes = json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
     values = dict(
