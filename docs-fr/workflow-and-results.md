@@ -60,10 +60,13 @@ distincts peuvent donc partager un `runId`.
 
 L'ancien `morris` est uniquement une provenance historique de démonstration
 lisible. Les nouvelles démonstrations adjacentes utilisent `discrete_oat` et le
-criblage scientifique `canonical_morris`. Les plans Morris canoniques ont
+criblage scientifique `canonical_morris`. Les plans Morris canoniques non structures ont
 `planSchemaVersion: 2` et scellent le contrat scientifique normalisé ainsi que la
 définition complète du design et de l'analyse. Les autres plans actuels et
-historiques utilisent le schéma v1.
+historiques non structures utilisent le schéma v1. Tout design pris en charge
+avec un facteur liste structuree nomme utilise le schema v3 et scelle les
+metadonnees structurees canoniques v1 ; la colonne garde le label tandis que le
+`runId` hache la liste ordonnee resolue.
 
 Le schéma, ses métadonnées et toutes les lignes sont recalculés lors du
 chargement. Pour Sobol, l'ordre physique des lignes peut varier, mais le contenu

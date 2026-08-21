@@ -14,6 +14,8 @@ from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
+import yaml
+
 from eqasim_sa.adapters.eqasim.artifacts import ARTIFACT_STAGE, normalize_outputs
 from eqasim_sa.adapters.eqasim.config import STAGES, EqasimSettings, WorkerPaths
 from eqasim_sa.core.ledger import fsync_directory
@@ -38,6 +40,7 @@ class EqasimSimulator:
         base_config: ResolvedConfig,
         config_bytes: bytes | None = None,
         slot: int = 0,
+        structured_factors: dict[str, dict[str, list[str]]] | None = None,
     ) -> None:
         self.settings = settings
         self.base_config = copy.deepcopy(base_config)
@@ -54,6 +57,7 @@ class EqasimSimulator:
         self._lease_descriptor: int | None = None
         self._root_identity: tuple[int, int] | None = None
         self._lease_lock = threading.Lock()
+        self.structured_factors = copy.deepcopy(structured_factors or {})
 
     @contextmanager
     def lease(self):  # type: ignore[no-untyped-def]
@@ -237,7 +241,6 @@ class EqasimSimulator:
         normalized = attempt / "normalized"
         output.mkdir(parents=True)
         snapshot = attempt / "config.yml"
-        snapshot.write_bytes(self.config_bytes)
         log = attempt / "run.log"
         log.touch(mode=0o600)
         base = copy.deepcopy(self.base_config)
@@ -272,6 +275,28 @@ class EqasimSimulator:
         removed = base_nested.keys() - nested.keys()
         if removed:
             raise ValueError(f"resolved config removes YAML keys: {sorted(removed)}")
+        structured_changes = set()
+        for key, configurations in self.structured_factors.items():
+            if key in nested and key in base_nested and not _same_value(
+                nested[key], base_nested[key]
+            ):
+                if not any(
+                    _same_value(nested[key], payload)
+                    for payload in configurations.values()
+                ):
+                    raise ValueError(
+                        f"structured override {key!r} is not a declared configuration"
+                    )
+                structured_changes.add(key)
+        if structured_changes:
+            snapshot_document = copy.deepcopy(self.base_config)
+            for key in structured_changes:
+                snapshot_document["config"][key] = copy.deepcopy(nested[key])
+            snapshot.write_text(
+                yaml.safe_dump(snapshot_document, sort_keys=False), encoding="utf-8"
+            )
+        else:
+            snapshot.write_bytes(self.config_bytes)
         command = [
             *self.settings.invocation,
             str(snapshot),
@@ -300,6 +325,8 @@ class EqasimSimulator:
                     )
                 continue
             if key in base_nested and _same_value(nested[key], base_nested[key]):
+                continue
+            if key in structured_changes:
                 continue
             validate_transport(key, nested[key])
             command.extend((f"--{key}", _scalar_argument(key, nested[key])))

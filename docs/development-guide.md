@@ -126,6 +126,9 @@ environment.
 - The run marker is published after the archives and is the sole proof of completion.
 - Durable writes are atomic, and symbolic links are broadly rejected.
 - Infrastructure overrides do not modify `runId`.
+- Named structured factors remain a separate label-to-list mapping across the
+  adapter/core boundary: plans expose labels, resolution and `runId` use lists,
+  and schema v3 seals the canonical mapping.
 - An analysis must not mutate its sources; the code backs them up and restores them if they differ.
 
 ## Add a custom indicator

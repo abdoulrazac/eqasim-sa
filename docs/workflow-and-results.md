@@ -59,9 +59,12 @@ can therefore share a `runId`.
 
 Historical `morris` is readable legacy demonstration provenance only. New
 adjacent-level demonstrations use `discrete_oat`; scientific screening uses
-`canonical_morris`. Canonical Morris plans have `planSchemaVersion: 2` and seal
+`canonical_morris`. Unstructured canonical Morris plans have `planSchemaVersion: 2` and seal
 the normalized scientific contract and complete design/analysis definition.
-Other current and legacy plans use plan schema v1.
+Other unstructured current and legacy plans use plan schema v1. Any supported
+design with named structured-list factors uses schema v3 and seals canonical
+structured metadata v1; its factor column stores labels while `runId` hashes the
+resolved ordered list.
 
 The schema, its metadata, and all rows are recomputed when loading. For Sobol,
 the physical row order may vary, but the content indexed by `designId` must be

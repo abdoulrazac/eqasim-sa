@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Adds generic named structured-list factors for Grid, historical Sobol, and
+  multi-scramble Sobol. Plans store readable labels while resolved ordered lists
+  determine `runId` and execution snapshots; aliases and malformed payloads are
+  rejected.
+- Adds plan schema v3 only when a plan seals canonical
+  `structuredFactorsVersion: 1` and `structuredFactors` metadata. Unstructured
+  plans retain their existing v1/v2 identities and byte behavior.
+- Refuses structured factors for historical Morris, discrete OAT, and canonical
+  Morris because their nominal configuration order has no defensible adjacent or
+  probability-space meaning.
+
 ## 0.3.0 - 2026-08-21
 
 - Keeps `init` demonstration-only. Its calibration, Grid, discrete OAT, and

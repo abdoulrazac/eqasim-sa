@@ -186,6 +186,7 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
         model_document={"config": {}},
         model_bytes=b"config",
         campaign_root=tmp_path,
+        structured_factors={},
     )
     monkeypatch.setattr(slurm, "load_meta_config", lambda path: meta)
     settings_calls = []

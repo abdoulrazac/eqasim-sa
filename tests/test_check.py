@@ -463,12 +463,13 @@ def test_smoke_executes_exactly_two_runs_and_removes_owned_paths(
         execution=SimpleNamespace(invocation=("spy",)),
         model_document=config,
         model_bytes=b"x",
+        structured_factors={},
     )
     (tmp_path / "config.yml").write_text("config: {}")
     seen, simulators = [], []
 
     class Simulator:
-        def __init__(self, settings, *args):
+        def __init__(self, settings, *args, **kwargs):
             self.settings = settings
             self.paths = SimpleNamespace(root=settings.worker(0).root)
             self.interrupted = False

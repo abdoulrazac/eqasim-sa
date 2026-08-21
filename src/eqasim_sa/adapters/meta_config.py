@@ -5,7 +5,7 @@ import math
 import os
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from eqasim_sa.adapters.eqasim.config import (
@@ -105,6 +105,7 @@ class MetaConfig:
     artifacts: dict[str, ArtifactDeclaration]
     indicators: tuple[object, ...]
     indicator_requirements: tuple[IndicatorRequirement, ...]
+    structured_factors: dict[str, dict[str, list[str]]] = field(default_factory=dict)
 
 
 def _mapping(value: object, name: str) -> dict:
@@ -527,6 +528,11 @@ def load_meta_config(
             "analysis.completeness_threshold must be a finite float in [0,1]"
         )
     raw_parameters = _mapping(document["parameters"], "parameters")
+    if (
+        isinstance(raw_parameters.get("seed"), dict)
+        and "configurations" in raw_parameters["seed"]
+    ):
+        raise ValueError("seed cannot be a structured factor")
     status = charter_status(document.get("charter"))
     if (
         method in {"morris", "discrete_oat", "sobol"}
@@ -780,9 +786,17 @@ def load_meta_config(
     ).encode()
     factors = {}
     distributions = {}
+    structured_factors = {}
     for name, declaration in raw_parameters.items():
+        structured = (
+            isinstance(declaration, dict) and "configurations" in declaration
+        )
         expected_parameter_keys = (
-            {"values", "distribution"}
+            {"configurations", "distribution"}
+            if structured and status is CharterStatus.SCIENTIFIC
+            else {"configurations"}
+            if structured
+            else {"values", "distribution"}
             if status is CharterStatus.SCIENTIFIC
             else {"values"}
         )
@@ -792,24 +806,76 @@ def load_meta_config(
             or set(declaration) != expected_parameter_keys
         ):
             required = (
-                "values and distribution"
+                "configurations and distribution"
+                if structured and status is CharterStatus.SCIENTIFIC
+                else "only configurations"
+                if structured
+                else "values and distribution"
                 if status is CharterStatus.SCIENTIFIC
                 else "only values"
             )
             raise ValueError(f"factor {name!r} must contain exactly {required}")
         if status is CharterStatus.SCIENTIFIC:
             distributions[name] = parse_distribution(declaration["distribution"], name)
+        if structured:
+            if name == "seed":
+                raise ValueError("seed cannot be a structured factor")
+            if method in {"morris", "discrete_oat", "canonical_morris"}:
+                raise ValueError(f"{method} does not support structured factors")
+            configurations = _mapping(
+                declaration["configurations"], f"factor {name!r} configurations"
+            )
+            validated = {}
+            payloads = set()
+            for label, payload in configurations.items():
+                if not isinstance(label, str) or not label or "\0" in label:
+                    raise ValueError(
+                        f"factor {name!r} configuration labels must be non-empty strings without NUL"
+                    )
+                if (
+                    not isinstance(payload, list)
+                    or not payload
+                    or any(
+                        not isinstance(item, str) or not item or "\0" in item
+                        for item in payload
+                    )
+                    or len(set(payload)) != len(payload)
+                ):
+                    raise ValueError(
+                        f"factor {name!r} configuration {label!r} must be a non-empty ordered list of unique non-empty strings without NUL"
+                    )
+                identity = tuple(payload)
+                if identity in payloads:
+                    raise ValueError(
+                        f"factor {name!r} configurations must have distinct payloads"
+                    )
+                payloads.add(identity)
+                validated[label] = list(payload)
+            if not validated:
+                raise ValueError(f"factor {name!r} configurations must not be empty")
+            model_value = model_document["config"].get(name)
+            if name not in model_document["config"]:
+                raise ValueError(f"unknown factor: {name!r}")
+            if not isinstance(model_value, list) or any(
+                not isinstance(item, str) for item in model_value
+            ):
+                raise TypeError(
+                    f"structured factor {name!r} model config value must be a list of strings"
+                )
+            structured_factors[name] = validated
+            values = list(validated)
+        else:
+            values = declaration["values"]
         if method in {"sobol", "multiscramble_sobol"} and name == "seed":
             continue
         if validate_factors and name not in model_document["config"]:
             raise ValueError(f"unknown factor: {name!r}")
         if f"config.{name}" in EXCLUDED_PATHS or name in DEDICATED:
             raise ValueError(f"reserved or infrastructure factor: {name!r}")
-        if not isinstance(declaration["values"], list):
+        if not isinstance(values, list):
             raise TypeError(f"factor {name!r} values must be a list")
-        for value in declaration["values"]:
+        for value in values:
             validate_transport(name, value)
-        values = declaration["values"]
         if status is CharterStatus.SCIENTIFIC and (
             len(values) < 2 or len(values) != len(set(values))
         ):
@@ -832,7 +898,7 @@ def load_meta_config(
                 raise TypeError(
                     f"factor {name!r} values must be homogeneous scalars"
                 )
-        factors[name] = declaration["values"]
+        factors[name] = values
     if method in {"morris", "discrete_oat", "canonical_morris"} and not factors:
         raise ValueError("trajectory design requires at least one factor")
     if method in {"morris", "discrete_oat"}:
@@ -982,4 +1048,5 @@ def load_meta_config(
         artifacts,
         indicators,
         indicator_requirements,
+        structured_factors,
     )

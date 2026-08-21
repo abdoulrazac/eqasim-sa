@@ -38,6 +38,9 @@ from eqasim_sa.core.plan import (
     validate_morris_values,
     validate_multiscramble_scientific_contract,
     validate_sobol_effective_hybrid_contrasts,
+    validate_structured_factor_supports,
+    validate_structured_plan_metadata,
+    validate_structured_plan_rows,
 )
 
 BOOTSTRAP_DOMAIN = b"eqasim-sa:bootstrap:sobol:v1\0"
@@ -190,6 +193,10 @@ def _analyze_locked(
     if plan.is_symlink() or not plan.is_file():
         raise ValueError("plan.parquet must be a regular non-symlink file")
     plan_table = pq.read_table(plan)
+    structured_factors = validate_structured_plan_metadata(
+        dict(plan_table.schema.metadata or {})
+    )
+    validate_structured_plan_rows(plan_table, structured_factors)
     if not len(plan_table):
         raise ValueError("plan contains no expected runs")
     methods = (
@@ -366,13 +373,19 @@ def _analyze_locked(
             elif method == "sobol":
                 sensitivity_path = write_parquet_atomic(
                     _sobol_ranking(
-                        plan_table, rows, bootstrap_resamples, confidence_level
+                        plan_table,
+                        rows,
+                        bootstrap_resamples,
+                        confidence_level,
+                        structured_factors,
                     ),
                     sobol_sensitivity,
                 )
             elif method == "multiscramble_sobol":
                 indices_table, by_scramble_table, convergence_table, diagnostics_table = (
-                    _multiscramble_sobol_tables(plan_table, rows, confidence_level)
+                    _multiscramble_sobol_tables(
+                        plan_table, rows, confidence_level, structured_factors
+                    )
                 )
                 sensitivity_path = write_parquet_atomic(indices_table, multiscramble_sensitivity)
                 by_scramble_path = write_parquet_atomic(by_scramble_table, multiscramble_by_scramble)
@@ -971,6 +984,7 @@ def _sobol_ranking(
     rows: list[tuple[str, str, float]],
     bootstrap_resamples: int,
     confidence_level: float,
+    structured: dict[str, dict[str, list[str]]] | None = None,
 ) -> pa.Table:
     metadata = plan.schema.metadata or {}
     required = {
@@ -980,13 +994,15 @@ def _sobol_ranking(
         b"sobolDesignVersion",
         b"sobolDesign",
     }
-    if set(metadata) != required or any(
-        metadata.get(key) != b"1"
-        for key in (
-            b"planSchemaVersion",
-            b"canonicalizationVersion",
-            b"sobolDesignVersion",
-        )
+    if structured is None:
+        structured = validate_structured_plan_metadata(dict(metadata))
+    if structured:
+        required |= {b"structuredFactorsVersion", b"structuredFactors"}
+    if (
+        set(metadata) != required
+        or metadata.get(b"planSchemaVersion") != (b"3" if structured else b"1")
+        or metadata.get(b"canonicalizationVersion") != b"1"
+        or metadata.get(b"sobolDesignVersion") != b"1"
     ):
         raise ValueError("Sobol plan metadata is missing or unsupported")
     try:
@@ -1028,15 +1044,22 @@ def _sobol_ranking(
         raise ValueError(
             "Sobol contextDescriptor must contain exactly four string keys"
         )
-    if set(design) != {
+    design_keys = {
         "baseSampleSize",
         "designSeed",
         "scramble",
         "bits",
         "mapping",
         "factors",
-    }:
+    }
+    if structured:
+        design_keys.add("structuredFactors")
+    if set(design) != design_keys:
         raise ValueError("Sobol design metadata keys are invalid")
+    if structured and design["structuredFactors"] != structured:
+        raise ValueError(
+            "Sobol method structuredFactors do not match structured plan metadata"
+        )
     n, design_seed, factors = (
         design["baseSampleSize"],
         design["designSeed"],
@@ -1096,6 +1119,7 @@ def _sobol_ranking(
         or not 2 <= len(names) <= 10_600
     ):
         raise ValueError("Sobol sealed factors are invalid")
+    validate_structured_factor_supports(structured, domains)
     if n * (2 * len(names) + 2) > 2**63 - 1:
         raise ValueError("Sobol N(2D+2) must fit in signed int64")
     columns = tuple(name for name in names if name != "seed")
@@ -1299,6 +1323,7 @@ def _multiscramble_sobol_tables(
     plan: pa.Table,
     rows: list[tuple[str, str, float]],
     confidence_level: float,
+    structured: dict[str, dict[str, list[str]]] | None = None,
 ) -> tuple[pa.Table, pa.Table, pa.Table, pa.Table]:
     metadata = plan.schema.metadata or {}
     required = {
@@ -1308,9 +1333,13 @@ def _multiscramble_sobol_tables(
         b"multiScrambleSobolDesignVersion",
         b"multiScrambleSobolDesign",
     }
+    if structured is None:
+        structured = validate_structured_plan_metadata(dict(metadata))
+    if structured:
+        required |= {b"structuredFactorsVersion", b"structuredFactors"}
     if (
         set(metadata) != required
-        or metadata.get(b"planSchemaVersion") != b"2"
+        or metadata.get(b"planSchemaVersion") != (b"3" if structured else b"2")
         or metadata.get(b"canonicalizationVersion") != b"1"
         or metadata.get(b"multiScrambleSobolDesignVersion") != b"1"
     ):
@@ -1340,8 +1369,14 @@ def _multiscramble_sobol_tables(
         "scientificContract",
         "scrambleSeeds",
     }
+    if structured:
+        keys.add("structuredFactors")
     if not isinstance(design, dict) or set(design) != keys:
         raise ValueError("multi-scramble Sobol design metadata keys are invalid")
+    if structured and design["structuredFactors"] != structured:
+        raise ValueError(
+            "multi-scramble Sobol method structuredFactors do not match structured plan metadata"
+        )
     sizes, scramble_seeds = design["baseSampleSizes"], design["scrambleSeeds"]
     if (
         not isinstance(sizes, list)
@@ -1417,6 +1452,12 @@ def _multiscramble_sobol_tables(
         supports,
         distributions,
     )
+    validate_structured_factor_supports(structured, supports)
+    contract_supports = {
+        parameter["name"]: parameter["support"]
+        for parameter in design["scientificContract"]["parameters"]
+    }
+    validate_structured_factor_supports(structured, contract_supports)
     decision = design["scientificContract"]["charter"]["decision"]
     objective = decision["objective"]
     primary_indicator = decision["primary_indicator"]

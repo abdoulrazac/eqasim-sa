@@ -122,7 +122,11 @@ class EqasimSlurmJob:
             meta.execution.scratch,
         )
         simulator = EqasimSimulator(
-            settings, meta.model_document, meta.model_bytes, batch.slot
+            settings,
+            meta.model_document,
+            meta.model_bytes,
+            batch.slot,
+            meta.structured_factors,
         )
         try:
             with simulator.lease():

@@ -550,6 +550,48 @@ vocabulaire. Un support uniforme discret varié contient au moins deux valeurs
 distinctes : l'uniformité porte sur les points du support, jamais sur des
 positions répétées dans la liste.
 
+Une clé modèle contenant une liste ordonnée peut utiliser des configurations
+nommées. Le mécanisme est générique ; `matching_attributes` n'est qu'un exemple :
+
+```yaml
+parameters:
+  matching_attributes:
+    configurations:
+      default: [sex, any_cars, age_class, socioprofessional_class, departement_id]
+      reduced: [sex, age_class, socioprofessional_class]
+      urban: [sex, age_class, urban_type, departement_id]
+```
+
+La clé modèle doit exister et contenir une liste de chaînes. Chaque label est une
+chaîne unique, non vide et sans NUL. Chaque payload est une liste ordonnée non
+vide de chaînes uniques, non vides et sans NUL ; deux labels ne peuvent pas
+désigner le même payload. L'ordre est conservé. `seed` ne peut pas être structurée.
+
+Grid est le premier design recommandé. Le Sobol historique est admis comme
+provenance de démonstration. Sobol multi-scramble n'est admis que si une
+distribution scientifique défendable porte sur les labels ; la déclaration
+scientifique ajoute le même sibling `distribution` que pour un support scalaire :
+
+```yaml
+parameters:
+  matching_attributes:
+    configurations:
+      default: [sex, any_cars, age_class, socioprofessional_class, departement_id]
+      reduced: [sex, age_class, socioprofessional_class]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: Configurations de matching définies par le protocole
+```
+
+La liste des labels est le support utilisé par le design et le contrat
+scientifique. La colonne du plan et `RunSpec.parameters` gardent les labels ; le
+payload résolu entre dans le `runId`. Morris historique, OAT discret et Morris
+canonique refusent ces facteurs car un ordre nominal arbitraire ne définit pas
+leurs pas. A l'exécution, une liste déclarée modifiée est écrite dans un snapshot
+YAML sûr propre à la tentative et omise de la CLI ; toute liste ou mapping modifié
+mais non déclaré reste invalide.
+
 ## `analysis`
 
 Grid, l'ancien `morris` et l'OAT discret exigent exactement :

@@ -558,6 +558,48 @@ meta-configuration data so future samplers can extend the supported vocabulary.
 A varied discrete-uniform support contains at least two distinct values;
 uniformity applies to support points, never to repeated list positions.
 
+An ordered-list model key may instead use named configurations. This is generic;
+`matching_attributes` is only a representative example:
+
+```yaml
+parameters:
+  matching_attributes:
+    configurations:
+      default: [sex, any_cars, age_class, socioprofessional_class, departement_id]
+      reduced: [sex, age_class, socioprofessional_class]
+      urban: [sex, age_class, urban_type, departement_id]
+```
+
+The model key must exist and contain a list of strings. Every label is a unique,
+non-empty string without NUL. Every payload is a non-empty ordered list of
+unique, non-empty strings without NUL, and two labels may not name the same
+payload. Payload order is preserved. `seed` cannot be structured.
+
+Grid is the recommended first design. Historical Sobol is accepted as
+demonstration provenance. Multi-scramble Sobol is accepted only when the labels
+have a defensible scientific distribution; a scientific declaration adds the
+same exact `distribution` sibling used by scalar supports:
+
+```yaml
+parameters:
+  matching_attributes:
+    configurations:
+      default: [sex, any_cars, age_class, socioprofessional_class, departement_id]
+      reduced: [sex, age_class, socioprofessional_class]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: Protocol-defined matching configurations
+```
+
+The label list is the factor support used by the design and scientific contract.
+The plan column and `RunSpec.parameters` retain labels; the resolved payload is
+hashed into `runId`. Historical Morris, discrete OAT, and canonical Morris reject
+structured factors because arbitrary nominal label order cannot define their
+steps. During execution, a changed declared list is written to a per-attempt safe
+YAML snapshot and omitted from CLI overrides; undeclared changed lists or
+mappings remain invalid.
+
 ## `analysis`
 
 Grid, historical `morris`, and discrete OAT require exactly:

@@ -31,6 +31,7 @@ from tests.test_nantes_scientific_protocol import (
 )
 from tests.test_plan import design as grid_design
 from tests.test_plan import meta_fixture, morris_design, sobol_design
+from tests.test_structured_configurations import _grid_design as structured_grid_design
 
 
 def _metadata(root: Path, design) -> dict[bytes, bytes]:  # type: ignore[no-untyped-def]
@@ -87,6 +88,14 @@ def test_release_version_and_plan_schema_matrix(tmp_path: Path) -> None:
             assert descriptor == {"version": "test"}
         elif method == "multiscramble_sobol":
             assert descriptor["eqasimSaVersion"] == "0.3.0"
+
+    structured = structured_grid_design(tmp_path / "structured-grid")
+    structured_metadata = _metadata(structured.campaign_root, structured)
+    assert structured_metadata[b"planSchemaVersion"] == b"3"
+    assert structured_metadata[b"structuredFactorsVersion"] == b"1"
+    assert json.loads(structured_metadata[b"structuredFactors"]) == (
+        structured.structured_factors
+    )
 
 
 def test_release_wheel_verifier_without_prebuilt_distribution(tmp_path: Path) -> None:

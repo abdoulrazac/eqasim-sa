@@ -4,10 +4,12 @@
 
 ## Domaine d'un facteur
 
-Une valeur de facteur est exactement un entier signé 64 bits, un float fini ou
-une chaîne non vide sans caractère NUL. Les booléens, `null`, tableaux, mappings,
-NaN et infinis sont interdits. Toutes les valeurs d'un domaine ont exactement le
-même type Python : `[1, 2]` et `[1.0, 2.0]` sont valides, `[1, 2.0]` ne l'est pas.
+Une valeur de facteur scalaire est exactement un entier signé 64 bits, un float
+fini ou une chaîne non vide sans caractère NUL. Les booléens, `null`, tableaux,
+mappings, NaN et infinis sont interdits comme niveaux scalaires. Les facteurs
+listes structurées nommés sont l'exception explicite décrite plus bas. Toutes les
+valeurs scalaires d'un domaine ont exactement le même type Python : `[1, 2]` et
+`[1.0, 2.0]` sont valides, `[1, 2.0]` ne l'est pas.
 
 Un nom suit `^[A-Za-z_][A-Za-z0-9_]*$`, doit exister dans `config:` du YAML
 eqasim et ne peut être réservé.
@@ -58,7 +60,7 @@ afin que les indicateurs comparés gardent les mêmes classes de sortie. L'OAT d
 peut pas porter ce facteur catégoriel car il accepte uniquement des domaines
 numériques ordonnés. Les noms de schéma sont des facteurs scalaires ordinaires
 et participent donc au `runId`; les listes de bornes et autres recodages
-structurés ne sont pas patchables par eqasim-sa.
+structurés utilisent le contrat de facteur liste structurée nommé décrit plus bas.
 
 `init` lit le YAML modèle sélectionné sans l'exécuter. Il exige les entrées
 explicites `matching_age_scheme: matching_6` et
@@ -112,10 +114,25 @@ cette colonne est une simple mise à l'échelle globale de HTS. La normalisation
 annule cette échelle; les nouveaux starters ne la déclarent donc pas comme
 seconde référence.
 
-`matching_attributes` est important mais prend une liste ordonnée : le dernier
-attribut est relâché en premier. Il n'est pas transportable actuellement comme
-facteur eqasim-sa. `random_seed` ne se déclare jamais comme paramètre modèle
-ordinaire; utilisez le mécanisme de seed propre à la méthode décrit plus bas.
+`matching_attributes` est important et ordonné : le dernier attribut est relâché
+en premier. Déclarez des payloads de listes nommés et distincts sous
+`configurations` ; le plan varie les labels et l'exécution reçoit la liste
+ordonnée. Commencez par Grid. N'utilisez Sobol multi-scramble que si les
+probabilités égales des labels et leur provenance sont scientifiquement
+défendables. Toutes les formes de Morris refusent ce facteur nominal. Archivez un
+diagnostic `matched_counts` avant d'interpréter un changement de structure de
+matching ; eqasim-sa ne l'implémente pas. `random_seed` reste propre à la méthode
+et ne peut pas être structurée.
+
+## Facteurs listes structurées nommés
+
+Un facteur structuré associe chaque label sûr à une liste ordonnée non vide de
+chaînes uniques et non vides. Labels et payloads sont uniques ; les alias de
+listes identiques sont refusés. La clé du modèle scellé doit déjà être une liste
+de chaînes. Le plan et l'analyse utilisent le support ordonné des labels, mais le
+`runId` hache la liste complètement résolue. Seuls les plans structurés utilisent
+le schéma v3 et scellent le mapping canonique exact. Les octets et schémas v1/v2
+des plans non structurés restent inchangés.
 
 ### Exemple Grid concret
 

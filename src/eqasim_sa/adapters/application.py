@@ -219,7 +219,11 @@ def run_from_meta_config(path: Path) -> dict:
 
             def run_batch(batch):  # type: ignore[no-untyped-def]
                 simulator = EqasimSimulator(
-                    settings, meta.model_document, meta.model_bytes, batch.slot
+                    settings,
+                    meta.model_document,
+                    meta.model_bytes,
+                    batch.slot,
+                    meta.structured_factors,
                 )
                 with active_lock:
                     active.add(simulator)
@@ -295,7 +299,10 @@ def _execute_exclusive(spec, simulator, campaign_root, workdir, interrupted=None
 def analyze_from_meta_config(path: Path) -> dict:
     meta = load_meta_config(path)
     _validate_scientific_method(meta)
-    if meta.method in {"canonical_morris", "multiscramble_sobol"}:
+    if getattr(meta, "structured_factors", {}) or meta.method in {
+        "canonical_morris",
+        "multiscramble_sobol",
+    }:
         # Full-context run identity is an adapter preflight: core analysis has no base config.
         design = _design(meta)
         load_run_specs(meta.campaign_root / "plan.parquet", design, meta.campaign)
@@ -377,6 +384,7 @@ def _validate_scientific_method(meta) -> None:  # type: ignore[no-untyped-def]
 
 def _design(meta, requirements=None):  # type: ignore[no-untyped-def]
     _validate_scientific_method(meta)
+    structured_factors = getattr(meta, "structured_factors", {})
     common = (
         meta.model_document,
         meta.factors,
@@ -389,9 +397,19 @@ def _design(meta, requirements=None):  # type: ignore[no-untyped-def]
         meta.campaign_root,
     )
     if getattr(meta, "method", "grid") == "morris":
-        return MorrisDesign(*common, meta.trajectories, meta.design_seed)
+        return MorrisDesign(
+            *common,
+            meta.trajectories,
+            meta.design_seed,
+            structured_factors=structured_factors,
+        )
     if getattr(meta, "method", "grid") == "discrete_oat":
-        return DiscreteOATDesign(*common, meta.trajectories, meta.design_seed)
+        return DiscreteOATDesign(
+            *common,
+            meta.trajectories,
+            meta.design_seed,
+            structured_factors=structured_factors,
+        )
     if getattr(meta, "method", "grid") == "canonical_morris":
         distributions = {
             name: {
@@ -416,9 +434,15 @@ def _design(meta, requirements=None):  # type: ignore[no-untyped-def]
             meta.confidence_level,
             meta.convergence_checkpoints,
             meta.screening_top_k,
+            structured_factors=structured_factors,
         )
     if getattr(meta, "method", "grid") == "sobol":
-        return SobolDesign(*common, meta.base_sample_size, meta.design_seed)
+        return SobolDesign(
+            *common,
+            meta.base_sample_size,
+            meta.design_seed,
+            structured_factors=structured_factors,
+        )
     if getattr(meta, "method", "grid") == "multiscramble_sobol":
         full_factors = {**meta.factors, "seed": list(meta.seeds)}
         distributions = {
@@ -439,8 +463,9 @@ def _design(meta, requirements=None):  # type: ignore[no-untyped-def]
             distributions,
             contract,
             meta.confidence_level,
+            structured_factors=structured_factors,
         )
-    return GridDesign(*common)
+    return GridDesign(*common, structured_factors=structured_factors)
 
 
 def _file_state(path: Path) -> tuple[int, int, int, int, int]:
@@ -784,7 +809,12 @@ def _smoke(meta, specs) -> None:  # type: ignore[no-untyped-def]
             "smoke",
             scratch,
         )
-        simulator = EqasimSimulator(settings, meta.model_document, meta.model_bytes)
+        simulator = EqasimSimulator(
+            settings,
+            meta.model_document,
+            meta.model_bytes,
+            structured_factors=meta.structured_factors,
+        )
         first = specs[0]
         smoke_specs = []
         for seed in seeds[:2]:

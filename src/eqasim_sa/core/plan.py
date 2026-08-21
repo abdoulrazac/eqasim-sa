@@ -4,7 +4,7 @@ import itertools
 import json
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
 
@@ -44,6 +44,7 @@ class GridDesign:
     context_descriptor: dict
     campaign_root: Path
     method: str = "grid"
+    structured_factors: dict[str, dict[str, list[str]]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,7 @@ class MorrisDesign:
     trajectories: int
     design_seed: int
     method: str = "morris"
+    structured_factors: dict[str, dict[str, list[str]]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -72,6 +74,7 @@ class DiscreteOATDesign:
     trajectories: int
     design_seed: int
     method: str = "discrete_oat"
+    structured_factors: dict[str, dict[str, list[str]]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -94,6 +97,7 @@ class CanonicalMorrisDesign:
     convergence_checkpoints: tuple[int, ...]
     screening_top_k: int
     method: str = "canonical_morris"
+    structured_factors: dict[str, dict[str, list[str]]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -108,6 +112,7 @@ class SobolDesign:
     base_sample_size: int
     design_seed: int
     method: str = "sobol"
+    structured_factors: dict[str, dict[str, list[str]]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -125,6 +130,7 @@ class MultiScrambleSobolDesign:
     scientific_contract: dict
     confidence_level: float
     method: str = "multiscramble_sobol"
+    structured_factors: dict[str, dict[str, list[str]]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -251,6 +257,107 @@ def _json(value: object) -> bytes:
     ).encode("utf-8")
 
 
+def _structured_json(value: dict[str, dict[str, list[str]]]) -> bytes:
+    ordered = {name: value[name] for name in sorted(value)}
+    return json.dumps(
+        ordered,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+
+
+def validate_structured_plan_metadata(
+    metadata: dict[bytes, bytes],
+) -> dict[str, dict[str, list[str]]]:
+    version = metadata.get(b"planSchemaVersion")
+    pair = {b"structuredFactorsVersion", b"structuredFactors"}
+    present = pair & set(metadata)
+    if version is None and not present:
+        return {}
+    if version in {b"1", b"2"}:
+        if present:
+            raise ValueError("structured plan metadata requires plan schema v3")
+        return {}
+    if version != b"3" or present != pair:
+        raise ValueError("structured plan metadata pair is missing or unsupported")
+    if metadata[b"structuredFactorsVersion"] != b"1":
+        raise ValueError("structured plan metadata version is unsupported")
+    try:
+        structured = json.loads(metadata[b"structuredFactors"])
+        canonical = _structured_json(structured)
+    except Exception as error:
+        raise ValueError("structured plan metadata is invalid") from error
+    if (
+        metadata[b"structuredFactors"] != canonical
+        or not isinstance(structured, dict)
+        or not structured
+    ):
+        raise ValueError("structured plan metadata is not canonical")
+    for name, configurations in structured.items():
+        if (
+            not isinstance(name, str)
+            or not NAME.fullmatch(name)
+            or not isinstance(configurations, dict)
+            or not configurations
+        ):
+            raise ValueError("structured plan metadata has invalid factors")
+        payloads = []
+        for label, payload in configurations.items():
+            if (
+                not isinstance(label, str)
+                or not label
+                or "\0" in label
+                or not isinstance(payload, list)
+                or not payload
+                or any(
+                    not isinstance(item, str) or not item or "\0" in item
+                    for item in payload
+                )
+                or len(set(payload)) != len(payload)
+            ):
+                raise ValueError("structured plan metadata has invalid configurations")
+            payloads.append(tuple(payload))
+        if len(set(payloads)) != len(payloads):
+            raise ValueError("structured plan metadata contains payload aliases")
+    return structured
+
+
+def validate_structured_plan_rows(
+    plan: pa.Table, structured: dict[str, dict[str, list[str]]]
+) -> None:
+    if not structured:
+        return
+    factor_columns = set(plan.column_names) - set(FIXED)
+    methods = set(plan["method"].to_pylist()) if "method" in plan.column_names else set()
+    for name, configurations in structured.items():
+        if name not in factor_columns:
+            raise ValueError(
+                f"structured plan factor {name!r} is not a plan factor column"
+            )
+        observed = plan[name].to_pylist()
+        if any(type(label) is not str or label not in configurations for label in observed):
+            raise ValueError(
+                f"structured plan factor {name!r} contains an unknown label"
+            )
+        if methods == {"grid"}:
+            first_occurrence = list(dict.fromkeys(observed))
+            if first_occurrence != list(configurations):
+                raise ValueError(
+                    f"structured Grid factor {name!r} labels do not match plan rows in declaration order"
+                )
+
+
+def validate_structured_factor_supports(
+    structured: dict[str, dict[str, list[str]]], supports: dict[str, list]
+) -> None:
+    for name, configurations in structured.items():
+        if name not in supports or list(configurations) != supports[name]:
+            raise ValueError(
+                f"structured factor {name!r} labels do not exactly match sealed support"
+            )
+
+
 def _scalar(name: str, value: object) -> None:
     if type(value) not in (int, float, str):
         raise TypeError(f"factor {name!r} must be scalar")
@@ -342,6 +449,14 @@ def _validate(design: Design) -> tuple[str, ...]:
         raise TypeError("base configuration and its config block must be mappings")
     _json(design.base_config)
     names = tuple(sorted(design.factors))
+    if not isinstance(design.structured_factors, dict):
+        raise TypeError("structured_factors must be a mapping")
+    if set(design.structured_factors) - set(names):
+        raise ValueError("structured_factors must name declared factors")
+    if design.structured_factors and design.method in {
+        "morris", "discrete_oat", "canonical_morris"
+    }:
+        raise ValueError(f"{design.method} does not support structured factors")
     if design.method == "sobol" and "seed" in design.factors:
         raise ValueError("SobolDesign factors must not contain the special factor seed")
     if design.method == "multiscramble_sobol" and "seed" in design.factors:
@@ -371,6 +486,40 @@ def _validate(design: Design) -> tuple[str, ...]:
             and len(set(values)) != len(values)
         ):
             raise ValueError(f"factor {name!r} values must be distinct")
+        if name in design.structured_factors:
+            configurations = design.structured_factors[name]
+            if list(configurations) != values:
+                raise ValueError(
+                    f"structured factor {name!r} labels must exactly match factor support"
+                )
+            if name not in design.base_config["config"]:
+                raise ValueError(f"structured factor {name!r} is absent from base config")
+            base_value = design.base_config["config"][name]
+            if not isinstance(base_value, list) or any(
+                not isinstance(item, str) for item in base_value
+            ):
+                raise TypeError(
+                    f"structured factor {name!r} base config value must be a list of strings"
+                )
+            payloads = []
+            for label, payload in configurations.items():
+                if not isinstance(label, str) or not label or "\0" in label:
+                    raise ValueError("structured factor labels must be safe strings")
+                if (
+                    not isinstance(payload, list)
+                    or not payload
+                    or any(
+                        not isinstance(item, str) or not item or "\0" in item
+                        for item in payload
+                    )
+                    or len(set(payload)) != len(payload)
+                ):
+                    raise ValueError(
+                        f"structured factor {name!r} payloads must be non-empty unique string lists"
+                    )
+                payloads.append(tuple(payload))
+            if len(set(payloads)) != len(payloads):
+                raise ValueError(f"structured factor {name!r} payloads must be distinct")
     if not design.seeds or any(
         type(seed) is not int or not -(2**63) <= seed < 2**63 for seed in design.seeds
     ):
@@ -957,7 +1106,7 @@ def _multiscramble_definition(
     design: MultiScrambleSobolDesign, names: tuple[str, ...]
 ) -> dict:
     domains = {**design.factors, "seed": list(design.seeds)}
-    return {
+    definition = {
         "baseSampleSizes": list(design.base_sample_sizes),
         "confidenceLevel": design.confidence_level,
         "factors": [
@@ -980,6 +1129,9 @@ def _multiscramble_definition(
         "scientificContract": design.scientific_contract,
         "scrambleSeeds": list(design.scramble_seeds),
     }
+    if design.structured_factors:
+        definition["structuredFactors"] = design.structured_factors
+    return definition
 
 
 def _multiscramble_sobol_positions(
@@ -1037,6 +1189,14 @@ def _table(design: Design, names: tuple[str, ...]) -> pa.Table:
         b"canonicalizationVersion": b"1",
         b"contextDescriptor": _json(design.context_descriptor),
     }
+    if design.structured_factors:
+        metadata.update(
+            {
+                b"planSchemaVersion": b"3",
+                b"structuredFactorsVersion": b"1",
+                b"structuredFactors": _structured_json(design.structured_factors),
+            }
+        )
     canonical_plan = None
     if design.method == "morris":
         morris = {
@@ -1064,7 +1224,7 @@ def _table(design: Design, names: tuple[str, ...]) -> pa.Table:
     if design.method == "canonical_morris":
         canonical_plan = _canonical_definition(design, names)
         canonical, _ = canonical_plan
-        metadata[b"planSchemaVersion"] = b"2"
+        metadata[b"planSchemaVersion"] = b"3" if design.structured_factors else b"2"
         metadata.update(
             {
                 b"canonicalMorrisDesignVersion": b"1",
@@ -1081,10 +1241,12 @@ def _table(design: Design, names: tuple[str, ...]) -> pa.Table:
             "mapping": "equal-width-v1",
             "factors": [{"name": name, "values": domains[name]} for name in names],
         }
+        if design.structured_factors:
+            sobol["structuredFactors"] = design.structured_factors
         metadata.update({b"sobolDesignVersion": b"1", b"sobolDesign": _json(sobol)})
     if design.method == "multiscramble_sobol":
         multiscramble = _multiscramble_definition(design, names)
-        metadata[b"planSchemaVersion"] = b"2"
+        metadata[b"planSchemaVersion"] = b"3" if design.structured_factors else b"2"
         metadata.update(
             {
                 b"multiScrambleSobolDesignVersion": b"1",
@@ -1194,7 +1356,7 @@ def _table(design: Design, names: tuple[str, ...]) -> pa.Table:
                 run_id,
                 seed,
                 design.context_hash,
-                *(nested[name] for name in columns),
+                *(logical[name] for name in columns),
             ]
         )
     schema = pa.schema(
@@ -1218,7 +1380,12 @@ def resolve_config(
 ) -> dict:
     resolved = copy.deepcopy(design.base_config)
     nested = resolved["config"]
-    nested.update(zip(names, values))
+    for name, value in zip(names, values):
+        nested[name] = copy.deepcopy(
+            design.structured_factors[name][value]
+            if name in design.structured_factors
+            else value
+        )
     nested["random_seed"] = seed
     if "run" in design.requirements:
         resolved["run"] = copy.deepcopy(design.requirements["run"])

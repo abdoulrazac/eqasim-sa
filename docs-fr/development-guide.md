@@ -125,6 +125,9 @@ localement dans l'environnement verrouillé.
 - Le marqueur de run est publié après les archives et constitue la preuve unique.
 - Les écritures durables sont atomiques et les liens symboliques sont largement refusés.
 - Les overrides d'infrastructure ne modifient pas `runId`.
+- Les facteurs structurés nommés restent un mapping label-vers-liste séparé à la
+  frontière adaptateur/cœur : le plan expose les labels, la résolution et le
+  `runId` utilisent les listes, et le schéma v3 scelle le mapping canonique.
 - Une analyse ne doit pas muter ses sources; le code sauvegarde et restaure en cas d'écart.
 
 ## Ajouter un indicateur personnalisé

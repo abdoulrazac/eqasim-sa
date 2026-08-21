@@ -4,10 +4,12 @@
 
 ## Factor domain
 
-A factor value is exactly a signed 64-bit integer, a finite float, or a non-empty
-string without a NUL character. Booleans, `null`, arrays, mappings, NaN, and
-infinities are forbidden. All values in a domain have exactly the same Python
-type: `[1, 2]` and `[1.0, 2.0]` are valid, while `[1, 2.0]` is not.
+A scalar factor value is exactly a signed 64-bit integer, a finite float, or a
+non-empty string without a NUL character. Booleans, `null`, arrays, mappings,
+NaN, and infinities are forbidden as scalar levels. Named structured-list
+factors are the explicit exception described below. All scalar values in a
+domain have exactly the same Python type: `[1, 2]` and `[1.0, 2.0]` are valid,
+while `[1, 2.0]` is not.
 
 A name follows `^[A-Za-z_][A-Za-z0-9_]*$`, must exist under `config:` in the
 eqasim YAML, and cannot be reserved.
@@ -58,7 +60,7 @@ names. The base model keeps `analysis_age_scheme: analysis_7` fixed so compared
 indicators have the same output classes. Discrete OAT cannot carry this categorical
 factor because it accepts numeric ordered domains only. Scheme names are
 ordinary scalar factors and therefore affect `runId`; boundary lists and other
-structured recodings are not patchable through eqasim-sa.
+structured recodings use the named structured-list factor contract below.
 
 `init` reads the selected model YAML without executing it. It requires explicit
 `matching_age_scheme: matching_6` and `analysis_age_scheme: analysis_7` entries.
@@ -110,10 +112,23 @@ outputs `HTS adjust with INSEE population weights` for compatibility, but this
 column is only a global rescaling of HTS. TV normalization removes that scale,
 so new starters do not declare it as a second reference.
 
-`matching_attributes` is scientifically important but is an ordered list, not a
-scalar. The last attribute is relaxed first. It cannot currently be transported
-as an eqasim-sa factor. `random_seed` is never declared as an ordinary model
-parameter; use the method-specific seed mechanism described below.
+`matching_attributes` is scientifically important and ordered: the last
+attribute is relaxed first. Declare named, distinct list payloads under
+`configurations`; the plan varies their labels while execution receives the
+ordered list. Start with Grid. Use multi-scramble Sobol only when equal label
+probabilities and their provenance are scientifically defensible. All Morris
+forms refuse this nominal factor. Archive a `matched_counts` diagnostic before
+interpreting changes in matching structure; eqasim-sa does not implement that
+diagnostic. `random_seed` remains method-specific and cannot be structured.
+
+## Named structured-list factors
+
+A structured factor maps each safe label to a non-empty ordered list of unique,
+non-empty strings. Labels and payloads are unique; identical-list aliases are
+rejected. The sealed model key must already be a list of strings. The plan and
+analysis use the ordered label support, but `runId` hashes the fully resolved
+list. Structured plans alone use plan schema v3 and seal the exact canonical
+mapping. Unstructured plan bytes and v1/v2 schemas are unchanged.
 
 ### Concrete Grid example
 
