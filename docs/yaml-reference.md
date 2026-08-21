@@ -567,7 +567,7 @@ parameters:
     configurations:
       default: [sex, any_cars, age_class, socioprofessional_class, departement_id]
       reduced: [sex, age_class, socioprofessional_class]
-      urban: [sex, age_class, urban_type, departement_id]
+      age_priority: [age_class, any_cars, sex, socioprofessional_class, departement_id]
 ```
 
 The model key must exist and contain a list of strings. Every label is a unique,

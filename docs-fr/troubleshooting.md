@@ -45,6 +45,37 @@ Cause fréquente : booléen, `null`, niveaux mixtes, float non fini ou domaine
 Morris historique/OAT discret mal ordonné. Remède : conserver un type homogène et des nombres finis.
 Pour un float requis, écrire `1.0`, pas `1`.
 
+## Erreurs de facteur structuré nommé
+
+- `factor 'matching_attributes' must contain exactly ...` : une déclaration de
+  démonstration contient exactement `configurations`; une déclaration scientifique
+  contient exactement `configurations` et `distribution`. Ne mélangez pas
+  `values` et `configurations`.
+- `unknown factor` ou `model config value must be a list of strings` : le YAML
+  modèle scellé doit déjà contenir `config.matching_attributes` active sous forme
+  de liste de chaînes. Committez ce YAML et gardez le dépôt modèle propre;
+  eqasim-sa ne crée ni ne convertit cette clé.
+- `must be a non-empty ordered list...`, `distinct payloads` ou `payload aliases` :
+  chaque charge est une liste non vide de chaînes non vides uniques, et deux
+  labels ne peuvent résoudre vers la même liste ordonnée. Les labels sont aussi
+  des chaînes non vides sans NUL.
+- `does not support structured factors` : `morris`, `discrete_oat` et
+  `canonical_morris` refusent tous les charges structurées nommées. Utilisez Grid
+  pour une démonstration, ou un `multiscramble_sobol` entièrement gouverné si les
+  probabilités égales des labels sont scientifiquement justifiées.
+- `structured plan metadata ...`, `mismatch` ou `unknown label` : dans le schéma
+  v3, `structuredFactorsVersion` et la métadonnée canonique `structuredFactors`
+  sont scellés avec les labels et identités. Préservez l'état endommagé pour
+  diagnostic et créez un plan sous une nouvelle racine; ne modifiez jamais
+  `plan.parquet`.
+- L'absence de `--matching_attributes` dans la commande modèle est volontaire.
+  Les valeurs composites sont écrites dans le snapshot YAML de chaque run, pas
+  transportées par le CLI scalaire de synpp. Inspectez le `config.yml` de la
+  tentative en échec au lieu d'ajouter un override CLI manuel contenant la liste.
+
+Le workflow sûr complet figure dans le
+[tutoriel des configurations structurées](structured-configurations-tutorial.md).
+
 ## `canonical_morris requires charter.status scientific`
 
 Cause : Morris canonique est configuré comme démonstration ou sans charte.

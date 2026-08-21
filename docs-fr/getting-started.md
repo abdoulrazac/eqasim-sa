@@ -116,6 +116,16 @@ constituent pas une recommandation scientifique et `init` ne génère délibér�
 aucun starter Morris canonique. Consultez [Paramètres et méthodes](parameters-and-methods.md)
 avant d'étendre les domaines ou de rédiger une campagne scientifique propre à l'étude.
 
+## Première cible structurée
+
+Pour comparer des listes ordonnées `matching_attributes` nommées, committez
+d'abord une clé active sous forme de liste dans le dépôt modèle propre, puis
+dérivez une configuration Grid avec une nouvelle campagne/racine. Le
+[tutoriel des configurations structurées](structured-configurations-tutorial.md)
+couvre les six runs, les métadonnées du plan, l'inspection de l'analyse et les
+limites scientifiques. `init` ne modifie pas le YAML modèle et ne génère pas
+automatiquement cette cible.
+
 ## Checkpoints minimaux des modèles générés
 
 Les commandes `plan` renvoient un objet JSON avec `status`, `designPositions` et

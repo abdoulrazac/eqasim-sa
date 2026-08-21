@@ -8,13 +8,14 @@ The Python parser is authoritative: the project does not provide a JSON Schema.
 ## User documentation
 
 1. [Getting started](getting-started.md): installation, `init`, and the first campaign.
-2. [YAML reference](yaml-reference.md): the complete meta-configuration contract.
-3. [Parameters and methods](parameters-and-methods.md): Grid, discrete OAT, canonical Morris, Sobol, and seeds.
-4. [Workflow and results](workflow-and-results.md): identities, storage, and resumption.
-5. [CLI reference](cli-reference.md): commands, JSON, and exit codes.
-6. [Troubleshooting](troubleshooting.md): common errors and safe remedies.
-7. [Glossary](glossary.md): precise project terminology.
-8. [Release compatibility](compatibility.md): schema, method, inference, refusal, and release matrices.
+2. [Named structured configurations tutorial](structured-configurations-tutorial.md): compare ordered `matching_attributes` lists end to end.
+3. [YAML reference](yaml-reference.md): the complete meta-configuration contract.
+4. [Parameters and methods](parameters-and-methods.md): Grid, discrete OAT, canonical Morris, Sobol, and seeds.
+5. [Workflow and results](workflow-and-results.md): identities, storage, and resumption.
+6. [CLI reference](cli-reference.md): commands, JSON, and exit codes.
+7. [Troubleshooting](troubleshooting.md): common errors and safe remedies.
+8. [Glossary](glossary.md): precise project terminology.
+9. [Release compatibility](compatibility.md): schema, method, inference, refusal, and release matrices.
 
 ## Contributor documentation
 

@@ -8,13 +8,14 @@ Le parseur Python est normatif : le projet ne fournit pas de JSON Schema.
 ## Documentation utilisateur
 
 1. [Démarrage](getting-started.md) : installation, `init` et première campagne.
-2. [Référence YAML](yaml-reference.md) : contrat complet d'une méta-configuration.
-3. [Paramètres et méthodes](parameters-and-methods.md) : Grid, OAT discret, Morris canonique, Sobol et seeds.
-4. [Workflow et résultats](workflow-and-results.md) : identités, stockage et reprise.
-5. [Référence CLI](cli-reference.md) : commandes, JSON et codes de sortie.
-6. [Dépannage](troubleshooting.md) : erreurs fréquentes et remèdes sûrs.
-7. [Glossaire](glossary.md) : vocabulaire précis du projet.
-8. [Compatibilité de version](compatibility.md) : matrices des schémas, méthodes, statuts, refus et versions.
+2. [Tutoriel des configurations structurées nommées](structured-configurations-tutorial.md) : comparer de bout en bout des listes `matching_attributes` ordonnées.
+3. [Référence YAML](yaml-reference.md) : contrat complet d'une méta-configuration.
+4. [Paramètres et méthodes](parameters-and-methods.md) : Grid, OAT discret, Morris canonique, Sobol et seeds.
+5. [Workflow et résultats](workflow-and-results.md) : identités, stockage et reprise.
+6. [Référence CLI](cli-reference.md) : commandes, JSON et codes de sortie.
+7. [Dépannage](troubleshooting.md) : erreurs fréquentes et remèdes sûrs.
+8. [Glossaire](glossary.md) : vocabulaire précis du projet.
+9. [Compatibilité de version](compatibility.md) : matrices des schémas, méthodes, statuts, refus et versions.
 
 ## Documentation contributeur
 

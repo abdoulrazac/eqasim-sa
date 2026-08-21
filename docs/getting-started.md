@@ -116,6 +116,16 @@ scientific recommendation, and `init` deliberately generates no canonical
 Morris starter. Consult [Parameters and methods](parameters-and-methods.md)
 before expanding domains or authoring a study-specific scientific campaign.
 
+## First structured target
+
+To compare named ordered `matching_attributes` lists, first commit an active
+list-valued key in the clean model repository, then derive a Grid configuration
+under a new campaign/root. The
+[structured-configurations tutorial](structured-configurations-tutorial.md)
+covers the complete six-run workflow, plan metadata, analysis inspection, and
+scientific-method boundaries. `init` does not modify the model YAML or generate
+this target automatically.
+
 ## Minimum checkpoints for generated templates
 
 The `plan` commands return a JSON object with `status`, `designPositions`, and

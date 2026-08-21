@@ -82,6 +82,36 @@ Grid and Sobol vary the scalar `matching_age_scheme` between `matching_6` and
 configuration keeps `analysis_age_scheme: analysis_7` fixed so output classes
 remain comparable; changing an output scheme is not a matching effect.
 
+### Named matching configurations
+
+Grid can also compare named ordered lists. The tracked model YAML must already
+contain the active `config.matching_attributes` key as a list of strings; `init`
+does not add or modify it. Commit that YAML and verify that the complete model
+repository is clean before initializing or planning. Copy `configs/01-grid.yml`, give the copy a new
+`campaign` and empty `campaign_root`, and replace its `parameters` block, for
+example:
+
+```yaml
+campaign: @PROJECT_NAME@-grid-structured
+campaign_root: ../campaigns/grid-structured
+parameters:
+  matching_attributes:
+    configurations:
+      default: [sex, any_cars, age_class, socioprofessional_class, departement_id]
+      reduced: [sex, age_class, socioprofessional_class]
+      age_priority: [age_class, any_cars, sex, socioprofessional_class, departement_id]
+```
+
+Keep the copied Grid's two replication seeds, indicators, execution, and
+calibration blocks. This produces 6 positions and 6 expected unique runs. The
+labels are readable aliases; execution and `runId` use the resolved ordered
+lists. All Morris forms reject structured factors. This remains a demonstration,
+not a variance-share analysis.
+
+The complete walkthrough is `docs/structured-configurations-tutorial.md` in the
+eqasim-sa source repository. It includes model preparation, commands, plan
+inspection, interpretation, scientific caveats, and safe recovery.
+
 Every generated configuration starts with exactly three total-variation
 signals: age against INSEE, distance against HTS, and number of vehicles against
 HTS. eqasim-france still archives `HTS adjust with INSEE population weights`

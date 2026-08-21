@@ -559,7 +559,7 @@ parameters:
     configurations:
       default: [sex, any_cars, age_class, socioprofessional_class, departement_id]
       reduced: [sex, age_class, socioprofessional_class]
-      urban: [sex, age_class, urban_type, departement_id]
+      age_priority: [age_class, any_cars, sex, socioprofessional_class, departement_id]
 ```
 
 La clé modèle doit exister et contenir une liste de chaînes. Chaque label est une

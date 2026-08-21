@@ -87,11 +87,20 @@ analyse.
 La calibration concerne le temps, le stockage durable et le cache worker. Elle
 ne calibre pas les paramètres scientifiques d'eqasim.
 
+## Configurations structurées de matching
+
+Grid peut comparer des listes ordonnées `matching_attributes` nommées tout en
+conservant la liste résolue dans l'identité et l'exécution du run. Le YAML modèle
+doit déjà contenir cette clé active sous forme de liste; utilisez une nouvelle
+campagne/racine pour la cible dérivée. Consultez le
+[tutoriel pratique](docs-fr/structured-configurations-tutorial.md).
+
 ## Documentation
 
 - [Registre du protocole scientifique nantais](protocols/nantes-scientific/README.md) (rédigé pour l'étude, non généré par `init`)
 - [Index de la documentation](docs-fr/index.md)
 - [Démarrage](docs-fr/getting-started.md)
+- [Tutoriel des configurations structurées nommées](docs-fr/structured-configurations-tutorial.md)
 - [Référence CLI](docs-fr/cli-reference.md)
 - [Référence YAML](docs-fr/yaml-reference.md)
 - [Paramètres et méthodes](docs-fr/parameters-and-methods.md)

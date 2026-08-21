@@ -46,6 +46,36 @@ Common causes: a boolean, `null`, mixed levels, a non-finite float, or an
 incorrectly ordered historical-Morris/discrete-OAT domain. Remedy: keep the type
 homogeneous and numbers finite. Where a float is required, write `1.0`, not `1`.
 
+## Named structured factor errors
+
+- `factor 'matching_attributes' must contain exactly ...`: a demonstration
+  declaration has exactly `configurations`; a scientific declaration has exactly
+  `configurations` and `distribution`. Do not combine `values` with
+  `configurations`.
+- `unknown factor` or `model config value must be a list of strings`: the sealed
+  model YAML must already contain active `config.matching_attributes` as a list
+  of strings. Commit that YAML and keep the model repository clean before
+  planning; eqasim-sa does not create or coerce the key.
+- `must be a non-empty ordered list...`, `distinct payloads`, or `payload
+  aliases`: every configuration payload must be a non-empty list of unique,
+  non-empty strings, and no two labels may resolve to the same ordered list.
+  Labels must also be non-empty strings without NUL.
+- `does not support structured factors`: `morris`, `discrete_oat`, and
+  `canonical_morris` all refuse named structured payloads. Use Grid for a
+  demonstration, or a fully chartered `multiscramble_sobol` design where equal
+  label probabilities are scientifically justified.
+- `structured plan metadata ...`, `mismatch`, or `unknown label`: schema-v3
+  `structuredFactorsVersion` and canonical `structuredFactors` metadata are
+  sealed together with labels and run identities. Preserve the damaged state for
+  diagnosis and create a plan under a new root; never edit `plan.parquet`.
+- No `--matching_attributes` appears in the model command: this is intentional.
+  Composite values are written into the per-run YAML snapshot and are not passed
+  through synpp's scalar CLI transport. Inspect the failed attempt's `config.yml`
+  rather than adding a manual list-valued CLI override.
+
+The complete safe workflow is in the
+[structured-configurations tutorial](structured-configurations-tutorial.md).
+
 ## `canonical_morris requires charter.status scientific`
 
 Cause: canonical Morris was configured as a demonstration or without a charter.

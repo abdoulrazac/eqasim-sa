@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import json
+import re
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -37,8 +38,24 @@ CONFIGURATIONS = {
         "departement_id",
     ],
     "reduced": ["sex", "age_class", "socioprofessional_class"],
-    "urban": ["sex", "age_class", "urban_type", "departement_id"],
+    "age_priority": [
+        "age_class",
+        "any_cars",
+        "sex",
+        "socioprofessional_class",
+        "departement_id",
+    ],
 }
+
+
+def _tutorial_replacement(path: Path) -> dict:
+    match = re.search(
+        r"```yaml\n(# structured-grid-tutorial-replacement\n.*?)\n```",
+        path.read_text(),
+        re.DOTALL,
+    )
+    assert match is not None
+    return yaml.safe_load(match.group(1))
 
 
 def structured_meta(tmp_path: Path) -> Path:
@@ -61,11 +78,33 @@ def test_load_meta_config_accepts_exact_named_ordered_list_syntax(tmp_path: Path
     loaded = load_meta_config(structured_meta(tmp_path))
 
     assert loaded.factors == {
-        "matching_attributes": ["default", "reduced", "urban"]
+        "matching_attributes": ["default", "reduced", "age_priority"]
     }
     assert loaded.structured_factors == {
         "matching_attributes": CONFIGURATIONS
     }
+
+
+def test_bilingual_tutorial_replacement_builds_six_grid_runs(tmp_path: Path) -> None:
+    root = Path(__file__).parents[1]
+    replacement = _tutorial_replacement(
+        root / "docs" / "structured-configurations-tutorial.md"
+    )
+    assert replacement == _tutorial_replacement(
+        root / "docs-fr" / "structured-configurations-tutorial.md"
+    )
+    assert replacement["parameters"]["matching_attributes"]["configurations"] == CONFIGURATIONS
+
+    meta = structured_meta(tmp_path)
+    document = yaml.safe_load(meta.read_text())
+    document.update(replacement)
+    meta.write_text(yaml.safe_dump(document, sort_keys=False))
+
+    loaded = load_meta_config(meta)
+    assert loaded.seeds == (41, 42)
+    result = plan_from_meta_config(meta)
+    assert result.design_positions == 6
+    assert result.unique_runs == 6
 
 
 @pytest.mark.parametrize(
@@ -155,7 +194,11 @@ def test_scientific_structured_factor_applies_distribution_to_labels(
     meta.write_text(yaml.safe_dump(document, sort_keys=False))
 
     loaded = load_meta_config(meta)
-    assert loaded.factors["matching_attributes"] == ["default", "reduced", "urban"]
+    assert loaded.factors["matching_attributes"] == [
+        "default",
+        "reduced",
+        "age_priority",
+    ]
     assert loaded.distributions["matching_attributes"].family == "discrete_uniform"
     plan_from_meta_config(meta)
     path = loaded.campaign_root / "plan.parquet"
@@ -209,7 +252,7 @@ def _grid_design(root: Path, *, structured_factors=None) -> GridDesign:  # type:
                 "random_seed": 9,
             },
         },
-        factors={"matching_attributes": ["default", "reduced", "urban"]},
+        factors={"matching_attributes": ["default", "reduced", "age_priority"]},
         seeds=(41,),
         requirements={"run": ["stage"]},
         context_hash=hashlib.sha256(
@@ -234,13 +277,12 @@ def test_plan_v3_stores_labels_but_run_specs_resolve_lists_and_hash_them(
     assert table["matching_attributes"].to_pylist() == [
         "default",
         "reduced",
-        "urban",
+        "age_priority",
     ]
     assert table.schema.metadata[b"planSchemaVersion"] == b"3"
     assert table.schema.metadata[b"structuredFactorsVersion"] == b"1"
     assert table.schema.metadata[b"structuredFactors"] == json.dumps(
         {"matching_attributes": CONFIGURATIONS},
-        sort_keys=True,
         separators=(",", ":"),
     ).encode()
 
@@ -248,7 +290,7 @@ def test_plan_v3_stores_labels_but_run_specs_resolve_lists_and_hash_them(
     assert [spec.parameters["matching_attributes"] for spec in specs] == [
         "default",
         "reduced",
-        "urban",
+        "age_priority",
     ]
     assert [spec.resolved_config["config"]["matching_attributes"] for spec in specs] == list(
         CONFIGURATIONS.values()
@@ -352,20 +394,21 @@ def test_grid_analysis_rejects_structured_factor_semantic_tampering(
     if tamper == "unrelated":
         mapping["unrelated"] = {"only": ["x"]}
     elif tamper == "missing":
-        del mapping["matching_attributes"]["urban"]
+        del mapping["matching_attributes"]["age_priority"]
     elif tamper == "extra":
         mapping["matching_attributes"]["extra"] = ["other"]
     elif tamper == "reordered":
         values = mapping["matching_attributes"]
         mapping["matching_attributes"] = {
-            name: values[name] for name in ("urban", "default", "reduced")
+            name: values[name]
+            for name in ("age_priority", "default", "reduced")
         }
     else:
         index = table.schema.get_field_index("matching_attributes")
         table = table.set_column(
             index,
             table.schema.field(index),
-            pa.array(["unknown", "reduced", "urban"]),
+            pa.array(["unknown", "reduced", "age_priority"]),
         )
     metadata[b"structuredFactors"] = json.dumps(
         {name: mapping[name] for name in sorted(mapping)},
@@ -390,7 +433,7 @@ def _structured_sobol_campaign(root: Path) -> Path:
         "eqasimSaVersion": "0.3.0",
     }
     encoded = json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
-    support = ["default", "reduced", "urban"]
+    support = ["default", "reduced", "age_priority"]
     design = SobolDesign(
         {"config": {"matching_attributes": CONFIGURATIONS["default"]}},
         {"matching_attributes": support},
@@ -479,12 +522,13 @@ def test_historical_sobol_analysis_rejects_structured_support_tampering(
     if tamper == "unrelated":
         mapping = {"unrelated": values}
     elif tamper == "missing":
-        del values["urban"]
+        del values["age_priority"]
     elif tamper == "extra":
         values["extra"] = ["other"]
     else:
         mapping["matching_attributes"] = {
-            name: values[name] for name in ("urban", "default", "reduced")
+            name: values[name]
+            for name in ("age_priority", "default", "reduced")
         }
     metadata[b"structuredFactors"] = json.dumps(
         {name: mapping[name] for name in sorted(mapping)}, separators=(",", ":")
