@@ -1,0 +1,154 @@
+# BLOCKED until a valid pilot campaign root supplies a recommended allocation.
+campaign: nantes-scientific-canonical-morris-production-v1
+campaign_root: "__MACHINE_CANONICAL_MORRIS_PRODUCTION_ROOT__"
+charter:
+  status: scientific
+  decision:
+    claim: Identify Nantes inputs that must remain under consideration
+    use: diagnostic
+    setting: Loire-Atlantique department 44 population synthesis using INSEE RP 2022 and EDGT 44
+    objective: screening
+    estimand: Expected total-variation distance over simulator seeds under the analysis_7 output scheme
+    primary_indicator: tv_distance(age, ref=INSEE)
+  uncertainty:
+    dependence:
+      kind: independent
+      rationale: The canonical Morris probability-space design requires independent factor coordinates
+    inventory:
+      parameters:
+        - name: matching_minimum_observations
+          status: varied
+          provenance: Nantes protocol stress support around the documented default of 20
+          rationale: Screen sensitivity to the minimum matching-observation threshold
+        - name: matching_minimum_age
+          status: varied
+          provenance: Nantes protocol stress support around the documented default of 5
+          rationale: Screen sensitivity to the minimum matching-age threshold
+        - name: sampling_rate
+          status: fixed
+          provenance: eqasim-france/config_local_nantes.yml
+          rationale: Fixed at 0.001 and assessed only as numerical robustness
+      data:
+        - name: INSEE_RP_2022
+          status: fixed
+          provenance: INSEE RP 2022 for Loire-Atlantique department 44
+          rationale: Fixed primary age reference; alternatives require a separate data robustness check
+        - name: EDGT_44
+          status: fixed
+          provenance: EDGT 44 household travel survey
+          rationale: Fixed secondary distance and vehicle-count reference
+      structures:
+        - name: population_synthesis_structure
+          status: excluded
+          provenance: eqasim-france/synthesis/population/matched.py and eqasim-france/analysis/synthesis/population.py
+          rationale: Projection, home, education, vehicle, and mode-choice alternatives are robustness-only
+        - name: matching_age_scheme
+          status: excluded
+          provenance: eqasim-france/config_local_nantes.yml; matching in eqasim-france/synthesis/population/matched.py; outputs in eqasim-france/analysis/synthesis/population.py
+          rationale: Alternative age schemes are a separate structural robustness check
+        - name: income_assignation_method
+          status: excluded
+          provenance: eqasim-france/config_local_nantes.yml
+          rationale: Alternative income assignment is a separate structural check
+      scenarios:
+        - name: policy_and_mode_choice_scenario
+          status: excluded
+          provenance: Baseline Nantes scenario declaration
+          rationale: Scenario changes are checked separately and are not attribution factors
+      numerics:
+        - name: simulator_seed
+          status: excluded
+          provenance: Conditional-mean stochastic contract
+          rationale: Integrated by replication and reported as intrinsic variance, not screened as actionable
+        - name: process_count
+          status: fixed
+          provenance: Sealed execution override
+          rationale: Requires an explicit determinism check because matching chunks and sub-seeds depend on it
+  budget:
+    maximum_runs: 1600
+    reserve_fraction: 0.1
+  stopping:
+    criteria:
+      - metric: rank_stability
+        threshold: 0.05
+        consecutive_checks: 3
+  robustness:
+    checks:
+      - name: Process-count determinism
+        rationale: Compare identical inputs and seeds across declared process counts
+      - name: Factor-support sensitivity
+        rationale: Reassess conclusions against defensible alternative support endpoints
+      - name: Sampling-rate numerical robustness
+        rationale: Verify the primary attribution conclusion away from fixed sampling_rate 0.001
+      - name: Matching and analysis age schemes
+        rationale: Keep matching alternatives separate while preserving comparable analysis_7 outputs
+      - name: Survey and reference choice
+        rationale: Reassess reference-year and HTS-source choices outside primary attribution
+      - name: Distance definition asymmetry
+        rationale: Report synthetic Euclidean versus EDGT routed-distance asymmetry
+      - name: Structural model alternatives
+        rationale: Check projection, home, education, income, vehicle-generation, and mode-choice structures separately
+      - name: Direct-run and scenario confirmation
+        rationale: Confirm any proposed conclusion in new direct runs and declared scenarios
+  stochastic:
+    target: conditional_mean
+    random_source: simulator_seed
+    intrinsic_variance: report
+    common_random_numbers: within_trajectory
+    allocation:
+      phase: production
+      variance_quantile: 0.9
+      target_mcse: 0.01
+      minimum_replications: 2
+      maximum_replications: 20
+      selected_replications: __BLOCKED_SELECTED_REPLICATION_COUNT__
+      provenance: "pilot allocation sha256:__BLOCKED_PILOT_ALLOCATION_SHA256__"
+model:
+  config: "__MACHINE_MODEL_CONFIG__"
+  root: "__MACHINE_MODEL_ROOT__"
+context:
+  data_manifest: "__MACHINE_DATA_MANIFEST__"
+  lockfile: "__MACHINE_LOCKFILE__"
+analysis:
+  completeness_threshold: 1.0
+  bootstrap_resamples: 1999
+  confidence_level: 0.95
+  convergence_checkpoints: [6, 12, 18, 24]
+  screening_top_k: 2
+experiment:
+  method: canonical_morris
+  seed_role: replication
+  levels: 4
+  trajectories: 24
+  candidate_trajectories: 32
+  design_seed: 20260821
+  replications:
+    seeds: __BLOCKED_PRODUCTION_SEED_PREFIX__
+parameters:
+  matching_minimum_observations:
+    values: [5, 20, 50]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: Nantes protocol stress support around documented matching behavior and default 20
+  matching_minimum_age:
+    values: [0, 5, 12]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: Nantes protocol stress support around documented matching behavior and default 5
+artifacts:
+  age: {class: Age class, synthetic: Proportion_EQASIM, references: [INSEE]}
+  distance: {class: Distance class, synthetic: Proportion_EQASIM, references: [HTS]}
+  nbr_vehicle: {class: Number of vehicles class, synthetic: Proportion_EQASIM, references: [HTS]}
+indicators:
+  - pair: {scalarizer: tv_distance, artifact: age, reference: INSEE}
+  - product: {scalarizers: [tv_distance], artifacts: [distance, nbr_vehicle]}
+execution:
+  backend: local
+  workers: 1
+  scratch: "__MACHINE_SCRATCH__"
+  invocation: [python, -m, synpp]
+  overrides:
+    data_path: "__MACHINE_DATA_PATH__"
+    processes: 1

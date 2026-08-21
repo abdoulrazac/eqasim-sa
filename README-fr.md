@@ -89,6 +89,7 @@ ne calibre pas les paramètres scientifiques d'eqasim.
 
 ## Documentation
 
+- [Registre du protocole scientifique nantais](protocols/nantes-scientific/README.md) (rédigé pour l'étude, non généré par `init`)
 - [Index de la documentation](docs-fr/index.md)
 - [Démarrage](docs-fr/getting-started.md)
 - [Référence CLI](docs-fr/cli-reference.md)
