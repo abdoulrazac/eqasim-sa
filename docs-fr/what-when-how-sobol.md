@@ -33,6 +33,54 @@ premier. FF demande quel facteur peut être fixé dans une tolérance pratique
 déclarée, interactions incluses. Un scramble et son bootstrap de lignes ne
 fournissent pas la preuve d'incertitude requise.
 
+## Exemples de paramètres
+
+La démonstration générée utilise des facteurs scalaires ordinaires et le facteur
+seed fini spécial à cette méthode :
+
+```yaml
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002, 0.005]
+  matching_age_scheme:
+    values: [matching_6, analysis_7]
+  seed:
+    values: [1401, 1402, 1403, 1404]
+```
+
+C'est un exemple de plomberie : il vérifie le passage de valeurs numériques, de
+labels catégoriels et de seeds du simulateur dans la planification et l'analyse.
+Ce n'est explicitement pas une décomposition scientifique de variance. Avec
+`D=3` facteurs et le `N=4` du guide, il contient
+`N(2D+2) = 4 × 8 = 32` positions avant réutilisation des runs.
+
+Un quatrième facteur facultatif est :
+
+```yaml
+parameters:
+  income_assignation_method:
+    values: [uniform, bhepop2]
+```
+
+Ajoutez ce bloc au même mapping `parameters`, pas comme un second mapping. Il
+porte le design à `4 × 10 = 40` positions. Interprétez-le seulement après avoir
+ajouté un indicateur de revenu personnalisé : le starter n'a pas de scalaire de
+revenu et `bhepop2` peut retomber sur `uniform` dans certaines communes. De même,
+`hts: {values: [edgt_44, entd]}` n'est utilisable que si les deux jeux préparés
+existent et change à la fois les donneurs et les références HTS.
+
+Chaque clé de facteur ordinaire doit déjà exister sous `config:` dans le YAML
+modèle scellé. Le facteur spécial `seed` est la seule exception et ne doit pas y
+exister. Un facteur structuré exigerait une clé de base de type liste, mais il est
+préférable de réserver Sobol historique à la plomberie scalaire générée ; pour
+des listes nommées, suivez le tutoriel et utilisez une méthode compatible. La
+seed du simulateur se déclare uniquement dans `parameters.seed.values` pour
+cette méthode. N'utilisez jamais `random_seed` comme facteur ordinaire. Ces
+domaines montrent la syntaxe, pas une justification scientifique automatique.
+Consultez le [catalogue des paramètres
+Nantes](parameters-and-methods.md#catalogue-des-paramètres-nantes) et le
+[tutoriel des configurations structurées](structured-configurations-tutorial.md).
+
 ## Comment
 
 Le YAML suivant est un **fragment**. Il ne s'exécute pas seul.

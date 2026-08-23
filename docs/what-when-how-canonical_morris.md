@@ -40,6 +40,48 @@ structured configurations, or dependent factors. Do not present a pilot as
 production evidence. A variance share is the portion of output variation
 attributed to an input.
 
+## Parameter examples
+
+This parameter fragment fits the scientific charter shape shown below:
+
+```yaml
+parameters:
+  matching_minimum_observations:
+    values: [5, 20, 50]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: Replace with study evidence supporting these three thresholds
+  matching_minimum_age:
+    values: [0, 5, 12]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: Replace with study evidence supporting these three ages
+```
+
+`discrete_uniform` means that each of the three declared values has equal
+probability. The placeholder provenance is deliberately not evidence: replace
+it with the study's actual source and reasoning before planning. The support,
+meaning the complete set of allowed values, and factor independence must both be
+justified.
+
+Each factor key must already exist under `config:` in the sealed model YAML.
+Strings and structured matching configurations must not be used here under the
+current contract; a structured base key would have to be a list, but canonical
+Morris rejects structured factors. Use Grid for those comparisons. Seeds belong
+only in `experiment.replications.seeds` and are base seeds from which this method
+derives run seeds; never declare `random_seed` as an ordinary factor.
+
+The support `[0.001, 0.002, 0.005]` is numerically valid for `sampling_rate`, but
+a scientific declaration must use the complete `values` and `distribution`
+form shown above for the other factors. This parameter changes population size
+and Monte Carlo noise together. It is often clearer to fix it and test it as
+numerical robustness, unless the decision explicitly includes sampling rate as
+an uncertain factor. Example domains demonstrate syntax, not automatic
+scientific justification. See the [Nantes parameter
+catalogue](parameters-and-methods.md#nantes-parameter-catalogue).
+
 ## How
 
 The following YAML is a **fragment**. It omits required study and execution data

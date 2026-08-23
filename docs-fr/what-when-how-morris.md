@@ -30,6 +30,32 @@ Ne l'utilisez jamais pour une nouvelle campagne. Utilisez [OAT discret](what-whe
 pour une nouvelle démonstration à niveaux adjacents. Utilisez [Morris canonique](what-when-how-canonical_morris.md)
 pour un criblage scientifique.
 
+## Exemples de paramètres
+
+Ne créez jamais un nouveau fichier à partir de cet exemple. Il sert seulement à
+lire des paramètres susceptibles d'apparaître dans un ancien YAML :
+
+```yaml
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002, 0.005]
+  matching_minimum_observations:
+    values: [5, 20, 50]
+```
+
+Les deux domaines sont numériques et strictement croissants, comme l'exige cet
+ancien parseur. Un changement adjacent tel que `0.001` vers `0.002`, ou `20`
+vers `50`, s'interprète seulement dans ce design historique. Ce n'est pas une
+recommandation actuelle de facteurs ou de valeurs.
+
+Chaque clé de facteur doit déjà exister sous `config:` dans le YAML modèle
+scellé. Un facteur structuré exigerait aussi une clé de base de type liste, mais
+cette méthode refuse les facteurs structurés. Les domaines d'exemple montrent la
+syntaxe, pas une justification scientifique automatique. Les seeds appartiennent
+uniquement à `experiment.replications.seeds` dans cette méthode historique ;
+n'ajoutez jamais `random_seed` comme facteur ordinaire. Consultez le [catalogue
+des paramètres Nantes](parameters-and-methods.md#catalogue-des-paramètres-nantes).
+
 ## Comment
 
 Le YAML suivant est un **fragment historique**. Il ne s'exécute pas seul et ne

@@ -27,6 +27,41 @@ variance shares, factor prioritization, or factor fixing. A variance share is th
 portion of output variation attributed to an input. Do not use it as a
 scientific screening result.
 
+## Parameter examples
+
+This numeric-only fragment uses three actual eqasim-france candidates. Every
+factor key must already exist under `config:` in the sealed model YAML, and every
+domain must be strictly increasing:
+
+```yaml
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002, 0.005]
+  matching_minimum_observations:
+    values: [5, 20, 50]
+  matching_minimum_age:
+    values: [0, 5, 12]
+```
+
+With the guide's `T=2` trajectories, `D=3` factors, and `R=2` replication
+seeds, the design has `T(D+1)R = 2 × 4 × 2 = 16` positions. Each step has a
+plain local meaning:
+
+- `sampling_rate` compares `0.001` to `0.002`, or `0.002` to `0.005`; the steps
+  are respectively `0.001/0.004 = 1/4` and `0.003/0.004 = 3/4` of its range;
+- `matching_minimum_observations` compares donor-cell thresholds `5` to `20`,
+  or `20` to `50`; the local fractions are `1/3` and `2/3` of its range;
+- `matching_minimum_age` compares entry ages `0` to `5`, or `5` to `12`; the
+  local fractions are `5/12` and `7/12` of its range.
+
+The method divides each output change by that local fraction. It does not compare
+all pairs and does not estimate interactions. Structured factors would require a
+list-valued base key, but discrete OAT rejects them. Seeds belong only in
+`experiment.replications.seeds`; never declare `random_seed` as a factor. These
+domains demonstrate syntax and interpretation, not automatic scientific
+justification. See the [Nantes parameter
+catalogue](parameters-and-methods.md#nantes-parameter-catalogue).
+
 ## How
 
 The following YAML is a **fragment**. It does not run by itself.

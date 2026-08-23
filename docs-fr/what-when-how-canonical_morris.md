@@ -42,6 +42,51 @@ facteurs (FF), les parts de variance, les configurations structurées nommées o
 les facteurs dépendants. Une part de variance est la portion de variation de la
 sortie attribuée à une entrée. Ne présentez pas un pilote comme une production.
 
+## Exemples de paramètres
+
+Ce fragment de paramètres correspond à la forme de charte scientifique montrée
+plus bas :
+
+```yaml
+parameters:
+  matching_minimum_observations:
+    values: [5, 20, 50]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: Remplacer par les preuves de l'étude justifiant ces trois seuils
+  matching_minimum_age:
+    values: [0, 5, 12]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: Remplacer par les preuves de l'étude justifiant ces trois âges
+```
+
+`discrete_uniform` signifie que chacune des trois valeurs déclarées a la même
+probabilité. La provenance ci-dessus est volontairement un placeholder, pas une
+preuve : remplacez-la par la source et le raisonnement réels de l'étude avant
+`plan`. Le support, c'est-à-dire l'ensemble complet des valeurs autorisées, et
+l'indépendance des facteurs doivent tous deux être justifiés.
+
+Chaque clé de facteur doit déjà exister sous `config:` dans le YAML modèle
+scellé. Les chaînes et configurations de matching structurées ne doivent pas
+être utilisées ici avec le contrat actuel ; une clé structurée de base devrait
+être une liste, mais Morris canonique refuse les facteurs structurés. Utilisez
+Grid pour ces comparaisons. Les seeds appartiennent uniquement à
+`experiment.replications.seeds` et servent de bases pour dériver les seeds de
+run ; ne déclarez jamais `random_seed` comme facteur ordinaire.
+
+Le support `[0.001, 0.002, 0.005]` est numériquement valide pour
+`sampling_rate`, mais une déclaration scientifique doit utiliser la forme
+complète `values` et `distribution` montrée ci-dessus pour les autres facteurs.
+Ce paramètre change ensemble la taille de population et le bruit Monte Carlo. Il
+est souvent plus clair de le fixer et de le tester comme robustesse numérique,
+sauf si la décision inclut explicitement le taux d'échantillonnage comme facteur
+incertain. Les domaines d'exemple montrent la syntaxe, pas une justification
+scientifique automatique. Consultez le [catalogue des paramètres
+Nantes](parameters-and-methods.md#catalogue-des-paramètres-nantes).
+
 ## Comment
 
 Le YAML suivant est un **fragment**. Il omet des données obligatoires sur l'étude

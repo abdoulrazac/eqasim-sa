@@ -29,6 +29,31 @@ Do not use it for a new campaign. Use [discrete OAT](what-when-how-discrete_oat.
 for a new adjacent-level demonstration. Use [canonical Morris](what-when-how-canonical_morris.md)
 for scientific screening.
 
+## Parameter examples
+
+Never create a new file from this example. It only helps read parameters that
+may appear in an existing historical YAML:
+
+```yaml
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002, 0.005]
+  matching_minimum_observations:
+    values: [5, 20, 50]
+```
+
+Both domains are numeric and strictly increasing, as this old parser requires.
+An adjacent change such as `0.001` to `0.002`, or `20` to `50`, is interpreted
+only inside that historical design. This is not a recommendation to use these
+factors or values now.
+
+Each factor key must already exist under `config:` in the sealed model YAML.
+Structured factors would additionally require a list-valued base key, but this
+method rejects structured factors. Example domains show syntax, not automatic
+scientific justification. Seeds belong only in the historical method's
+`experiment.replications.seeds`; never add `random_seed` as an ordinary factor.
+See the [Nantes parameter catalogue](parameters-and-methods.md#nantes-parameter-catalogue).
+
 ## How
 
 The following YAML is a **legacy fragment**. It does not run by itself and is not

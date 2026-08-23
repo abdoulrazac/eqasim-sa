@@ -41,6 +41,73 @@ configurations are supported only when equal discrete probabilities and their
 provenance are scientifically defensible. Provenance is the written record of
 why those probabilities were chosen.
 
+## Parameter examples
+
+The same parameter syntax serves FP and FF; the charter's decision question
+changes how results are interpreted. A shared numerical example is:
+
+```yaml
+parameters:
+  matching_minimum_observations:
+    values: [5, 20, 50]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: Replace with study evidence supporting these three thresholds
+  matching_minimum_age:
+    values: [0, 5, 12]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: Replace with study evidence supporting these three ages
+  seed:
+    values: [44011, 44012, 44013, 44014]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: Replace with the declared finite simulator-seed rationale
+```
+
+For FP, the actionable factors are candidates for learning more accurately. For
+FF, they are candidates for fixing within the predeclared total-order tolerance,
+including interactions. The finite `seed` support remains non-actionable in both
+cases. Never declare ordinary `random_seed` as a factor.
+
+If matching structure is truly part of the decision, this optional factor may be
+added to the same `parameters` mapping:
+
+```yaml
+parameters:
+  matching_attributes:
+    configurations:
+      default: [sex, any_cars, age_class, socioprofessional_class, departement_id]
+      reduced: [sex, age_class, socioprofessional_class]
+      age_priority: [age_class, any_cars, sex, socioprofessional_class, departement_id]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: Replace with study evidence for equal probability over these structures
+```
+
+Here equal probability applies to the three complete named lists, not to the
+attributes inside them. The support, meaning all allowed values or labels, must
+be justified; a convenient catalogue is not evidence. Every ordinary factor key
+must already exist under `config:` in the sealed model YAML. The special `seed`
+factor is the only exception and must not exist there. The base
+`matching_attributes` value must already be a list of strings. Follow the
+[structured-configurations tutorial](structured-configurations-tutorial.md).
+
+Treat `hts` and `projection_year` primarily as separate data or scenario checks
+unless the decision truly models them as uncertain factors. `hts` requires both
+`edgt_44` and `entd` datasets and changes donors and references.
+The support `[2020, 2030, 2040]` for `projection_year` requires compatible
+scenarios and archives. If it is used scientifically, declare it with the same
+complete `values` and `distribution` form as the numeric factors above. It
+changes the population comparison from the unprojected census to the
+projection-reweighted population and its projected INSEE reference. These
+domains are syntax examples, not automatic scientific justification. See the
+[Nantes parameter catalogue](parameters-and-methods.md#nantes-parameter-catalogue).
+
 ## How
 
 The following YAML is a **fragment**. It omits required charter and execution

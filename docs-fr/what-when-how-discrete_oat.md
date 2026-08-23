@@ -30,6 +30,41 @@ interactions, des parts de variance, la priorisation ou la fixation des facteurs
 Une part de variance est la portion de variation de la sortie attribuée à une
 entrée. Ne présentez pas son résultat comme un criblage scientifique.
 
+## Exemples de paramètres
+
+Ce fragment uniquement numérique utilise trois candidats réels d'eqasim-france.
+Chaque clé doit déjà exister sous `config:` dans le YAML modèle scellé et chaque
+domaine doit être strictement croissant :
+
+```yaml
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002, 0.005]
+  matching_minimum_observations:
+    values: [5, 20, 50]
+  matching_minimum_age:
+    values: [0, 5, 12]
+```
+
+Avec les `T=2` trajectoires, `D=3` facteurs et `R=2` seeds de réplication du
+guide, le design a `T(D+1)R = 2 × 4 × 2 = 16` positions. Chaque pas a un sens
+local simple :
+
+- `sampling_rate` compare `0.001` à `0.002`, ou `0.002` à `0.005` ; ces pas
+  valent respectivement `0.001/0.004 = 1/4` et `0.003/0.004 = 3/4` de l'étendue ;
+- `matching_minimum_observations` compare les seuils de cellule `5` à `20`, ou
+  `20` à `50` ; les fractions locales valent `1/3` et `2/3` de l'étendue ;
+- `matching_minimum_age` compare les âges d'entrée `0` à `5`, ou `5` à `12` ;
+  les fractions locales valent `5/12` et `7/12` de l'étendue.
+
+La méthode divise chaque changement de sortie par cette fraction locale. Elle ne
+compare pas toutes les paires et n'estime pas les interactions. Un facteur
+structuré exigerait une clé de base de type liste, mais OAT discret le refuse.
+Les seeds appartiennent uniquement à `experiment.replications.seeds` ; ne
+déclarez jamais `random_seed` comme facteur. Ces domaines montrent la syntaxe et
+l'interprétation, pas une justification scientifique automatique. Consultez le
+[catalogue des paramètres Nantes](parameters-and-methods.md#catalogue-des-paramètres-nantes).
+
 ## Comment
 
 Le YAML suivant est un **fragment**. Il ne s'exécute pas seul.

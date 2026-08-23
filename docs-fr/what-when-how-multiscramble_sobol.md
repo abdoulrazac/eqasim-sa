@@ -44,6 +44,76 @@ configurations structurées nommées sont acceptées seulement si des probabilit
 discrètes égales et leur provenance sont scientifiquement défendables. La
 provenance est la trace écrite qui justifie ces probabilités.
 
+## Exemples de paramètres
+
+La même syntaxe de paramètres sert à FP et FF ; la question décisionnelle de la
+charte change l'interprétation des résultats. Voici un exemple numérique commun :
+
+```yaml
+parameters:
+  matching_minimum_observations:
+    values: [5, 20, 50]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: Remplacer par les preuves de l'étude justifiant ces trois seuils
+  matching_minimum_age:
+    values: [0, 5, 12]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: Remplacer par les preuves de l'étude justifiant ces trois âges
+  seed:
+    values: [44011, 44012, 44013, 44014]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: Remplacer par le raisonnement sur le support fini des seeds du simulateur
+```
+
+Pour FP, les facteurs actionnables sont candidats à un apprentissage plus précis.
+Pour FF, ils sont candidats à une fixation dans la tolérance d'ordre total
+prédéclarée, interactions incluses. Le support fini de `seed` reste non
+actionnable dans les deux cas. Ne déclarez jamais `random_seed` comme facteur
+ordinaire.
+
+Si la structure de matching fait réellement partie de la décision, ce facteur
+facultatif peut être ajouté au même mapping `parameters` :
+
+```yaml
+parameters:
+  matching_attributes:
+    configurations:
+      default: [sex, any_cars, age_class, socioprofessional_class, departement_id]
+      reduced: [sex, age_class, socioprofessional_class]
+      age_priority: [age_class, any_cars, sex, socioprofessional_class, departement_id]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: Remplacer par les preuves justifiant des probabilités égales sur ces structures
+```
+
+Ici, la probabilité égale s'applique aux trois listes nommées complètes, pas aux
+attributs qu'elles contiennent. Le support, c'est-à-dire toutes les valeurs ou
+étiquettes autorisées, doit être justifié ; un catalogue pratique n'est pas une
+preuve. Chaque clé de facteur ordinaire doit déjà exister sous `config:` dans le
+YAML modèle scellé. Le facteur spécial `seed` est la seule exception et ne doit
+pas y exister. La valeur de base `matching_attributes` doit déjà être une liste de chaînes.
+Suivez le [tutoriel des configurations
+structurées](structured-configurations-tutorial.md).
+
+Traitez d'abord `hts` et `projection_year` comme des contrôles séparés de données
+ou de scénario, sauf si la décision les modélise réellement comme facteurs
+incertains. `hts` exige les deux jeux `edgt_44` et `entd` et change donneurs et
+références. Le support `[2020, 2030, 2040]` de `projection_year` exige des
+scénarios et archives compatibles. S'il est utilisé scientifiquement, déclarez-le
+avec la même forme complète `values` et `distribution` que les facteurs
+numériques ci-dessus. Il fait passer la comparaison de population du recensement non
+projeté à la population repondérée par projection et à sa référence INSEE
+projetée. Ces domaines montrent la syntaxe, pas une justification scientifique
+automatique. Consultez le [catalogue des paramètres
+Nantes](parameters-and-methods.md#catalogue-des-paramètres-nantes).
+
 ## Comment
 
 Le YAML suivant est un **fragment**. Il omet des données obligatoires sur la

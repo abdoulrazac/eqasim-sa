@@ -29,6 +29,67 @@ inferential claim is a conclusion that goes beyond the observed combinations. Do
 use it when the product of all domain sizes and seeds is too large. This product
 grows quickly when you add factors or values.
 
+## Parameter examples
+
+Every factor key must already exist under `config:` in the sealed model YAML.
+For a structured factor, that base value must already be a list of strings. The
+domains below demonstrate syntax and useful comparisons; they do not by
+themselves justify a scientific domain. Put seeds only in
+`experiment.replications.seeds`, never in an ordinary `random_seed` factor. See the [Nantes parameter
+catalogue](parameters-and-methods.md#nantes-parameter-catalogue).
+
+A numeric cross can compare population sampling with the donor-cell threshold:
+
+```yaml
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002, 0.005]
+  matching_minimum_observations:
+    values: [5, 20, 50]
+```
+
+With two replication seeds, this gives `3 × 3 × 2 = 18` positions. A
+categorical cross can compare two matching age schemes and two income methods:
+
+```yaml
+parameters:
+  matching_age_scheme:
+    values: [matching_6, analysis_7]
+  income_assignation_method:
+    values: [uniform, bhepop2]
+```
+
+With two seeds, this gives `2 × 2 × 2 = 8` positions. Before interpreting the
+income cross, add an income indicator: the starter has none, and `bhepop2` may
+fall back to `uniform` for individual municipalities. Another survey cross,
+`hts: {values: [edgt_44, entd]}`, is valid only when both prepared datasets
+exist; it changes both donors and HTS references.
+
+For an ordered-list factor, use named configurations rather than putting lists
+in `values`:
+
+```yaml
+parameters:
+  matching_attributes:
+    configurations:
+      default: [sex, any_cars, age_class, socioprofessional_class, departement_id]
+      reduced: [sex, age_class, socioprofessional_class]
+      age_priority: [age_class, any_cars, sex, socioprofessional_class, departement_id]
+```
+
+Three configurations and two seeds give `3 × 2 = 6` positions. The last
+attribute is relaxed first, so list order matters. Follow the
+[structured-configurations tutorial](structured-configurations-tutorial.md)
+before using this form.
+
+`projection_year: {values: [2020, 2030, 2040]}` is appropriate only when every
+year has a compatible `projection_scenario` and projection archive. It is not a
+simple numerical switch: without projection the population analysis compares
+to `data.census.filtered`; with projection it compares to
+`synthesis.population.projection.reweighted`, so the INSEE reference changes
+with the projected census. Grid size always multiplies: adding domains of sizes
+2 and 3 multiplies the existing position count by 6.
+
 ## How
 
 The following YAML is a **fragment**. It does not run by itself.

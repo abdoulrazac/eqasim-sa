@@ -31,6 +31,51 @@ FP asks what to learn more accurately first. FF asks what may be fixed within a
 declared practical tolerance, including interactions. One scramble and a row
 bootstrap do not provide the required uncertainty evidence.
 
+## Parameter examples
+
+The generated demonstration uses ordinary scalar factors plus the method's
+special finite seed factor:
+
+```yaml
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002, 0.005]
+  matching_age_scheme:
+    values: [matching_6, analysis_7]
+  seed:
+    values: [1401, 1402, 1403, 1404]
+```
+
+This is a plumbing example: it checks that numerical values, category labels,
+and simulator seeds pass through planning and analysis. It is explicitly not a
+scientific variance decomposition. With `D=3` factors and the guide's `N=4`, it
+has `N(2D+2) = 4 × 8 = 32` positions before run reuse.
+
+An optional fourth factor is:
+
+```yaml
+parameters:
+  income_assignation_method:
+    values: [uniform, bhepop2]
+```
+
+Add that block to the same `parameters` mapping, not as a second mapping. It
+raises the design to `4 × 10 = 40` positions. Interpret it only after adding a
+custom income indicator; the starter has no income scalar, and `bhepop2` can
+fall back to `uniform` for individual municipalities. Likewise,
+`hts: {values: [edgt_44, entd]}` is usable only when both prepared datasets
+exist and changes both survey donors and HTS references.
+
+Every ordinary factor key must already exist under `config:` in the sealed model
+YAML. The special `seed` factor is the only exception; it must not exist there.
+Structured factors would require a list-valued base key, but historical Sobol is
+best kept to generated scalar plumbing; use the structured tutorial and a
+supported method for named lists. The simulator seed is declared only as
+`parameters.seed.values` for this method. Never use ordinary `random_seed`.
+These domains demonstrate syntax, not automatic scientific justification. See
+the [Nantes parameter catalogue](parameters-and-methods.md#nantes-parameter-catalogue)
+and [structured-configurations tutorial](structured-configurations-tutorial.md).
+
 ## How
 
 The following YAML is a **fragment**. It does not run by itself.
