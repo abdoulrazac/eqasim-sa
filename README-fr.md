@@ -99,6 +99,7 @@ campagne/racine pour la cible dérivée. Consultez le
 
 - [Registre du protocole scientifique nantais](protocols/nantes-scientific/README.md) (rédigé pour l'étude, non généré par `init`)
 - [Index de la documentation](docs-fr/index.md)
+- Guides des méthodes : [Grid](docs-fr/what-when-how-grid.md), [Morris historique](docs-fr/what-when-how-morris.md), [OAT discret](docs-fr/what-when-how-discrete_oat.md), [Morris canonique](docs-fr/what-when-how-canonical_morris.md), [Sobol historique](docs-fr/what-when-how-sobol.md) et [Sobol multi-scramble](docs-fr/what-when-how-multiscramble_sobol.md)
 - [Démarrage](docs-fr/getting-started.md)
 - [Tutoriel des configurations structurées nommées](docs-fr/structured-configurations-tutorial.md)
 - [Référence CLI](docs-fr/cli-reference.md)

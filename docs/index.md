@@ -17,6 +17,17 @@ The Python parser is authoritative: the project does not provide a JSON Schema.
 8. [Glossary](glossary.md): precise project terminology.
 9. [Release compatibility](compatibility.md): schema, method, inference, refusal, and release matrices.
 
+## Method chooser
+
+| Guide | Question | Status | Recommended use |
+| --- | --- | --- | --- |
+| [Grid](what-when-how-grid.md) | What happens at every declared combination? | Demonstration | Small readable comparisons and named structured configurations |
+| [Historical Morris](what-when-how-morris.md) | What did an old adjacent-level campaign record? | Legacy demonstration | Read existing provenance only; never start a new campaign |
+| [Discrete OAT](what-when-how-discrete_oat.md) | Which local adjacent numeric changes need attention? | Demonstration | Local numeric screening for more study |
+| [Canonical Morris](what-when-how-canonical_morris.md) | Which factors must remain under consideration? | Scientific screening | Study-specific pilot, then separate production |
+| [Historical Sobol](what-when-how-sobol.md) | Does the single-scramble Sobol plumbing work? | Legacy noninferential demonstration | Run the generated starter or read legacy provenance |
+| [Multi-scramble Sobol](what-when-how-multiscramble_sobol.md) | What should be learned first, or what may be fixed? | Scientific FP or FF | Study-specific factor prioritization or factor fixing |
+
 ## Contributor documentation
 
 - [Development guide](development-guide.md): architecture, dependencies, tests, and distribution.

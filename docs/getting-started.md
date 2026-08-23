@@ -115,6 +115,11 @@ The provided templates are small demonstration campaigns. Their sizes are not a
 scientific recommendation, and `init` deliberately generates no canonical
 Morris starter. Consult [Parameters and methods](parameters-and-methods.md)
 before expanding domains or authoring a study-specific scientific campaign.
+Use the short guides for [Grid](what-when-how-grid.md),
+[historical Morris](what-when-how-morris.md), [discrete OAT](what-when-how-discrete_oat.md),
+[canonical Morris](what-when-how-canonical_morris.md), [historical Sobol](what-when-how-sobol.md),
+and [multi-scramble Sobol](what-when-how-multiscramble_sobol.md) to choose the
+correct method and claim boundary.
 
 ## First structured target
 

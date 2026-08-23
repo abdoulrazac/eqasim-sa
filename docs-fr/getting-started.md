@@ -115,6 +115,11 @@ Les modèles fournis sont de petites campagnes de démonstration. Leurs tailles 
 constituent pas une recommandation scientifique et `init` ne génère délibérément
 aucun starter Morris canonique. Consultez [Paramètres et méthodes](parameters-and-methods.md)
 avant d'étendre les domaines ou de rédiger une campagne scientifique propre à l'étude.
+Utilisez les guides courts de [Grid](what-when-how-grid.md),
+[Morris historique](what-when-how-morris.md), [OAT discret](what-when-how-discrete_oat.md),
+[Morris canonique](what-when-how-canonical_morris.md), [Sobol historique](what-when-how-sobol.md)
+et [Sobol multi-scramble](what-when-how-multiscramble_sobol.md) pour choisir la
+bonne méthode et la limite des revendications.
 
 ## Première cible structurée
 

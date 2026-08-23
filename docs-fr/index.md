@@ -17,6 +17,17 @@ Le parseur Python est normatif : le projet ne fournit pas de JSON Schema.
 8. [Glossaire](glossary.md) : vocabulaire précis du projet.
 9. [Compatibilité de version](compatibility.md) : matrices des schémas, méthodes, statuts, refus et versions.
 
+## Choisir une méthode
+
+| Guide | Question | Statut | Usage recommandé |
+| --- | --- | --- | --- |
+| [Grid](what-when-how-grid.md) | Que se passe-t-il pour chaque combinaison déclarée ? | Démonstration | Petites comparaisons lisibles et configurations structurées nommées |
+| [Morris historique](what-when-how-morris.md) | Que contient une ancienne campagne à niveaux adjacents ? | Démonstration historique | Lire une provenance existante seulement ; ne jamais créer une nouvelle campagne |
+| [OAT discret](what-when-how-discrete_oat.md) | Quels changements numériques locaux demandent de l'attention ? | Démonstration | Criblage numérique local pour une étude ultérieure |
+| [Morris canonique](what-when-how-canonical_morris.md) | Quels facteurs doivent rester à l'étude ? | Criblage scientifique | Pilote propre à l'étude, puis production séparée |
+| [Sobol historique](what-when-how-sobol.md) | La plomberie Sobol à un scramble fonctionne-t-elle ? | Démonstration historique non inférentielle | Exécuter le starter généré ou lire une provenance historique |
+| [Sobol multi-scramble](what-when-how-multiscramble_sobol.md) | Que faut-il apprendre d'abord, ou que peut-on fixer ? | FP ou FF scientifique | Priorisation ou fixation des facteurs propre à l'étude |
+
 ## Documentation contributeur
 
 - [Guide de développement](development-guide.md) : architecture, dépendances, tests et distribution.
