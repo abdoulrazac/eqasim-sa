@@ -209,7 +209,7 @@ def test_run_marker_temporary_is_staged_outside_runs(tmp_path: Path) -> None:
     destination = tmp_path / "campaign" / "runs" / ("a" * 32 + ".parquet")
 
     def fail_writer(path: Path) -> None:
-        assert path.parent == tmp_path / "campaign" / ".eqasim-sa-tmp"
+        assert path.parent == tmp_path / "campaign" / ".eqasim-sa" / "transactions"
         path.write_bytes(b"partial")
         raise KeyboardInterrupt
 
@@ -374,35 +374,36 @@ def test_archive_transaction_marker_race_is_no_clobber_and_self_consistent(
     assert not tuple((tmp_path / "archives").glob(".*.backup"))
 
 
-def test_campaign_lock_uses_stable_created_parent_and_owned_regular_file(
+def test_run_lease_is_private_to_run_and_rejects_foreign_lock(
     tmp_path: Path,
 ) -> None:
-    root = tmp_path / "nested" / "campaign"
+    root = tmp_path / "campaign"
+    root.mkdir()
+    run_id = "a" * 32
     blocked = threading.Event()
+    interrupt = threading.Event()
 
-    with ledger.campaign_lock(root, "plan"):
-        root.mkdir()
-
+    with ledger.run_lease(root, run_id):
         def contend() -> None:
             try:
-                with ledger.campaign_lock(root, "plan", blocking=False):
+                with ledger.run_lease(root, run_id, interrupt.is_set):
                     pass
-            except BlockingIOError:
+            except KeyboardInterrupt:
                 blocked.set()
 
         thread = threading.Thread(target=contend)
         thread.start()
+        interrupt.set()
         thread.join(5)
         assert not thread.is_alive() and blocked.is_set()
 
-    digest = hashlib.sha256(os.fsencode(root.absolute())).hexdigest()[:16]
-    lock = root.parent / f".eqasim-sa-plan-{digest}.lock"
+    lock = root / ".eqasim-sa" / "locks" / "runs" / f"{run_id}.lock"
     lock.unlink()
     foreign = root.parent / "foreign"
     foreign.write_text("foreign")
     os.link(foreign, lock)
     with pytest.raises(ValueError, match="owned regular"):
-        with ledger.campaign_lock(root, "plan"):
+        with ledger.run_lease(root, run_id):
             pass
 
 

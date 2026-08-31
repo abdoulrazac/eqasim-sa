@@ -35,7 +35,6 @@ from eqasim_sa.core.indicators import (
     indicator_definition_sha256,
     verify_indicator_runtime_identity,
 )
-from eqasim_sa.core.ledger import campaign_lock
 from eqasim_sa.core.plan import (
     CANONICAL_MORRIS_DOMAIN,
     DISCRETE_OAT_DOMAIN,
@@ -117,24 +116,23 @@ def analyze(
     descriptive_only: bool = False,
 ) -> AnalyzeResult:
     campaign_root = campaign_root.resolve(strict=True)
-    with campaign_lock(campaign_root, "campaign"):
-        return _analyze_locked(
-            campaign_root,
-            indicators,
-            campaign,
-            completeness_threshold,
-            seed_role,
-            method,
-            bootstrap_resamples,
-            confidence_level,
-            convergence_checkpoints,
-            screening_top_k,
-            meta_config_sha256,
-            descriptive_only,
-        )
+    return _analyze_campaign(
+        campaign_root,
+        indicators,
+        campaign,
+        completeness_threshold,
+        seed_role,
+        method,
+        bootstrap_resamples,
+        confidence_level,
+        convergence_checkpoints,
+        screening_top_k,
+        meta_config_sha256,
+        descriptive_only,
+    )
 
 
-def _analyze_locked(
+def _analyze_campaign(
     campaign_root: Path,
     indicators: Sequence[Indicator],
     campaign: str,

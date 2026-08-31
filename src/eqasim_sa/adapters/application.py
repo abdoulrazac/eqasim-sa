@@ -11,7 +11,6 @@ import tempfile
 import threading
 import time
 from argparse import Namespace
-from contextlib import ExitStack
 from pathlib import Path
 
 import pyarrow.parquet as pq
@@ -49,7 +48,6 @@ from eqasim_sa.core.analyze import analyze
 from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
 from eqasim_sa.core.charter import serialize_scientific_contract
 from eqasim_sa.core.indicators import ArtifactSet
-from eqasim_sa.core.ledger import campaign_lock
 from eqasim_sa.core.plan import (
     CanonicalMorrisDesign,
     DiscreteOATDesign,
@@ -122,10 +120,9 @@ def plan_from_meta_config(path: Path) -> PlanResult:
         if f"config.{name}" in EXCLUDED_PATHS or name in DEDICATED:
             raise ValueError(f"requirements contain infrastructure option: {name!r}")
         validate_transport(name, value)
-    with campaign_lock(meta.campaign_root, "plan"):
-        result = build_plan(_design(meta, requirements))
-        verify_software_source_states(meta.software_identity)
-        return result
+    result = build_plan(_design(meta, requirements))
+    verify_software_source_states(meta.software_identity)
+    return result
 
 
 def _warn_sobol_capacity(
@@ -196,132 +193,107 @@ def run_from_meta_config(path: Path) -> dict:
     design = _design(meta, requirements)
     specs = load_run_specs(meta.campaign_root / "plan.parquet", design, meta.campaign)
     unique_runs = len(specs)
-    campaign_root = meta.campaign_root.resolve(strict=True)
-    lock_stack = ExitStack()
-    try:
-        try:
-            lock_stack.enter_context(
-                campaign_lock(campaign_root, "campaign", blocking=False)
-            )
-        except BlockingIOError as error:
-            raise RuntimeError(
-                "another invocation is already running this campaign"
-            ) from error
-        specs = pending_run_specs(meta.campaign_root, specs)
-        if not specs:
-            return summarize_runs([], [])
-        if meta.method in {"sobol", "multiscramble_sobol"} and len(specs) > meta.execution.workers:
-            positions = pq.ParquetFile(
-                meta.campaign_root / "plan.parquet"
-            ).metadata.num_rows
-            _warn_sobol_capacity(
-                positions,
-                unique_runs,
-                len(specs),
-                meta.execution.backend,
-                meta.execution.workers,
-                meta.method,
-            )
-        specs = _apply_execution_overrides(specs, meta.execution.overrides)
-        if meta.execution.backend == "local":
-            execution_seal = (
-                create_execution_seal(meta)
-                if getattr(meta.execution, "data_path", None) is not None
-                else None
-            )
-            settings = EqasimSettings(
-                meta.model_config,
-                meta.model_root,
-                execution_seal.invocation
-                if execution_seal is not None
-                else meta.execution.invocation,
-                meta.campaign,
-                meta.execution.scratch,
-                meta.context_hash,
-            )
-            interrupted = threading.Event()
-            software_guard = SoftwareSourceGuard(meta.software_identity)
-            active: set[EqasimSimulator] = set()
-            active_lock = threading.Lock()
+    meta.campaign_root.resolve(strict=True)
+    specs = pending_run_specs(meta.campaign_root, specs)
+    if not specs:
+        return summarize_runs([], [])
+    if meta.method in {"sobol", "multiscramble_sobol"} and len(specs) > meta.execution.workers:
+        positions = pq.ParquetFile(meta.campaign_root / "plan.parquet").metadata.num_rows
+        _warn_sobol_capacity(
+            positions,
+            unique_runs,
+            len(specs),
+            meta.execution.backend,
+            meta.execution.workers,
+            meta.method,
+        )
+    specs = _apply_execution_overrides(specs, meta.execution.overrides)
+    if meta.execution.backend == "local":
+        execution_seal = (
+            create_execution_seal(meta)
+            if getattr(meta.execution, "data_path", None) is not None
+            else None
+        )
+        settings = EqasimSettings(
+            meta.model_config,
+            meta.model_root,
+            execution_seal.invocation
+            if execution_seal is not None
+            else meta.execution.invocation,
+            meta.campaign,
+            meta.execution.scratch,
+            meta.context_hash,
+        )
+        interrupted = threading.Event()
+        software_guard = SoftwareSourceGuard(meta.software_identity)
+        active: set[EqasimSimulator] = set()
+        active_lock = threading.Lock()
 
-            def interrupt() -> None:
-                interrupted.set()
-                with active_lock:
-                    simulators = tuple(active)
-                for simulator in simulators:
-                    simulator.interrupt()
+        def interrupt() -> None:
+            interrupted.set()
+            with active_lock:
+                simulators = tuple(active)
+            for simulator in simulators:
+                simulator.interrupt()
 
-            def run_batch(batch):  # type: ignore[no-untyped-def]
-                simulator = EqasimSimulator(
-                    settings,
-                    meta.model_document,
-                    meta.model_bytes,
-                    batch.slot,
-                    meta.structured_factors,
-                    execution_seal,
-                    software_guard,
-                )
-                with active_lock:
-                    active.add(simulator)
-                try:
-                    with simulator.workspace.session():
-                        return execute_batch(
-                            batch,
-                            lambda spec: execute_run(
-                                spec,
-                                simulator,
-                                meta.campaign_root,
-                                simulator.workspace.root,
-                                interrupted.is_set,
-                            ),
-                        )
-                finally:
-                    with active_lock:
-                        active.discard(simulator)
-
-            batches = worker_batches(specs, meta.execution.workers)
-            results = ordered_results(
-                list(
-                    LocalBackend(len(batches)).map(run_batch, batches, interrupt)
-                ),
-                len(specs),
+        def run_batch(batch):  # type: ignore[no-untyped-def]
+            simulator = EqasimSimulator(
+                settings,
+                meta.model_document,
+                meta.model_bytes,
+                batch.slot,
+                meta.structured_factors,
+                execution_seal,
+                software_guard,
             )
-        else:
-            slurm = meta.execution.slurm
-            parameters: dict[str, object] = {
-                "timeout_min": slurm.timeout_min,
-                "cpus_per_task": meta.execution.processes,
-            }
-            if slurm.mem_gb is not None:
-                parameters["mem_gb"] = slurm.mem_gb
-            for name in ("partition", "account", "qos"):
-                value = getattr(slurm, name)
-                if value is not None:
-                    parameters[f"slurm_{name}"] = value
-            submitit_root = meta.campaign_root / ".submitit"
+            with active_lock:
+                active.add(simulator)
             try:
-                submitit_root.mkdir(mode=0o700)
-            except FileExistsError:
-                pass
-            if submitit_root.is_symlink() or not submitit_root.is_dir():
-                raise ValueError(
-                    "submitit technical path must be a non-symlink directory"
-                )
-            backend = SlurmBackend(
-                submitit_root / "%j",
-                meta.execution.workers,
-                parameters,
-            )
-            job = EqasimSlurmJob(
-                meta_path,
-                meta.context_hash,
-                hashlib.sha256(meta_bytes).hexdigest(),
-                meta.eqasim_sa_sha256,
-            )
-            batches = worker_batches(specs, meta.execution.workers)
-            results = ordered_results(list(backend.map(job, batches)), len(specs))
-    finally:
-        lock_stack.close()
+                with simulator.workspace.session():
+                    return execute_batch(
+                        batch,
+                        lambda spec: execute_run(
+                            spec,
+                            simulator,
+                            meta.campaign_root,
+                            simulator.workspace.root,
+                            interrupted.is_set,
+                        ),
+                    )
+            finally:
+                with active_lock:
+                    active.discard(simulator)
+
+        batches = worker_batches(specs, meta.execution.workers)
+        results = ordered_results(
+            list(LocalBackend(len(batches)).map(run_batch, batches, interrupt)),
+            len(specs),
+        )
+    else:
+        slurm = meta.execution.slurm
+        parameters: dict[str, object] = {
+            "timeout_min": slurm.timeout_min,
+            "cpus_per_task": meta.execution.processes,
+        }
+        if slurm.mem_gb is not None:
+            parameters["mem_gb"] = slurm.mem_gb
+        for name in ("partition", "account", "qos"):
+            value = getattr(slurm, name)
+            if value is not None:
+                parameters[f"slurm_{name}"] = value
+        backend = SlurmBackend(
+            meta.campaign_root,
+            meta.execution.workers,
+            parameters,
+        )
+        job = EqasimSlurmJob(
+            meta_path,
+            meta.context_hash,
+            hashlib.sha256(meta_bytes).hexdigest(),
+            meta.eqasim_sa_sha256,
+        )
+        batches = worker_batches(specs, meta.execution.workers)
+        results = ordered_results(list(backend.map(job, batches)), len(specs))
     return summarize_runs(
         [compute_run_id(spec.resolved_config, spec.seed) for spec in specs], results
     )
@@ -1200,7 +1172,7 @@ def _init_campaign_allowed(
     derived = INIT_DERIVED["grid" if method == "calibration" else method]
     allowed = {
         "plan.parquet", "runs", "archives", "logs", ".eqasim-sa-tmp",
-        ".eqasim-sa-run-locks", ANALYSIS_STATE_DIRECTORY,
+        ".eqasim-sa-run-locks", ".submitit", ".eqasim-sa", ANALYSIS_STATE_DIRECTORY,
         LEGACY_ANALYSIS_STATE_DIRECTORY, *derived,
     }
     temporary = re.compile(r"\.([0-9a-f]{32})\.parquet\.([A-Za-z0-9_-]+)\.tmp")
@@ -1213,6 +1185,12 @@ def _init_campaign_allowed(
             LEGACY_ANALYSIS_STATE_DIRECTORY,
         }:
             _analysis_state_allowed(entry, method)
+            continue
+        if entry.name == ".eqasim-sa":
+            _technical_state_allowed(entry, expected_ids, method)
+            continue
+        if entry.name == ".submitit":
+            _owned_technical_tree(entry, f"campaigns/{method}/.submitit")
             continue
         if entry.name == "plan.parquet" or entry.name in derived:
             _regular(entry, f"campaigns/{method}/{entry.name}")
@@ -1310,6 +1288,89 @@ def _init_campaign_allowed(
                         artifact,
                         f"campaigns/{method}/archives/{child.name}/{artifact.name}",
                     )
+
+
+def _owned_technical_tree(path: Path, description: str) -> None:
+    try:
+        info = path.lstat()
+    except OSError as error:
+        raise FileExistsError(f"foreign content in init project: {description}") from error
+    if path.is_symlink() or info.st_uid != os.getuid():
+        raise FileExistsError(f"foreign content in init project: {description}")
+    if stat.S_ISREG(info.st_mode):
+        _regular(path, description)
+        return
+    if not stat.S_ISDIR(info.st_mode):
+        raise FileExistsError(f"foreign content in init project: {description}")
+    for child in path.iterdir():
+        _owned_technical_tree(child, f"{description}/{child.name}")
+
+
+def _technical_state_allowed(
+    path: Path, expected_ids: set[str], method: str
+) -> None:
+    children = {entry.name: entry for entry in path.iterdir()}
+    if set(children) - {"locks", "transactions", "slurm"}:
+        raise FileExistsError(f"foreign content in init campaign: {path.name}")
+    locks = children.get("locks")
+    if locks is not None:
+        if locks.is_symlink() or not locks.is_dir():
+            raise FileExistsError("foreign content in init campaign: .eqasim-sa/locks")
+        for entry in locks.iterdir():
+            if entry.name == "runs":
+                if entry.is_symlink() or not entry.is_dir():
+                    raise FileExistsError(
+                        "foreign content in init campaign: .eqasim-sa/locks/runs"
+                    )
+                for lease in entry.iterdir():
+                    if lease.stem not in expected_ids or lease.suffix != ".lock":
+                        raise FileExistsError(
+                            f"foreign content in init campaign: .eqasim-sa/locks/runs/{lease.name}"
+                        )
+                    _regular(
+                        lease,
+                        f"campaigns/{method}/.eqasim-sa/locks/runs/{lease.name}",
+                        private=True,
+                    )
+            elif entry.name in {"analysis.lock", "slurm.lock"}:
+                _regular(
+                    entry,
+                    f"campaigns/{method}/.eqasim-sa/locks/{entry.name}",
+                    private=True,
+                )
+            else:
+                raise FileExistsError(
+                    f"foreign content in init campaign: .eqasim-sa/locks/{entry.name}"
+                )
+    transactions = children.get("transactions")
+    if transactions is not None:
+        if transactions.is_symlink() or not transactions.is_dir():
+            raise FileExistsError(
+                "foreign content in init campaign: .eqasim-sa/transactions"
+            )
+        transaction = re.compile(
+            r"\.(?:plan\.parquet|([0-9a-f]{32})\.parquet)\.([A-Za-z0-9_-]+)\.(?:tmp|backup)"
+        )
+        for entry in transactions.iterdir():
+            match = transaction.fullmatch(entry.name)
+            if (
+                match is None
+                or match.group(1) is not None
+                and match.group(1) not in expected_ids
+            ):
+                raise FileExistsError(
+                    f"foreign content in init campaign: .eqasim-sa/transactions/{entry.name}"
+                )
+            _regular(
+                entry,
+                f"campaigns/{method}/.eqasim-sa/transactions/{entry.name}",
+                private=True,
+            )
+    slurm_state = children.get("slurm")
+    if slurm_state is not None:
+        _owned_technical_tree(
+            slurm_state, f"campaigns/{method}/.eqasim-sa/slurm"
+        )
 
 
 def _analysis_state_allowed(path: Path, method: str) -> None:

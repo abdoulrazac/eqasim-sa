@@ -6,6 +6,7 @@ import platform
 import re
 import shutil
 import stat
+import sys
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +23,7 @@ from eqasim_sa.core.campaign_snapshot import (
 )
 from eqasim_sa.core.durable_publication import (
     PublicationOutcomeUnknown,
+    file_lease,
     fsync_directory,
     replace_bytes_restorable,
     secure_directory,
@@ -147,6 +149,36 @@ def _validate_generation_inventory(generations: Path) -> None:
                 )
 
 
+def _validate_analysis_state(
+    state: Path, *, allow_active_staging: bool = False
+) -> None:
+    if not state.exists() and not state.is_symlink():
+        return
+    secure_directory(state, create=False)
+    children = {entry.name: entry for entry in state.iterdir()}
+    foreign = set(children) - {"staging", "generations"}
+    if foreign:
+        raise ValueError(
+            "analysis state contains unexpected root content: "
+            f"{sorted(foreign)}"
+        )
+    existing_staging = children.get("staging")
+    if existing_staging is not None:
+        secure_directory(existing_staging, create=False)
+        for entry in existing_staging.iterdir():
+            if (
+                not allow_active_staging
+                or entry.is_symlink()
+                or not entry.is_dir()
+                or re.fullmatch(r"[0-9a-f]{32}", entry.name) is None
+            ):
+                raise ValueError("analysis staging must be empty before publication")
+    existing_generations = children.get("generations")
+    if existing_generations is not None:
+        secure_directory(existing_generations, create=False)
+        _validate_generation_inventory(existing_generations)
+
+
 def validate_scientific_execution_evidence(
     table: pa.Table,
     campaign: str,
@@ -235,26 +267,38 @@ def dependency_versions(software_identity: SoftwareIdentity) -> dict[str, str]:
 class AnalysisPublication:
     def __init__(self, campaign_root: Path) -> None:
         self.campaign_root = campaign_root
-        self.state = secure_directory(
-            campaign_root / ANALYSIS_STATE_DIRECTORY, create=True
+        _validate_analysis_state(
+            campaign_root / ANALYSIS_STATE_DIRECTORY,
+            allow_active_staging=True,
         )
-        children = {entry.name: entry for entry in self.state.iterdir()}
-        foreign = set(children) - {"staging", "generations"}
-        if foreign:
-            raise ValueError(
-                "analysis state contains unexpected root content: "
-                f"{sorted(foreign)}"
-            )
-        existing_staging = children.get("staging")
-        if existing_staging is not None:
-            secure_directory(existing_staging, create=False)
-            if any(existing_staging.iterdir()):
-                raise ValueError("analysis staging must be empty before publication")
-        existing_generations = children.get("generations")
-        if existing_generations is not None:
-            secure_directory(existing_generations, create=False)
-            _validate_generation_inventory(existing_generations)
+        technical = secure_directory(campaign_root / ".eqasim-sa", create=True)
+        locks = secure_directory(technical / "locks", create=True)
         fsync_directory(campaign_root)
+        fsync_directory(technical)
+        self._lease_context = file_lease(locks / "analysis.lock")
+        self._entered = False
+        self._published = False
+        self._snapshot: CampaignSnapshot | None = None
+
+    def __enter__(self) -> "AnalysisPublication":
+        if self._entered:
+            raise RuntimeError("analysis publication context is not reentrant")
+        self._lease_context.__enter__()
+        self._entered = True
+        try:
+            self._initialize()
+        except BaseException:
+            self._lease_context.__exit__(*sys.exc_info())
+            self._entered = False
+            raise
+        return self
+
+    def _initialize(self) -> None:
+        self.state = secure_directory(
+            self.campaign_root / ANALYSIS_STATE_DIRECTORY, create=True
+        )
+        _validate_analysis_state(self.state)
+        fsync_directory(self.campaign_root)
         self.staging = secure_directory(self.state / "staging", create=True)
         self.generations = secure_directory(self.state / "generations", create=True)
         fsync_directory(self.state)
@@ -265,16 +309,14 @@ class AnalysisPublication:
         self.capture_directory.mkdir(mode=0o700)
         self.generation_staging.mkdir(mode=0o700)
         fsync_directory(self.staging)
-        self._snapshot: CampaignSnapshot | None = None
-        self._published = False
-
-    def __enter__(self) -> "AnalysisPublication":
-        return self
-
     def __exit__(self, *exc_info) -> None:  # type: ignore[no-untyped-def]
-        if self.work.exists() and not self.work.is_symlink():
-            shutil.rmtree(self.work)
-            fsync_directory(self.staging)
+        try:
+            if self.work.exists() and not self.work.is_symlink():
+                shutil.rmtree(self.work)
+                fsync_directory(self.staging)
+        finally:
+            self._lease_context.__exit__(*exc_info)
+            self._entered = False
 
     def capture(
         self,

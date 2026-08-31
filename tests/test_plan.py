@@ -3,6 +3,7 @@ import hashlib
 import json
 import math
 import subprocess
+import threading
 from pathlib import Path
 
 import pyarrow as pa
@@ -1036,12 +1037,47 @@ def test_atomic_failure_leaves_no_plan(
 
     monkeypatch.setattr(
         plan_module,
-        "write_parquet_atomic",
-        lambda table, path: (_ for _ in ()).throw(OSError("injected")),
+        "write_parquet_exclusive",
+        lambda table, path, **options: (_ for _ in ()).throw(OSError("injected")),
     )
     with pytest.raises(OSError, match="injected"):
         build_plan(design(tmp_path / "campaign"))
     assert not (tmp_path / "campaign" / "plan.parquet").exists()
+
+
+def test_concurrent_equivalent_plans_use_no_clobber_without_parent_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    campaign = tmp_path / "campaign"
+    current = design(campaign)
+    barrier = threading.Barrier(2)
+    real_publish = plan_module.write_parquet_exclusive
+    results = []
+    errors = []
+
+    def synchronized_publish(table, path, **options):  # type: ignore[no-untyped-def]
+        barrier.wait(5)
+        return real_publish(table, path, **options)
+
+    def publish() -> None:
+        try:
+            results.append(build_plan(current))
+        except BaseException as error:
+            errors.append(error)
+
+    monkeypatch.setattr(
+        plan_module, "write_parquet_exclusive", synchronized_publish
+    )
+    threads = [threading.Thread(target=publish) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(10)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert not errors
+    assert sorted(result.status for result in results) == ["created", "unchanged"]
+    assert not tuple(campaign.parent.glob(".eqasim-sa-*.lock"))
 
 
 def test_campaign_root_with_arbitrary_state_is_refused(tmp_path: Path) -> None:

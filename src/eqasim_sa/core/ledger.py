@@ -1,12 +1,10 @@
 import errno
-import fcntl
 import hashlib
 import json
 import math
 import os
 import re
 import stat
-import time
 import uuid
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -20,11 +18,13 @@ from eqasim_sa.core.durable_publication import (
     absolute,
     copy_file_atomic,
     directory_is_current,
+    file_lease,
     file_identity,
     fsync_directory,
     open_child_directory,
     open_directory,
     open_regular,
+    secure_directory,
     write_atomic,
     write_parquet_atomic,
 )
@@ -103,67 +103,6 @@ def _state(info: os.stat_result) -> _STATE:
     )
 
 
-def _validate_owned_lock(info: os.stat_result, description: str) -> None:
-    if (
-        not stat.S_ISREG(info.st_mode)
-        or info.st_nlink != 1
-        or info.st_uid != os.getuid()
-    ):
-        raise ValueError(f"{description} must be a private owned regular file")
-
-
-@contextmanager
-def campaign_lock(
-    campaign_root: Path,
-    namespace: str,
-    *,
-    blocking: bool = True,
-    interrupted: Callable[[], bool] | None = None,
-) -> Iterator[None]:
-    if namespace not in {"plan", "campaign"}:
-        raise ValueError("lock namespace must be plan or campaign")
-    root = absolute(campaign_root)
-    parent_path = root.parent
-    parent = open_directory(parent_path, create=True)
-    descriptor = -1
-    lock_name = (
-        f".eqasim-sa-{namespace}-"
-        f"{hashlib.sha256(os.fsencode(root)).hexdigest()[:16]}.lock"
-    )
-    try:
-        descriptor = os.open(
-            lock_name,
-            os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW,
-            0o600,
-            dir_fd=parent,
-        )
-        opened = os.fstat(descriptor)
-        _validate_owned_lock(opened, f"{namespace} lock")
-        os.fchmod(descriptor, 0o600)
-        while True:
-            if interrupted is not None and interrupted():
-                raise KeyboardInterrupt
-            try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                if not blocking:
-                    raise
-                time.sleep(0.05)
-        visible = os.stat(lock_name, dir_fd=parent, follow_symlinks=False)
-        _validate_owned_lock(visible, f"{namespace} lock")
-        if (
-            (visible.st_dev, visible.st_ino) != (opened.st_dev, opened.st_ino)
-            or not directory_is_current(parent_path, parent)
-        ):
-            raise RuntimeError(f"{namespace} lock changed while acquiring it")
-        yield
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-        os.close(parent)
-
-
 @contextmanager
 def run_lease(
     campaign_root: Path,
@@ -174,62 +113,14 @@ def run_lease(
         raise ValueError(
             "run_id must contain exactly 32 lowercase hexadecimal characters"
         )
-    try:
-        campaign = open_directory(campaign_root, create=True)
-    except OSError as error:
-        raise ValueError("campaign root must not traverse a symlink") from error
-    directory = -1
-    descriptor = -1
-    try:
-        try:
-            directory = open_child_directory(
-                campaign, ".eqasim-sa-run-locks", create=True
-            )
-        except OSError as error:
-            raise ValueError("run lock directory must not be a symlink") from error
-        info = os.fstat(directory)
-        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
-            raise ValueError("run lock directory must be an owned directory")
-        os.fchmod(directory, 0o700)
-        name = f"{run_id}.lock"
-        descriptor = os.open(
-            name,
-            os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW,
-            0o600,
-            dir_fd=directory,
-        )
-        opened = os.fstat(descriptor)
-        _validate_owned_lock(opened, "run lease")
-        os.fchmod(descriptor, 0o600)
-        while True:
-            if interrupted is not None and interrupted():
-                raise KeyboardInterrupt
-            try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                time.sleep(0.05)
-        visible = os.stat(name, dir_fd=directory, follow_symlinks=False)
-        visible_directory = os.stat(
-            ".eqasim-sa-run-locks", dir_fd=campaign, follow_symlinks=False
-        )
-        opened_directory = os.fstat(directory)
-        _validate_owned_lock(visible, "run lease")
-        if (
-            (visible.st_dev, visible.st_ino) != (opened.st_dev, opened.st_ino)
-            or not stat.S_ISDIR(visible_directory.st_mode)
-            or (visible_directory.st_dev, visible_directory.st_ino)
-            != (opened_directory.st_dev, opened_directory.st_ino)
-            or not directory_is_current(campaign_root, campaign)
-        ):
-            raise RuntimeError("run lease changed while acquiring it")
+    technical = secure_directory(campaign_root / ".eqasim-sa", create=True)
+    locks = secure_directory(technical / "locks", create=True)
+    runs = secure_directory(locks / "runs", create=True)
+    fsync_directory(campaign_root)
+    fsync_directory(technical)
+    fsync_directory(locks)
+    with file_lease(runs / f"{run_id}.lock", interrupted=interrupted):
         yield
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-        if directory >= 0:
-            os.close(directory)
-        os.close(campaign)
 
 
 def _regular_path_is_current(path: Path, expected: _STATE) -> bool:
@@ -829,6 +720,7 @@ class ArchiveTransaction:
         self._campaign_parent = -1
         self._campaign_name = ""
         self._campaign = -1
+        self._technical = -1
         self._archives = -1
         self._runs = -1
         self._marker_staging = -1
@@ -837,6 +729,7 @@ class ArchiveTransaction:
         self._committed = False
         self._archives_identity: tuple[int, int, int] | None = None
         self._runs_identity: tuple[int, int, int] | None = None
+        self._technical_identity: tuple[int, int, int] | None = None
         self._marker_staging_identity: tuple[int, int, int] | None = None
 
     def prepare(self) -> None:
@@ -850,12 +743,17 @@ class ArchiveTransaction:
         )
         self._archives = open_child_directory(self._campaign, "archives", create=True)
         self._runs = open_child_directory(self._campaign, "runs", create=True)
+        self._technical = open_child_directory(
+            self._campaign, ".eqasim-sa", create=True
+        )
         self._marker_staging = open_child_directory(
-            self._campaign, ".eqasim-sa-tmp", create=True
+            self._technical, "transactions", create=True
         )
         self._archives_identity = file_identity(os.fstat(self._archives))
         self._runs_identity = file_identity(os.fstat(self._runs))
+        self._technical_identity = file_identity(os.fstat(self._technical))
         self._marker_staging_identity = file_identity(os.fstat(self._marker_staging))
+        os.fsync(self._technical)
         os.fsync(self._campaign)
         self._staging_name = f".{self.run_id}.{uuid.uuid4().hex}.tmp"
         os.mkdir(self._staging_name, mode=0o700, dir_fd=self._archives)
@@ -904,8 +802,16 @@ class ArchiveTransaction:
             != self._runs_identity
             or file_identity(
                 os.stat(
-                    ".eqasim-sa-tmp",
+                    ".eqasim-sa",
                     dir_fd=self._campaign,
+                    follow_symlinks=False,
+                )
+            )
+            != self._technical_identity
+            or file_identity(
+                os.stat(
+                    "transactions",
+                    dir_fd=self._technical,
                     follow_symlinks=False,
                 )
             )
@@ -1007,6 +913,7 @@ class ArchiveTransaction:
         finally:
             for attribute in (
                 "_marker_staging",
+                "_technical",
                 "_runs",
                 "_archives",
                 "_campaign",
@@ -1089,125 +996,6 @@ def validate_run_record(record: RunRecord) -> None:
         raise ValueError("scratch_bytes must be a non-negative signed int64 integer")
 
 
-def _write_run_atomic(campaign_root: Path, name: str, table: pa.Table) -> Path:
-    campaign = open_directory(campaign_root, create=True)
-    runs = staging = temporary = -1
-    temporary_name = f".{name}.{uuid.uuid4().hex}.tmp"
-    backup_name = f".{name}.{uuid.uuid4().hex}.backup"
-    backup_created = False
-    preserve_backup = False
-    try:
-        runs = open_child_directory(campaign, "runs", create=True)
-        staging = open_child_directory(campaign, ".eqasim-sa-tmp", create=True)
-        runs_identity = file_identity(os.fstat(runs))
-        staging_identity = file_identity(os.fstat(staging))
-
-        def directories_are_current() -> bool:
-            return (
-                directory_is_current(campaign_root, campaign)
-                and file_identity(
-                    os.stat("runs", dir_fd=campaign, follow_symlinks=False)
-                )
-                == runs_identity
-                and file_identity(
-                    os.stat(
-                        ".eqasim-sa-tmp", dir_fd=campaign, follow_symlinks=False
-                    )
-                )
-                == staging_identity
-            )
-
-        if not directories_are_current():
-            raise RuntimeError("completion marker directories changed while opening")
-        os.fsync(campaign)
-        temporary = os.open(
-            temporary_name,
-            os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW,
-            0o600,
-            dir_fd=staging,
-        )
-        with os.fdopen(os.dup(temporary), "wb") as stream:
-            pq.write_table(table, stream, compression="zstd")
-            stream.flush()
-        os.fsync(temporary)
-        os.close(temporary)
-        temporary = -1
-
-        existing = _entry_state(runs, name)
-        if existing is not None:
-            if not stat.S_ISREG(existing.st_mode):
-                raise ValueError("completion marker destination must be a regular file")
-            held = os.open(name, _READ_FLAGS, dir_fd=runs)
-            try:
-                if _state(os.fstat(held)) != _state(existing):
-                    raise RuntimeError("completion marker changed before replacement")
-            finally:
-                os.close(held)
-            os.link(
-                name,
-                backup_name,
-                src_dir_fd=runs,
-                dst_dir_fd=staging,
-                follow_symlinks=False,
-            )
-            backup_created = True
-        if not directories_are_current():
-            raise RuntimeError("completion marker directories changed before publishing")
-        os.replace(
-            temporary_name,
-            name,
-            src_dir_fd=staging,
-            dst_dir_fd=runs,
-        )
-        temporary_name = ""
-        try:
-            os.fsync(runs)
-            if not directories_are_current():
-                raise RuntimeError(
-                    "completion marker directories changed while publishing"
-                )
-        except (OSError, RuntimeError):
-            if backup_created:
-                try:
-                    os.replace(
-                        backup_name,
-                        name,
-                        src_dir_fd=staging,
-                        dst_dir_fd=runs,
-                    )
-                    backup_created = False
-                    os.fsync(runs)
-                except OSError:
-                    preserve_backup = True
-                    raise
-            else:
-                os.unlink(name, dir_fd=runs)
-                os.fsync(runs)
-            raise
-        if backup_created:
-            os.unlink(backup_name, dir_fd=staging)
-            backup_created = False
-        return run_path(campaign_root, name.removesuffix(".parquet"))
-    finally:
-        if temporary >= 0:
-            os.close(temporary)
-        if staging >= 0:
-            if temporary_name:
-                try:
-                    os.unlink(temporary_name, dir_fd=staging)
-                except FileNotFoundError:
-                    pass
-            if backup_created and not preserve_backup:
-                try:
-                    os.unlink(backup_name, dir_fd=staging)
-                except FileNotFoundError:
-                    pass
-            os.close(staging)
-        if runs >= 0:
-            os.close(runs)
-        os.close(campaign)
-
-
 def write_run(
     campaign_root: Path,
     record: RunRecord,
@@ -1224,7 +1012,11 @@ def write_run(
         if artifact_manifest is None
         else _run_table_with_metadata(record, artifact_manifest, evidence)
     )
-    return _write_run_atomic(campaign_root, f"{record.run_id}.parquet", table)
+    return write_parquet_atomic(
+        table,
+        run_path(campaign_root, record.run_id),
+        staging_directory=campaign_root / ".eqasim-sa" / "transactions",
+    )
 
 
 def _validated_execution_evidence(

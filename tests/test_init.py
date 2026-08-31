@@ -272,6 +272,20 @@ def test_init_rerun_accepts_user_created_campaign_state(
     generation = analysis_state / "generations" / ("b" * 64)
     generation.mkdir(parents=True)
     pq.write_table(pa.table({"value": [1.0]}), generation / "indicators.parquet")
+    technical = campaign / ".eqasim-sa"
+    run_locks = technical / "locks" / "runs"
+    transactions = technical / "transactions"
+    submitit = technical / "slurm" / "submitit"
+    run_locks.mkdir(parents=True)
+    transactions.mkdir(parents=True)
+    submitit.mkdir(parents=True)
+    run_lock = run_locks / f"{run_id}.lock"
+    run_lock.write_bytes(b"")
+    run_lock.chmod(0o600)
+    transaction = transactions / f".{run_id}.parquet.safe.tmp"
+    transaction.write_bytes(b"recoverable")
+    transaction.chmod(0o600)
+    (submitit / "scheduler.log").write_text("owned\n")
 
     protected = {
         path: (path.read_bytes(), path.stat().st_mtime_ns, path.stat().st_nlink)
@@ -280,6 +294,8 @@ def test_init_rerun_accepts_user_created_campaign_state(
             marker,
             backup,
             generation / "indicators.parquet",
+            run_lock,
+            transaction,
         )
     }
     result = init_from_inputs(

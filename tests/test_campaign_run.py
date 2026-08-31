@@ -464,8 +464,12 @@ def test_slurm_campaign_composes_remote_job_without_local_simulator(
     observed = {}
 
     class Backend:
-        def __init__(self, folder, workers, parameters):  # type: ignore[no-untyped-def]
-            observed.update(folder=folder, workers=workers, parameters=parameters)
+        def __init__(self, campaign_root, workers, parameters):  # type: ignore[no-untyped-def]
+            observed.update(
+                campaign_root=campaign_root,
+                workers=workers,
+                parameters=parameters,
+            )
 
         def map(self, function, specs):  # type: ignore[no-untyped-def]
             values = tuple(specs)
@@ -497,9 +501,7 @@ def test_slurm_campaign_composes_remote_job_without_local_simulator(
     payload = run_from_meta_config(meta)
     loaded = load_meta_config(meta)
     assert payload["total"] == 2 and payload["completed"] == 2
-    assert observed["folder"] == loaded.campaign_root / ".submitit" / "%j"
-    assert observed["folder"].parent.is_dir()
-    assert not observed["folder"].parent.is_symlink()
+    assert observed["campaign_root"] == loaded.campaign_root
     assert observed["workers"] == 7
     assert observed["parameters"] == {"timeout_min": 1440, "cpus_per_task": 3}
     assert type(observed["function"]).__name__ == "EqasimSlurmJob"
@@ -511,13 +513,12 @@ def test_slurm_campaign_composes_remote_job_without_local_simulator(
 
 
 @pytest.mark.parametrize("kind", ["file", "symlink"])
-def test_slurm_campaign_rejects_unsafe_submitit_directory_before_executor(
+def test_slurm_backend_rejects_unsafe_owned_submitit_directory(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     kind: str,
 ) -> None:
-    from eqasim_sa.adapters import application
     from eqasim_sa.adapters.application import plan_from_meta_config
+    from eqasim_sa.adapters.backends.slurm import SlurmBackend
 
     meta, _, _, _ = meta_fixture(tmp_path)
     meta.write_text(
@@ -529,20 +530,16 @@ def test_slurm_campaign_rejects_unsafe_submitit_directory_before_executor(
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     add_execution(meta, scratch, backend="slurm")
-    technical = tmp_path / "campaign" / ".submitit"
+    technical = tmp_path / "campaign" / ".eqasim-sa" / "slurm" / "submitit"
+    technical.parent.mkdir(parents=True)
     if kind == "file":
         technical.write_text("not a directory")
     else:
         outside = tmp_path / "outside"
         outside.mkdir()
         technical.symlink_to(outside, target_is_directory=True)
-    monkeypatch.setattr(
-        application,
-        "SlurmBackend",
-        lambda *args: (_ for _ in ()).throw(AssertionError("executor constructed")),
-    )
-    with pytest.raises(ValueError, match="submitit.*directory"):
-        run_from_meta_config(meta)
+    with pytest.raises(ValueError, match="directory"):
+        SlurmBackend(tmp_path / "campaign", 1, {})
 
 
 def test_slurm_campaign_resumes_only_missing_runs_and_complete_campaign_is_noop(

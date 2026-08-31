@@ -16,7 +16,13 @@ from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator
 from eqasim_sa.adapters.execution_seal import create_execution_seal
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.adapters.worker import Indexed, WorkerBatch, execute_batch
-from eqasim_sa.core.durable_publication import directory_is_current, open_directory
+from eqasim_sa.core.durable_publication import (
+    directory_is_current,
+    file_lease,
+    fsync_directory,
+    open_directory,
+    secure_directory,
+)
 from eqasim_sa.core.run import RunResult, RunSpec, execute_run
 from eqasim_sa.core.software_identity import SoftwareSourceGuard
 
@@ -211,12 +217,11 @@ def _terminal_barrier(jobs: Iterable[object], *, cancel_unfinished: bool) -> Non
 class SlurmBackend:
     def __init__(
         self,
-        folder: Path,
+        campaign_root: Path,
         max_workers: int,
         parameters: dict[str, object],
         executor_factory=submitit.AutoExecutor,
         job_factory=submitit.SlurmJob,
-        journal_path: Path | None = None,
     ) -> None:
         if (
             isinstance(max_workers, bool)
@@ -224,12 +229,21 @@ class SlurmBackend:
             or max_workers <= 0
         ):
             raise ValueError("max_workers must be a strictly positive integer")
-        self.folder = folder
+        campaign = secure_directory(campaign_root)
+        technical = secure_directory(campaign / ".eqasim-sa", create=True)
+        locks = secure_directory(technical / "locks", create=True)
+        state = secure_directory(technical / "slurm", create=True)
+        submitit = secure_directory(state / "submitit", create=True)
+        fsync_directory(campaign)
+        fsync_directory(technical)
+        fsync_directory(state)
+        self.folder = submitit / "%j"
         self.max_workers = max_workers
         self.parameters = dict(parameters)
         self.executor_factory = executor_factory
         self.job_factory = job_factory
-        self.journal_path = journal_path or folder.parent / ACTIVE_JOB_JOURNAL
+        self.journal_path = state / ACTIVE_JOB_JOURNAL
+        self.lease_path = locks / "slurm.lock"
 
     def _reconcile(self) -> None:
         job_ids = _read_journal(self.journal_path)
@@ -246,34 +260,37 @@ class SlurmBackend:
 
     def map(self, function: Callable[[T], R], specs: Iterable[T]) -> Iterator[R]:
         values = tuple(specs)
-        self._reconcile()
-        if not values:
-            return
-        executor = self.executor_factory(folder=str(self.folder), cluster="slurm")
-        executor.update_parameters(
-            **self.parameters, slurm_array_parallelism=self.max_workers
-        )
-        jobs: list[object] = []
-        job_ids: tuple[str, ...] | None = None
-        journal_written = False
-        complete = False
-        try:
-            jobs = list(executor.map_array(function, values))
-            job_ids = _validate_job_ids(getattr(job, "job_id", None) for job in jobs)
-            _write_journal(self.journal_path, job_ids)
-            journal_written = True
-            if len(jobs) != len(values):
-                raise RuntimeError(
-                    "SLURM backend job cardinality does not match submitted specs"
+        with file_lease(self.lease_path):
+            self._reconcile()
+            if not values:
+                return
+            executor = self.executor_factory(folder=str(self.folder), cluster="slurm")
+            executor.update_parameters(
+                **self.parameters, slurm_array_parallelism=self.max_workers
+            )
+            jobs: list[object] = []
+            job_ids: tuple[str, ...] | None = None
+            journal_written = False
+            complete = False
+            try:
+                jobs = list(executor.map_array(function, values))
+                job_ids = _validate_job_ids(
+                    getattr(job, "job_id", None) for job in jobs
                 )
-            for job in jobs:
-                yield job.result()  # type: ignore[attr-defined]
-            complete = True
-        finally:
-            if jobs:
-                _terminal_barrier(jobs, cancel_unfinished=not complete)
-            if journal_written and job_ids is not None:
-                _remove_journal(self.journal_path, job_ids)
+                _write_journal(self.journal_path, job_ids)
+                journal_written = True
+                if len(jobs) != len(values):
+                    raise RuntimeError(
+                        "SLURM backend job cardinality does not match submitted specs"
+                    )
+                for job in jobs:
+                    yield job.result()  # type: ignore[attr-defined]
+                complete = True
+            finally:
+                if jobs:
+                    _terminal_barrier(jobs, cancel_unfinished=not complete)
+                if journal_written and job_ids is not None:
+                    _remove_journal(self.journal_path, job_ids)
 
 
 @dataclass(frozen=True)

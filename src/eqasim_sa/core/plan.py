@@ -16,7 +16,7 @@ from eqasim_sa.core.charter import (
     validate_scientific_contract,
     validate_scientific_stopping,
 )
-from eqasim_sa.core.durable_publication import write_parquet_atomic
+from eqasim_sa.core.durable_publication import write_parquet_exclusive
 from eqasim_sa.core.ledger import RESERVED_COLUMNS
 from eqasim_sa.core.run import RunSpec, compute_run_id
 from eqasim_sa.core.sensitivity import (
@@ -1546,9 +1546,29 @@ def build_plan(design: Design) -> PlanResult:
                 design.context_hash,
             )
         raise FileExistsError("plan differs; choose a new campaign_root")
-    if root.exists() and next(root.iterdir(), None) is not None:
-        raise FileExistsError("campaign_root contains durable state without a plan")
-    write_parquet_atomic(candidate, destination)
+    if root.exists():
+        entries = {entry.name for entry in root.iterdir()}
+        if entries - {".eqasim-sa", "plan.parquet"}:
+            raise FileExistsError("campaign_root contains durable state without a plan")
+    try:
+        write_parquet_exclusive(
+            candidate,
+            destination,
+            staging_directory=root / ".eqasim-sa" / "transactions",
+        )
+    except FileExistsError:
+        existing = pq.ParquetFile(destination).read()
+        if candidate.schema.equals(
+            existing.schema, check_metadata=True
+        ) and candidate.equals(existing):
+            return PlanResult(
+                "unchanged",
+                Path("plan.parquet"),
+                len(candidate),
+                len(set(candidate["runId"].to_pylist())),
+                design.context_hash,
+            )
+        raise FileExistsError("plan differs; choose a new campaign_root") from None
     return PlanResult(
         "created",
         Path("plan.parquet"),

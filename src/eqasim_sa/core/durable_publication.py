@@ -8,14 +8,18 @@ choose only the destination and how to serialize its content.
 from __future__ import annotations
 
 import hashlib
+import fcntl
 import os
 import shutil
 import stat
 import tempfile
+import time
 import uuid
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterator
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -251,6 +255,108 @@ def fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
+@contextmanager
+def file_lease(
+    path: Path,
+    *,
+    blocking: bool = True,
+    interrupted: Callable[[], bool] | None = None,
+) -> Iterator[None]:
+    """Hold one private module lease without traversing links."""
+    parent = open_directory(path.parent, create=True)
+    descriptor = -1
+    try:
+        descriptor = os.open(
+            path.name,
+            os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=parent,
+        )
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_uid != os.getuid()
+            or opened.st_nlink != 1
+        ):
+            raise ValueError("lease must be a private owned regular file")
+        os.fchmod(descriptor, 0o600)
+        while True:
+            if interrupted is not None and interrupted():
+                raise KeyboardInterrupt
+            try:
+                operation = fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB)
+                fcntl.flock(descriptor, operation)
+                break
+            except BlockingIOError:
+                if not blocking:
+                    raise
+                time.sleep(0.05)
+        visible = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+        if (
+            file_identity(visible) != file_identity(opened)
+            or not directory_is_current(path.parent, parent)
+        ):
+            raise RuntimeError("lease changed while being acquired")
+        yield
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        os.close(parent)
+
+
+def write_exclusive(
+    destination: Path,
+    writer: Callable[[Path], None],
+    *,
+    staging_directory: Path | None = None,
+) -> Path:
+    """Publish a new durable file without ever replacing an existing name."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    staging = staging_directory or destination.parent
+    staging.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.", suffix=".tmp", dir=staging
+    )
+    os.close(descriptor)
+    temporary = Path(temporary_name)
+    preserve_temporary = False
+    try:
+        writer(temporary)
+        with temporary.open("rb") as stream:
+            os.fsync(stream.fileno())
+        staged = temporary.lstat()
+        if not stat.S_ISREG(staged.st_mode) or temporary.is_symlink():
+            raise ValueError("exclusive publication writer produced an invalid file")
+        os.link(temporary, destination, follow_symlinks=False)
+        try:
+            published = destination.lstat()
+            if file_identity(published) != file_identity(staged):
+                raise RuntimeError("exclusive destination differs from staged content")
+            temporary.unlink()
+            fsync_directory(staging)
+            fsync_directory(destination.parent)
+        except BaseException as commit_error:
+            try:
+                visible = destination.lstat()
+                if file_identity(visible) != file_identity(staged):
+                    raise RuntimeError("exclusive destination changed before rollback")
+                destination.unlink()
+                fsync_directory(destination.parent)
+                if temporary.exists():
+                    temporary.unlink()
+                fsync_directory(staging)
+            except BaseException as rollback_error:
+                preserve_temporary = temporary.exists()
+                raise PublicationOutcomeUnknown(
+                    "exclusive commit failed and rollback could not be established"
+                ) from rollback_error
+            raise commit_error
+        return destination
+    finally:
+        if temporary.exists() and not preserve_temporary:
+            temporary.unlink()
+
+
 def write_atomic(
     destination: Path,
     writer: Callable[[Path], None],
@@ -260,7 +366,7 @@ def write_atomic(
     """Replace a durable file and restore its predecessor on fsync failure."""
     destination.parent.mkdir(parents=True, exist_ok=True)
     staging = staging_directory or (
-        destination.parent.parent / ".eqasim-sa-tmp"
+        destination.parent.parent / ".eqasim-sa" / "transactions"
         if destination.parent.name == "runs"
         else destination.parent
     )
@@ -312,6 +418,19 @@ def write_parquet_atomic(
     staging_directory: Path | None = None,
 ) -> Path:
     return write_atomic(
+        destination,
+        lambda path: pq.write_table(table, path, compression="zstd"),
+        staging_directory=staging_directory,
+    )
+
+
+def write_parquet_exclusive(
+    table: pa.Table,
+    destination: Path,
+    *,
+    staging_directory: Path | None = None,
+) -> Path:
+    return write_exclusive(
         destination,
         lambda path: pq.write_table(table, path, compression="zstd"),
         staging_directory=staging_directory,

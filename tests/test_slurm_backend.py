@@ -16,6 +16,18 @@ from eqasim_sa.core.run import RunResult, RunSpec
 from eqasim_sa.core.software_identity import read_software_identity
 
 
+def slurm_state(root: Path) -> Path:
+    return root / ".eqasim-sa" / "slurm"
+
+
+def journal_path(root: Path) -> Path:
+    return slurm_state(root) / slurm.ACTIVE_JOB_JOURNAL
+
+
+def submitit_folder(root: Path) -> Path:
+    return slurm_state(root) / "submitit" / "%j"
+
+
 class FakeJob:
     next_id = 100
 
@@ -92,7 +104,7 @@ def reset_executor() -> None:
 
 
 def test_slurm_backend_forces_cluster_submits_one_ordered_array(tmp_path: Path) -> None:
-    journal = tmp_path / ".submitit" / slurm.ACTIVE_JOB_JOURNAL
+    journal = journal_path(tmp_path)
     observed_journals = []
     FakeExecutor.jobs = [
         FakeJob(
@@ -104,7 +116,7 @@ def test_slurm_backend_forces_cluster_submits_one_ordered_array(tmp_path: Path) 
         FakeJob("first"),
     ]
     backend = SlurmBackend(
-        tmp_path / ".submitit" / "%j",
+        tmp_path,
         3,
         {"timeout_min": 90, "cpus_per_task": 4, "slurm_partition": "cpu"},
         executor_factory=FakeExecutor,
@@ -113,7 +125,7 @@ def test_slurm_backend_forces_cluster_submits_one_ordered_array(tmp_path: Path) 
     assert list(backend.map(str, (2, 1))) == ["second", "first"]
     executor = FakeExecutor.instances[0]
     assert executor.cluster == "slurm"
-    assert executor.folder == str(tmp_path / ".submitit" / "%j")
+    assert executor.folder == str(submitit_folder(tmp_path))
     assert executor.parameters == {
         "timeout_min": 90,
         "cpus_per_task": 4,
@@ -129,7 +141,7 @@ def test_slurm_backend_forces_cluster_submits_one_ordered_array(tmp_path: Path) 
 
 
 def test_slurm_backend_accepts_empty_input_without_executor(tmp_path: Path) -> None:
-    backend = SlurmBackend(tmp_path / "%j", 1, {}, executor_factory=FakeExecutor)
+    backend = SlurmBackend(tmp_path, 1, {}, executor_factory=FakeExecutor)
     assert list(backend.map(str, ())) == []
     assert FakeExecutor.instances == []
 
@@ -138,12 +150,12 @@ def test_slurm_backend_rejects_result_cardinality_and_cancels_on_abnormal_exit(
     tmp_path: Path,
 ) -> None:
     FakeExecutor.jobs = [FakeJob(1)]
-    backend = SlurmBackend(tmp_path / "%j", 2, {}, executor_factory=FakeExecutor)
+    backend = SlurmBackend(tmp_path, 2, {}, executor_factory=FakeExecutor)
     with pytest.raises(RuntimeError, match="cardinality"):
         list(backend.map(str, (1, 2)))
     assert FakeExecutor.jobs[0].cancelled
     assert FakeExecutor.jobs[0].wait_calls == 1
-    assert not (tmp_path / slurm.ACTIVE_JOB_JOURNAL).exists()
+    assert not journal_path(tmp_path).exists()
 
     failure, pending = FakeJob(error=RuntimeError("collect failed")), FakeJob(2)
     FakeExecutor.jobs = [failure, pending]
@@ -170,7 +182,7 @@ def test_slurm_backend_cancels_and_propagates_keyboard_interrupt(
 ) -> None:
     interrupted, pending = FakeJob(error=KeyboardInterrupt()), FakeJob(2)
     FakeExecutor.jobs = [interrupted, pending]
-    backend = SlurmBackend(tmp_path / "%j", 1, {}, executor_factory=FakeExecutor)
+    backend = SlurmBackend(tmp_path, 1, {}, executor_factory=FakeExecutor)
     with pytest.raises(KeyboardInterrupt):
         list(backend.map(str, (1, 2)))
     assert not interrupted.cancelled and pending.cancelled
@@ -182,20 +194,21 @@ def test_slurm_backend_cancels_on_early_iterator_close_without_masking_errors(
 ) -> None:
     first, second = BrokenCancelJob(1), FakeJob(2)
     FakeExecutor.jobs = [first, second]
-    iterator = SlurmBackend(tmp_path / "%j", 1, {}, executor_factory=FakeExecutor).map(
+    iterator = SlurmBackend(tmp_path, 1, {}, executor_factory=FakeExecutor).map(
         str, (1, 2)
     )
     assert next(iterator) == 1
     iterator.close()
     assert not first.cancelled and second.cancelled
     assert first.wait_calls == second.wait_calls == 1
-    assert not (tmp_path / slurm.ACTIVE_JOB_JOURNAL).exists()
+    assert not journal_path(tmp_path).exists()
 
 
 def test_slurm_backend_reconciles_leftover_journal_before_new_submission(
     tmp_path: Path,
 ) -> None:
-    journal = tmp_path / slurm.ACTIVE_JOB_JOURNAL
+    journal = journal_path(tmp_path)
+    journal.parent.mkdir(parents=True)
     jobs = {
         "700_0": FakeJob(job_id="700_0"),
         "700_1": FakeJob(job_id="700_1"),
@@ -208,7 +221,7 @@ def test_slurm_backend_reconciles_leftover_journal_before_new_submission(
         return jobs[job_id]
 
     backend = SlurmBackend(
-        tmp_path / "%j",
+        tmp_path,
         1,
         {},
         executor_factory=FakeExecutor,
@@ -217,8 +230,8 @@ def test_slurm_backend_reconciles_leftover_journal_before_new_submission(
 
     assert list(backend.map(str, ())) == []
     assert reconstructed == [
-        (tmp_path / "%j", "700_0"),
-        (tmp_path / "%j", "700_1"),
+        (submitit_folder(tmp_path), "700_0"),
+        (submitit_folder(tmp_path), "700_1"),
     ]
     assert all(job.cancelled and job.wait_calls == 1 for job in jobs.values())
     assert not journal.exists()
@@ -228,14 +241,15 @@ def test_slurm_backend_reconciles_leftover_journal_before_new_submission(
 def test_slurm_backend_preserves_leftover_journal_when_recovery_is_unconfirmed(
     tmp_path: Path,
 ) -> None:
-    journal = tmp_path / slurm.ACTIVE_JOB_JOURNAL
+    journal = journal_path(tmp_path)
+    journal.parent.mkdir(parents=True)
     job = FakeJob(
         job_id="800",
         wait_error=RuntimeError("scheduler unavailable"),
     )
     slurm._write_journal(journal, (job.job_id,))
     backend = SlurmBackend(
-        tmp_path / "%j",
+        tmp_path,
         1,
         {},
         executor_factory=FakeExecutor,
@@ -255,7 +269,8 @@ def test_slurm_backend_refuses_unsafe_leftover_journal_before_executor(
     tmp_path: Path,
     damage: str,
 ) -> None:
-    journal = tmp_path / slurm.ACTIVE_JOB_JOURNAL
+    journal = journal_path(tmp_path)
+    journal.parent.mkdir(parents=True)
     if damage == "symlink":
         target = tmp_path / "target.json"
         target.write_text('{"jobIds":["900"],"version":1}')
@@ -265,7 +280,7 @@ def test_slurm_backend_refuses_unsafe_leftover_journal_before_executor(
     else:
         journal.write_text('{"jobs":["900"],"version":1}')
     backend = SlurmBackend(
-        tmp_path / "%j",
+        tmp_path,
         1,
         {},
         executor_factory=FakeExecutor,

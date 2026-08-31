@@ -72,8 +72,9 @@ identical.
 
 ## Plan Sealing
 
-`plan` acquires a lock at the campaign-parent level and writes atomically with
-Zstandard compression. An identical plan remains unchanged. If `plan.parquet`
+`plan` publishes `plan.parquet` exclusively, without a parent-level lock, and
+uses Zstandard compression. Concurrent equivalent plans resolve to one created
+file and one unchanged result; no invocation can replace the winner. If `plan.parquet`
 exists but differs, or if the root already contains durable state without a
 plan, the command refuses to continue. Create a new root instead of editing the
 existing one.
@@ -114,6 +115,15 @@ campaigns/grid/
 │       └── travel.parquet
 ├── logs/
 │   └── <runId>.log
+├── .eqasim-sa/
+│   ├── locks/
+│   │   ├── runs/<runId>.lock
+│   │   ├── analysis.lock
+│   │   └── slurm.lock
+│   ├── transactions/
+│   └── slurm/
+│       ├── active-jobs.json  # present only while jobs are owned
+│       └── submitit/
 ├── analysis/
 │   ├── staging/
 │   └── generations/
@@ -134,12 +144,18 @@ indicators are executed, with `synthesis.output` always present.
 Final analysis outputs live in one immutable
 `analysis/generations/<generationId>/` directory. `analysis/staging/` contains
 only transactional work and is empty after a normal command completes.
+`.eqasim-sa/` contains durable technical coordination local to this campaign:
+module-private leases, same-filesystem run transactions, and Submitit state.
+It is not scratch, but it disappears with the campaign and is never created in
+the campaign parent. Historical `.eqasim-sa-tmp`, `.eqasim-sa-run-locks`,
+`.submitit`, and parent lock files are accepted by `init` when safe but are not
+created by current commands.
 
 ```text
 scratch/eqasim-sa/<campaign>/workers/<slot>/
 ├── lease.lock
-├── state.json
-├── cache/
+├── state-<contextHash>.json
+├── cache/<contextHash>/
 └── attempt-<uuid>/
 ```
 
@@ -363,9 +379,10 @@ submits only missing runs. A rerun after interruption therefore resumes without
 recomputing completed runs. A fully complete rerun returns success with
 `total: 0`.
 
-Parquet writes use a temporary file, `fsync`, and atomic replacement. `analyze`
-backs up sources and outputs before publication and restores them if an indicator
-mutates them or if analysis fails.
+Durable writes use same-filesystem staging, `fsync`, and either exclusive
+creation or restorable replacement. `analyze` captures a stable campaign cut,
+serializes into its private generation transaction, and moves the pointer only
+after revalidating every selected source.
 
 Never repair state by creating a marker or modifying a plan. Fix the cause,
 delete only disposable scratch space if no process is active, then rerun the same
@@ -378,8 +395,10 @@ processes its batch serially and reuses its cache. A private lease prevents two
 processes from using the same cache. `state.json` is `active` or `clean`; a
 missing, invalid, or unclean state causes the cache to be purged before reuse.
 
-A lease per `runId` supplements this protection on SLURM. Caches are never shared
-between slots.
+A lease per `runId` supplements this protection across invocations. Analysis
+publication and SLURM journal ownership each have a separate module-private
+lease. There is no campaign-wide orchestration lock. Caches are never shared
+between slots or contexts.
 
 ## Local and SLURM
 
@@ -387,6 +406,9 @@ The local backend starts batches in parallel within the command process and
 interrupts subprocess groups on `Ctrl-C`. The SLURM backend uses Submitit, a job
 array, and `slurm_array_parallelism=workers`; each job reloads the
 meta-configuration and rechecks its SHA-256 and the `contextHash`.
+Submitit files and the active-job journal live under
+`<campaign>/.eqasim-sa/slurm/`; no scheduler files are written beside scientific
+campaign outputs.
 
 The code and tests cover construction and simulated behavior of the SLURM
 backend. They do not constitute validation on a real SLURM cluster.

@@ -7,10 +7,12 @@ import pytest
 
 from eqasim_sa.core import durable_publication
 from eqasim_sa.core.durable_publication import (
+    PublicationOutcomeUnknown,
     capture_stable_file,
     stable_file,
     verify_stable_file,
     write_parquet_atomic,
+    write_parquet_exclusive,
 )
 
 
@@ -95,3 +97,44 @@ def test_failed_atomic_rollback_preserves_recoverable_backup(
     backups = tuple(tmp_path.glob(".*.backup"))
     assert len(backups) == 1
     assert pq.read_table(backups[0]).to_pylist() == [{"value": 1}]
+
+
+def test_exclusive_publication_never_clobbers_existing_destination(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "value.parquet"
+    write_parquet_exclusive(pa.table({"value": [1]}), destination)
+
+    with pytest.raises(FileExistsError):
+        write_parquet_exclusive(pa.table({"value": [2]}), destination)
+
+    assert pq.read_table(destination).to_pylist() == [{"value": 1}]
+
+
+def test_exclusive_publication_reports_unknown_when_absence_cannot_be_restored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    destination = tmp_path / "value.parquet"
+    real_fsync = durable_publication.os.fsync
+    real_unlink = Path.unlink
+    fsync_calls = 0
+
+    def fail_commit(descriptor: int) -> None:
+        nonlocal fsync_calls
+        fsync_calls += 1
+        if fsync_calls == 2:
+            raise OSError("injected directory fsync failure")
+        real_fsync(descriptor)
+
+    def fail_rollback(path: Path, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        if path == destination:
+            raise OSError("injected rollback failure")
+        real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(durable_publication.os, "fsync", fail_commit)
+    monkeypatch.setattr(Path, "unlink", fail_rollback)
+
+    with pytest.raises(PublicationOutcomeUnknown, match="rollback"):
+        write_parquet_exclusive(pa.table({"value": [1]}), destination)
+
+    assert pq.read_table(destination).to_pylist() == [{"value": 1}]
