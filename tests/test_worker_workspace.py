@@ -1,3 +1,5 @@
+import os
+import socket
 import threading
 from pathlib import Path
 
@@ -63,6 +65,55 @@ def test_active_cache_is_purged_before_reuse(tmp_path: Path) -> None:
         assert second.status() == "active"
 
 
+def test_structurally_invalid_clean_cache_is_purged_under_lease(
+    tmp_path: Path,
+) -> None:
+    current = workspace(tmp_path)
+    with current.session():
+        cache = current.prepare_cache()
+        current.mark_clean()
+        target = cache / "target"
+        target.write_text("owned\n")
+        (cache / "unsafe").symlink_to(target)
+
+    with workspace(tmp_path).session() as reopened:
+        cache = reopened.prepare_cache()
+        assert not (cache / "target").exists()
+        assert not (cache / "unsafe").exists()
+
+
+@pytest.mark.parametrize("kind", ["symlink", "hardlink", "fifo", "socket"])
+def test_invalid_cache_entries_fail_measurement_and_leave_active(
+    tmp_path: Path, kind: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    current = workspace(tmp_path)
+    bound_socket = None
+    with current.session():
+        cache = current.prepare_cache()
+        current.mark_active()
+        target = cache / "target"
+        target.write_text("owned\n")
+        invalid = cache / "invalid"
+        if kind == "symlink":
+            invalid.symlink_to(target)
+        elif kind == "hardlink":
+            os.link(target, invalid)
+        elif kind == "fifo":
+            os.mkfifo(invalid)
+        else:
+            bound_socket = socket.socket(socket.AF_UNIX)
+            monkeypatch.chdir(cache)
+            bound_socket.bind("invalid")
+
+        with pytest.raises(ValueError, match="non-symlinks|hard links|regular files"):
+            current.cache_bytes()
+        with pytest.raises(ValueError, match="non-symlinks|hard links|regular files"):
+            current.mark_clean()
+        assert current.status() == "active"
+    if bound_socket is not None:
+        bound_socket.close()
+
+
 def test_workspace_lease_wait_is_interruptible(tmp_path: Path) -> None:
     stopped = threading.Event()
     first = workspace(tmp_path)
@@ -92,4 +143,17 @@ def test_scratch_inventory_rejects_foreign_worker_content(tmp_path: Path) -> Non
     (slot / "foreign").write_text("foreign")
 
     with pytest.raises(FileExistsError, match="foreign"):
+        WorkerWorkspace.validate_scratch(tmp_path, {"campaign"})
+
+
+def test_scratch_inventory_requires_owned_directories(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    current = workspace(tmp_path)
+    with current.session():
+        current.prepare_cache()
+        current.mark_clean()
+
+    monkeypatch.setattr(os, "getuid", lambda: current.root.stat().st_uid + 1)
+    with pytest.raises(FileExistsError, match="owned"):
         WorkerWorkspace.validate_scratch(tmp_path, {"campaign"})

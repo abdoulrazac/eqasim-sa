@@ -321,6 +321,29 @@ def test_post_simulation_guard_failure_leaves_cache_state_active(
     assert adapter.workspace.status() == "active"
 
 
+def test_post_simulation_cache_validation_precedes_measurement_and_clean_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    current = settings(tmp_path)
+    monkeypatch.setenv("EQASIM_SPY_RECORD", str(tmp_path / "record.json"))
+    adapter = simulator(current)
+    real_run = adapter._run_owned
+
+    def corrupt_cache(*arguments, **options):  # type: ignore[no-untyped-def]
+        completed = real_run(*arguments, **options)
+        target = adapter.workspace.cache / "owned"
+        target.write_text("cache\n")
+        os.link(target, adapter.workspace.cache / "hardlink")
+        return completed
+
+    monkeypatch.setattr(adapter, "_run_owned", corrupt_cache)
+
+    with pytest.raises(ValueError, match="hard links"):
+        adapter.simulate(load_config(current.config_path, 42), 42, current.workdir)
+
+    assert adapter.workspace.status() == "active"
+
+
 def test_executes_config_run_and_normalizes_only_requested_stage_artifacts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

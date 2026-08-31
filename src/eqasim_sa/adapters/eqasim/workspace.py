@@ -121,19 +121,25 @@ class WorkerWorkspace:
             if info.st_uid != os.getuid():
                 raise ValueError("worker cache namespace must be owned by the current user")
             parent.chmod(0o700)
-        if self.cache.is_symlink() or self.cache.exists() and not self.cache.is_dir():
-            raise ValueError("worker cache must be a non-symlink directory")
         state = self._read_state()
-        if self.cache.exists() and state != "clean":
-            shutil.rmtree(self.cache)
+        if self.cache.exists() or self.cache.is_symlink():
+            try:
+                self._validate_cache()
+            except ValueError:
+                self._purge_owned_cache()
+            else:
+                if state != "clean":
+                    self._purge_owned_cache()
         self.cache.mkdir(mode=0o700, exist_ok=True)
-        self._validate_tree(self.cache, "worker cache")
+        self._validate_cache()
         return self.cache
 
     def mark_active(self) -> None:
         self._write_state("active")
 
     def mark_clean(self) -> None:
+        self.validate_session()
+        self._validate_cache()
         self._write_state("clean")
 
     def status(self) -> str | None:
@@ -147,11 +153,37 @@ class WorkerWorkspace:
 
     def cache_bytes(self) -> int:
         self.validate_session()
-        return sum(
+        self._validate_cache()
+        measured = sum(
             path.stat(follow_symlinks=False).st_size
             for path in self.cache.rglob("*")
             if path.is_file() and not path.is_symlink()
         )
+        self._validate_cache()
+        return measured
+
+    def _validate_cache(self) -> None:
+        try:
+            info = self.cache.stat(follow_symlinks=False)
+        except OSError as error:
+            raise ValueError("worker cache must be an owned non-symlink directory") from error
+        if (
+            self.cache.is_symlink()
+            or not stat.S_ISDIR(info.st_mode)
+            or info.st_uid != os.getuid()
+        ):
+            raise ValueError("worker cache must be an owned non-symlink directory")
+        self._validate_tree(self.cache, "worker cache")
+
+    def _purge_owned_cache(self) -> None:
+        info = self.cache.stat(follow_symlinks=False)
+        if info.st_uid != os.getuid():
+            raise ValueError("worker cache must be owned by the current user")
+        if self.cache.is_symlink() or not stat.S_ISDIR(info.st_mode):
+            self.cache.unlink()
+            return
+        self._validate_tree_ownership(self.cache, "worker cache")
+        shutil.rmtree(self.cache)
 
     def _prepare_root(self) -> None:
         current = self.scratch
@@ -220,11 +252,29 @@ class WorkerWorkspace:
             elif not stat.S_ISDIR(info.st_mode):
                 raise ValueError(f"{description} entries must be regular files or directories")
 
+    @staticmethod
+    def _validate_tree_ownership(root: Path, description: str) -> None:
+        for path in root.rglob("*"):
+            if path.stat(follow_symlinks=False).st_uid != os.getuid():
+                raise ValueError(f"{description} entries must be owned by the current user")
+
+    @staticmethod
+    def _validate_owned_directory(path: Path, description: str) -> None:
+        try:
+            info = path.stat(follow_symlinks=False)
+        except OSError as error:
+            raise FileExistsError(f"{description} must be an owned directory") from error
+        if (
+            path.is_symlink()
+            or not stat.S_ISDIR(info.st_mode)
+            or info.st_uid != os.getuid()
+        ):
+            raise FileExistsError(f"{description} must be an owned directory")
+
     @classmethod
     def validate_scratch(cls, root: Path, campaigns: set[str]) -> None:
         """Validate all disposable eqasim workspaces accepted by project init."""
-        if root.is_symlink() or not root.is_dir():
-            raise FileExistsError("scratch must be a regular non-symlink directory")
+        cls._validate_owned_directory(root, "scratch")
         entries = tuple(root.iterdir())
         if not entries:
             return
@@ -235,6 +285,7 @@ class WorkerWorkspace:
             or not entries[0].is_dir()
         ):
             raise FileExistsError("foreign content in init scratch")
+        cls._validate_owned_directory(entries[0], "scratch/eqasim-sa")
         for campaign in entries[0].iterdir():
             if (
                 campaign.name not in campaigns
@@ -242,6 +293,7 @@ class WorkerWorkspace:
                 or not campaign.is_dir()
             ):
                 raise FileExistsError("foreign content in init scratch")
+            cls._validate_owned_directory(campaign, "scratch campaign")
             campaign_entries = {item.name for item in campaign.iterdir()}
             if campaign_entries - {"workers"}:
                 raise FileExistsError("foreign content in init scratch")
@@ -250,6 +302,7 @@ class WorkerWorkspace:
             workers = campaign / "workers"
             if workers.is_symlink() or not workers.is_dir():
                 raise FileExistsError("foreign content in init scratch")
+            cls._validate_owned_directory(workers, "scratch workers")
             for slot in workers.iterdir():
                 if (
                     slot.is_symlink()
@@ -257,6 +310,7 @@ class WorkerWorkspace:
                     or _SLOT.fullmatch(slot.name) is None
                 ):
                     raise FileExistsError("foreign content in init scratch")
+                cls._validate_owned_directory(slot, "worker slot")
                 cls._validate_slot_inventory(slot)
 
     @classmethod
@@ -284,6 +338,7 @@ class WorkerWorkspace:
                 if not item.is_dir():
                     raise FileExistsError("foreign content in init scratch")
                 try:
+                    cls._validate_owned_directory(item, "worker cache")
                     cls._validate_tree(item, "worker cache")
                 except ValueError as error:
                     raise FileExistsError("foreign content in init scratch") from error
@@ -293,6 +348,7 @@ class WorkerWorkspace:
                 }:
                     raise FileExistsError("foreign content in init scratch")
                 try:
+                    cls._validate_owned_directory(item, "worker attempt")
                     cls._validate_tree(item, "worker attempt")
                 except ValueError as error:
                     raise FileExistsError("foreign content in init scratch") from error
