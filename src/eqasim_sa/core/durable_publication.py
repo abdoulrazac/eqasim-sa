@@ -362,52 +362,254 @@ def write_atomic(
     *,
     staging_directory: Path | None = None,
 ) -> Path:
-    """Replace a durable file and restore its predecessor on fsync failure."""
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    staging = staging_directory or (
-        destination.parent.parent / ".eqasim-sa" / "transactions"
-        if destination.parent.name == "runs"
-        else destination.parent
+    """Replace a durable file and prove either commit or exact rollback."""
+    requested_destination = destination
+    destination = absolute(destination)
+    staging = absolute(
+        staging_directory
+        or (
+            destination.parent.parent / ".eqasim-sa" / "transactions"
+            if destination.parent.name == "runs"
+            else destination.parent
+        )
     )
-    staging.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{destination.name}.", suffix=".tmp", dir=staging
-    )
-    os.close(descriptor)
-    temporary = Path(temporary_name)
-    backup = staging / f".{destination.name}.{uuid.uuid4().hex}.backup"
+    destination_parent = open_directory(destination.parent, create=True)
+    staging_parent = -1
+    staged_descriptor = -1
+    previous_descriptor = -1
+    temporary_name = f".{destination.name}.{uuid.uuid4().hex}.tmp"
+    backup_name = f".{destination.name}.{uuid.uuid4().hex}.backup"
+    temporary = staging / temporary_name
+    backup_created = False
     preserve_backup = False
+    replaced = False
+    committed = False
+    previous_identity: tuple[int, int, int] | None = None
+    replacement_identity: tuple[int, int, int] | None = None
     try:
+        staging_parent = open_directory(staging, create=True)
+        descriptor = os.open(
+            temporary_name,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=staging_parent,
+        )
+        os.close(descriptor)
         writer(temporary)
-        with temporary.open("rb") as stream:
-            os.fsync(stream.fileno())
-        if destination.exists() or destination.is_symlink():
-            existing = destination.lstat()
-            if not stat.S_ISREG(existing.st_mode) or destination.is_symlink():
-                raise ValueError(f"destination must be a regular file: {destination}")
-            os.link(destination, backup, follow_symlinks=False)
-        os.replace(temporary, destination)
+        visible = os.stat(
+            temporary_name, dir_fd=staging_parent, follow_symlinks=False
+        )
+        if not stat.S_ISREG(visible.st_mode) or visible.st_nlink != 1:
+            raise ValueError("durable writer must leave one private regular file")
+        staged_descriptor = os.open(
+            temporary_name, _READ_FLAGS, dir_fd=staging_parent
+        )
+        staged = os.fstat(staged_descriptor)
+        visible = os.stat(
+            temporary_name, dir_fd=staging_parent, follow_symlinks=False
+        )
+        if file_state(staged) != file_state(visible):
+            raise RuntimeError("staged durable file changed before fsync")
+        os.fsync(staged_descriptor)
+        staged = os.fstat(staged_descriptor)
+        visible = os.stat(
+            temporary_name, dir_fd=staging_parent, follow_symlinks=False
+        )
+        if file_state(staged) != file_state(visible):
+            raise RuntimeError("staged durable file changed while being fsynced")
+        replacement_identity = file_identity(staged)
+
         try:
-            fsync_directory(destination.parent)
-        except OSError:
-            if backup.exists():
+            predecessor = os.stat(
+                destination.name,
+                dir_fd=destination_parent,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            predecessor = None
+        if predecessor is not None:
+            if not stat.S_ISREG(predecessor.st_mode):
+                raise ValueError(
+                    f"destination must be a regular non-symlink file: {destination}"
+                )
+            previous_descriptor = os.open(
+                destination.name, _READ_FLAGS, dir_fd=destination_parent
+            )
+            opened_previous = os.fstat(previous_descriptor)
+            visible_previous = os.stat(
+                destination.name,
+                dir_fd=destination_parent,
+                follow_symlinks=False,
+            )
+            if file_state(opened_previous) != file_state(visible_previous):
+                raise RuntimeError("durable predecessor changed while being pinned")
+            os.link(
+                destination.name,
+                backup_name,
+                src_dir_fd=destination_parent,
+                dst_dir_fd=staging_parent,
+                follow_symlinks=False,
+            )
+            backup_created = True
+            pinned = os.fstat(previous_descriptor)
+            visible_previous = os.stat(
+                destination.name,
+                dir_fd=destination_parent,
+                follow_symlinks=False,
+            )
+            held_backup = os.stat(
+                backup_name, dir_fd=staging_parent, follow_symlinks=False
+            )
+            previous_identity = file_identity(pinned)
+            if (
+                file_identity(visible_previous) != previous_identity
+                or file_identity(held_backup) != previous_identity
+                or visible_previous.st_size != pinned.st_size
+                or visible_previous.st_mtime_ns != pinned.st_mtime_ns
+            ):
+                raise RuntimeError("durable predecessor changed before replacement")
+
+        if not directory_is_current(destination.parent, destination_parent) or not (
+            directory_is_current(staging, staging_parent)
+        ):
+            raise RuntimeError("durable publication directories changed")
+        try:
+            current_predecessor = os.stat(
+                destination.name,
+                dir_fd=destination_parent,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            current_predecessor = None
+        if previous_identity is None:
+            if current_predecessor is not None:
+                raise RuntimeError("durable destination appeared before replacement")
+        elif (
+            current_predecessor is None
+            or file_identity(current_predecessor) != previous_identity
+            or previous_descriptor < 0
+            or file_identity(os.fstat(previous_descriptor)) != previous_identity
+        ):
+            raise RuntimeError("durable predecessor changed before replacement")
+        os.replace(
+            temporary_name,
+            destination.name,
+            src_dir_fd=staging_parent,
+            dst_dir_fd=destination_parent,
+        )
+        replaced = True
+        published = os.stat(
+            destination.name,
+            dir_fd=destination_parent,
+            follow_symlinks=False,
+        )
+        if (
+            not stat.S_ISREG(published.st_mode)
+            or file_identity(published) != replacement_identity
+        ):
+            raise RuntimeError("durable replacement changed during publication")
+        if not directory_is_current(destination.parent, destination_parent) or not (
+            directory_is_current(staging, staging_parent)
+        ):
+            raise RuntimeError("durable publication directories changed after replace")
+        os.fsync(staging_parent)
+        os.fsync(destination_parent)
+        if not directory_is_current(destination.parent, destination_parent) or not (
+            directory_is_current(staging, staging_parent)
+        ):
+            raise RuntimeError("durable publication directories changed during fsync")
+        committed = True
+        return requested_destination
+    except BaseException as commit_error:
+        if replaced:
+            try:
+                if replacement_identity is None:
+                    raise RuntimeError("durable replacement identity was not captured")
+                if not directory_is_current(
+                    destination.parent, destination_parent
+                ) or not directory_is_current(staging, staging_parent):
+                    raise RuntimeError("durable publication directories changed")
+                current = os.stat(
+                    destination.name,
+                    dir_fd=destination_parent,
+                    follow_symlinks=False,
+                )
+                if file_identity(current) != replacement_identity:
+                    raise RuntimeError(
+                        "durable destination changed before rollback"
+                    )
+                if previous_identity is None:
+                    os.unlink(destination.name, dir_fd=destination_parent)
+                    try:
+                        os.stat(
+                            destination.name,
+                            dir_fd=destination_parent,
+                            follow_symlinks=False,
+                        )
+                    except FileNotFoundError:
+                        pass
+                    else:
+                        raise RuntimeError(
+                            "new durable destination survived rollback"
+                        )
+                else:
+                    os.replace(
+                        backup_name,
+                        destination.name,
+                        src_dir_fd=staging_parent,
+                        dst_dir_fd=destination_parent,
+                    )
+                    backup_created = False
+                    restored = os.stat(
+                        destination.name,
+                        dir_fd=destination_parent,
+                        follow_symlinks=False,
+                    )
+                    if (
+                        file_identity(restored) != previous_identity
+                        or previous_descriptor < 0
+                        or file_identity(os.fstat(previous_descriptor))
+                        != previous_identity
+                    ):
+                        raise RuntimeError(
+                            "previous durable destination was not restored"
+                        )
+                os.fsync(destination_parent)
+                os.fsync(staging_parent)
+                if not directory_is_current(
+                    destination.parent, destination_parent
+                ) or not directory_is_current(staging, staging_parent):
+                    raise RuntimeError(
+                        "durable publication directories changed during rollback"
+                    )
+            except BaseException as rollback_error:
+                preserve_backup = backup_created
+                raise PublicationOutcomeUnknown(
+                    "durable commit failed and rollback could not be established"
+                ) from rollback_error
+        raise commit_error
+    finally:
+        for descriptor in (staged_descriptor, previous_descriptor):
+            if descriptor >= 0:
+                os.close(descriptor)
+        if staging_parent >= 0:
+            try:
+                os.unlink(temporary_name, dir_fd=staging_parent)
+            except OSError:
+                pass
+            if backup_created and not preserve_backup:
                 try:
-                    os.replace(backup, destination)
-                    fsync_directory(destination.parent)
+                    os.unlink(backup_name, dir_fd=staging_parent)
+                    if committed:
+                        try:
+                            os.fsync(staging_parent)
+                        except OSError:
+                            pass
                 except OSError:
-                    preserve_backup = True
-                    raise
-            else:
-                destination.unlink(missing_ok=True)
-                fsync_directory(destination.parent)
-            raise
-        backup.unlink(missing_ok=True)
-        return destination
-    except BaseException:
-        temporary.unlink(missing_ok=True)
-        if not preserve_backup:
-            backup.unlink(missing_ok=True)
-        raise
+                    if not committed:
+                        pass
+            os.close(staging_parent)
+        os.close(destination_parent)
 
 
 def write_parquet_atomic(
@@ -480,6 +682,12 @@ def replace_bytes_restorable(
     try:
         write_all(descriptor, content)
         os.fsync(descriptor)
+    except BaseException:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
     finally:
         os.close(descriptor)
     previous: os.stat_result | None = None

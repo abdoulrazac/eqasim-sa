@@ -118,7 +118,7 @@ def test_atomic_failure_cleans_temporary_and_preserves_destination(
     pq.write_table(pa.table({"value": [1]}), destination, compression="zstd")
     original = destination.read_bytes()
 
-    def fail_replace(source: Path, target: Path) -> None:
+    def fail_replace(*args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         raise OSError("injected")
 
     monkeypatch.setattr(ledger.os, "replace", fail_replace)
@@ -189,16 +189,18 @@ def test_failed_rollback_preserves_backup(
             raise OSError("directory fsync failure")
         real_fsync(descriptor)
 
-    def fail_rollback(source: Path, target: Path) -> None:
+    def fail_rollback(source, target, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         nonlocal replace_calls
         replace_calls += 1
         if replace_calls == 2:
             raise OSError("rollback failure")
-        real_replace(source, target)
+        real_replace(source, target, *args, **kwargs)
 
     monkeypatch.setattr(ledger.os, "fsync", fail_directory_fsync)
     monkeypatch.setattr(ledger.os, "replace", fail_rollback)
-    with pytest.raises(OSError, match="rollback failure"):
+    with pytest.raises(
+        durable_publication.PublicationOutcomeUnknown, match="rollback"
+    ):
         ledger.write_parquet_atomic(pa.table({"value": [2]}), destination)
     backups = list(tmp_path.glob(".*.backup"))
     assert len(backups) == 1
