@@ -237,7 +237,9 @@ class SlurmBackend:
         fsync_directory(campaign)
         fsync_directory(technical)
         fsync_directory(state)
+        self.campaign_root = campaign
         self.folder = submitit / "%j"
+        self.legacy_folder = campaign / ".submitit" / "%j"
         self.max_workers = max_workers
         self.parameters = dict(parameters)
         self.executor_factory = executor_factory
@@ -245,18 +247,28 @@ class SlurmBackend:
         self.journal_path = state / ACTIVE_JOB_JOURNAL
         self.lease_path = locks / "slurm.lock"
 
-    def _reconcile(self) -> None:
-        job_ids = _read_journal(self.journal_path)
+    def _reconcile_journal(self, journal: Path, folder: Path) -> None:
+        job_ids = _read_journal(journal)
         if job_ids is None:
             return
         try:
-            jobs = tuple(self.job_factory(self.folder, job_id) for job_id in job_ids)
+            jobs = tuple(self.job_factory(folder, job_id) for job_id in job_ids)
         except BaseException as error:
             raise RuntimeError(
                 "cannot reconstruct jobs from the SLURM active-job journal"
             ) from error
         _terminal_barrier(jobs, cancel_unfinished=True)
-        _remove_journal(self.journal_path, job_ids)
+        _remove_journal(journal, job_ids)
+
+    def _reconcile(self) -> None:
+        legacy = self.campaign_root / ".submitit"
+        if legacy.exists() or legacy.is_symlink():
+            secure_directory(legacy)
+            self._reconcile_journal(
+                legacy / ACTIVE_JOB_JOURNAL,
+                self.legacy_folder,
+            )
+        self._reconcile_journal(self.journal_path, self.folder)
 
     def map(self, function: Callable[[T], R], specs: Iterable[T]) -> Iterator[R]:
         values = tuple(specs)

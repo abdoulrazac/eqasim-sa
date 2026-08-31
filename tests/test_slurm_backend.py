@@ -238,6 +238,62 @@ def test_slurm_backend_reconciles_leftover_journal_before_new_submission(
     assert FakeExecutor.instances == []
 
 
+def test_slurm_backend_reconciles_safe_legacy_journal_under_new_lease_before_submit(
+    tmp_path: Path,
+) -> None:
+    legacy_journal = tmp_path / ".submitit" / slurm.ACTIVE_JOB_JOURNAL
+    legacy_journal.parent.mkdir()
+    slurm._write_journal(legacy_journal, ("750",))
+    events = []
+
+    class LegacyJob(FakeJob):
+        def wait(self) -> None:
+            events.append("legacy-terminal")
+            super().wait()
+
+    class OrderedExecutor(FakeExecutor):
+        def map_array(self, function, specs):  # type: ignore[no-untyped-def]
+            events.append("new-submission")
+            return super().map_array(function, specs)
+
+    legacy_job = LegacyJob(job_id="750")
+    reconstructed = []
+    OrderedExecutor.jobs = [FakeJob("new")]
+
+    def factory(folder: Path, job_id: str) -> FakeJob:
+        reconstructed.append((folder, job_id))
+        return legacy_job
+
+    backend = SlurmBackend(
+        tmp_path,
+        1,
+        {},
+        executor_factory=OrderedExecutor,
+        job_factory=factory,
+    )
+
+    assert list(backend.map(str, (1,))) == ["new"]
+    assert reconstructed == [(tmp_path / ".submitit/%j", "750")]
+    assert events[:2] == ["legacy-terminal", "new-submission"]
+    assert legacy_job.cancelled and legacy_job.wait_calls == 1
+    assert not legacy_journal.exists()
+    assert legacy_journal.parent.is_dir()
+
+
+def test_slurm_backend_rejects_symlinked_legacy_state_before_submit(
+    tmp_path: Path,
+) -> None:
+    external = tmp_path / "external-submitit"
+    external.mkdir()
+    (tmp_path / ".submitit").symlink_to(external, target_is_directory=True)
+    backend = SlurmBackend(tmp_path, 1, {}, executor_factory=FakeExecutor)
+
+    with pytest.raises(ValueError, match="directory"):
+        list(backend.map(str, (1,)))
+
+    assert FakeExecutor.instances == []
+
+
 def test_slurm_backend_preserves_leftover_journal_when_recovery_is_unconfirmed(
     tmp_path: Path,
 ) -> None:

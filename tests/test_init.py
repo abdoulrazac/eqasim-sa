@@ -11,6 +11,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+import eqasim_sa.adapters.application as application_module
 from eqasim_sa.adapters.application import init_from_inputs
 from eqasim_sa.cli import dispatch, parser
 
@@ -332,6 +333,39 @@ def test_init_reports_the_inspected_analysis_state_name(
         init_from_inputs("project", root, model, data, None, invocation())
 
     assert (state / "foreign.txt").read_text() == "not owned\n"
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [Path("."), Path("locks"), Path("locks/runs"), Path("transactions"), Path("slurm")],
+)
+def test_init_technical_inventory_rejects_symlinked_runtime_directories(
+    tmp_path: Path, relative: Path
+) -> None:
+    technical = tmp_path / ".eqasim-sa"
+    (technical / "locks/runs").mkdir(parents=True)
+    (technical / "transactions").mkdir()
+    (technical / "slurm").mkdir()
+    target = technical if relative == Path(".") else technical / relative
+    external = tmp_path / f"external-{relative.as_posix().replace('/', '-')}"
+    external.mkdir()
+    shutil.rmtree(target)
+    target.symlink_to(external, target_is_directory=True)
+
+    with pytest.raises(FileExistsError, match="foreign content"):
+        application_module._technical_state_allowed(technical, set(), "grid")
+
+
+def test_init_technical_inventory_requires_runtime_directory_ownership(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    technical = tmp_path / ".eqasim-sa"
+    technical.mkdir()
+    uid = technical.stat().st_uid
+    monkeypatch.setattr(application_module.os, "getuid", lambda: uid + 1)
+
+    with pytest.raises(FileExistsError, match="foreign content"):
+        application_module._technical_state_allowed(technical, set(), "grid")
 
 
 def test_init_rejects_unsafe_or_foreign_state_without_publication(tmp_path: Path) -> None:

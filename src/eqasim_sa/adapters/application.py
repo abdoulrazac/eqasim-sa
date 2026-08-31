@@ -1306,22 +1306,36 @@ def _owned_technical_tree(path: Path, description: str) -> None:
         _owned_technical_tree(child, f"{description}/{child.name}")
 
 
+def _owned_technical_directory(path: Path, description: str) -> None:
+    try:
+        info = path.lstat()
+    except OSError as error:
+        raise FileExistsError(
+            f"foreign content in init campaign: {description}"
+        ) from error
+    if (
+        path.is_symlink()
+        or not stat.S_ISDIR(info.st_mode)
+        or info.st_uid != os.getuid()
+    ):
+        raise FileExistsError(
+            f"foreign content in init campaign: {description}"
+        )
+
+
 def _technical_state_allowed(
     path: Path, expected_ids: set[str], method: str
 ) -> None:
+    _owned_technical_directory(path, ".eqasim-sa")
     children = {entry.name: entry for entry in path.iterdir()}
     if set(children) - {"locks", "transactions", "slurm"}:
         raise FileExistsError(f"foreign content in init campaign: {path.name}")
     locks = children.get("locks")
     if locks is not None:
-        if locks.is_symlink() or not locks.is_dir():
-            raise FileExistsError("foreign content in init campaign: .eqasim-sa/locks")
+        _owned_technical_directory(locks, ".eqasim-sa/locks")
         for entry in locks.iterdir():
             if entry.name == "runs":
-                if entry.is_symlink() or not entry.is_dir():
-                    raise FileExistsError(
-                        "foreign content in init campaign: .eqasim-sa/locks/runs"
-                    )
+                _owned_technical_directory(entry, ".eqasim-sa/locks/runs")
                 for lease in entry.iterdir():
                     if lease.stem not in expected_ids or lease.suffix != ".lock":
                         raise FileExistsError(
@@ -1344,10 +1358,7 @@ def _technical_state_allowed(
                 )
     transactions = children.get("transactions")
     if transactions is not None:
-        if transactions.is_symlink() or not transactions.is_dir():
-            raise FileExistsError(
-                "foreign content in init campaign: .eqasim-sa/transactions"
-            )
+        _owned_technical_directory(transactions, ".eqasim-sa/transactions")
         transaction = re.compile(
             r"\.(?:plan\.parquet|([0-9a-f]{32})\.parquet)\.([A-Za-z0-9_-]+)\.(?:tmp|backup)"
         )
@@ -1368,6 +1379,7 @@ def _technical_state_allowed(
             )
     slurm_state = children.get("slurm")
     if slurm_state is not None:
+        _owned_technical_directory(slurm_state, ".eqasim-sa/slurm")
         _owned_technical_tree(
             slurm_state, f"campaigns/{method}/.eqasim-sa/slurm"
         )
