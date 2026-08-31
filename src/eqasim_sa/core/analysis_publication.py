@@ -28,8 +28,8 @@ from eqasim_sa.core.durable_publication import (
     replace_bytes_restorable,
     secure_directory,
     stable_file,
-    write_bytes_atomic,
-    write_parquet_atomic,
+    write_bytes_exclusive,
+    write_parquet_exclusive,
 )
 from eqasim_sa.core.indicators import ArtifactSet
 from eqasim_sa.core.software_identity import (
@@ -45,6 +45,11 @@ LEGACY_ANALYSIS_STATE_DIRECTORY = ".eqasim-sa-analysis"
 GENERATION_DOMAIN = b"eqasim-sa:analysis-generation:immutable-v1\0"
 PROVENANCE_DOMAIN = b"eqasim-sa:analysis-provenance:v1\0"
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+OUTPUT_ROLE = re.compile(r"^[A-Za-z][A-Za-z0-9]*$")
+OWNED_OUTPUTS = {
+    "governedReport": "governed-report.json",
+    "capturedRunSet": "captured-run-set.json",
+}
 
 OUTPUT_FILENAMES = frozenset(
     {
@@ -391,9 +396,25 @@ class AnalysisPublication:
         if not outputs or "indicators" not in outputs:
             raise ValueError("analysis publication requires indicators output")
         verify_software_source_states(software_identity)
-        if set(outputs) & {"governedReport", "capturedRunSet"}:
+        if set(outputs) & set(OWNED_OUTPUTS):
             raise ValueError("analysis publication owns governed and capture documents")
+        if any(
+            type(role) is not str or OUTPUT_ROLE.fullmatch(role) is None
+            for role in outputs
+        ):
+            raise ValueError("analysis output roles must be safe identifiers")
+        if any(
+            not isinstance(artifact, AnalysisArtifact)
+            for artifact in outputs.values()
+        ):
+            raise TypeError("analysis outputs must contain AnalysisArtifact values")
+        if outputs["indicators"].filename != "indicators.parquet":
+            raise ValueError("indicators output must use indicators.parquet")
         filenames = [artifact.filename for artifact in outputs.values()]
+        if any(type(filename) is not str for filename in filenames):
+            raise TypeError("analysis output filenames must be strings")
+        if set(filenames) & set(OWNED_OUTPUTS.values()):
+            raise ValueError("analysis publication owns governed and capture filenames")
         if len(set(filenames)) != len(filenames):
             raise ValueError("analysis output filenames must be unique")
         staged_records: dict[str, dict[str, object]] = {}
@@ -405,13 +426,13 @@ class AnalysisPublication:
                     f"unknown analysis output filename: {artifact.filename}"
                 )
             if isinstance(artifact.content, pa.Table):
-                write_parquet_atomic(
+                write_parquet_exclusive(
                     artifact.content,
                     path,
                     staging_directory=self.generation_staging,
                 )
             elif type(artifact.content) is bytes:
-                write_bytes_atomic(
+                write_bytes_exclusive(
                     artifact.content,
                     path,
                     staging_directory=self.generation_staging,
@@ -439,12 +460,16 @@ class AnalysisPublication:
             raise TypeError("governed report builder must return a mapping")
         serialize(
             "governedReport",
-            AnalysisArtifact("governed-report.json", _canonical(dict(report_document))),
+            AnalysisArtifact(
+                OWNED_OUTPUTS["governedReport"],
+                _canonical(dict(report_document)),
+            ),
         )
         serialize(
             "capturedRunSet",
             AnalysisArtifact(
-                "captured-run-set.json", _canonical(dict(runs.run_set_document))
+                OWNED_OUTPUTS["capturedRunSet"],
+                _canonical(dict(runs.run_set_document)),
             ),
         )
         inventory = {entry.name for entry in self.generation_staging.iterdir()}

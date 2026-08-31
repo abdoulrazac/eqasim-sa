@@ -654,6 +654,19 @@ def write_bytes_atomic(
     )
 
 
+def write_bytes_exclusive(
+    content: bytes,
+    destination: Path,
+    *,
+    staging_directory: Path | None = None,
+) -> Path:
+    return write_exclusive(
+        destination,
+        lambda path: path.write_bytes(content),
+        staging_directory=staging_directory,
+    )
+
+
 def copy_file_atomic(
     source: Path,
     destination: Path,

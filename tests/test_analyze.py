@@ -2387,7 +2387,7 @@ def test_morris_restores_all_views_if_ranking_publication_fails(
     }
     for path, content in outputs.items():
         path.write_bytes(content)
-    real_write = publication_module.write_parquet_atomic
+    real_write = publication_module.write_parquet_exclusive
 
     def fail_ranking(
         table: pa.Table, destination: Path, *, staging_directory: Path | None = None
@@ -2396,12 +2396,84 @@ def test_morris_restores_all_views_if_ranking_publication_fails(
             raise OSError("injected ranking publication failure")
         return real_write(table, destination, staging_directory=staging_directory)
 
-    monkeypatch.setattr(publication_module, "write_parquet_atomic", fail_ranking)
+    monkeypatch.setattr(publication_module, "write_parquet_exclusive", fail_ranking)
     with pytest.raises(OSError, match="injected ranking"):
         _analyze(
             root, (_custom_indicator(),), completeness_threshold=1.0, method="morris"
         )
     assert {path: path.read_bytes() for path in outputs} == outputs
+
+
+@pytest.mark.parametrize(
+    "source,replacement,message",
+    [
+        ("indicators.parquet", "output-summary.parquet", "indicators.parquet"),
+        ("output-summary.parquet", "governed-report.json", "owns.*filenames"),
+    ],
+)
+def test_analysis_publication_rejects_filename_role_collisions_before_writing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    source: str,
+    replacement: str,
+    message: str,
+) -> None:
+    import eqasim_sa.core.analyze as analyze_module
+    import eqasim_sa.core.analysis_publication as publication_module
+
+    root, _ = _campaign(tmp_path)
+    real_artifact = publication_module.AnalysisArtifact
+
+    def replace_filename(filename, content):  # type: ignore[no-untyped-def]
+        return real_artifact(replacement if filename == source else filename, content)
+
+    monkeypatch.setattr(analyze_module, "AnalysisArtifact", replace_filename)
+
+    with pytest.raises(ValueError, match=message):
+        _analyze(root, (_custom_indicator(),))
+
+    assert not (root / "analysis-generation.json").exists()
+
+
+def test_analysis_publication_rejects_owned_role_and_never_overwrites_owned_document(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import eqasim_sa.core.analysis_publication as publication_module
+
+    root, _ = _campaign(tmp_path)
+    real_publish = publication_module.AnalysisPublication.publish
+
+    def inject_reserved_role(  # type: ignore[no-untyped-def]
+        self, outputs, *arguments, **options
+    ):
+        contaminated = dict(outputs)
+        contaminated["governedReport"] = publication_module.AnalysisArtifact(
+            "governed-report.json", b"owned"
+        )
+        return real_publish(self, contaminated, *arguments, **options)
+
+    monkeypatch.setattr(
+        publication_module.AnalysisPublication, "publish", inject_reserved_role
+    )
+    with pytest.raises(ValueError, match="owns governed"):
+        _analyze(root, (_custom_indicator(),))
+
+    monkeypatch.setattr(publication_module.AnalysisPublication, "publish", real_publish)
+
+    def precreate_owned_document(  # type: ignore[no-untyped-def]
+        self, outputs, *arguments, **options
+    ):
+        owned = self.generation_staging / "governed-report.json"
+        owned.write_bytes(b"foreign")
+        return real_publish(self, outputs, *arguments, **options)
+
+    monkeypatch.setattr(
+        publication_module.AnalysisPublication,
+        "publish",
+        precreate_owned_document,
+    )
+    with pytest.raises(FileExistsError):
+        _analyze(root, (_custom_indicator(),))
 
 
 def test_grid_analysis_transactionally_removes_stale_morris_ranking(
@@ -2656,7 +2728,7 @@ def test_analyze_keeps_previous_commit_if_dispersion_writer_fails(
     dispersion = root / "replication-dispersion.parquet"
     indicators.write_bytes(b"old indicators")
     dispersion.write_bytes(b"old dispersion")
-    real_write = publication_module.write_parquet_atomic
+    real_write = publication_module.write_parquet_exclusive
 
     def fail_second(
         table: pa.Table, destination: Path, *, staging_directory: Path | None = None
@@ -2665,7 +2737,7 @@ def test_analyze_keeps_previous_commit_if_dispersion_writer_fails(
             raise OSError("injected dispersion publication failure")
         return real_write(table, destination, staging_directory=staging_directory)
 
-    monkeypatch.setattr(publication_module, "write_parquet_atomic", fail_second)
+    monkeypatch.setattr(publication_module, "write_parquet_exclusive", fail_second)
     with pytest.raises(OSError, match="injected dispersion"):
         _analyze(root, (_custom_indicator(),))
     assert indicators.read_bytes() == b"old indicators"
