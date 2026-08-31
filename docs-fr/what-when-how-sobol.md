@@ -1,119 +1,119 @@
-# Sobol historique : quoi, quand et comment
+# Sobol historique : tester l'ancien workflow Sobol
 
-**Utilisez l'ancien `sobol` uniquement comme démonstration du workflow avec un seul scramble.**
+**Cas pratique : vérifier que la chaîne Sobol générée produit bien ses fichiers d'analyse.**
 
 [English](../docs/what-when-how-sobol.md) | **Français**
 
-## Quoi
+## En bref
 
-La méthode historique projette une séquence de Sobol randomisée sur les valeurs
-déclarées des facteurs. Cette séquence répartit les points du design de façon
-régulière. La méthode utilise une seule randomisation, nommée scramble, puis
-rééchantillonne les lignes de ce scramble par bootstrap.
+Le starter `sobol` fait varier plusieurs entrées, puis calcule des indices de
+premier ordre et d'ordre total. Il utilise cependant une seule séquence de Sobol
+randomisée, appelée **scramble**, et un bootstrap des lignes de cette même
+séquence.
 
-Elle répond à la question : « La chaîne historique de planification et d'analyse
-Sobol fonctionne-t-elle ? » Le fichier généré `03-sobol.yml` est
-seulement une démonstration.
+Ce design est conservé pour la démonstration et la compatibilité historique. Il
+répond uniquement à la question :
 
-Une seed est un entier qui sélectionne un flux aléatoire du simulateur. Ici,
-c'est un facteur et non une réplication.
+> La planification, l'exécution et l'analyse de l'ancien workflow Sobol fonctionnent-elles ?
 
-L'indice de premier ordre décrit la variation de sortie liée à un facteur seul.
-L'indice d'ordre total inclut ce facteur et toutes ses interactions. Une
-interaction est un effet combiné de plusieurs facteurs.
+Il ne fournit pas la preuve d'incertitude nécessaire à une priorisation ou une
+fixation scientifique. Pour cela, utilisez
+[Sobol multi-scramble](what-when-how-multiscramble_sobol.md).
 
-## Quand
+## Trois notions avant de commencer
 
-Utilisez-la pour exécuter la démonstration générée ou lire une provenance
-historique. La provenance est le dossier qui décrit un ancien run.
+- L'**indice de premier ordre** décrit la variation associée à un facteur seul.
+- L'**indice d'ordre total** inclut ce facteur et ses interactions avec les autres.
+- Une **interaction** signifie que l'effet d'un facteur dépend de la valeur d'un autre.
 
-Ne l'utilisez pas pour la priorisation scientifique des facteurs (FP) ni pour
-leur fixation (FF). FP demande quel facteur apprendre plus précisément en
-premier. FF demande quel facteur peut être fixé dans une tolérance pratique
-déclarée, interactions incluses. Un scramble et son bootstrap de lignes ne
-fournissent pas la preuve d'incertitude requise.
+Dans cette méthode, la seed du simulateur est elle-même un facteur. Elle ne se
+trouve donc pas dans `experiment.replications.seeds`.
 
-## Exemples de paramètres
+## Cas pratique de bout en bout
 
-La démonstration générée utilise des facteurs scalaires ordinaires et le facteur
-seed fini spécial à cette méthode :
+Ce guide suppose que vous avez déjà généré `mon-analyse-sa/` et défini `$ROOT`
+et le tableau Bash `SA` en suivant le
+[cas Grid](what-when-how-grid.md#2-générer-le-projet-de-départ). Lancez les
+commandes depuis ce projet généré.
 
-```yaml
-parameters:
-  sampling_rate:
-    values: [0.001, 0.002, 0.005]
-  matching_age_scheme:
-    values: [matching_6, analysis_7]
-  seed:
-    values: [1401, 1402, 1403, 1404]
-```
+### 1. Comprendre la démonstration générée
 
-C'est un exemple de plomberie : il vérifie le passage de valeurs numériques, de
-labels catégoriels et de seeds du simulateur dans la planification et l'analyse.
-Ce n'est explicitement pas une décomposition scientifique de variance. Avec
-`D=3` facteurs et le `N=4` du guide, il contient
-`N(2D+2) = 4 × 8 = 32` positions avant réutilisation des runs.
+Après `eqasim-sa init`, le fichier rendu `configs/03-sobol.yml` pose une petite
+question de plomberie : « Les valeurs numériques, les catégories et les seeds
+finies traversent-elles correctement tout le workflow ? »
 
-Un quatrième facteur facultatif est :
-
-```yaml
-parameters:
-  income_assignation_method:
-    values: [uniform, bhepop2]
-```
-
-Ajoutez ce bloc au même mapping `parameters`, pas comme un second mapping. Il
-porte le design à `4 × 10 = 40` positions. Interprétez-le seulement après avoir
-ajouté un indicateur de revenu personnalisé : le starter n'a pas de scalaire de
-revenu et `bhepop2` peut retomber sur `uniform` dans certaines communes. De même,
-`hts: {values: [edgt_44, entd]}` n'est utilisable que si les deux jeux préparés
-existent et change à la fois les donneurs et les références HTS.
-
-Chaque clé de facteur ordinaire doit déjà exister sous `config:` dans le YAML
-modèle scellé. Le facteur spécial `seed` est la seule exception et ne doit pas y
-exister. Un facteur structuré exigerait une clé de base de type liste, mais il est
-préférable de réserver Sobol historique à la plomberie scalaire générée ; pour
-des listes nommées, suivez le tutoriel et utilisez une méthode compatible. La
-seed du simulateur se déclare uniquement dans `parameters.seed.values` pour
-cette méthode. N'utilisez jamais `random_seed` comme facteur ordinaire. Ces
-domaines montrent la syntaxe, pas une justification scientifique automatique.
-Consultez le [catalogue des paramètres
-Nantes](parameters-and-methods.md#catalogue-des-paramètres-nantes) et le
-[tutoriel des configurations structurées](structured-configurations-tutorial.md).
-
-## Comment
-
-Le YAML suivant est un **fragment**. Il ne s'exécute pas seul.
+Il contient exactement :
 
 ```yaml
 charter:
   status: demonstration
+
 analysis:
   completeness_threshold: 1.0
   bootstrap_resamples: 99
   confidence_level: 0.95
+
 experiment:
   method: sobol
   seed_role: factor
   base_sample_size: 4
   design_seed: 20260814
+
 parameters:
+  sampling_rate:
+    values: [0.001, 0.002]
+  matching_age_scheme:
+    values: [matching_6, analysis_7]
   seed:
     values: [1401, 1402]
 ```
 
-Partez du fichier généré complet [`03-sobol.yml`](../src/eqasim_sa/templates/03-sobol.yml).
-Le projet généré définit `SA` comme un tableau de commande Bash. `"${SA[@]}"`
-lance cette commande sans perdre ses arguments. Voir le [guide de démarrage](getting-started.md#runner-du-projet-généré).
+Le fichier source `src/eqasim_sa/templates/03-sobol.yml` contient des
+placeholders. Exécutez la copie rendue dans votre projet, pas ce fichier source.
 
-Exécutez d'abord la calibration de ressources générée, comme expliqué dans le
-[guide de démarrage](getting-started.md#première-calibration-des-ressources).
-`check` et `estimate` ont besoin de ses observations de durée et de stockage.
-Utilisez ensuite ces commandes. `plan` crée et scelle le plan. `check` valide le
-plan et l'exécution. `estimate` donne le coût attendu en ressources. `run` exécute les runs
-manquants. `analyze` crée les résultats.
+Les deux paramètres ordinaires doivent déjà exister sous `config:` dans le
+modèle scellé. `seed` est l'unique exception spéciale : elle ne doit pas exister
+sous `config:`. N'ajoutez jamais `random_seed` comme facteur.
+
+### 2. Comprendre ce qui est mesuré
+
+Le starter déclare trois indicateurs TV :
+
+| Indicateur | Comparaison |
+| --- | --- |
+| `tv_distance(age, ref=INSEE)` | distribution d'âge synthétique contre INSEE |
+| `tv_distance(distance, ref=HTS)` | distribution de distance contre HTS |
+| `tv_distance(nbr_vehicle, ref=HTS)` | distribution du nombre de véhicules contre HTS |
+
+Pour Nantes/EDGT 44, la distance est un diagnostic secondaire asymétrique : les
+classes synthétiques utilisent la distance euclidienne entre activités, tandis
+que HTS utilise la distance routée.
+
+La TV va de `0` à `1` ; une valeur plus faible indique des distributions plus
+proches. Le paramètre `matching_age_scheme` touche au matching, tandis que
+`analysis_age_scheme` reste fixé à `analysis_7` dans le modèle pour garder les
+classes de sortie comparables.
+
+### 3. Comprendre la taille du plan
+
+Sobol compte `D = 3` facteurs : `sampling_rate`, `matching_age_scheme` et
+`seed`. Avec `N = 4`, le plan contient :
+
+```text
+N(2D+2) = 4 × (2×3+2) = 32 positions
+```
+
+La projection sur seulement deux valeurs par facteur crée des positions qui
+désignent le même réglage final. Le starter contient normalement **32 positions
+statistiques mais 8 runs uniques**. Ces duplications sont attendues dans cette
+petite démonstration ; elles ne rendent pas le design scientifiquement suffisant.
+
+### 4. Calibrer, planifier et exécuter
 
 ```bash
+"${SA[@]}" plan --meta-config configs/00-calibration.yml
+"${SA[@]}" run --meta-config configs/00-calibration.yml
+
 TARGET=configs/03-sobol.yml
 "${SA[@]}" plan --meta-config "$TARGET"
 "${SA[@]}" check --meta-config "$TARGET"
@@ -122,41 +122,79 @@ TARGET=configs/03-sobol.yml
 "${SA[@]}" analyze --meta-config "$TARGET"
 ```
 
-## Ce que vous obtenez
+`analyze` crée directement les indicateurs, les indices et le rapport gouverné.
+Il n'existe pas de commande `report` distincte.
 
-- `indicators.parquet` : une ligne par run terminé et par indicateur.
-- `sobol-indices.parquet` : les estimations historiques de premier ordre et d'ordre total, avec intervalles par bootstrap de lignes.
-- `output-summary.parquet` : un résumé de chaque indicateur sur les positions du design.
-- `governed-report.json` : un rapport avec `inferenceStatus: legacy_noninferential` et `claimAuthorized: false`.
-- `analysis-generation.json` : les chemins et les empreintes de cette analyse.
+### 5. Lire les résultats sans les surinterpréter
 
-Lisez les indices uniquement comme une sortie de démonstration historique. Ne
-traitez pas leurs intervalles comme une preuve issue de scrambles indépendants.
+Les fichiers se trouvent sous `campaigns/sobol/`. Le fichier
+`sobol-indices.parquet` contient, pour chaque facteur et chaque indicateur :
 
-Une seule séquence randomisée ne montre pas comment les estimations varient entre des
-séquences randomisées indépendamment. Rééchantillonner les lignes de cette même
-séquence, par bootstrap de lignes, ne remplace pas ces randomisations.
+| Colonne | Signification dans cette démonstration |
+| --- | --- |
+| `first_order` | estimation historique de l'effet du facteur seul |
+| `total_order` | estimation historique incluant les interactions |
+| `*_ci_low`, `*_ci_high` | intervalle obtenu par bootstrap des lignes du scramble unique |
+| `rank` | ordre décroissant selon l'indice total |
 
-## Ce que vous pouvez dire
+Voici une **illustration fictive**, et non un résultat Nantes :
 
-Vous pouvez dire que la démonstration a produit des estimations Sobol historiques
-et validé la chaîne d'analyse.
+| Facteur | Premier ordre | Ordre total |
+| --- | ---: | ---: |
+| `sampling_rate` | `0.28` | `0.42` |
+| `matching_age_scheme` | `0.12` | `0.31` |
+| `seed` | `0.25` | `0.37` |
 
-Vous ne pouvez pas faire de revendication scientifique FP ou FF. Vous ne pouvez
-pas dire que le bootstrap des lignes d'un scramble remplace plusieurs scrambles
-indépendants.
+Vous pouvez vérifier que le fichier est produit, que chaque facteur apparaît et
+que les colonnes sont finies. Vous ne devez pas transformer ce tableau fictif en
+phrase telle que « `sampling_rate` explique 28 % avec certitude ».
 
-## Checklist avant exécution
+Les estimations brutes peuvent même sortir de `[0, 1]` avec un échantillon fini.
+Cela ne doit pas être masqué ou tronqué : c'est un signal diagnostique de
+l'instabilité de l'estimation.
 
-- Vérifiez que la campagne est une démonstration ou une provenance historique.
-- Vérifiez que `seed` est un facteur entier déclaré.
-- Vérifiez que `base_sample_size` est une puissance de deux d'au moins 2.
-- Vérifiez les positions prévues et la réutilisation due à la projection discrète.
-- Exécutez d'abord la calibration de ressources référencée.
-- Utilisez Sobol multi-scramble pour une nouvelle campagne scientifique FP ou FF.
+Le problème central est l'incertitude : les intervalles proviennent du
+rééchantillonnage des lignes d'un seul scramble. Ils ne montrent pas comment les
+indices changeraient entre plusieurs séquences Sobol randomisées indépendamment.
+
+Le rapport `governed-report.json` l'indique avec
+`inferenceStatus: legacy_noninferential` et `claimAuthorized: false`.
+
+## Adapter la démonstration
+
+Vous pouvez tester une autre entrée scalaire du modèle, par exemple
+`matching_minimum_observations: {values: [5, 20, 50]}`, dans une **nouvelle**
+campagne et une nouvelle racine. Le coût suit toujours `N(2D+2)`.
+
+N'ajoutez `income_assignation_method` que si vous disposez d'un indicateur de
+revenu adapté : les trois indicateurs du starter ne mesurent pas directement le
+revenu. N'ajoutez `hts` que si les deux jeux de données préparés existent, car ce
+paramètre change à la fois les donneurs et les références HTS.
+
+Pour comparer simplement des catégories ou des listes structurées, préférez
+[Grid](what-when-how-grid.md). Il est plus lisible et n'incite pas à interpréter
+des indices historiques comme des preuves.
+
+## Ce que vous pouvez conclure
+
+Vous pouvez dire que le starter a validé la chaîne historique et produit les
+fichiers Sobol attendus.
+
+Vous ne pouvez pas faire une revendication scientifique de priorisation ou de
+fixation, ni présenter le bootstrap d'un scramble comme l'équivalent de plusieurs
+scrambles indépendants.
+
+## Checklist
+
+- La campagne porte `charter.status: demonstration`.
+- `base_sample_size` est une puissance de deux d'au moins 2.
+- `seed` est un facteur entier avec au moins deux valeurs distinctes.
+- Les positions et les runs uniques sont distingués.
+- Les indices hors plage éventuels restent visibles.
+- Le résultat est présenté comme `legacy_noninferential`.
 
 ## Suite
 
-- Précédent : [Grid](what-when-how-grid.md)
-- Suivant : [Sobol multi-scramble](what-when-how-multiscramble_sobol.md)
+- Comparaison simple : [Grid](what-when-how-grid.md)
+- Analyse scientifique : [Sobol multi-scramble](what-when-how-multiscramble_sobol.md)
 - Références : [YAML](yaml-reference.md), [paramètres et méthodes](parameters-and-methods.md) et [workflow et résultats](workflow-and-results.md)

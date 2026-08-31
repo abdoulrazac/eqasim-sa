@@ -59,15 +59,21 @@ flowchart TD
 | PyYAML | `6.0.3` |
 | submitit | `1.5.4` |
 | numpy | `2.3.5` |
+| pandas | `2.3.3` |
+| matplotlib | `3.10.8` |
 | scipy | `1.17.1` |
+| SALib | `1.5.2` |
 | pytest, dépendance optionnelle de l'extra `test` | `9.0.2` |
 | setuptools, exigence du système de build uniquement | `>=80` |
 
-Les cinq premières bibliothèques du tableau sont les dépendances d'exécution.
+Les huit bibliothèques entre pyarrow et SALib sont les dépendances d'exécution.
+Pandas et Matplotlib sont déclarées directement et épinglées, car SALib les
+importe à l'exécution ; cela empêche une dérive du résolveur transitif de modifier
+l'environnement numérique.
 `pytest` n'est installé qu'avec l'extra `test`; `setuptools>=80` sert à créer le
 paquet via `setuptools.build_meta` et n'est pas déclaré comme dépendance runtime.
-Le paquet n'installe ni synpp, ni eqasim, ni SALib. Les designs Sobol et les
-calculs reposent sur SciPy/NumPy et du code interne.
+Le paquet n'installe ni synpp, ni eqasim. Les designs et analyses scientifiques
+Morris et Sobol courants passent par la frontière SALib déclarée.
 
 ## Installer et tester
 
@@ -128,6 +134,10 @@ localement dans l'environnement verrouillé.
 - Les facteurs structurés nommés restent un mapping label-vers-liste séparé à la
   frontière adaptateur/cœur : le plan expose les labels, la résolution et le
   `runId` utilisent les listes, et le schéma v3 scelle le mapping canonique.
+- Les lecteurs des designs scientifiques v1/v2 reconstruisent exactement les
+  lignes et identités historiques pendant le preflight applicatif, avant le
+  chargement des plugins d'indicateur et sans invoquer SALib. Ils n'exécutent
+  jamais d'estimateur legacy.
 - Une analyse ne doit pas muter ses sources; le code sauvegarde et restaure en cas d'écart.
 
 ## Ajouter un indicateur personnalisé

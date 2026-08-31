@@ -279,14 +279,14 @@ uniforme discret, transformation identité et provenance déclarés. Il utilise 
 nombre pair `p >= 4` et le pas commun exact `Delta = p/[2(p-1)]` dans l'espace de
 probabilité unitaire.
 
-Un parcours déterministe seedé crée un pool d'au plus 500 trajectoires
-candidates. La sélection prend d'abord la paire qui maximise la somme entière
-des distances quadratiques entre points, puis ajoute gloutonnement le candidat
-qui maximise la somme de ces distances aux trajectoires retenues. Les égalités
-sont départagées par le plus petit identifiant lexicographique. Cette règle
-`greedy-sum-pairwise-squared-distance` n'est ni maximin ni un optimum de
-Campolongo. Un budget séparé de calcul des distances peut refuser un pool sous le
-plafond de 500.
+SALib 1.5.2 génère l'échantillon candidat seedé et applique sa sélection Morris
+publique avec optimisation locale et `optimal_trajectories` égal au nombre de
+trajectoires déclaré. L'échantillonnage candidat se fait avec remise : sur une
+petite grille finie, une même matrice peut donc être sélectionnée plusieurs fois.
+Chaque occurrence reste un bloc de trajectoire explicite avec une seed dérivée
+distincte ; les matrices et les options SALib effectives sont scellées dans les
+métadonnées du plan. Un budget déterministe de calcul et le plafond de 500
+bornent l'appel avant allocation.
 
 Les facteurs sont triés lexicalement dans le contrat scellé. Pour un support de
 longueur `L`, l'indice de grille `z` se projette par inverse généralisée uniforme
@@ -375,8 +375,15 @@ les checkpoints inférieurs en sont des préfixes exacts, sans mélange des lign
 
 Pour les `S` estimations indépendantes, les sorties donnent moyenne, SD
 échantillonnal, `SE = SD/sqrt(S)` et intervalle bilatéral de Student à `S-1`
-degrés de liberté. Aucun bootstrap de lignes n'est utilisé. FP classe la moyenne
-de premier ordre décroissante. FF classe la borne supérieure d'ordre total
+degrés de liberté. Aucun bootstrap de lignes n'est utilisé.
+Avant l'appel à SALib, les tableaux finis d'indicateur sont centrés et mis à
+l'échelle selon leur étendue observée. Cela préserve les indices sans dimension
+lors d'un changement commun d'échelle de sortie et évite les overflows
+intermédiaires évitables. L'analyse est refusée si cette mise à l'échelle efface
+la variance de base, si un indice devient non fini, ou si la variance de sortie
+dans les unités carrées d'origine sort de la plage représentable en `float64`.
+Les valeurs et indices ne sont jamais tronqués pour forcer une publication. FP
+classe la moyenne de premier ordre décroissante. FF classe la borne supérieure d'ordre total
 croissante. `seed` est une nuisance finie déclarée : ses estimations restent
 diagnostiques, `is_actionable` vaut faux et son rang comme sa tolérance FF sont
 nuls. Ce support n'identifie ni bruit intrinsèque ni facteur contrôlable. Pour

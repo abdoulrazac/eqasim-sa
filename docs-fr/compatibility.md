@@ -15,19 +15,26 @@ transforme pas une preuve historique en campagne scientifique et ne la migre pas
 | `morris` | demonstration uniquement | OAT a niveaux adjacents ; la seed est une replication | v1 | `morrisDesignVersion` v1 | provenance historique de demonstration |
 | `discrete_oat` | demonstration uniquement | effets locaux normalises entre niveaux adjacents ; la seed est une replication | v1 | `discreteOatDesignVersion` v1 | criblage de demonstration ; pas Morris canonique |
 | `sobol` | demonstration, y compris une ancienne charte omise | un scramble et bootstrap de lignes ; la seed est un facteur | v1 ; v3 avec facteur structure | `sobolDesignVersion` v1 | preuve historique lisible mais non inferentielle |
-| `canonical_morris` | scientifique uniquement | `screening` ; `conditional_mean` ; CRN dans la trajectoire ; allocation pilote ou production declaree | v2 | `canonicalMorrisDesignVersion` v1 | criblage scientifique soumis au budget, a l'arret et a la robustesse |
-| `multiscramble_sobol` | scientifique uniquement | `fp` ou `ff` ; `finite_seed_factor` ; dependance independante ; au moins quatre scrambles independants explicites | v2 ; v3 avec facteur structure | `multiScrambleSobolDesignVersion` v1 | FP/FF scientifique soumis a une distribution de labels defendable, au budget, a l'arret et a la robustesse |
+| `canonical_morris` | scientifique uniquement | `screening` ; `conditional_mean` ; CRN dans la trajectoire ; allocation pilote ou production declaree | v2 | `canonicalMorrisDesignVersion` v3 SALib courant ; v1/v2 legacy descriptif uniquement | le v3 courant permet le criblage scientifique soumis au budget, a l'arret et a la robustesse |
+| `multiscramble_sobol` | scientifique uniquement | `fp` ou `ff` ; `finite_seed_factor` ; dependance independante ; au moins quatre scrambles independants explicites | v2 ; v3 avec facteur structure | `multiScrambleSobolDesignVersion` v3 SALib courant ; v1/v2 legacy descriptif uniquement | le v3 courant permet la FP/FF scientifique soumise a une distribution de labels defendable, au budget, a l'arret et a la robustesse |
 
 Tous les plans utilisent `canonicalizationVersion` v1. Le schema v3 est ecrit
 uniquement pour un plan structure et ajoute la paire canonique exacte
 `structuredFactorsVersion: 1` et `structuredFactors`. Sous le schema de plan v3,
 Sobol historique et Sobol multi-scramble recopient aussi le mapping complet
-label-vers-payload dans leurs metadonnees de methode v1 comme second invariant
-scelle ; les deux mappings canoniques doivent etre exactement egaux. Cette regle
-est additive sous v3 : les versions de metadonnees de methode restent v1 et les
-octets des plans non structures restent inchanges. Les analyseurs
-scientifiques `canonical_morris` et `multiscramble_sobol` reconstruisent
-strictement les metadonnees scellees du plan, son contexte et son design. Les
+label-vers-payload dans leurs metadonnees de methode comme second invariant
+scelle ; les deux mappings canoniques doivent etre exactement egaux. La version
+du schema de plan est independante de la version du design numerique. Le design
+scientifique v3 est le contrat SALib courant. Les designs scientifiques v1 et v2
+restent lisibles uniquement avec `descriptive_only=True` : leurs metadonnees et
+lignes scellees sont reconstruites avec le generateur historique correspondant
+et comparees exactement, identites de ligne comprises, sans charger SALib. Aucun
+estimateur legacy n'est execute et aucun resultat de sensibilite ou de
+convergence n'est publie. Une demande inferentielle v1 ou v2 est rejetee avant
+tout acces aux runs ou plugins d'indicateur et exige une nouvelle planification
+v3. Aucun plan legacy n'est reinterprete silencieusement avec SALib. Les
+analyseurs scientifiques v3 courants reconstruisent strictement les metadonnees
+scellees du plan, son contexte et son design SALib. Les
 analyseurs des methodes historiques valident leurs contrats propres lorsque
 cette validation est implementee. L'analyse Grid directe valide la forme et les
 labels v3, mais ne dispose d'aucune metadonnee de methode ni configuration modele
@@ -38,13 +45,18 @@ Il n'existe aucune migration semantique ou en place entre les versions de plan.
 
 ## Matrice d'analyse et de revendication
 
-Chaque analyse ecrit `analysis-generation.json` version 6 et
+Chaque analyse ecrit `analysis-generation.json` version 7 et
 `governed-report.json` version 1.
+Pour une analyse scientifique v3 courante, `provenance.numericalEngine` est
+exactement le descripteur scelle dans le plan. Les analyses descriptives
+historiques v1/v2 publient `provenance.numericalEngine: null`, car elles
+n'executent aucun moteur numerique.
 
 | Etat | `inferenceStatus` | Preuve de convergence | Comportement de revendication |
 | --- | --- | --- | --- |
 | Grid, Morris historique ou OAT discret | `demonstration_noninferential` | absente | `claimAuthorized: false` |
 | Sobol historique a un scramble | `legacy_noninferential` | absente | `claimAuthorized: false` |
+| Design scientifique v1/v2 demande avec `descriptive_only=True` | `descriptive_noninferential`, ou `incomplete_noninferential` si incomplet | absente | `claimAuthorized: false` ; aucun indice de sensibilite |
 | Pilote Morris canonique | `pilot_only` | publiee, sans promouvoir le pilote | `claimAuthorized: false` |
 | Production Morris canonique | `conditional` si tous les criteres d'arret passent, sinon `unstable` | requise et evaluee | robustesse en attente ; `claimAuthorized: false` |
 | Sobol multi-scramble FP/FF | `conditional` si tous les criteres d'arret passent, sinon `unstable` | requise et evaluee entre scrambles independants | robustesse en attente ; `claimAuthorized: false` |
@@ -68,6 +80,8 @@ actionnable et exclue des rangs de decision FP/FF.
 | `seed` structuree, alias de payload identique, liste ordonnee mal formee ou cle modele qui n'est pas une liste de chaines | rejete |
 | Facteur structure avec `morris`, `discrete_oat` ou `canonical_morris` | rejete car l'ordre nominal des labels est arbitraire |
 | Metadonnees scellees d'un plan scientifique absentes, non prises en charge, non canoniques, alterees ou incompatibles avec le contexte | rejete avant publication par les analyseurs Morris canonique et Sobol multi-scramble |
+| Design scientifique v1/v2 presente pour inference | rejete comme legacy avant acces aux runs ou plugins d'indicateur ; replanifier avec le design SALib v3 courant |
+| Design scientifique v1/v2 dont les metadonnees, lignes ou identites scellees different du generateur historique | rejete pendant le preflight applicatif avant acces aux plugins d'indicateur ; aucune sortie descriptive n'est publiee |
 | Plan Grid presente a l'analyse | l'analyse coeur directe valide methode, marqueurs, completude, forme et labels v3 ; le preflight applicatif reconstruit le plan pour lier les payloads au modele et a la meta-configuration |
 | Positions scientifiques au-dessus du budget declare apres reserve | rejete avant publication du plan |
 | Analyse OAT ou Sobol incomplete | rejetee car la completude doit valoir `1.0` |
@@ -92,7 +106,7 @@ protocole Nantes reel a ete planifie ou execute.
 
 | Version | Python | Schemas de plan lus/ecrits | Manifeste d'analyse | Migration |
 | --- | --- | --- | --- | --- |
-| 0.3.0 + Unreleased | `>=3.13,<3.14` | plans v1/v2 existants ; v3 uniquement pour les plans structures avec metadonnees structurees v1 | v6 | aucune |
+| 0.3.0 + Unreleased | `>=3.13,<3.14` | schemas de plan v1/v2/v3 ; design scientifique v3 courant, v1/v2 lisibles uniquement en analyse descriptive | v7 | aucune ; les v1/v2 ne sont jamais reinterpretés |
 
 Voir les [preuves de version](../docs/release-evidence-0.3.0.md) pour les
 commandes reellement executees, les empreintes des artefacts et les limites de

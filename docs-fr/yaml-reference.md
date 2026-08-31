@@ -314,8 +314,8 @@ experiment:
 Ce sont exactement les sept clés d'expérience. Morris canonique exige une charte
 scientifique d'objectif `screening`, une dépendance `independent` et une
 distribution déclarée pour chaque paramètre. `levels` est un entier pair au moins
-égal à 4, `trajectories` au moins égal à 2, et `candidate_trajectories` est compris
-entre `trajectories` et le minimum de l'univers fini et 500. Un budget déterministe
+égal à 4, `trajectories` au moins égal à 2, et `candidate_trajectories` est strictement
+supérieur à `trajectories` sans dépasser le minimum de l'univers fini et 500. Un budget déterministe
 de calcul des distances s'ajoute au plafond de 500. `design_seed` et les seeds de
 base, non vides et uniques, sont des entiers signés 64 bits.
 
@@ -328,11 +328,13 @@ généralisée uniforme discrète : indice 0 pour `z = 0`, sinon
 Les `D+1` points du bloc partagent la seed dérivée, donc des nombres aléatoires
 communs au contraste ; les seeds dérivées sont uniques entre blocs.
 
-Le pool candidat et la sélection sont déterministes. La première paire maximise
-la somme des distances quadratiques entre points ; chaque ajout maximise ensuite
-la somme de ces distances aux trajectoires retenues, avec départage lexical des
-identités. La règle scellée `greedy-sum-pairwise-squared-distance` n'est ni
-maximin ni un optimum de Campolongo.
+L'échantillon candidat et la sélection sont déterministes pour la seed scellée.
+SALib 1.5.2 exécute l'appel Morris public avec optimisation locale et
+`optimal_trajectories: trajectories`. Les trajectoires candidates sont tirées
+avec remise : une matrice sélectionnée peut donc apparaître plusieurs fois sur
+une grille finie. Chaque occurrence possède un indice de sélection et une seed
+de simulation dérivée distincts ; toutes les matrices et options SALib effectives
+sont scellées dans le design v3.
 
 Avant publication d'un plan Morris canonique ou Sobol multi-scramble, les
 positions structurelles du design, sans déduplication des run IDs, ne dépassent pas

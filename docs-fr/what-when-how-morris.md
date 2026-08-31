@@ -1,65 +1,41 @@
-# Morris historique : quoi, quand et comment
+# Morris historique : relire une ancienne campagne
 
-**Utilisez l'ancien `morris` uniquement pour lire ou reproduire une provenance de démonstration historique.**
-
-**Règle pour débuter : utilisez-le seulement si un YAML ou un plan existant
-contient déjà `method: morris`. Ne créez jamais une nouvelle campagne `morris`.**
+**Cas pratique : comprendre un dossier existant qui contient déjà `method: morris`.**
 
 [English](../docs/what-when-how-morris.md) | **Français**
 
-## Quoi
+## Règle simple
 
-L'ancien `morris` est le plan historique à niveaux adjacents. Il change un
-facteur numérique à la fois entre deux valeurs voisines déclarées. Ses effets
-normalisés locaux sont non canoniques : ils ne correspondent pas à la définition
-Morris actuelle.
+Si vous préparez une nouvelle étude, **n'utilisez pas cette méthode**.
 
-Une seed est un entier qui sélectionne un flux aléatoire du simulateur. Cette
-méthode utilise les seeds comme réplications du même réglage des facteurs.
+- Pour une petite démonstration numérique, utilisez [OAT discret](what-when-how-discrete_oat.md).
+- Pour un criblage scientifique, utilisez [Morris canonique](what-when-how-canonical_morris.md).
 
-Cette méthode répond seulement à la question : « Que contient cette ancienne
-campagne ? » Elle existe pour garder les anciens plans et leur provenance
-lisibles. La provenance est le dossier qui décrit un ancien run.
+L'ancien `morris` reste disponible uniquement pour relire ou reproduire une
+campagne historique. Ses effets sont calculés sur des niveaux adjacents avec des
+pas locaux normalisés. Ce ne sont pas les effets du Morris canonique actuel.
 
-## Quand
+## Cas pratique : audit d'une campagne archivée
 
-Utilisez-la si un plan ou un enregistrement existant contient déjà
-`method: morris` et si vous devez examiner son comportement historique.
+Supposons qu'un collègue vous transmette :
 
-Ne l'utilisez jamais pour une nouvelle campagne. Utilisez [OAT discret](what-when-how-discrete_oat.md)
-pour une nouvelle démonstration à niveaux adjacents. Utilisez [Morris canonique](what-when-how-canonical_morris.md)
-pour un criblage scientifique.
-
-## Exemples de paramètres
-
-Ne créez jamais un nouveau fichier à partir de cet exemple. Il sert seulement à
-lire des paramètres susceptibles d'apparaître dans un ancien YAML :
-
-```yaml
-parameters:
-  sampling_rate:
-    values: [0.001, 0.002, 0.005]
-  matching_minimum_observations:
-    values: [5, 20, 50]
+```text
+ancienne-etude/
+├── configs/morris-2024.yml
+└── campaigns/morris-2024/
+    ├── plan.parquet
+    ├── runs/
+    └── archives/
 ```
 
-Les deux domaines sont numériques et strictement croissants, comme l'exige cet
-ancien parseur. Un changement adjacent tel que `0.001` vers `0.002`, ou `20`
-vers `50`, s'interprète seulement dans ce design historique. Ce n'est pas une
-recommandation actuelle de facteurs ou de valeurs.
+Votre question n'est pas « quels paramètres devrais-je étudier aujourd'hui ? »,
+mais :
 
-Chaque clé de facteur doit déjà exister sous `config:` dans le YAML modèle
-scellé. Un facteur structuré exigerait aussi une clé de base de type liste, mais
-cette méthode refuse les facteurs structurés. Les domaines d'exemple montrent la
-syntaxe, pas une justification scientifique automatique. Les seeds appartiennent
-uniquement à `experiment.replications.seeds` dans cette méthode historique ;
-n'ajoutez jamais `random_seed` comme facteur ordinaire. Consultez le [catalogue
-des paramètres Nantes](parameters-and-methods.md#catalogue-des-paramètres-nantes).
+> Que mesurait exactement cette ancienne campagne, et que permettent ses résultats ?
 
-## Comment
+### 1. Vérifier qu'il s'agit bien d'une provenance existante
 
-Le YAML suivant est un **fragment historique**. Il ne s'exécute pas seul et ne
-recommande pas une nouvelle campagne.
+Le YAML d'origine doit déjà contenir :
 
 ```yaml
 experiment:
@@ -71,60 +47,171 @@ experiment:
     seeds: [1301, 1302]
 ```
 
-Il n'existe volontairement aucun starter complet `morris`. Consultez le [schéma
-YAML historique](yaml-reference.md). Pour une nouvelle démonstration complète,
-partez de [`02-discrete-oat.yml`](../src/eqasim_sa/templates/02-discrete-oat.yml).
-Si vous devez réanalyser une configuration historique, utilisez son fichier
-d'origine. Le projet d'origine définit `SA` comme un tableau de commande Bash.
-`"${SA[@]}"` lance cette commande sans perdre ses arguments. Voir le
-[guide de démarrage](getting-started.md#runner-du-projet-généré).
+Le dossier de campagne doit contenir son `plan.parquet` scellé. Le contexte
+complet comprend aussi le commit Git du modèle, le manifeste de données, le
+lockfile, la version d'`eqasim-sa`, les archives et les marqueurs de runs. Un
+simple dossier sans ces éléments ne suffit pas à reproduire l'étude.
 
-`plan` crée et scelle le plan. `check` valide le plan et l'exécution. `estimate`
-donne le coût attendu en ressources. `run` exécute les runs manquants. `analyze` crée les
-résultats. `check` et `estimate` exigent des observations de ressources. Utilisez
-seulement celles que référence la configuration historique. N'inventez pas une
-nouvelle calibration pour une ancienne provenance.
+Ne recréez pas un plan manquant et ne modifiez pas le plan archivé pour lui faire
+accepter un autre contexte. Vous fabriqueriez une nouvelle campagne au lieu de
+relire l'ancienne.
+
+### 2. Retrouver la question, les paramètres et les indicateurs
+
+Un ancien YAML peut par exemple contenir :
+
+```yaml
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002, 0.005]
+  matching_minimum_observations:
+    values: [5, 20, 50]
+
+indicators:
+  - pair:
+      scalarizer: tv_distance
+      artifact: age
+      reference: INSEE
+```
+
+Dans cet exemple, la campagne observait les changements locaux de la distance TV
+entre la distribution d'âge synthétique et INSEE lorsque `sampling_rate` ou
+`matching_minimum_observations` passait d'un niveau voisin au suivant.
+
+Pour un passage d'une valeur `gauche` à une valeur `droite`, l'ancien calcul est :
+
+```text
+delta = (droite - gauche) / (maximum du domaine - minimum du domaine)
+effet = (indicateur après - indicateur avant) / delta
+```
+
+L'effet est donc exprimé pour une variation normalisée du facteur sur l'étendue
+déclarée. Il ne s'agit pas d'une dérivée continue ni d'une part de variance.
+
+Les domaines doivent être numériques et strictement croissants. Les seeds sont
+des réplications. La méthode historique refuse les facteurs structurés.
+
+Ce bloc décrit ce que l'étude a fait ; il ne justifie pas les valeurs choisies et
+ne recommande pas de réutiliser ce design.
+
+### 3. Vérifier le plan sans le remplacer
+
+Restaurez d'abord la **version archivée** d'`eqasim-sa` dans son environnement.
+La version courante ne convient pas : la version du runner fait partie du
+contexte scellé. Dans l'exemple suivant, `HISTORICAL_ENV` désigne cet
+environnement restauré. Le script lit ensuite `campaign_root` dans le YAML pour
+vérifier le fichier exact **avant** d'appeler `plan` :
 
 ```bash
-TARGET=configs/existing-morris.yml
-"${SA[@]}" plan --meta-config "$TARGET"
-"${SA[@]}" check --meta-config "$TARGET"
-"${SA[@]}" estimate --meta-config "$TARGET"
-"${SA[@]}" run --meta-config "$TARGET"
+TARGET=/chemin/vers/ancienne-etude/configs/morris-2024.yml
+HISTORICAL_ENV=/chemin/vers/environnement-eqasim-sa-archive
+SA=("$HISTORICAL_ENV/bin/eqasim-sa")
+HISTORICAL_PYTHON="$HISTORICAL_ENV/bin/python"
+
+PLAN=$("$HISTORICAL_PYTHON" - "$TARGET" <<'PY'
+import sys
+from pathlib import Path
+
+import yaml
+
+meta = Path(sys.argv[1]).resolve()
+root = Path(yaml.safe_load(meta.read_text(encoding="utf-8"))["campaign_root"])
+if not root.is_absolute():
+    root = (meta.parent / root).resolve()
+print(root / "plan.parquet")
+PY
+)
+[[ -f "$PLAN" && ! -L "$PLAN" ]] || {
+  printf '%s\n' "Plan historique absent ; arrêter l'audit." >&2
+  exit 1
+}
+
+RESULT=$("${SA[@]}" plan --meta-config "$TARGET") || exit 1
+printf '%s\n' "$RESULT"
+STATUS=$(printf '%s' "$RESULT" | "$HISTORICAL_PYTHON" -c \
+  'import json, sys; print(json.load(sys.stdin)["status"])')
+[[ "$STATUS" == unchanged ]] || {
+  printf '%s\n' "Le plan historique n'est pas inchangé ; arrêter l'audit." >&2
+  exit 1
+}
+```
+
+Toute erreur signifie qu'il faut arrêter et retrouver les fichiers d'origine,
+pas modifier la provenance.
+
+### 4. Réanalyser seulement les archives complètes
+
+Si tous les runs requis et leurs archives sont présents, vous pouvez reconstruire
+les sorties d'analyse :
+
+```bash
 "${SA[@]}" analyze --meta-config "$TARGET"
 ```
 
-## Ce que vous obtenez
+`analyze` ne relance pas le simulateur. Si des runs manquent, `run` n'est
+acceptable que si l'environnement, l'exécution et le contexte d'origine sont
+encore exactement reproductibles. N'ajoutez pas silencieusement de nouvelles
+seeds, valeurs ou données.
 
-- `indicators.parquet` : une ligne par run terminé et par indicateur.
-- `replication-dispersion.parquet` : la variation entre les seeds de réplication.
-- `morris-ranking.parquet` : les effets non canoniques à niveaux adjacents, classés par `mu_star`.
-- `output-summary.parquet` : un résumé de chaque indicateur sur les positions du design.
-- `governed-report.json` : un rapport avec `inferenceStatus: demonstration_noninferential` et `claimAuthorized: false`.
-- `analysis-generation.json` : les chemins et les empreintes de cette analyse.
+`check` et `estimate` concernent surtout une nouvelle exécution. Ils exigent des
+observations de ressources compatibles ; une calibration inventée aujourd'hui
+ne fait pas partie de la provenance historique de 2024.
 
-Traitez le classement comme une description historique. Un rang élevé signifie
-que des effets locaux plus grands sont apparus dans cet ancien design déclaré.
+### 5. Lire le classement historique
 
-## Ce que vous pouvez dire
+Le fichier `morris-ranking.parquet` contient notamment :
 
-Vous pouvez décrire l'ancien ordre des facteurs et les effets locaux observés.
-Précisez que ces effets ne sont pas canoniques.
+| Colonne | Lecture historique |
+| --- | --- |
+| `mu` | effet local moyen avec son signe |
+| `mu_star` | taille moyenne des effets locaux |
+| `sigma` | écart-type de tous les effets `T × R` ; il mélange trajectoires et seeds |
+| `seed_std` | racine de la variance moyenne entre seeds dans chaque trajectoire |
+| `rank` | ordre décroissant de `mu_star` |
 
-Vous ne pouvez pas les appeler effets Morris canoniques. Vous ne pouvez pas en
-déduire des parts de variance, une importance globale, une priorisation ou une
-fixation des facteurs.
+Supposons qu'une **ancienne sortie** classe `sampling_rate` avant
+`matching_minimum_observations`. Vous pouvez écrire : « Dans le design
+historique déclaré, `sampling_rate` présentait les effets locaux normalisés les
+plus grands sur l'indicateur âge. »
 
-## Checklist avant exécution
+Un `sigma` élevé ne prouve pas à lui seul une interaction ou une non-linéarité :
+la variation entre seeds y contribue aussi. `sigma` et `seed_std` sont tous deux
+exprimés en unités d'effet normalisé et peuvent être rapprochés.
+`replication-dispersion.parquet` reste utile comme contexte, mais ses écarts-types
+sont en unités brutes de l'indicateur TV : ne les comparez pas numériquement aux
+deux premières colonnes.
 
-- Vérifiez qu'il s'agit d'une campagne historique existante.
-- Conservez le plan, le contexte, les valeurs et les seeds d'origine.
-- Vérifiez que tous les domaines sont numériques et strictement croissants.
-- Ne remplacez jamais les octets d'un ancien plan à la main.
-- Préférez une nouvelle méthode et un nouveau `campaign_root` pour un nouveau travail.
+Vous ne devez pas écrire : « Morris prouve que `sampling_rate` est globalement
+le facteur le plus important. » Le design n'est pas canonique et n'estime pas de
+part de variance.
+
+Si la version archivée produit `governed-report.json`, il doit rester
+`demonstration_noninferential` avec `claimAuthorized: false`. Les versions Morris
+antérieures à l'introduction du rapport gouverné ne créent pas ce fichier :
+documentez son absence dans l'audit et ne le recréez pas avec un runner plus
+récent, car cela changerait le contexte scellé.
+
+## Ce que vous pouvez conclure
+
+Vous pouvez décrire les facteurs, niveaux, seeds, indicateurs et effets locaux de
+l'ancienne campagne, en indiquant clairement qu'ils sont historiques et non
+canoniques.
+
+Vous ne pouvez pas convertir ce classement en criblage scientifique, en
+priorisation ou en décision de fixation. Pour une nouvelle question, créez une
+nouvelle campagne avec une méthode actuelle et une nouvelle racine.
+
+## Checklist d'audit
+
+- Le YAML et le `plan.parquet` existaient avant l'audit.
+- Le modèle, le commit Git, les données, le lockfile et la version sont retrouvés.
+- `plan` répond `unchanged`, jamais `created`.
+- Les archives requises sont complètes avant `analyze`.
+- Aucun plan ni marqueur de run n'est modifié à la main.
+- Le rapport gouverné, lorsqu'il existe dans cette version, précise le statut non inférentiel ; sinon l'audit documente son absence.
 
 ## Suite
 
-- Précédent : [Grid](what-when-how-grid.md)
-- Suivant : [OAT discret](what-when-how-discrete_oat.md) ou [Morris canonique](what-when-how-canonical_morris.md)
-- Références : [YAML](yaml-reference.md), [paramètres et méthodes](parameters-and-methods.md) et [workflow et résultats](workflow-and-results.md)
+- Nouvelle démonstration : [OAT discret](what-when-how-discrete_oat.md)
+- Nouveau criblage scientifique : [Morris canonique](what-when-how-canonical_morris.md)
+- Références : [YAML](yaml-reference.md), [compatibilité](compatibility.md) et [workflow et résultats](workflow-and-results.md)

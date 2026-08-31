@@ -19,11 +19,17 @@ Le parseur Python est normatif : le projet ne fournit pas de JSON Schema.
 
 ## Choisir une méthode
 
+Si vous débutez, lisez d'abord le [cas pratique Grid](what-when-how-grid.md) : il
+suit une question sur `sampling_rate` depuis la déclaration du paramètre et des
+indicateurs jusqu'à l'interprétation des fichiers produits. Continuez avec OAT
+discret pour les changements locaux, puis avec Morris canonique et Sobol
+multi-scramble seulement si vous préparez une campagne scientifique déclarée.
+
 | Guide | Question | Statut | Usage recommandé |
 | --- | --- | --- | --- |
 | [Grid](what-when-how-grid.md) | Que se passe-t-il pour chaque combinaison déclarée ? | Démonstration | Petites comparaisons lisibles et configurations structurées nommées |
 | [Morris historique](what-when-how-morris.md) | Que contient une ancienne campagne à niveaux adjacents ? | Démonstration historique | Lire une provenance existante seulement ; ne jamais créer une nouvelle campagne |
-| [OAT discret](what-when-how-discrete_oat.md) | Quels changements numériques locaux demandent de l'attention ? | Démonstration | Criblage numérique local pour une étude ultérieure |
+| [OAT discret](what-when-how-discrete_oat.md) | Quels changements numériques locaux demandent de l'attention ? | Démonstration | Tri descriptif local pour préparer une étude ultérieure |
 | [Morris canonique](what-when-how-canonical_morris.md) | Quels facteurs doivent rester à l'étude ? | Criblage scientifique | Pilote propre à l'étude, puis production séparée |
 | [Sobol historique](what-when-how-sobol.md) | La plomberie Sobol à un scramble fonctionne-t-elle ? | Démonstration historique non inférentielle | Exécuter le starter généré ou lire une provenance historique |
 | [Sobol multi-scramble](what-when-how-multiscramble_sobol.md) | Que faut-il apprendre d'abord, ou que peut-on fixer ? | FP ou FF scientifique | Priorisation ou fixation des facteurs propre à l'étude |

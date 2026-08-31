@@ -239,7 +239,7 @@ d'incertitude, d'estimand, de budget, de convergence, de robustesse, de
 `finite_seed_factor`, de scrambles indépendants et de provenance. Ne les inventez
 pas à partir de ce fragment. Consultez la
 [référence YAML](yaml-reference.md), les
-[paramètres et méthodes](parameters-and-methods.md#facteurs-listes-structurés-nommés)
+[paramètres et méthodes](parameters-and-methods.md#facteurs-listes-structurées-nommés)
 et le [protocole nantais](../protocols/nantes-scientific/README.md) rédigé pour
 l'étude.
 

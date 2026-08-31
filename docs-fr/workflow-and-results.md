@@ -5,7 +5,7 @@
 ## Cycle de vie
 
 ```mermaid
-flowchart LR
+flowchart TD
     I[init: modèles + manifeste] --> PC[plan calibration]
     PC --> RC[run calibration]
     RC --> PT[plan cible]
@@ -298,6 +298,14 @@ supérieure de Student à la tolérance. Les indicateurs secondaires restent
 diagnostiques et leur classification FF est nulle. Une ligne de convergence ne
 satisfait pas automatiquement un critère d'arrêt; celui-ci est évalué dans
 `convergence-evidence.parquet`.
+
+Toutes les valeurs sources des indicateurs doivent être finies. L'estimation
+Sobol centre et met à l'échelle les tableaux A/B/hybrides complets avant l'appel
+à SALib, puis publie `output_variance` dans les unités carrées d'origine. Une
+variance de base constante, sa perte à la précision `float64`, un indice non fini
+ou une variance hors de la plage représentable en `float64` annule toute la
+transaction. L'analyseur ne tronque aucune valeur, n'écarte aucun scramble et ne
+publie pas les autres tables.
 
 ### `convergence-evidence.parquet` et `governed-report.json`
 

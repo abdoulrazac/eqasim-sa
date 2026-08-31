@@ -1,53 +1,87 @@
-# Sobol multi-scramble : quoi, quand et comment
+# Sobol multi-scramble : prioriser ou tester une fixation
 
-**Utilisez Sobol multi-scramble uniquement pour la priorisation scientifique ou la fixation des facteurs.**
+**Cas pratique : choisir quel réglage du matching apprendre plus précisément en premier.**
 
 [English](../docs/what-when-how-multiscramble_sobol.md) | **Français**
 
-## Quoi
+## En bref
 
-La priorisation des facteurs (FP) demande quel facteur doit être appris plus
-précisément en premier pour réduire l'incertitude attendue de la sortie. La
-fixation des facteurs (FF) demande si un facteur peut être fixé dans une tolérance
-pratique déclarée, avec toutes ses interactions. Une interaction est un effet
-combiné de plusieurs facteurs.
+Après un criblage Morris, supposons que deux paramètres restent incertains :
+`matching_minimum_observations` et `matching_minimum_age`. Vous ne voulez plus
+seulement savoir s'ils ont un effet. Vous voulez décider où investir le prochain
+effort de collecte ou de modélisation.
 
-La méthode exécute plusieurs séquences de Sobol randomisées indépendamment.
-Chaque randomisation est un scramble indépendant. Les tailles d'échantillon
-emboîtées réutilisent des préfixes exacts dans chaque scramble. Un checkpoint est
-l'une de ces tailles planifiées. La preuve compare les scrambles. Elle ne
-rééchantillonne pas les lignes d'un seul scramble. Un bootstrap rééchantillonne
-plusieurs fois les unités observées pour mesurer l'incertitude.
+La **priorisation des facteurs** (FP) demande :
 
-La seed finie du simulateur est un facteur de nuisance non actionnable. Elle
-reste diagnostique, mais ne reçoit ni rang FP ni décision FF.
-Une seed est un entier qui sélectionne un flux aléatoire du simulateur.
+> Quel facteur devrions-nous apprendre plus précisément en premier pour réduire l'incertitude attendue de la sortie ?
 
-## Quand
+La **fixation des facteurs** (FF) pose une autre question :
 
-Utilisez la méthode seulement avec une charte scientifique, un objectif `fp` ou
-`ff`, des facteurs indépendants, au moins quatre seeds de scrambles indépendants,
-des tailles emboîtées, un budget, des critères d'arrêt et des contrôles de
-robustesse. L'indépendance signifie que connaître un facteur n'informe pas sur un
-autre. Un critère d'arrêt est une règle déclarée à l'avance pour juger la
-stabilité suffisante. Un contrôle de robustesse teste le résultat sous une autre
-hypothèse déclarée.
+> L'effet total d'un facteur, interactions comprises, reste-t-il sous une tolérance pratique déclarée ?
 
-Avant de l'utiliser, écrivez pourquoi les facteurs sont indépendants. Pour chaque
-facteur discret, écrivez pourquoi chaque étiquette a la même probabilité.
-Déclarez au moins quatre seeds de scramble distinctes. Déclarez des tailles qui
-doublent, un budget, un seuil d'arrêt et des contrôles de robustesse. Si vous ne
-pouvez pas justifier tous ces choix, n'utilisez pas cette méthode.
+Ces deux objectifs utilisent Sobol multi-scramble, mais ils exigent des chartes,
+des budgets et des campagnes séparés. Ce guide déroule d'abord le cas FP, puis
+montre la variante FF.
 
-Ne l'utilisez pas pour le criblage ou pour des facteurs dépendants. Les
-configurations structurées nommées sont acceptées seulement si des probabilités
-discrètes égales et leur provenance sont scientifiquement défendables. La
-provenance est la trace écrite qui justifie ces probabilités.
+## Les notions indispensables
 
-## Exemples de paramètres
+- L'**indice de premier ordre** est la part de variation associée au facteur seul.
+- L'**indice d'ordre total** inclut le facteur et toutes ses interactions.
+- Un **scramble** est une randomisation indépendante de la séquence Sobol.
+- Un **checkpoint** est une taille d'échantillon où l'on vérifie la stabilité.
+- Un facteur **actionnable** peut faire l'objet d'une décision ; la seed du simulateur ne l'est pas.
 
-La même syntaxe de paramètres sert à FP et FF ; la question décisionnelle de la
-charte change l'interprétation des résultats. Voici un exemple numérique commun :
+Plusieurs scrambles indépendants montrent comment les estimations changent d'une
+randomisation Sobol à l'autre. Rééchantillonner les lignes d'un seul scramble ne
+fournit pas cette preuve ; c'est pourquoi le [Sobol historique](what-when-how-sobol.md)
+reste non inférentiel.
+
+## Prérequis : un criblage terminé
+
+Le protocole Nantes n'autorise FP ou FF qu'après une production Morris canonique :
+
+- complète ;
+- convergée selon les critères déclarés ;
+- portant le statut `conditional` ;
+- issue d'un plan et d'un rapport gouverné scellés.
+
+Le renderer vérifie cette porte. Ne remplacez pas la campagne de criblage par un
+chemin fictif et ne retirez pas un facteur simplement parce que son rang Morris
+semblait faible : le criblage ne prouve jamais qu'un facteur peut être fixé.
+
+La suite suppose que vous avez terminé le
+[cas Morris canonique](what-when-how-canonical_morris.md), que `$ROOT` et le
+tableau Bash `SA` sont définis, et que `mon-analyse-sa/` contient le manifeste,
+le scratch et une calibration de ressources complète.
+
+## Cas FP de bout en bout
+
+Le cas complet se trouve dans
+[`03-multiscramble-fp.yml`](../protocols/nantes-scientific/03-multiscramble-fp.yml).
+Il s'agit d'un protocole concret, pas d'un fichier directement exécutable : le
+renderer doit d'abord remplacer ses marqueurs machine et y inscrire la provenance
+du criblage. Ce guide n'affirme pas qu'une campagne Nantes réelle a déjà produit
+les résultats fictifs présentés plus bas.
+
+### 1. Poser la décision
+
+La charte demande lequel des deux réglages numériques doit être appris plus
+précisément en premier pour réduire la variation de l'indicateur âge :
+
+```yaml
+decision:
+  claim: Prioritize which of the two declared Nantes numerical factors should be learned more accurately first
+  use: diagnostic
+  setting: Loire-Atlantique department 44 population synthesis using INSEE RP 2022 and EDGT 44
+  objective: fp
+  estimand: First-order Sobol variance shares for age total-variation distance over the two declared numerical factors and finite seed support
+  primary_indicator: tv_distance(age, ref=INSEE)
+```
+
+Une décision FP classe les facteurs actionnables par leur indice moyen de premier
+ordre. Elle ne dit pas encore qu'un facteur peut être fixé.
+
+### 2. Déclarer les facteurs, y compris le bruit du simulateur
 
 ```yaml
 parameters:
@@ -56,174 +90,237 @@ parameters:
     distribution:
       family: discrete_uniform
       transform: identity
-      provenance: Remplacer par les preuves de l'étude justifiant ces trois seuils
+      provenance: Production screening report sha256:<empreinte réelle du criblage>
   matching_minimum_age:
     values: [0, 5, 12]
     distribution:
       family: discrete_uniform
       transform: identity
-      provenance: Remplacer par les preuves de l'étude justifiant ces trois âges
+      provenance: Production screening report sha256:<empreinte réelle du criblage>
   seed:
     values: [44011, 44012, 44013, 44014]
     distribution:
       family: discrete_uniform
       transform: identity
-      provenance: Remplacer par le raisonnement sur le support fini des seeds du simulateur
+      provenance: Support fini déclaré des seeds du simulateur
 ```
 
-Pour FP, les facteurs actionnables sont candidats à un apprentissage plus précis.
-Pour FF, ils sont candidats à une fixation dans la tolérance d'ordre total
-prédéclarée, interactions incluses. Le support fini de `seed` reste non
-actionnable dans les deux cas. Ne déclarez jamais `random_seed` comme facteur
-ordinaire.
+Les deux réglages de matching sont actionnables. `seed` représente une source de
+variation aléatoire nécessaire au calcul, mais personne ne va « apprendre la
+seed plus précisément ». Elle reste donc diagnostique et ne reçoit aucun rang FP
+actionnable.
 
-Si la structure de matching fait réellement partie de la décision, ce facteur
-facultatif peut être ajouté au même mapping `parameters` :
+Chaque facteur ordinaire doit déjà exister sous `config:` dans le modèle scellé.
+La clé spéciale `seed` est la seule exception et ne doit pas y exister. Ne
+déclarez jamais `random_seed` comme facteur.
 
-```yaml
-parameters:
-  matching_attributes:
-    configurations:
-      default: [sex, any_cars, age_class, socioprofessional_class, departement_id]
-      reduced: [sex, age_class, socioprofessional_class]
-      age_priority: [age_class, any_cars, sex, socioprofessional_class, departement_id]
-    distribution:
-      family: discrete_uniform
-      transform: identity
-      provenance: Remplacer par les preuves justifiant des probabilités égales sur ces structures
-```
+Le support et l'égalité des probabilités doivent être justifiés par l'étude. Une
+liste de valeurs pratique n'est pas, à elle seule, une preuve scientifique.
 
-Ici, la probabilité égale s'applique aux trois listes nommées complètes, pas aux
-attributs qu'elles contiennent. Le support, c'est-à-dire toutes les valeurs ou
-étiquettes autorisées, doit être justifié ; un catalogue pratique n'est pas une
-preuve. Chaque clé de facteur ordinaire doit déjà exister sous `config:` dans le
-YAML modèle scellé. Le facteur spécial `seed` est la seule exception et ne doit
-pas y exister. La valeur de base `matching_attributes` doit déjà être une liste de chaînes.
-Suivez le [tutoriel des configurations
-structurées](structured-configurations-tutorial.md).
+### 3. Déclarer l'indicateur principal
 
-Traitez d'abord `hts` et `projection_year` comme des contrôles séparés de données
-ou de scénario, sauf si la décision les modélise réellement comme facteurs
-incertains. `hts` exige les deux jeux `edgt_44` et `entd` et change donneurs et
-références. Le support `[2020, 2030, 2040]` de `projection_year` exige des
-scénarios et archives compatibles. S'il est utilisé scientifiquement, déclarez-le
-avec la même forme complète `values` et `distribution` que les facteurs
-numériques ci-dessus. Il fait passer la comparaison de population du recensement non
-projeté à la population repondérée par projection et à sa référence INSEE
-projetée. Ces domaines montrent la syntaxe, pas une justification scientifique
-automatique. Consultez le [catalogue des paramètres
-Nantes](parameters-and-methods.md#catalogue-des-paramètres-nantes).
+Comme dans Morris canonique, le protocole calcule les TV âge contre INSEE,
+distance contre HTS et nombre de véhicules contre HTS. Seule
+`tv_distance(age, ref=INSEE)` gouverne la décision FP. Les autres indicateurs
+servent à repérer des effets secondaires, pas à changer silencieusement la
+question après avoir vu les résultats.
 
-## Comment
+Pour Nantes/EDGT 44, l'indicateur de distance est asymétrique : les classes
+synthétiques utilisent la distance euclidienne entre activités, tandis que HTS
+utilise la distance routée. Il reste un diagnostic secondaire.
 
-Le YAML suivant est un **fragment**. Il omet des données obligatoires sur la
-charte et l'exécution. Il ne s'exécute pas seul.
+### 4. Déclarer les scrambles et les checkpoints
 
 ```yaml
-charter:
-  status: scientific
-  decision:
-    objective: fp
-  uncertainty:
-    dependence:
-      kind: independent
 experiment:
   method: multiscramble_sobol
   seed_role: factor
   base_sample_sizes: [8, 16, 32]
   scramble_seeds: [44101, 44102, 44103, 44104]
-parameters:
-  seed:
-    values: [44011, 44012, 44013, 44014]
-    distribution:
-      family: discrete_uniform
-      transform: identity
-      provenance: Support fini de nuisance déclaré
+
+analysis:
+  completeness_threshold: 1.0
+  confidence_level: 0.95
 ```
 
-Les sources Nantes exigent `render_protocol.py`. Suivez les
-[instructions exactes de rendu Nantes](../protocols/nantes-scientific/README.md#rendering).
-La porte accepte seulement une production Morris canonique complète, convergée
-et conditionnelle. Fournissez cette campagne avec `--screening-campaign-root` :
+Les quatre seeds de scramble créent quatre randomisations indépendantes. Dans
+chaque scramble, les tailles `8`, `16` et `32` sont emboîtées : le checkpoint 16
+réutilise les 8 premiers points et le checkpoint 32 réutilise les 16 premiers.
+
+Le nombre maximal de positions utilise `S = 4` scrambles, `N = 32` et `D = 3`
+facteurs, seed comprise :
+
+```text
+S × N × (2D+2) = 4 × 32 × 8 = 1 024 positions
+```
+
+Le champ de budget vaut 1 280 avec 20 % de réserve, soit exactement **1 024
+positions structurelles** disponibles pour le design. Après projection sur les
+supports discrets `3 × 3 × 4`, ces positions représentent **36 `runId` uniques**.
+Le budget scientifique est volontairement contrôlé sur les positions, tandis que
+`run` n'exécute chaque `runId` qu'une fois. Cette égalité est un choix explicite
+du protocole, pas une règle générale.
+
+### 5. Rendre la campagne FP
+
+Depuis la racine `openmole-eqasim`, après la production Morris canonique :
 
 ```bash
-python protocols/nantes-scientific/render_protocol.py \
-  protocols/nantes-scientific/03-multiscramble-fp.yml rendered/fp.yml \
+uv run --project "$ROOT/eqasim-sa" --locked python \
+  "$ROOT/eqasim-sa/protocols/nantes-scientific/render_protocol.py" \
+  "$ROOT/eqasim-sa/protocols/nantes-scientific/03-multiscramble-fp.yml" \
+  "$ROOT/rendered/multiscramble-fp.yml" \
   --model-config "$ROOT/eqasim-france/config_local_nantes.yml" \
   --model-root "$ROOT/eqasim-france" \
-  --data-manifest "$ROOT/study/manifest.json" \
+  --data-manifest "$ROOT/mon-analyse-sa/manifest.json" \
   --lockfile "$ROOT/eqasim-france/uv.lock" \
-  --scratch "$ROOT/scratch" --data-path "$ROOT/eqasim-data" \
-  --campaign-root "$ROOT/campaigns/multiscramble-fp" \
-  --screening-campaign-root "$ROOT/campaigns/canonical-morris-production"
+  --scratch "$ROOT/mon-analyse-sa/scratch" \
+  --data-path "$ROOT/eqasim-data" \
+  --campaign-root "$ROOT/mon-analyse-sa/campaigns/multiscramble-fp" \
+  --screening-campaign-root "$ROOT/mon-analyse-sa/campaigns/canonical-morris-production"
 ```
 
-Pour FF, utilisez `04-multiscramble-ff.yml`, un autre fichier de sortie et une
-autre racine. Pour une autre étude, rédigez une configuration complète. Il
-n'existe pas de rendu automatique pour une étude générique.
+Le renderer refuse de produire le YAML si les preuves de criblage sont absentes,
+incomplètes, instables ou incompatibles.
 
-Le projet définit `SA` comme un tableau de commande Bash. `"${SA[@]}"` lance
-cette commande sans perdre ses arguments. Voir le [guide de démarrage](getting-started.md#runner-du-projet-généré).
-`plan` crée et scelle le plan. `check` valide le plan et l'exécution. `estimate`
-donne le coût attendu en ressources. `run` exécute les runs manquants. `analyze` crée les
-résultats. Les fichiers scientifiques Nantes n'ont pas de bloc de calibration.
-Lancez donc d'abord `plan`. Obtenez ensuite une estimation externe ou de
-calibration valide, ou exécutez explicitement selon la procédure de votre site.
-Un nouvel appel à `check` ou `estimate` n'est pas garanti sans observations.
+### 6. Planifier, chiffrer et exécuter
 
 ```bash
-TARGET=rendered/fp.yml
+TARGET="$ROOT/rendered/multiscramble-fp.yml"
+CALIBRATION="$ROOT/mon-analyse-sa/configs/00-calibration.yml"
+
 "${SA[@]}" plan --meta-config "$TARGET"
+"${SA[@]}" check --meta-config "$TARGET" --calibration-meta-config "$CALIBRATION"
+"${SA[@]}" estimate --meta-config "$TARGET" --calibration-meta-config "$CALIBRATION"
 "${SA[@]}" run --meta-config "$TARGET"
 "${SA[@]}" analyze --meta-config "$TARGET"
 ```
 
-## Ce que vous obtenez
+La calibration indiquée doit déjà contenir au moins un run complet et être
+compatible avec les ressources de cette exécution. Sans observation compatible,
+suivez la procédure de votre site avant d'exécuter les 36 runs uniques représentés
+par les 1 024 positions.
 
-- `indicators.parquet` : une ligne par run terminé et par indicateur.
-- `multiscramble-sobol-indices.parquet` : les indices agrégés finaux et les rangs de l'objectif.
-- `multiscramble-sobol-by-scramble.parquet` : les estimations indépendantes par scramble et checkpoint.
-- `multiscramble-sobol-convergence.parquet` : les intervalles entre scrambles et les changements entre checkpoints. Cet intervalle est une plage calculée avec les séquences randomisées indépendamment.
-- `multiscramble-sobol-diagnostics.parquet` : les diagnostics de plage, de contraste et de réutilisation du design.
-- `output-summary.parquet`, `convergence-evidence.parquet`, `governed-report.json` et `analysis-generation.json` : résumés, arrêt, statut gouverné, chemins et empreintes.
+### 7. Lire une décision FP
 
-La moyenne de premier ordre est la part moyenne estimée de variation de sortie
-liée à un facteur seul. En FP, une part plus grande signifie que ce facteur doit
-être appris plus précisément en premier. Pour FF, la méthode utilise l'extrémité
-haute de son intervalle d'incertitude d'ordre total. L'ordre total inclut toutes
-les interactions. Un facteur est candidat à la fixation seulement si cette
-extrémité ne dépasse pas la tolérance de l'indicateur principal. Cette extrémité
-est une preuve d'incertitude, pas un maximum garanti.
+Le fichier `multiscramble-sobol-indices.parquet` agrège les quatre scrambles au
+checkpoint final. Pour FP, regardez les colonnes de premier ordre, le rang et
+`is_actionable`.
 
-Le statut reste `unstable` jusqu'au passage de tous les critères d'arrêt, puis
-devient `conditional`. Un résultat conditionnel peut être rapporté comme
-provisoire dans l'étude déclarée. Ce n'est pas une décision finale robuste et
-autorisée tant que des contrôles sont en attente et que `claimAuthorized` vaut
-`false`.
+Illustration **fictive** :
 
-## Ce que vous pouvez dire
+| Facteur | Premier ordre moyen | Intervalle entre scrambles | Actionnable | Rang FP |
+| --- | ---: | ---: | --- | ---: |
+| `matching_minimum_observations` | `0.41` | `0.34-0.48` | oui | `1` |
+| `matching_minimum_age` | `0.16` | `0.09-0.23` | oui | `2` |
+| `seed` | `0.27` | `0.18-0.36` | non | vide |
 
-Pour FP, vous pouvez donner une priorité d'apprentissage conditionnelle après le
-passage des critères d'arrêt. Pour FF, vous pouvez dire qu'un facteur actionnable
-est conditionnellement dans la tolérance déclarée, interactions incluses, pour
-l'indicateur principal scellé.
+Dans cet exemple fictif, la priorité d'apprentissage conditionnelle est
+`matching_minimum_observations`, car son indice moyen de premier ordre est le
+plus grand parmi les facteurs actionnables. La seed peut expliquer une variation
+visible, mais elle ne devient pas une cible d'apprentissage.
 
-Vous ne pouvez pas faire une revendication autorisée ou robuste tant que la
-robustesse est en attente. Vous ne pouvez ni classer ni fixer la seed de nuisance.
-Vous ne pouvez pas étendre le résultat à des supports, dépendances, indicateurs
-ou scénarios non déclarés.
+Avant d'écrire cette phrase, vérifiez :
 
-## Checklist avant exécution
+- `multiscramble-sobol-by-scramble.parquet` pour voir les quatre estimations indépendantes ;
+- `multiscramble-sobol-convergence.parquet` pour la stabilité entre checkpoints ;
+- `multiscramble-sobol-diagnostics.parquet` pour les valeurs hors plage, contrastes et duplications ;
+- `convergence-evidence.parquet` pour le passage du critère `ci_width` ;
+- `governed-report.json` pour le statut de la campagne.
 
-- Déclarez FP ou FF, le cadre, l'estimand et l'indicateur principal. L'estimand est la quantité que l'étude veut estimer.
-- Pour FF, déclarez la tolérance pratique avant `plan`.
-- Justifiez l'indépendance et chaque distribution discrète.
-- Utilisez au moins quatre seeds de scramble uniques et des tailles qui doublent.
-- Vérifiez le budget, les critères d'arrêt et les contrôles de robustesse en attente.
-- Gardez la seed finie du simulateur non actionnable.
+Les indices bruts ne sont pas tronqués dans `[0, 1]`. Une valeur hors plage avec
+un échantillon fini reste visible dans les diagnostics et invite à augmenter le
+budget ou à revoir le design.
+
+Un statut `unstable` interdit la priorité. Un statut `conditional` autorise
+seulement une priorité conditionnelle au cadre déclaré. Le contrat actuel laisse
+les contrôles de robustesse en attente et porte `claimAuthorized: false` ; il ne
+produit donc pas une revendication finale robuste.
+
+## Variante FF : tester si un facteur peut être fixé
+
+FF doit être une autre campagne, avec l'objectif `ff` et une tolérance déclarée
+**avant** `plan`. Le protocole Nantes
+[`04-multiscramble-ff.yml`](../protocols/nantes-scientific/04-multiscramble-ff.yml)
+utilise `practical_tolerance: 0.05`, des checkpoints `[16, 32, 64]` et quatre
+autres seeds de scramble.
+
+Le renderer s'appelle de la même manière en remplaçant la source, la sortie et
+la racine :
+
+```bash
+uv run --project "$ROOT/eqasim-sa" --locked python \
+  "$ROOT/eqasim-sa/protocols/nantes-scientific/render_protocol.py" \
+  "$ROOT/eqasim-sa/protocols/nantes-scientific/04-multiscramble-ff.yml" \
+  "$ROOT/rendered/multiscramble-ff.yml" \
+  --model-config "$ROOT/eqasim-france/config_local_nantes.yml" \
+  --model-root "$ROOT/eqasim-france" \
+  --data-manifest "$ROOT/mon-analyse-sa/manifest.json" \
+  --lockfile "$ROOT/eqasim-france/uv.lock" \
+  --scratch "$ROOT/mon-analyse-sa/scratch" \
+  --data-path "$ROOT/eqasim-data" \
+  --campaign-root "$ROOT/mon-analyse-sa/campaigns/multiscramble-ff" \
+  --screening-campaign-root "$ROOT/mon-analyse-sa/campaigns/canonical-morris-production"
+```
+
+Exécutez ensuite toute la campagne FF, séparément de FP :
+
+```bash
+FF_TARGET="$ROOT/rendered/multiscramble-ff.yml"
+CALIBRATION="$ROOT/mon-analyse-sa/configs/00-calibration.yml"
+
+"${SA[@]}" plan --meta-config "$FF_TARGET"
+"${SA[@]}" check --meta-config "$FF_TARGET" --calibration-meta-config "$CALIBRATION"
+"${SA[@]}" estimate --meta-config "$FF_TARGET" --calibration-meta-config "$CALIBRATION"
+"${SA[@]}" run --meta-config "$FF_TARGET"
+"${SA[@]}" analyze --meta-config "$FF_TARGET"
+```
+
+Le plan FF contient `4 × 64 × 8 = 2 048` positions structurelles, projetées sur
+les mêmes **36 runs uniques**. Lisez ensuite
+`$ROOT/mon-analyse-sa/campaigns/multiscramble-ff/multiscramble-sobol-indices.parquet`.
+
+Pour l'indicateur principal, FF compare la **borne supérieure de l'intervalle
+d'ordre total**, colonne `total_order_ci_high`, à `0.05`. Cette tolérance est une
+part de variance totale sans unité ; ce n'est pas `0.05` unité de distance TV.
+La colonne `within_practical_tolerance` enregistre la comparaison pour les
+facteurs actionnables de l'indicateur principal. Si la borne vaut fictivement
+`0.04`, le facteur est conditionnellement dans la tolérance, interactions
+incluses. Si elle vaut `0.08`, il ne l'est pas. Une estimation centrale inférieure
+à `0.05` ne suffit pas si sa borne supérieure dépasse la tolérance.
+
+N'utilisez cette classification que si `convergence-evidence.parquet` confirme
+le passage du critère `ci_width` et si `governed-report.json` porte le statut
+`conditional`. Avec `unstable`, la colonne calculée reste diagnostique et ne
+permet aucune décision FF.
+
+La seed et les indicateurs secondaires ne reçoivent jamais de décision FF.
+
+## Ce que vous pouvez conclure
+
+Pour FP, après convergence, vous pouvez nommer une priorité d'apprentissage
+conditionnelle parmi les facteurs actionnables. Pour FF, **après convergence**,
+vous pouvez dire qu'un facteur est conditionnellement dans la tolérance déclarée
+pour l'indicateur principal, interactions incluses.
+
+Vous ne pouvez pas étendre cette conclusion à d'autres supports, dépendances,
+indicateurs ou scénarios. Vous ne pouvez ni classer ni fixer la seed. Avec
+`claimAuthorized: false`, la phrase reste conditionnelle et non autorisée comme
+revendication robuste finale.
+
+## Checklist
+
+- Une production Morris canonique complète, convergée et conditionnelle existe.
+- La charte choisit exactement un objectif, FP ou FF.
+- Les supports, probabilités et indépendances sont justifiés.
+- Au moins quatre scrambles indépendants et des tailles qui doublent sont déclarés.
+- `seed` est présente comme facteur fini non actionnable.
+- Pour FF, la tolérance est déclarée avant `plan` et l'ordre total est utilisé.
+- La convergence, les diagnostics et le rapport gouverné sont lus avant toute conclusion.
 
 ## Suite
 
-- Précédent : [Morris canonique](what-when-how-canonical_morris.md) et [Sobol historique](what-when-how-sobol.md)
-- Suivant : [Workflow et résultats](workflow-and-results.md)
+- Étape précédente : [Morris canonique](what-when-how-canonical_morris.md)
+- Ancien workflow seulement : [Sobol historique](what-when-how-sobol.md)
+- Protocole complet : [Nantes scientifique](../protocols/nantes-scientific/README.md)
 - Références : [YAML](yaml-reference.md), [paramètres et méthodes](parameters-and-methods.md) et [workflow et résultats](workflow-and-results.md)

@@ -190,20 +190,31 @@ Cause : le YAML a changé pendant `run`, ou entre soumission et job SLURM.
 Remède : arrêter les éditeurs/générateurs concurrents et relancer avec un fichier
 stable. Après changement de design ou contexte, choisir une nouvelle racine.
 
-## Analyse Sobol à variance constante
+## Variance Sobol constante ou non représentable numériquement
+
+Pour `sobol` historique, toutes les valeurs d'indicateur peuvent être constantes
+ou les rééchantillonnages bootstrap peuvent être dégénérés. Vérifiez
+l'indicateur, les domaines, `N` et la diversité effective des runs. Ne masquez
+pas l'erreur statistique.
 
 Avec `multiscramble_sobol`, une variance non positive ou un contraste A/B
 inefficace à un scramble et checkpoint quelconque est fatal. Augmentez la
-première taille ou révisez le support scientifiquement justifié; aucun scramble
+première taille ou révisez le support scientifiquement justifié ; aucun scramble
 n'est supprimé et aucun bootstrap de secours n'est appliqué.
+
+L'analyseur peut aussi signaler `scaling erased base variance`, `output variance
+exceeds float64 range` ou `output variance is below float64 range`. Ces erreurs
+signifient que des valeurs finies ne permettent pas à la fois le calcul Sobol et
+une variance dans les unités carrées d'origine à la précision `float64`.
+Inspectez les unités et l'étendue dynamique de l'indicateur, puis ne relancez
+qu'après une reformulation ou un changement d'unité scientifiquement justifié.
+Ne tronquez jamais les valeurs extrêmes et n'ignorez jamais un scramble en échec
+pour obtenir un rapport : la publication est transactionnelle et aucune table
+Sobol partielle n'est valide.
 
 Le support fini de seed est toujours une nuisance non actionnable. Un rang ou une
 tolérance FF nuls pour `seed` sont intentionnels : ses indices sont diagnostiques,
 ni consigne de contrôle ni estimation du bruit intrinsèque sans restriction.
-
-Cause : toutes les valeurs de l'indicateur sont constantes, ou les bootstrap
-resamples sont dégénérés. Remède : vérifier l'indicateur, les domaines, la taille
-`N` et la diversité effective des runs. Ne masquez pas l'erreur statistique.
 
 ## Avertissements de sécurité
 
