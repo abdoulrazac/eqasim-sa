@@ -16,7 +16,8 @@ from eqasim_sa.core.charter import (
     validate_scientific_contract,
     validate_scientific_stopping,
 )
-from eqasim_sa.core.ledger import RESERVED_COLUMNS, write_parquet_atomic
+from eqasim_sa.core.durable_publication import write_parquet_atomic
+from eqasim_sa.core.ledger import RESERVED_COLUMNS
 from eqasim_sa.core.run import RunSpec, compute_run_id
 from eqasim_sa.core.sensitivity import (
     engine_descriptor,

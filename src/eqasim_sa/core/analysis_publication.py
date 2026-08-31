@@ -16,8 +16,20 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from eqasim_sa.core import ledger
+from eqasim_sa.core.durable_publication import (
+    PublicationOutcomeUnknown,
+    StableFile,
+    capture_stable_file,
+    file_state,
+    fsync_directory,
+    replace_bytes_restorable,
+    secure_directory,
+    stable_file,
+    verify_stable_file,
+    write_all,
+)
 from eqasim_sa.core.indicators import ArtifactSet
-from eqasim_sa.core.ledger import RunRecord, fsync_directory
+from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.plan import MAX_PLAN_CELLS, MAX_PLAN_POSITIONS
 from eqasim_sa.core.software_identity import (
     SoftwareIdentity,
@@ -59,8 +71,7 @@ OUTPUT_FILENAMES = frozenset(
 LEGACY_FLAT_OUTPUTS = tuple(sorted(OUTPUT_FILENAMES))
 
 
-class AnalysisManifestOutcomeUnknown(RuntimeError):
-    """The current analysis pointer could not be durably committed or rolled back."""
+AnalysisManifestOutcomeUnknown = PublicationOutcomeUnknown
 
 
 @dataclass(frozen=True)
@@ -90,20 +101,12 @@ class PublishedGeneration:
 
 
 @dataclass(frozen=True)
-class _FileSnapshot:
-    path: Path
-    state: tuple[int, int, int, int, int, int]
-    size: int
-    sha256: str
-
-
-@dataclass(frozen=True)
 class PlanInspection:
     path: Path
     table: pa.Table
     sha256: str
     context_descriptor: dict | None
-    _source: _FileSnapshot
+    _source: StableFile
 
 
 @dataclass(frozen=True)
@@ -116,23 +119,12 @@ class RunInspection:
 @dataclass(frozen=True)
 class _SelectedRun:
     expected: RunRecord
-    marker: _FileSnapshot
+    marker: StableFile
     archive: Path
     archive_state: tuple[int, int, int, int, int, int]
-    artifacts: tuple[_FileSnapshot, ...]
+    artifacts: tuple[StableFile, ...]
     descriptor: dict
     execution_evidence: ExecutionEvidence | None
-
-
-def _state(info: os.stat_result) -> tuple[int, int, int, int, int, int]:
-    return (
-        info.st_dev,
-        info.st_ino,
-        stat.S_IFMT(info.st_mode),
-        info.st_size,
-        info.st_mtime_ns,
-        info.st_ctime_ns,
-    )
 
 
 def _canonical(value: object) -> bytes:
@@ -147,29 +139,6 @@ def _canonical(value: object) -> bytes:
 
 def _domain_digest(domain: bytes, value: object) -> str:
     return hashlib.sha256(domain + _canonical(value)).hexdigest()
-
-
-def _write_all(descriptor: int, content: bytes) -> None:
-    remaining = memoryview(content)
-    while remaining:
-        written = os.write(descriptor, remaining)
-        if written <= 0:
-            raise OSError("short write while staging analysis content")
-        remaining = remaining[written:]
-
-
-def _secure_directory(path: Path, *, create: bool) -> Path:
-    if create:
-        try:
-            path.mkdir(mode=0o700)
-        except FileExistsError:
-            pass
-    info = path.lstat()
-    if not stat.S_ISDIR(info.st_mode) or path.is_symlink():
-        raise ValueError(f"analysis state must use a regular non-symlink directory: {path}")
-    if info.st_uid != os.getuid():
-        raise ValueError(f"analysis state must be owned by the current user: {path}")
-    return path
 
 
 def _validate_generation_inventory(generations: Path) -> None:
@@ -201,96 +170,11 @@ def _validate_generation_inventory(generations: Path) -> None:
                 )
 
 
-def _copy_stable_file(
-    source: Path,
-    destination: Path,
-    *,
-    expected_size: int | None = None,
-    expected_sha256: str | None = None,
-) -> _FileSnapshot:
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
-    source_descriptor = os.open(source, flags)
-    destination_descriptor = -1
-    try:
-        initial = os.fstat(source_descriptor)
-        visible = source.lstat()
-        if (
-            not stat.S_ISREG(initial.st_mode)
-            or not stat.S_ISREG(visible.st_mode)
-            or _state(initial) != _state(visible)
-        ):
-            raise ValueError(f"analysis source is not a stable regular file: {source}")
-        destination_descriptor = os.open(
-            destination,
-            os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0),
-            0o400,
-        )
-        digest = hashlib.sha256()
-        size = 0
-        while True:
-            chunk = os.read(source_descriptor, 1024 * 1024)
-            if not chunk:
-                break
-            digest.update(chunk)
-            size += len(chunk)
-            _write_all(destination_descriptor, chunk)
-        os.fchmod(destination_descriptor, 0o400)
-        os.fsync(destination_descriptor)
-        final = os.fstat(source_descriptor)
-        visible = source.lstat()
-        if _state(final) != _state(initial) or _state(visible) != _state(initial):
-            raise RuntimeError(f"analysis source changed while being captured: {source}")
-        actual_digest = digest.hexdigest()
-        if expected_size is not None and size != expected_size:
-            raise ValueError(f"analysis source size does not match its v2 marker: {source}")
-        if expected_sha256 is not None and actual_digest != expected_sha256:
-            raise ValueError(f"analysis source hash does not match its v2 marker: {source}")
-        return _FileSnapshot(source, _state(initial), size, actual_digest)
-    finally:
-        if destination_descriptor >= 0:
-            os.close(destination_descriptor)
-        os.close(source_descriptor)
-
-
-def _hash_stable_file(path: Path) -> _FileSnapshot:
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
-    descriptor = os.open(path, flags)
-    try:
-        initial = os.fstat(descriptor)
-        visible = path.lstat()
-        if (
-            not stat.S_ISREG(initial.st_mode)
-            or not stat.S_ISREG(visible.st_mode)
-            or _state(initial) != _state(visible)
-        ):
-            raise ValueError(f"analysis source is not a stable regular file: {path}")
-        digest = hashlib.sha256()
-        while chunk := os.read(descriptor, 1024 * 1024):
-            digest.update(chunk)
-        final = os.fstat(descriptor)
-        visible = path.lstat()
-        if _state(final) != _state(initial) or _state(visible) != _state(initial):
-            raise RuntimeError(f"analysis source changed while being hashed: {path}")
-        return _FileSnapshot(path, _state(initial), initial.st_size, digest.hexdigest())
-    finally:
-        os.close(descriptor)
-
-
-def _verify_file(snapshot: _FileSnapshot) -> None:
-    current = _hash_stable_file(snapshot.path)
-    if (
-        current.state != snapshot.state
-        or current.size != snapshot.size
-        or current.sha256 != snapshot.sha256
-    ):
-        raise RuntimeError(f"selected analysis source changed: {snapshot.path}")
-
-
 def _directory_state(path: Path) -> tuple[int, int, int, int, int, int]:
     info = path.lstat()
     if not stat.S_ISDIR(info.st_mode) or path.is_symlink():
         raise ValueError(f"analysis archive is not a regular directory: {path}")
-    return _state(info)
+    return file_state(info)
 
 
 def _context_descriptor(table: pa.Table) -> dict | None:
@@ -456,14 +340,14 @@ def _capture_marker_names(campaign_root: Path) -> tuple[str, ...]:
 
 def inspect_plan(plan: Path) -> PlanInspection:
     """Read and verify a plan without creating analysis publication state."""
-    source = _hash_stable_file(plan)
+    source = stable_file(plan)
     parquet = pq.ParquetFile(plan)
     rows = parquet.metadata.num_rows
     columns = len(parquet.schema_arrow)
     if rows > MAX_PLAN_POSITIONS or rows * columns > MAX_PLAN_CELLS:
         raise ValueError("plan exceeds the operational allocation cap")
     table = parquet.read()
-    _verify_file(source)
+    verify_stable_file(source)
     return PlanInspection(
         plan,
         table,
@@ -512,7 +396,7 @@ def inspect_runs(
             evidence_by_run[run_id] = completion.execution_evidence
         if unstable or _capture_marker_names(campaign_root) != entries:
             continue
-        _verify_file(plan._source)
+        verify_stable_file(plan._source)
         return RunInspection(
             frozenset(expected),
             frozenset(completed),
@@ -524,7 +408,7 @@ def inspect_runs(
 class AnalysisPublication:
     def __init__(self, campaign_root: Path) -> None:
         self.campaign_root = campaign_root
-        self.state = _secure_directory(
+        self.state = secure_directory(
             campaign_root / ANALYSIS_STATE_DIRECTORY, create=True
         )
         children = {entry.name: entry for entry in self.state.iterdir()}
@@ -536,16 +420,16 @@ class AnalysisPublication:
             )
         existing_staging = children.get("staging")
         if existing_staging is not None:
-            _secure_directory(existing_staging, create=False)
+            secure_directory(existing_staging, create=False)
             if any(existing_staging.iterdir()):
                 raise ValueError("analysis staging must be empty before publication")
         existing_generations = children.get("generations")
         if existing_generations is not None:
-            _secure_directory(existing_generations, create=False)
+            secure_directory(existing_generations, create=False)
             _validate_generation_inventory(existing_generations)
         fsync_directory(campaign_root)
-        self.staging = _secure_directory(self.state / "staging", create=True)
-        self.generations = _secure_directory(self.state / "generations", create=True)
+        self.staging = secure_directory(self.state / "staging", create=True)
+        self.generations = secure_directory(self.state / "generations", create=True)
         fsync_directory(self.state)
         self.work = self.staging / uuid.uuid4().hex
         self.work.mkdir(mode=0o700)
@@ -554,7 +438,7 @@ class AnalysisPublication:
         self.capture_directory.mkdir(mode=0o700)
         self.generation_staging.mkdir(mode=0o700)
         fsync_directory(self.staging)
-        self._plan_source: _FileSnapshot | None = None
+        self._plan_source: StableFile | None = None
         self._selected: tuple[_SelectedRun, ...] = ()
         self._published = False
 
@@ -571,8 +455,8 @@ class AnalysisPublication:
     ) -> PlanCapture:
         destination = self.capture_directory / "plan.parquet"
         if expected is not None:
-            _verify_file(expected._source)
-        self._plan_source = _copy_stable_file(
+            verify_stable_file(expected._source)
+        self._plan_source = capture_stable_file(
             plan,
             destination,
             expected_size=expected._source.size if expected is not None else None,
@@ -622,7 +506,7 @@ class AnalysisPublication:
                     f"run {run_id} requires a verified v2 completion marker for analysis"
                 )
             descriptor = _completion_descriptor(run_id, completion)
-            marker = _hash_stable_file(
+            marker = stable_file(
                 self.campaign_root / "runs" / f"{run_id}.parquet"
             )
             archive = self.campaign_root / "archives" / run_id
@@ -657,7 +541,7 @@ class AnalysisPublication:
             captured_artifacts = []
             for source, expected_size, expected_sha256 in artifact_sources:
                 target = destination / source.name
-                snapshot = _copy_stable_file(
+                snapshot = capture_stable_file(
                     source,
                     target,
                     expected_size=expected_size,
@@ -680,7 +564,7 @@ class AnalysisPublication:
                 or _directory_state(archive) != archive_state
             ):
                 raise RuntimeError(f"selected run {run_id} changed while being captured")
-            _verify_file(marker)
+            verify_stable_file(marker)
             artifacts_by_run[run_id] = ArtifactSet(copied_paths)
             captured_descriptor = {**descriptor, "artifacts": captured_artifacts}
             selected.append(
@@ -755,15 +639,15 @@ class AnalysisPublication:
         try:
             if self._plan_source is None:
                 raise RuntimeError("analysis plan was not captured")
-            _verify_file(self._plan_source)
+            verify_stable_file(self._plan_source)
             for selected in self._selected:
-                _verify_file(selected.marker)
+                verify_stable_file(selected.marker)
                 if _directory_state(selected.archive) != selected.archive_state:
                     raise RuntimeError(
                         f"selected analysis archive changed: {selected.archive}"
                     )
                 for artifact in selected.artifacts:
-                    _verify_file(artifact)
+                    verify_stable_file(artifact)
                 completion = ledger._completion_state(
                     self.campaign_root, selected.expected
                 )
@@ -813,7 +697,7 @@ class AnalysisPublication:
             0o400,
         )
         try:
-            _write_all(descriptor, _canonical(dict(runs.run_set_document)))
+            write_all(descriptor, _canonical(dict(runs.run_set_document)))
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
@@ -824,7 +708,7 @@ class AnalysisPublication:
         for name, path in publication_outputs.items():
             if path.parent != self.generation_staging or path.name not in OUTPUT_FILENAMES:
                 raise ValueError(f"analysis output escaped generation staging: {path}")
-            snapshot = _hash_stable_file(path)
+            snapshot = stable_file(path)
             if path.lstat().st_nlink != 1:
                 raise ValueError(f"analysis output must not be hard-linked: {path}")
             descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
@@ -912,7 +796,11 @@ class AnalysisPublication:
         _validate_existing_generation(final, output_records)
         if indicator_guard is not None:
             indicator_guard()
-        _commit_manifest(self.campaign_root, self.staging, encoded_manifest)
+        replace_bytes_restorable(
+            encoded_manifest,
+            self.campaign_root / "analysis-generation.json",
+            staging_directory=self.staging,
+        )
         self._published = True
         try:
             _clean_legacy_outputs(self.campaign_root)
@@ -982,7 +870,7 @@ def _validate_existing_generation(
         raise ValueError("content-addressed analysis generation inventory is invalid")
     by_name = {Path(str(record["path"])).name: record for record in outputs.values()}
     for entry in entries:
-        snapshot = _hash_stable_file(entry)
+        snapshot = stable_file(entry)
         record = by_name[entry.name]
         if (
             entry.lstat().st_nlink != 1
@@ -990,90 +878,6 @@ def _validate_existing_generation(
             or snapshot.sha256 != record["sha256"]
         ):
             raise ValueError("content-addressed analysis generation is corrupted")
-
-
-def _commit_manifest(campaign_root: Path, staging: Path, content: bytes) -> None:
-    temporary = staging / f".analysis-generation-{uuid.uuid4().hex}.tmp"
-    backup = staging / f".analysis-generation-{uuid.uuid4().hex}.backup"
-    descriptor = os.open(
-        temporary,
-        os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0),
-        0o600,
-    )
-    try:
-        _write_all(descriptor, content)
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-    destination = campaign_root / "analysis-generation.json"
-    previous: os.stat_result | None = None
-    replacement: os.stat_result | None = None
-    backup_created = False
-    committed = False
-    preserve_backup = False
-    try:
-        if destination.exists() or destination.is_symlink():
-            previous = destination.lstat()
-            if not stat.S_ISREG(previous.st_mode) or destination.is_symlink():
-                raise ValueError(
-                    "analysis-generation.json must be a regular non-symlink file"
-                )
-            os.link(destination, backup, follow_symlinks=False)
-            backup_created = True
-            held = backup.lstat()
-            if (held.st_dev, held.st_ino) != (previous.st_dev, previous.st_ino):
-                raise RuntimeError("analysis manifest backup changed while creating it")
-        os.replace(temporary, destination)
-        replacement = destination.lstat()
-        if not stat.S_ISREG(replacement.st_mode) or destination.is_symlink():
-            raise RuntimeError("analysis manifest replacement is not a regular file")
-        try:
-            fsync_directory(staging)
-            fsync_directory(campaign_root)
-        except BaseException as commit_error:
-            try:
-                current = destination.lstat()
-                if (current.st_dev, current.st_ino) != (
-                    replacement.st_dev,
-                    replacement.st_ino,
-                ):
-                    raise RuntimeError(
-                        "analysis manifest changed before commit rollback"
-                    )
-                if previous is None:
-                    destination.unlink()
-                    if destination.exists() or destination.is_symlink():
-                        raise RuntimeError("new analysis manifest survived rollback")
-                else:
-                    os.replace(backup, destination)
-                    backup_created = False
-                    restored = destination.lstat()
-                    if (restored.st_dev, restored.st_ino) != (
-                        previous.st_dev,
-                        previous.st_ino,
-                    ):
-                        raise RuntimeError(
-                            "previous analysis manifest was not restored"
-                        )
-                fsync_directory(campaign_root)
-                fsync_directory(staging)
-            except BaseException as rollback_error:
-                preserve_backup = backup_created
-                raise AnalysisManifestOutcomeUnknown(
-                    "analysis manifest commit failed and rollback could not be established"
-                ) from rollback_error
-            raise commit_error
-        committed = True
-    finally:
-        temporary.unlink(missing_ok=True)
-        if backup_created and not preserve_backup:
-            try:
-                backup.unlink()
-                if committed:
-                    fsync_directory(staging)
-            except OSError:
-                if not committed:
-                    raise
 
 
 def _clean_legacy_outputs(campaign_root: Path) -> None:

@@ -533,14 +533,14 @@ def test_governed_publication_failure_restores_all_reporting_outputs(
     }
     for path, content in previous.items():
         path.write_bytes(content)
-    real_write = analyze_module._write_atomic
+    real_write = analyze_module.write_atomic
 
     def fail(destination: Path, writer) -> None:  # type: ignore[no-untyped-def]
         if destination.name == "governed-report.json":
             raise OSError("injected governed report failure")
         real_write(destination, writer)
 
-    monkeypatch.setattr(analyze_module, "_write_atomic", fail)
+    monkeypatch.setattr(analyze_module, "write_atomic", fail)
     with pytest.raises(OSError, match="governed report"):
         analyze(
             root,

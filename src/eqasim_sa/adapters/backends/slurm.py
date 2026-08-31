@@ -16,7 +16,7 @@ from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator
 from eqasim_sa.adapters.execution_seal import create_execution_seal
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.adapters.worker import Indexed, WorkerBatch, execute_batch
-from eqasim_sa.core.ledger import _directory_is_current, _open_directory_path
+from eqasim_sa.core.durable_publication import directory_is_current, open_directory
 from eqasim_sa.core.run import RunResult, RunSpec, execute_run
 from eqasim_sa.core.software_identity import SoftwareSourceGuard
 
@@ -66,7 +66,7 @@ def _journal_state(info: os.stat_result) -> tuple[int, int, int, int, int]:
 
 
 def _read_journal(path: Path) -> tuple[str, ...] | None:
-    parent = _open_directory_path(path.parent, create=True)
+    parent = open_directory(path.parent, create=True)
     descriptor = -1
     try:
         try:
@@ -90,7 +90,7 @@ def _read_journal(path: Path) -> tuple[str, ...] | None:
         if (
             _journal_state(final) != _journal_state(initial)
             or _journal_state(visible) != _journal_state(initial)
-            or not _directory_is_current(path.parent, parent)
+            or not directory_is_current(path.parent, parent)
         ):
             raise RuntimeError("SLURM active-job journal changed while reading")
         content = b"".join(chunks)
@@ -117,7 +117,7 @@ def _read_journal(path: Path) -> tuple[str, ...] | None:
 
 def _write_journal(path: Path, job_ids: tuple[str, ...]) -> None:
     content = _journal_bytes(_validate_job_ids(job_ids))
-    parent = _open_directory_path(path.parent, create=True)
+    parent = open_directory(path.parent, create=True)
     temporary = f".{path.name}.{uuid.uuid4().hex}.tmp"
     descriptor = -1
     try:
@@ -159,7 +159,7 @@ def _write_journal(path: Path, job_ids: tuple[str, ...]) -> None:
 def _remove_journal(path: Path, expected: tuple[str, ...]) -> None:
     if _read_journal(path) != expected:
         raise RuntimeError("SLURM active-job journal changed before removal")
-    parent = _open_directory_path(path.parent)
+    parent = open_directory(path.parent)
     try:
         visible = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
         _validate_journal_file(visible)

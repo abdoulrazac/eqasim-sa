@@ -2428,7 +2428,6 @@ def test_manifest_failure_keeps_previous_pointer_and_leaves_only_immutable_orpha
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import eqasim_sa.core.analysis_publication as publication_module
-
     root, _ = _campaign(tmp_path)
     current = _analyze(root, (_custom_indicator(),))
     pointer = (root / "analysis-generation.json").read_bytes()
@@ -2436,8 +2435,10 @@ def test_manifest_failure_keeps_previous_pointer_and_leaves_only_immutable_orpha
     stale.write_bytes(b"stale ranking")
     monkeypatch.setattr(
         publication_module,
-        "_commit_manifest",
-        lambda *args: (_ for _ in ()).throw(OSError("injected manifest failure")),
+        "replace_bytes_restorable",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            OSError("injected manifest failure")
+        ),
     )
 
     with pytest.raises(OSError, match="manifest"):
@@ -2456,13 +2457,13 @@ def test_manifest_post_replace_fsync_failure_restores_previous_pointer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import eqasim_sa.core.analysis_publication as publication_module
+    import eqasim_sa.core.durable_publication as durable_module
 
     root, _ = _campaign(tmp_path)
     _analyze(root, (_custom_indicator(),))
     pointer = root / "analysis-generation.json"
     before = pointer.read_bytes()
-    real_fsync = publication_module.fsync_directory
+    real_fsync = durable_module.fsync_directory
     failed = False
 
     def fail_new_pointer(path: Path) -> None:
@@ -2472,7 +2473,7 @@ def test_manifest_post_replace_fsync_failure_restores_previous_pointer(
             raise OSError("injected post-replace fsync failure")
         real_fsync(path)
 
-    monkeypatch.setattr(publication_module, "fsync_directory", fail_new_pointer)
+    monkeypatch.setattr(durable_module, "fsync_directory", fail_new_pointer)
 
     with pytest.raises(OSError, match="post-replace"):
         _analyze(
@@ -2488,11 +2489,11 @@ def test_manifest_post_replace_fsync_failure_removes_new_pointer_when_none_exist
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import eqasim_sa.core.analysis_publication as publication_module
+    import eqasim_sa.core.durable_publication as durable_module
 
     root, _ = _campaign(tmp_path)
     pointer = root / "analysis-generation.json"
-    real_fsync = publication_module.fsync_directory
+    real_fsync = durable_module.fsync_directory
     failed = False
 
     def fail_new_pointer(path: Path) -> None:
@@ -2502,7 +2503,7 @@ def test_manifest_post_replace_fsync_failure_removes_new_pointer_when_none_exist
             raise OSError("injected post-replace fsync failure")
         real_fsync(path)
 
-    monkeypatch.setattr(publication_module, "fsync_directory", fail_new_pointer)
+    monkeypatch.setattr(durable_module, "fsync_directory", fail_new_pointer)
 
     with pytest.raises(OSError, match="post-replace"):
         _analyze(root, (_custom_indicator(),))
@@ -2515,13 +2516,14 @@ def test_manifest_failed_rollback_raises_distinct_outcome_unknown_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import eqasim_sa.core.analysis_publication as publication_module
+    import eqasim_sa.core.durable_publication as durable_module
 
     root, _ = _campaign(tmp_path)
     _analyze(root, (_custom_indicator(),))
     pointer = root / "analysis-generation.json"
     before = pointer.read_bytes()
-    real_fsync = publication_module.fsync_directory
-    real_replace = publication_module.os.replace
+    real_fsync = durable_module.fsync_directory
+    real_replace = durable_module.os.replace
     fsync_failed = False
 
     def fail_new_pointer(path: Path) -> None:
@@ -2536,8 +2538,8 @@ def test_manifest_failed_rollback_raises_distinct_outcome_unknown_error(
             raise OSError("injected rollback failure")
         return real_replace(source, destination)
 
-    monkeypatch.setattr(publication_module, "fsync_directory", fail_new_pointer)
-    monkeypatch.setattr(publication_module.os, "replace", fail_rollback)
+    monkeypatch.setattr(durable_module, "fsync_directory", fail_new_pointer)
+    monkeypatch.setattr(durable_module.os, "replace", fail_rollback)
 
     with pytest.raises(publication_module.AnalysisManifestOutcomeUnknown):
         _analyze(

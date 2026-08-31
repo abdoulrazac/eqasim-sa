@@ -11,6 +11,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from eqasim_sa.core import ledger
+from eqasim_sa.core import durable_publication
 from eqasim_sa.core.ledger import RunRecord, is_complete, run_path, write_run
 from eqasim_sa.core.run import RunSpec, compute_run_id, pending_run_specs
 from eqasim_sa.ports.simulator import EXECUTION_EVIDENCE_DOMAIN, ExecutionEvidence
@@ -208,7 +209,7 @@ def test_run_marker_temporary_is_staged_outside_runs(tmp_path: Path) -> None:
         raise KeyboardInterrupt
 
     with pytest.raises(KeyboardInterrupt):
-        ledger._write_atomic(destination, fail_writer)
+        durable_publication.write_atomic(destination, fail_writer)
     assert not tuple((tmp_path / "campaign" / "runs").iterdir())
 
 
@@ -307,7 +308,7 @@ def test_archive_marker_commit_uses_only_descriptors_held_during_prepare(
     ) as publication:
         monkeypatch.setattr(
             ledger,
-            "_open_directory_path",
+            "open_directory",
             lambda *args, **kwargs: (_ for _ in ()).throw(
                 AssertionError("campaign reopened by pathname")
             ),

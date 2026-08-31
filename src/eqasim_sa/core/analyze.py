@@ -24,6 +24,7 @@ from eqasim_sa.core.analysis_publication import (
     validate_descriptive_execution_evidence,
     validate_scientific_execution_evidence,
 )
+from eqasim_sa.core.durable_publication import write_atomic, write_parquet_atomic
 from eqasim_sa.core.charter import (
     parse_stochastic,
     validate_scientific_contract,
@@ -35,7 +36,7 @@ from eqasim_sa.core.indicators import (
     indicator_definition_sha256,
     verify_indicator_runtime_identity,
 )
-from eqasim_sa.core.ledger import _write_atomic, campaign_lock, write_parquet_atomic
+from eqasim_sa.core.ledger import campaign_lock
 from eqasim_sa.core.plan import (
     CANONICAL_MORRIS_DOMAIN,
     DISCRETE_OAT_DOMAIN,
@@ -467,7 +468,7 @@ def _analyze_locked(
                             separators=(",", ":"),
                             allow_nan=False,
                         ).encode()
-                        _write_atomic(
+                        write_atomic(
                             replication_allocation,
                             lambda path: path.write_bytes(encoded_recommendation),
                         )
@@ -558,7 +559,7 @@ def _analyze_locked(
             encoded_report = json.dumps(
                 report, sort_keys=True, separators=(",", ":"), allow_nan=False
             ).encode()
-            _write_atomic(governed_report, lambda path: path.write_bytes(encoded_report))
+            write_atomic(governed_report, lambda path: path.write_bytes(encoded_report))
             governed_report_path = governed_report
             outputs = {
                 "indicators": destination,

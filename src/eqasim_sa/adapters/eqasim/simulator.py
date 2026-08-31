@@ -19,7 +19,7 @@ import yaml
 from eqasim_sa.adapters.eqasim.artifacts import ARTIFACT_STAGE, normalize_outputs
 from eqasim_sa.adapters.eqasim.config import STAGES, EqasimSettings, WorkerPaths
 from eqasim_sa.adapters.execution_seal import ExecutionSeal
-from eqasim_sa.core.ledger import fsync_directory
+from eqasim_sa.core.durable_publication import fsync_directory
 from eqasim_sa.core.software_identity import SoftwareSourceGuard
 from eqasim_sa.ports.simulator import (
     IndicatorRequirement,

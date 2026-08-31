@@ -9,14 +9,17 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from eqasim_sa.core.ledger import (
-    RunRecord,
-    _validate_directory_path,
-    _validate_regular_path,
-    archive_transaction,
-    completion_ids,
+from eqasim_sa.core.durable_publication import (
     copy_file_atomic,
     fsync_directory,
+    validate_directory,
+    validate_regular_file,
+    write_atomic,
+)
+from eqasim_sa.core.ledger import (
+    RunRecord,
+    archive_transaction,
+    completion_ids,
     is_complete,
     run_lease,
     validate_parameters,
@@ -121,8 +124,8 @@ def validate_manifest(
     attempt = Path(os.path.abspath(os.fspath(manifest.attempt_directory)))
     work = Path(os.path.abspath(os.fspath(workdir)))
     try:
-        _validate_directory_path(work)
-        _validate_directory_path(attempt)
+        validate_directory(work)
+        validate_directory(attempt)
     except FileNotFoundError:
         raise
     except (OSError, ValueError) as error:
@@ -149,7 +152,7 @@ def validate_manifest(
         if not source.is_relative_to(attempt):
             raise ValueError(f"artifact escapes attempt directory: {artifact.path}")
         try:
-            _validate_regular_path(source)
+            validate_regular_file(source)
         except FileNotFoundError:
             raise
         except (OSError, ValueError) as error:
@@ -193,7 +196,7 @@ def execute_run(
                         os.path.abspath(os.fspath(manifest.attempt_directory))
                     )
                     resolved_workdir = Path(os.path.abspath(os.fspath(workdir)))
-                    _validate_directory_path(attempt)
+                    validate_directory(attempt)
                     if attempt == resolved_workdir or not attempt.is_relative_to(
                         resolved_workdir
                     ):
@@ -243,10 +246,8 @@ def execute_run(
                 if not publishing:
                     return RunResult(run_id, "failed", str(error))
                 try:
-                    from eqasim_sa.core.ledger import _write_atomic
-
                     destination = campaign_root / "logs" / f"{run_id}.log"
-                    _write_atomic(
+                    write_atomic(
                         destination, lambda path: path.write_text(str(error) + "\n")
                     )
                 except Exception as log_error:

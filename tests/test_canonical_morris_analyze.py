@@ -834,14 +834,14 @@ def test_canonical_allocation_failure_rolls_back_new_outputs(
     allocation = design.campaign_root / "replication-allocation.json"
     noise.write_bytes(b"old-noise")
     allocation.write_bytes(b"old-allocation")
-    real_write = analyze_module._write_atomic
+    real_write = analyze_module.write_atomic
 
     def fail(destination: Path, writer) -> None:  # type: ignore[no-untyped-def]
         if destination.name == "replication-allocation.json":
             raise OSError("injected allocation failure")
         real_write(destination, writer)
 
-    monkeypatch.setattr(analyze_module, "_write_atomic", fail)
+    monkeypatch.setattr(analyze_module, "write_atomic", fail)
     with pytest.raises(OSError, match="allocation failure"):
         analyze(
             design.campaign_root,
