@@ -1,126 +1,162 @@
-# Grid: what, when, and how
+# Grid: compare a few settings step by step
 
-**Use Grid for a readable demonstration that compares every declared combination.**
+**Practical example: check whether `sampling_rate` changes the model outputs.**
 
 **English** | [Français](../docs-fr/what-when-how-grid.md)
 
-## What
+## At a glance
 
-Grid forms every combination of the declared factor values and replication
-seeds. A factor is an input that the campaign varies. Grid answers: "What output
-do I observe at each declared combination?"
+Suppose you are choosing between two sampling rates: `0.001` and `0.002`. Grid
+runs each rate with several simulator seeds. You can then compare the outputs
+between the two rates and the variation between seeds.
 
-A seed is an integer that selects a simulator random stream. Replication seeds
-repeat a combination to show random variation between seeds.
+Grid is the simplest method to start with because it tests every combination
+you specify. It answers a descriptive question:
 
-It is a useful baseline because the design is easy to inspect. It also supports
-named structured configurations. These configurations give short labels to
-ordered lists, such as alternative `matching_attributes` lists.
+> What did we observe for each setting we tested?
 
-## When
+It does not answer "what share of the uncertainty comes from each parameter?"
+and does not prove that a parameter is important in every situation.
 
-Use Grid to validate the configuration, execution, storage, and analysis chain.
-Use it for a small comparison or as the first design for named structured
-configurations.
+## Four useful terms
 
-Do not use Grid to estimate variance shares or make inferential claims. A
-variance share is the portion of output variation attributed to an input. An
-inferential claim is a conclusion that goes beyond the observed combinations. Do not
-use it when the product of all domain sizes and seeds is too large. This product
-grows quickly when you add factors or values.
+- A **parameter** is an input that you vary, here `sampling_rate`.
+- A **seed** is an integer that controls a random draw in the simulator.
+- An **artifact** is a table produced by eqasim, such as the age distribution.
+- An **indicator** summarizes an artifact as a number that can be compared across runs.
 
-## Parameter examples
+In this guide, the indicator is total variation distance, abbreviated TV. It
+compares a synthetic distribution with a reference: `0` means that they are
+identical, and `1` means that they do not overlap. A lower value therefore means
+closer agreement for this indicator, but it does not by itself summarize the
+model's overall quality.
 
-Every factor key must already exist under `config:` in the sealed model YAML.
-For a structured factor, that base value must already be a list of strings. The
-domains below demonstrate syntax and useful comparisons; they do not by
-themselves justify a scientific domain. Put seeds only in
-`experiment.replications.seeds`, never in an ordinary `random_seed` factor. See the [Nantes parameter
-catalogue](parameters-and-methods.md#nantes-parameter-catalogue).
+## End-to-end practical example
 
-A numeric cross can compare population sampling with the donor-cell threshold:
+### 1. Ask the question
 
-```yaml
-parameters:
-  sampling_rate:
-    values: [0.001, 0.002, 0.005]
-  matching_minimum_observations:
-    values: [5, 20, 50]
+Question: "Does changing `sampling_rate` from `0.001` to `0.002` alter the
+synthetic distributions of age, travel distance, and number of vehicles?"
+
+The `0.001` rate samples about 0.1% of the population, and `0.002` samples about
+0.2%. Increasing this rate may reduce sampling noise, but it also increases
+runtime. We keep the model, data, and other parameters fixed so that the
+comparison remains easy to understand.
+
+This small campaign is still a **demonstration**. It validates the workflow and
+shows what happened for these two values; it is not a scientific sensitivity
+analysis.
+
+### 2. Generate the starter project
+
+First follow the [installation instructions](getting-started.md#install-with-uv),
+then run the following commands from the `openmole-eqasim` root:
+
+```bash
+"${SA[@]}" init \
+  --project-name mon-analyse-sa \
+  --model-root "$ROOT/eqasim-france" \
+  --data-path "$ROOT/eqasim-data"
+cd mon-analyse-sa
 ```
 
-With two replication seeds, this gives `3 × 3 × 2 = 18` positions. A
-categorical cross can compare two matching age schemes and two income methods:
+`init` creates a **rendered, ready-to-use** file at `configs/01-grid.yml`. The
+source file `src/eqasim_sa/templates/01-grid.yml` is only a template containing
+placeholders; do not run it directly.
 
-```yaml
-parameters:
-  matching_age_scheme:
-    values: [matching_6, analysis_7]
-  income_assignation_method:
-    values: [uniform, bhepop2]
+### 3. Declare the parameter and replications
+
+To isolate the effect of `sampling_rate`, derive a new campaign from the
+generated file and give it a new name and root:
+
+```bash
+cp configs/01-grid.yml configs/01-grid-sampling-rate.yml
 ```
 
-With two seeds, this gives `2 × 2 × 2 = 8` positions. Before interpreting the
-income cross, add an income indicator: the starter has none, and `bhepop2` may
-fall back to `uniform` for individual municipalities. Another survey cross,
-`hts: {values: [edgt_44, entd]}`, is valid only when both prepared datasets
-exist; it changes both donors and HTS references.
-
-For an ordered-list factor, use named configurations rather than putting lists
-in `values`:
+In `configs/01-grid-sampling-rate.yml`, replace the corresponding blocks with:
 
 ```yaml
-parameters:
-  matching_attributes:
-    configurations:
-      default: [sex, any_cars, age_class, socioprofessional_class, departement_id]
-      reduced: [sex, age_class, socioprofessional_class]
-      age_priority: [age_class, any_cars, sex, socioprofessional_class, departement_id]
-```
+campaign: mon-analyse-sa-grid-sampling-rate
+campaign_root: ../campaigns/grid-sampling-rate
 
-Three configurations and two seeds give `3 × 2 = 6` positions. The last
-attribute is relaxed first, so list order matters. Follow the
-[structured-configurations tutorial](structured-configurations-tutorial.md)
-before using this form.
-
-`projection_year: {values: [2020, 2030, 2040]}` is appropriate only when every
-year has a compatible `projection_scenario` and projection archive. It is not a
-simple numerical switch: without projection the population analysis compares
-to `data.census.filtered`; with projection it compares to
-`synthesis.population.projection.reweighted`, so the INSEE reference changes
-with the projected census. Grid size always multiplies: adding domains of sizes
-2 and 3 multiplies the existing position count by 6.
-
-## How
-
-The following YAML is a **fragment**. It does not run by itself.
-
-```yaml
-charter:
-  status: demonstration
 experiment:
   method: grid
   seed_role: replication
   replications:
-    seeds: [1201, 1202]
+    seeds: [1201, 1202, 1203]
+
 parameters:
   sampling_rate:
     values: [0.001, 0.002]
 ```
 
-Start from the complete generated [`01-grid.yml`](../src/eqasim_sa/templates/01-grid.yml).
-For ordered list factors, follow the complete [structured-configurations tutorial](structured-configurations-tutorial.md).
-The generated project defines `SA` as a Bash command array. `"${SA[@]}"` runs
-that command without losing its arguments. See [Getting started](getting-started.md#generated-project-runner).
+Remove `matching_age_scheme` from the copied `parameters` block. Leave the rest
+of the generated file unchanged, including `model`, `context`, `analysis`,
+`artifacts`, `indicators`, `execution`, and `calibration`.
 
-First run the generated resource calibration as explained in
-[Getting started](getting-started.md#first-resource-calibration). `check` and
-`estimate` need its runtime and storage observations. Then use these commands.
-`plan` creates and seals the plan. `check` validates it and the execution setup.
-`estimate` reports the expected resource cost. `run` executes missing runs. `analyze`
-creates the result files.
+The sealed model must already contain `config.sampling_rate`. The seeds are not
+`sampling_rate` values: they repeat each rate to reveal random variation. This
+design contains:
+
+```text
+2 rates × 3 seeds = 6 positions and 6 unique runs
+```
+
+### 4. Choose what to measure
+
+The generated file already contains this block:
+
+```yaml
+artifacts:
+  age:
+    class: Age class
+    synthetic: Proportion_EQASIM
+    references: [INSEE]
+  distance:
+    class: Distance class
+    synthetic: Proportion_EQASIM
+    references: [HTS]
+  nbr_vehicle:
+    class: Number of vehicles class
+    synthetic: Proportion_EQASIM
+    references: [HTS]
+
+indicators:
+  - pair:
+      scalarizer: tv_distance
+      artifact: age
+      reference: INSEE
+  - product:
+      scalarizers: [tv_distance]
+      artifacts: [distance, nbr_vehicle]
+```
+
+It produces three numbers per run:
+
+| Produced name | What it compares |
+| --- | --- |
+| `tv_distance(age, ref=INSEE)` | synthetic ages with INSEE ages |
+| `tv_distance(distance, ref=HTS)` | synthetic travel distances with the travel survey |
+| `tv_distance(nbr_vehicle, ref=HTS)` | synthetic vehicle counts with the travel survey |
+
+For Nantes/EDGT 44, the distance comparison is an asymmetric secondary
+diagnostic: synthetic bins use Euclidean activity-to-activity distance, whereas
+HTS bins use routed distance.
+
+Choosing a parameter without choosing an indicator is not enough: you cannot
+discuss "the effect of `sampling_rate`" without specifying **which output** you
+mean.
+
+### 5. Calibrate resources, plan, and run
+
+Here, calibration measures the required runtime and disk space. It does not
+calibrate the model's scientific parameters.
 
 ```bash
-TARGET=configs/01-grid.yml
+"${SA[@]}" plan --meta-config configs/00-calibration.yml
+"${SA[@]}" run --meta-config configs/00-calibration.yml
+
+TARGET=configs/01-grid-sampling-rate.yml
 "${SA[@]}" plan --meta-config "$TARGET"
 "${SA[@]}" check --meta-config "$TARGET"
 "${SA[@]}" estimate --meta-config "$TARGET"
@@ -128,38 +164,95 @@ TARGET=configs/01-grid.yml
 "${SA[@]}" analyze --meta-config "$TARGET"
 ```
 
-## What you get
+The commands have different roles:
 
-- `indicators.parquet`: one row per completed run and indicator.
-- `replication-dispersion.parquet`: variation across replication seeds.
-- `output-summary.parquet`: a summary of each indicator over design positions.
-- `governed-report.json`: a report with `inferenceStatus: demonstration_noninferential` and `claimAuthorized: false`.
-- `analysis-generation.json`: output paths and hashes for this analysis.
+| Command | Role |
+| --- | --- |
+| `plan` | writes the six positions to `plan.parquet` and seals them |
+| `check` | statically validates the configuration, plan, environment, and available space |
+| `estimate` | estimates runtime and storage from the calibration |
+| `run` | executes the missing runs |
+| `analyze` | computes the indicators and creates the report; there is no separate `report` command |
 
-Read the results as a direct comparison of declared combinations. A large
-difference identifies a combination to inspect. It is not a variance share.
+`check` without `--smoke` does not execute a real target run. Use
+`check --smoke` only if you explicitly want to add two temporary validation
+runs.
 
-## What you may say
+### 6. Read the results
 
-You may say that the demonstration compared all declared combinations and that
-some combinations produced different observed outputs.
+The files are stored under `campaigns/grid-sampling-rate/`:
 
-You may not say that Grid proves global importance, supports factor
-prioritization, supports factor fixing, or provides inferential evidence.
+- `plan.parquet` links each `runId` to its rate and seed;
+- `indicators.parquet` contains the three TV values for each run;
+- `replication-dispersion.parquet` summarizes variation between seeds for each rate;
+- `output-summary.parquet` summarizes the entire design;
+- `governed-report.json` confirms `demonstration_noninferential` and `claimAuthorized: false`.
 
-## Before you run
+The following script prints the observed mean for each rate and indicator:
 
-- Confirm that the campaign is a demonstration.
-- Confirm that every factor key exists in the active model configuration.
-- Confirm that each scalar candidate has a valid type and can be transported to the model.
-- For a structured factor, confirm that its base key is a list.
-- Calculate the full number of combinations before planning.
-- Use unique values and seeds.
-- Run the referenced resource calibration first.
-- Use a new `campaign_root` after a design or context change.
+```bash
+uv run --project "$ROOT/eqasim-sa" --locked python - <<'PY'
+from collections import defaultdict
+from statistics import fmean
+
+import pyarrow.parquet as pq
+
+root = "campaigns/grid-sampling-rate"
+plan = {row["runId"]: row for row in pq.read_table(f"{root}/plan.parquet").to_pylist()}
+groups = defaultdict(list)
+
+for row in pq.read_table(f"{root}/indicators.parquet").to_pylist():
+    rate = plan[row["runId"]]["sampling_rate"]
+    groups[(rate, row["indicator"])].append(row["value"])
+
+for (rate, indicator), values in sorted(groups.items()):
+    print(rate, indicator, f"mean={fmean(values):.4f}", f"min={min(values):.4f}", f"max={max(values):.4f}")
+PY
+```
+
+Here is a **fictional illustration**, included only to show how to read the
+table:
+
+| `sampling_rate` | Mean age TV | Min-max across seeds |
+| ---: | ---: | ---: |
+| `0.001` | `0.086` | `0.083-0.090` |
+| `0.002` | `0.082` | `0.080-0.084` |
+
+In this fictional example, the difference between the means is `0.004`. It is
+about the same size as the variation between seeds. A cautious interpretation
+would be: "For the tested values and seeds, the `0.002` rate produces a slightly
+lower mean age TV, but the difference is small relative to the observed
+variation." More replications and a declared scientific design would be needed
+to go beyond this observation.
+
+## What you can conclude
+
+You can describe the observed differences between `0.001` and `0.002` for the
+three indicators and the three declared seeds.
+
+You cannot say that `sampling_rate` explains a global share of variance, that it
+is the most important parameter, or that `0.002` is optimal. Grid explores only
+the combinations listed in the file.
+
+## Adapt this example
+
+- To compare matching thresholds, replace the parameter with `matching_minimum_observations: {values: [5, 20, 50]}`.
+- To combine two parameters, add the second under `parameters` and multiply the domain sizes by the number of seeds.
+- To compare `matching_attributes` lists, follow the [structured-configurations tutorial](structured-configurations-tutorial.md).
+- For local numeric triage, continue with [discrete OAT](what-when-how-discrete_oat.md).
+- For scientific screening, use [canonical Morris](what-when-how-canonical_morris.md).
+
+## Checklist
+
+- The question names the parameter, its values, and every output being studied.
+- Every parameter key already exists under `config:` in the sealed model.
+- Seeds are in `experiment.replications.seeds`, never in `parameters.random_seed`.
+- The number of positions fits the budget.
+- A modified campaign has a new `campaign` and a new `campaign_root`.
+- The results are described as a demonstration, not as scientific proof.
 
 ## Continue
 
 - Previous: [Getting started](getting-started.md)
 - Next: [Discrete OAT](what-when-how-discrete_oat.md)
-- Reference: [YAML](yaml-reference.md#grid), [parameters and methods](parameters-and-methods.md#grid), and [workflow and results](workflow-and-results.md)
+- References: [YAML](yaml-reference.md), [parameters and methods](parameters-and-methods.md), and [workflow and results](workflow-and-results.md)

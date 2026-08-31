@@ -293,6 +293,14 @@ gap counts, design positions, unique run IDs, duplicate fraction, and maximum
 multiplicity for each indicator, scramble, and checkpoint. Duplicated run IDs
 are valid discrete-projection reuse, not duplicated QMC evidence.
 
+All source indicator values must be finite. Sobol estimation centers and scales
+the complete A/B/hybrid arrays before calling SALib, then reports
+`output_variance` in the indicator's original squared units. Constant base
+variance, loss of base variance at `float64` precision, a non-finite index, or an
+original-scale variance outside the representable `float64` range aborts the
+transaction. The analyzer does not clip values, discard a scramble, or publish
+the remaining tables.
+
 FP ranks descending aggregate first-order means. FF ranks ascending total-order
 upper confidence bounds for every indicator, but only the sealed primary
 indicator receives `within_practical_tolerance`: seed is non-actionable with null

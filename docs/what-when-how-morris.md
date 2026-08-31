@@ -1,63 +1,41 @@
-# Historical Morris: what, when, and how
+# Historical Morris: review an old campaign
 
-**Use historical `morris` only to read or reproduce old demonstration provenance.**
-
-**Novice rule: use it only when an existing YAML or plan already says
-`method: morris`. Never create a new `morris` campaign.**
+**Practical example: understand an existing folder that already contains `method: morris`.**
 
 **English** | [Français](../docs-fr/what-when-how-morris.md)
 
-## What
+## Simple rule
 
-Historical `morris` is the old adjacent-level plan. It changes one numeric factor
-at a time between neighboring declared values. Its local normalized effects are
-noncanonical: they do not match the current Morris definition.
+If you are preparing a new study, **do not use this method**.
 
-A seed is an integer that selects a simulator random stream. This method uses
-seeds as replications of the same factor setting.
+- For a small numeric demonstration, use [discrete OAT](what-when-how-discrete_oat.md).
+- For scientific screening, use [canonical Morris](what-when-how-canonical_morris.md).
 
-This method answers only: "What did this legacy campaign record?" It exists so
-old plans and their provenance remain readable. Provenance is the record of a
-past run.
+The old `morris` method remains available only for reviewing or reproducing a
+historical campaign. Its effects are calculated over adjacent levels using
+normalized local steps. They are not the effects of the current canonical
+Morris method.
 
-## When
+## Practical example: audit an archived campaign
 
-Use it when an existing plan or record already has `method: morris` and you must
-inspect its historical behavior.
+Suppose a colleague gives you:
 
-Do not use it for a new campaign. Use [discrete OAT](what-when-how-discrete_oat.md)
-for a new adjacent-level demonstration. Use [canonical Morris](what-when-how-canonical_morris.md)
-for scientific screening.
-
-## Parameter examples
-
-Never create a new file from this example. It only helps read parameters that
-may appear in an existing historical YAML:
-
-```yaml
-parameters:
-  sampling_rate:
-    values: [0.001, 0.002, 0.005]
-  matching_minimum_observations:
-    values: [5, 20, 50]
+```text
+old-study/
+├── configs/morris-2024.yml
+└── campaigns/morris-2024/
+    ├── plan.parquet
+    ├── runs/
+    └── archives/
 ```
 
-Both domains are numeric and strictly increasing, as this old parser requires.
-An adjacent change such as `0.001` to `0.002`, or `20` to `50`, is interpreted
-only inside that historical design. This is not a recommendation to use these
-factors or values now.
+Your question is not "which parameters should I study today?" but:
 
-Each factor key must already exist under `config:` in the sealed model YAML.
-Structured factors would additionally require a list-valued base key, but this
-method rejects structured factors. Example domains show syntax, not automatic
-scientific justification. Seeds belong only in the historical method's
-`experiment.replications.seeds`; never add `random_seed` as an ordinary factor.
-See the [Nantes parameter catalogue](parameters-and-methods.md#nantes-parameter-catalogue).
+> What exactly did this old campaign measure, and what do its results support?
 
-## How
+### 1. Confirm that the provenance already exists
 
-The following YAML is a **legacy fragment**. It does not run by itself and is not
-a recommendation for a new campaign.
+The original YAML must already contain:
 
 ```yaml
 experiment:
@@ -69,58 +47,170 @@ experiment:
     seeds: [1301, 1302]
 ```
 
-There is intentionally no generated complete `morris` starter. See the preserved
-[historical YAML schema](yaml-reference.md#historical-morris). For a complete
-new demonstration, start from [`02-discrete-oat.yml`](../src/eqasim_sa/templates/02-discrete-oat.yml).
-If you must re-analyze an existing legacy configuration, use its original file.
-The original project defines `SA` as a Bash command array. `"${SA[@]}"` runs that
-command without losing its arguments. See [Getting started](getting-started.md#generated-project-runner).
+The campaign folder must contain its sealed `plan.parquet`. The complete context
+also includes the model's Git commit, the data manifest, the lockfile, the
+`eqasim-sa` version, the archives, and the run markers. A folder without these
+elements is not enough to reproduce the study.
 
-`plan` creates and seals the plan. `check` validates it and the execution setup.
-`estimate` reports the expected resource cost. `run` executes missing runs. `analyze`
-creates the result files. Both `check` and `estimate` need resource observations.
-Use only observations referenced by the historical configuration. Do not invent
-a new calibration for old provenance.
+Do not recreate a missing plan or modify the archived plan to make it accept a
+different context. That would create a new campaign rather than review the old
+one.
+
+### 2. Recover the question, parameters, and indicators
+
+For example, an old YAML may contain:
+
+```yaml
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002, 0.005]
+  matching_minimum_observations:
+    values: [5, 20, 50]
+
+indicators:
+  - pair:
+      scalarizer: tv_distance
+      artifact: age
+      reference: INSEE
+```
+
+In this example, the campaign observed local changes in the TV distance between
+the synthetic age distribution and INSEE as `sampling_rate` or
+`matching_minimum_observations` moved from one neighboring level to the next.
+
+For a move from a `left` value to a `right` value, the historical calculation is:
+
+```text
+delta = (right - left) / (domain maximum - domain minimum)
+effect = (indicator after - indicator before) / delta
+```
+
+The effect is therefore expressed for a normalized factor change over the
+declared range. It is neither a continuous derivative nor a variance share.
+
+The domains must be numeric and strictly increasing. Seeds are replications. The
+historical method rejects structured factors.
+
+This block describes what the study did; it does not justify the selected values
+or recommend reusing this design.
+
+### 3. Check the plan without replacing it
+
+First restore the **archived version** of `eqasim-sa` in its environment. The
+current version is not interchangeable because the runner version is part of the
+sealed context. In the example below, `HISTORICAL_ENV` points to that restored
+environment. The script then reads `campaign_root` from the YAML so it can check
+the exact file **before** calling `plan`:
 
 ```bash
-TARGET=configs/existing-morris.yml
-"${SA[@]}" plan --meta-config "$TARGET"
-"${SA[@]}" check --meta-config "$TARGET"
-"${SA[@]}" estimate --meta-config "$TARGET"
-"${SA[@]}" run --meta-config "$TARGET"
+TARGET=/path/to/old-study/configs/morris-2024.yml
+HISTORICAL_ENV=/path/to/archived-eqasim-sa-environment
+SA=("$HISTORICAL_ENV/bin/eqasim-sa")
+HISTORICAL_PYTHON="$HISTORICAL_ENV/bin/python"
+
+PLAN=$("$HISTORICAL_PYTHON" - "$TARGET" <<'PY'
+import sys
+from pathlib import Path
+
+import yaml
+
+meta = Path(sys.argv[1]).resolve()
+root = Path(yaml.safe_load(meta.read_text(encoding="utf-8"))["campaign_root"])
+if not root.is_absolute():
+    root = (meta.parent / root).resolve()
+print(root / "plan.parquet")
+PY
+)
+[[ -f "$PLAN" && ! -L "$PLAN" ]] || {
+  printf '%s\n' "Historical plan is missing; stop the audit." >&2
+  exit 1
+}
+
+RESULT=$("${SA[@]}" plan --meta-config "$TARGET") || exit 1
+printf '%s\n' "$RESULT"
+STATUS=$(printf '%s' "$RESULT" | "$HISTORICAL_PYTHON" -c \
+  'import json, sys; print(json.load(sys.stdin)["status"])')
+[[ "$STATUS" == unchanged ]] || {
+  printf '%s\n' "Historical plan is not unchanged; stop the audit." >&2
+  exit 1
+}
+```
+
+Any error means that you must stop and recover the original files rather than
+alter the provenance.
+
+### 4. Reanalyze only complete archives
+
+If all required runs and their archives are present, you can rebuild the
+analysis outputs:
+
+```bash
 "${SA[@]}" analyze --meta-config "$TARGET"
 ```
 
-## What you get
+`analyze` does not rerun the simulator. If runs are missing, `run` is acceptable
+only if the original environment, execution setup, and context remain exactly
+reproducible. Do not silently add new seeds, values, or data.
 
-- `indicators.parquet`: one row per completed run and indicator.
-- `replication-dispersion.parquet`: variation across replication seeds.
-- `morris-ranking.parquet`: noncanonical adjacent-level effects ranked by `mu_star`.
-- `output-summary.parquet`: a summary of each indicator over design positions.
-- `governed-report.json`: a report with `inferenceStatus: demonstration_noninferential` and `claimAuthorized: false`.
-- `analysis-generation.json`: output paths and hashes for this analysis.
+`check` and `estimate` mainly apply to a new execution. They require compatible
+resource observations; a calibration created today is not part of the 2024
+historical provenance.
 
-Treat the ranking as legacy descriptive evidence. A high rank means that larger
-local effects occurred in that old declared design.
+### 5. Read the historical ranking
 
-## What you may say
+The `morris-ranking.parquet` file includes:
 
-You may describe the old factor order and the observed local effects. State that
-the effects are noncanonical.
+| Column | Historical interpretation |
+| --- | --- |
+| `mu` | mean local effect with its sign |
+| `mu_star` | mean magnitude of the local effects |
+| `sigma` | standard deviation of all `T × R` effects; it combines trajectories and seeds |
+| `seed_std` | square root of the mean across-seed variance within each trajectory |
+| `rank` | descending order by `mu_star` |
 
-You may not call these canonical Morris effects. You may not infer variance
-shares, global importance, factor prioritization, or factor fixing.
+Suppose an **old output** ranks `sampling_rate` ahead of
+`matching_minimum_observations`. You may write: "In the declared historical
+design, `sampling_rate` had the largest normalized local effects on the age
+indicator."
 
-## Before you run
+A large `sigma` does not by itself prove an interaction or nonlinearity because
+seed variation also contributes to it. `sigma` and `seed_std` are both expressed
+in normalized-effect units and can be compared with each other.
+`replication-dispersion.parquet` remains useful context, but its standard
+deviations are in raw TV-indicator units; do not compare them numerically with
+the first two columns.
 
-- Confirm that this is an existing legacy campaign.
-- Preserve the original plan, context, values, and seeds.
-- Confirm that all factor domains are numeric and strictly increasing.
-- Do not replace old plan bytes by hand.
-- Prefer a new method and a new `campaign_root` for new work.
+You must not write: "Morris proves that `sampling_rate` is globally the most
+important factor." The design is not canonical and does not estimate variance
+shares.
+
+If the archived version produces `governed-report.json`, it must remain
+`demonstration_noninferential` with `claimAuthorized: false`. Morris versions
+from before governed reporting was introduced do not create this file: record
+its absence in the audit and do not recreate it with a newer runner, because that
+would change the sealed context.
+
+## What you can conclude
+
+You can describe the factors, levels, seeds, indicators, and local effects of
+the old campaign, while clearly stating that they are historical and
+noncanonical.
+
+You cannot turn this ranking into scientific screening, prioritization, or a
+factor-fixing decision. For a new question, create a new campaign with a current
+method and a new root.
+
+## Audit checklist
+
+- The YAML and `plan.parquet` existed before the audit.
+- The model, Git commit, data, lockfile, and version have been recovered.
+- `plan` returns `unchanged`, never `created`.
+- The required archives are complete before `analyze`.
+- No plan or run marker is edited by hand.
+- When this version has governed reporting, it records noninferential status; otherwise the audit records that the report is absent.
 
 ## Continue
 
-- Previous: [Grid](what-when-how-grid.md)
-- Next: [Discrete OAT](what-when-how-discrete_oat.md) or [canonical Morris](what-when-how-canonical_morris.md)
-- Reference: [YAML](yaml-reference.md#historical-morris), [parameters and methods](parameters-and-methods.md#historical-morris-and-discrete-oat), and [workflow and results](workflow-and-results.md#morris-rankingparquet-historical-compatibility)
+- New demonstration: [Discrete OAT](what-when-how-discrete_oat.md)
+- New scientific screening: [Canonical Morris](what-when-how-canonical_morris.md)
+- References: [YAML](yaml-reference.md), [compatibility](compatibility.md), and [workflow and results](workflow-and-results.md)

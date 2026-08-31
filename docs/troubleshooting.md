@@ -187,7 +187,7 @@ Cause: the YAML changed during `run`, or between submission and the SLURM job.
 Remedy: stop concurrent editors/generators and rerun with a stable file. After a
 design or context change, choose a new root.
 
-## Constant-variance Sobol analysis
+## Constant or numerically unrepresentable Sobol variance
 
 For historical `sobol`, all indicator values may be constant or bootstrap
 resamples may be degenerate. Check the indicator, domains, `N`, and effective
@@ -197,6 +197,15 @@ For `multiscramble_sobol`, nonpositive output variance or an ineffective A/B
 projected contrast at any scramble and checkpoint is fatal. Increase the first
 declared base sample size or revise the scientifically justified support; no
 scramble is dropped and no row bootstrap fallback is used.
+
+The analyzer can also report `scaling erased base variance`, `output variance
+exceeds float64 range`, or `output variance is below float64 range`. These errors
+mean that finite values cannot support both the Sobol calculation and a variance
+in the original squared units at `float64` precision. Inspect the indicator's
+units and dynamic range, then rerun only after a scientifically justified
+reformulation or unit change. Never clip extreme values or ignore a failed
+scramble to obtain a report; publication is transactional and no partial Sobol
+tables are valid.
 
 The finite seed support is always a non-actionable nuisance. A null seed rank or
 FF tolerance is intentional; its reported Sobol indices are diagnostics, not an

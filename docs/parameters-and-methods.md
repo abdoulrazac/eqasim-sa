@@ -277,14 +277,14 @@ parameters have declared discrete-uniform supports, identity transforms, and
 provenance. It uses an even `p >= 4` and the exact common step
 `Delta = p/[2(p-1)]` in unit probability space.
 
-A deterministic seeded traversal creates a pool of at most 500 candidate
-trajectories. Selection starts with the pair having the greatest exact integer
-sum of pairwise squared point distances, then greedily adds the candidate with
-the greatest sum of those trajectory distances to the selected set.
-Lexicographically smallest candidate IDs break ties. This is not a maximin or
-Campolongo-optimal design. A separate deterministic distance-computation budget
-can reject a pool below the 500-candidate cap. Plan metadata names the rule
-`greedy-sum-pairwise-squared-distance`, version 1.
+SALib 1.5.2 generates the seeded candidate sample and applies its public Morris
+local-optimization path with `optimal_trajectories` equal to the declared
+trajectory count. The candidate sample is random with replacement, so on a
+small finite grid a selected matrix can occur more than once. Each selected
+occurrence remains an explicit trajectory block with a distinct derived seed;
+the matrices and effective SALib options are sealed in plan metadata. A
+deterministic distance-computation budget and the 500-candidate cap bound the
+call before allocation.
 
 A scientific campaign uses at least two selected trajectories, every convergence
 checkpoint is at least 2, and deterministic bootstrap inference uses at least
@@ -387,8 +387,14 @@ scrambles. Equal-width `floor(u * support_length)` projection is retained.
 Each scramble yields independent first- and total-order estimates. Across the
 `S` estimates, outputs report the mean, sample SD, `SE = SD/sqrt(S)`, and a
 two-sided Student interval with `S-1` degrees of freedom. No row bootstrap is
-used. FP ranks decreasing aggregate first-order means. FF ranks increasing
-total-order upper confidence bounds. `seed` is a declared finite nuisance: its
+used. Before calling SALib, finite indicator arrays are centered and scaled by
+their observed range. This preserves the dimensionless indices under a common
+change of output scale and avoids avoidable intermediate overflow. Analysis is
+rejected if scaling erases the base variance, if an index becomes non-finite, or
+if the output variance in the indicator's original squared units is above or
+below the representable `float64` range. Values and indices are never clipped to
+force publication. FP ranks decreasing aggregate first-order means. FF ranks
+increasing total-order upper confidence bounds. `seed` is a declared finite nuisance: its
 estimates remain diagnostic, `is_actionable` is false, and rank and FF tolerance
 are null. This support identifies neither intrinsic noise nor a controllable
 factor. For this method, `practical_tolerance` is a
@@ -396,7 +402,7 @@ dimensionless total-order variance-share tolerance in `[0,1]`, including
 interactions. The FF decision classification is emitted only for the sealed
 `primary_indicator`; secondary indicators retain estimates and ranks as
 diagnostics but cannot carry a factor-fixing classification. For the primary
-indicator and only actionable ordinary factors are classified.
+indicator, only actionable ordinary factors are classified.
 
 The exact analysis keys are `completeness_threshold: 1.0` and
 `confidence_level`. Results are published as `multiscramble-sobol-indices.parquet`,

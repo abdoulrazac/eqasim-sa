@@ -317,8 +317,8 @@ experiment:
 These are exactly the seven allowed experiment keys. Canonical Morris requires a
 scientific charter with objective `screening`, independent parameter dependence,
 and a declared distribution for every parameter. `levels` is an even integer at
-least 4; `trajectories` is at least 2; `candidate_trajectories` is at least
-`trajectories`, no greater than the finite candidate universe, and at most 500.
+least 4; `trajectories` is at least 2; `candidate_trajectories` is strictly
+greater than `trajectories`, no greater than the finite candidate universe, and at most 500.
 A deterministic distance-computation complexity budget is enforced in addition
 to the 500 cap. `design_seed` and every replication base seed are signed 64-bit
 integers; base seeds are non-empty and unique.
@@ -333,12 +333,12 @@ All `D+1` points in that trajectory-replication block share the derived seed,
 providing common random numbers within each elementary-effect contrast; derived
 seeds must be unique between blocks.
 
-The candidate pool and selected trajectories are deterministic. Selection uses
-the pair with greatest sum of pairwise squared point distances, then greedily
-adds the candidate with greatest summed distance to the selected set, with
-lexicographic identity tie-breaking. The sealed algorithm is
-`greedy-sum-pairwise-squared-distance`; it is not described as maximin or as a
-Campolongo-optimal design.
+The candidate sample and selected trajectories are deterministic for the sealed
+seed. SALib 1.5.2 performs the public Morris call with local optimization and
+`optimal_trajectories: trajectories`. Candidate trajectories are sampled with
+replacement, so a selected matrix may occur more than once on a finite grid.
+Each occurrence has a distinct selected index and derived simulation seed; all
+selected matrices and effective SALib options are sealed in the v3 design.
 
 Before publishing a canonical Morris or multi-scramble Sobol plan, structural
 design positions, without run-ID deduplication, must not exceed

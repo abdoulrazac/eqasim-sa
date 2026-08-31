@@ -60,15 +60,21 @@ flowchart TD
 | PyYAML | `6.0.3` |
 | submitit | `1.5.4` |
 | numpy | `2.3.5` |
+| pandas | `2.3.3` |
+| matplotlib | `3.10.8` |
 | scipy | `1.17.1` |
+| SALib | `1.5.2` |
 | pytest, optional dependency in the `test` extra | `9.0.2` |
 | setuptools, build-system requirement only | `>=80` |
 
-The first five libraries in the table are runtime dependencies. `pytest` is
+The eight libraries between pyarrow and SALib are runtime dependencies. Pandas
+and Matplotlib are declared directly and pinned because SALib imports them at
+runtime; this prevents transitive resolver drift from changing the numerical
+environment. `pytest` is
 installed only with the `test` extra; `setuptools>=80` is used to build the
 package through `setuptools.build_meta` and is not declared as a runtime
-dependency. The package does not install synpp, eqasim, or SALib. Sobol designs
-and calculations rely on SciPy/NumPy and internal code.
+dependency. The package does not install synpp or eqasim. Current scientific
+Morris and Sobol designs and analyses use the declared SALib boundary.
 
 ## Install and test
 
@@ -129,6 +135,9 @@ environment.
 - Named structured factors remain a separate label-to-list mapping across the
   adapter/core boundary: plans expose labels, resolution and `runId` use lists,
   and schema v3 seals the canonical mapping.
+- Scientific design v1/v2 readers reconstruct exact historical rows and
+  identities during application preflight, before indicator plugins are loaded
+  and without invoking SALib. They never execute a legacy estimator.
 - An analysis must not mutate its sources; the code backs them up and restores them if they differ.
 
 ## Add a custom indicator

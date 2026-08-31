@@ -1,48 +1,70 @@
-# Canonical Morris: what, when, and how
+# Canonical Morris: deciding which factors to retain
 
-**Use canonical Morris only for scientific screening that retains factors for more study.**
+**Practical case: screening two settings in Nantes population matching.**
 
 **English** | [Français](../docs-fr/what-when-how-canonical_morris.md)
 
-## What
+## At a glance
 
-Screening identifies factors that must remain under consideration. It does not
-show that a factor can be fixed.
+Suppose that two parameters are still uncertain:
+`matching_minimum_observations` and `matching_minimum_age`. You could include
+them in a more expensive study, but first you want to measure the magnitude and
+stability of their local effects before the next stage.
 
-Canonical Morris uses ordered paths in unit probability space. Unit probability
-space is a common scale from 0 to 1. One factor changes at each path step. Every
-factor uses the same step size, called `Delta`, before values are mapped to the
-declared values. `levels` is the even number of grid positions on that scale. A
-common step means that every factor moves by the same `Delta`.
+Canonical Morris answers the **screening** question:
 
-The current implementation supports only a discrete uniform distribution with
-the identity transform. In plain terms, each distinct declared value has the
-same probability, and the method does not reshape those values.
+> Which factors should we retain for the next study?
 
-The method answers: "Which factors must remain in later study?" It targets the
-conditional mean, which is the expected indicator over declared simulator seeds.
-A seed is an integer that selects a simulator random stream. This target is the
-estimand: the quantity that the study intends to estimate.
+The concrete Nantes protocol uses a conservative rule: it retains both factors
+by construction with `screening_top_k: 2`. It learns their ordering and its
+stability, but it does not make a removal decision between them. Another study
+with more factors or a smaller cutoff can use the same framework for selective
+screening.
 
-## When
+The result is deliberately cautious. A highly ranked factor must remain. A
+low-ranked factor is not automatically irrelevant and cannot be fixed on the
+basis of Morris alone. Fixing requires a total-order Sobol analysis and a
+declared practical tolerance.
 
-Use it only with a scientific charter and independent factors. Independence
-means that learning one factor's value gives no information about another's.
-Declare an even level count, a common step, and a budget. A checkpoint is a
-planned sample size where stability is assessed. A stopping criterion is a rule
-declared in advance for deciding whether evidence is stable enough. A robustness
-check asks whether the conclusion survives a declared alternative assumption or
-setting. Start with a separate pilot. Use the pilot's replication recommendation
-in a new production campaign and root.
+## Essential concepts
 
-Do not use it for factor prioritization, factor fixing, variance shares, named
-structured configurations, or dependent factors. Do not present a pilot as
-production evidence. A variance share is the portion of output variation
-attributed to an input.
+- A **factor** is an uncertain parameter varied by the campaign.
+- An **estimand** is the precise quantity that the study aims to estimate.
+- A **trajectory** is a path on which only one factor changes at each step.
+- An **elementary effect** is the change in the indicator produced by that step.
+- **Screening** retains factors that still require attention; it does not fix any factor.
 
-## Parameter examples
+Morris first places every factor on the same probability scale from `0` to `1`.
+All factors then use the same step `Delta`, after which that step is mapped to
+their declared values. The user declares `levels`; the software computes
+`Delta`. Do not add a `delta` key to the YAML.
 
-This parameter fragment fits the scientific charter shape shown below:
+## A concrete Nantes case
+
+The repository contains a complete protocol in
+[`01-canonical-morris-pilot.yml`](../protocols/nantes-scientific/01-canonical-morris-pilot.yml).
+It describes a real, practical case, but **this guide provides no empirical
+Nantes result**: the interpretation values below are fictitious.
+
+### 1. State the decision question
+
+The protocol asks which settings must remain under study for the
+Loire-Atlantique population synthesis using INSEE RP 2022 and EDGT 44.
+
+| Charter element | Nantes case choice | Why |
+| --- | --- | --- |
+| Objective | `screening` | retain factors that still require attention |
+| Use | `diagnostic` | understand the model, not predict a future policy |
+| Estimand | mean age TV over simulator seeds | separate factor effects from the simulator's own noise |
+| Primary indicator | `tv_distance(age, ref=INSEE)` | measure the difference between the age distribution and INSEE |
+| Dependence | independent factors | required by this probability-space design |
+
+Here, the seed is a **replication**. At each trajectory position, the simulator
+is repeated with several seeds, and the study targets their conditional mean.
+
+### 2. Declare the factors and their values
+
+The protocol varies:
 
 ```yaml
 parameters:
@@ -51,174 +73,255 @@ parameters:
     distribution:
       family: discrete_uniform
       transform: identity
-      provenance: Replace with study evidence supporting these three thresholds
+      provenance: Nantes protocol stress support around documented matching behavior and default 20
   matching_minimum_age:
     values: [0, 5, 12]
     distribution:
       family: discrete_uniform
       transform: identity
-      provenance: Replace with study evidence supporting these three ages
+      provenance: Nantes protocol stress support around documented matching behavior and default 5
 ```
 
-`discrete_uniform` means that each of the three declared values has equal
-probability. The placeholder provenance is deliberately not evidence: replace
-it with the study's actual source and reasoning before planning. The support,
-meaning the complete set of allowed values, and factor independence must both be
-justified.
+`discrete_uniform` means that the three values of a factor have equal
+probability in the study. It does not mean that they are equally probable in
+reality by default: the provenance must explain why this support and weighting
+answer the question being studied.
 
-Each factor key must already exist under `config:` in the sealed model YAML.
-Strings and structured matching configurations must not be used here under the
-current contract; a structured base key would have to be a list, but canonical
-Morris rejects structured factors. Use Grid for those comparisons. Seeds belong
-only in `experiment.replications.seeds` and are base seeds from which this method
-derives run seeds; never declare `random_seed` as an ordinary factor.
+- `matching_minimum_observations` is the minimum number of observations required in a donor cell.
+- `matching_minimum_age` is the minimum age used by the matching procedure.
+- `sampling_rate` remains fixed at `0.001` and is covered by a separate robustness check because it also changes population size and numerical noise.
 
-The support `[0.001, 0.002, 0.005]` is numerically valid for `sampling_rate`, but
-a scientific declaration must use the complete `values` and `distribution`
-form shown above for the other factors. This parameter changes population size
-and Monte Carlo noise together. It is often clearer to fix it and test it as
-numerical robustness, unless the decision explicitly includes sampling rate as
-an uncertain factor. Example domains demonstrate syntax, not automatic
-scientific justification. See the [Nantes parameter
-catalogue](parameters-and-methods.md#nantes-parameter-catalogue).
+Both varied keys must already exist under `config:` in the sealed model.
+Canonical Morris rejects factors that are structured lists, such as several
+named `matching_attributes` lists.
 
-## How
+### 3. Declare the observed outputs
 
-The following YAML is a **fragment**. It omits required study and execution data
-and does not run by itself.
+The protocol uses:
 
 ```yaml
-charter:
-  status: scientific
-  decision:
-    objective: screening
-  uncertainty:
-    dependence:
-      kind: independent
-  stochastic:
-    target: conditional_mean
-    common_random_numbers: within_trajectory
-    allocation:
-      phase: pilot
+artifacts:
+  age:
+    class: Age class
+    synthetic: Proportion_EQASIM
+    references: [INSEE]
+  distance:
+    class: Distance class
+    synthetic: Proportion_EQASIM
+    references: [HTS]
+  nbr_vehicle:
+    class: Number of vehicles class
+    synthetic: Proportion_EQASIM
+    references: [HTS]
+
+indicators:
+  - pair:
+      scalarizer: tv_distance
+      artifact: age
+      reference: INSEE
+  - product:
+      scalarizers: [tv_distance]
+      artifacts: [distance, nbr_vehicle]
+```
+
+The primary age indicator governs the screening decision. The two HTS
+indicators remain secondary diagnostics. A lower TV means a distribution closer
+to the reference, but Morris ranks the magnitude of the **change** in TV when
+the factors change.
+
+For Nantes/EDGT 44, the distance indicator is asymmetric: synthetic bins use
+Euclidean activity-to-activity distance, whereas HTS bins use routed distance.
+It therefore remains a secondary diagnostic that must be read with this
+limitation.
+
+### 4. Understand the pilot
+
+The pilot declares:
+
+```yaml
 experiment:
   method: canonical_morris
   seed_role: replication
   levels: 4
-  trajectories: 8
+  trajectories: 24
   candidate_trajectories: 32
   design_seed: 20260820
   replications:
-    seeds: [1301, 1302]
+    seeds: [45001, 45002]
+
+analysis:
+  completeness_threshold: 1.0
+  bootstrap_resamples: 999
+  confidence_level: 0.95
+  convergence_checkpoints: [8, 16, 24]
+  screening_top_k: 2
 ```
 
-The Nantes source files require `render_protocol.py`. They are not generic
-templates. Follow the exact [Nantes rendering instructions](../protocols/nantes-scientific/README.md#rendering).
-The pilot render requires all machine paths and a new absolute campaign root:
+SALib samples 32 candidate trajectories and locally optimizes a selection of 24;
+only the selected occurrences are simulated. Sampling is with replacement, so
+the sealed selection can contain the same unit-grid path more than once, with a
+different derived simulation seed for each occurrence. With `D = 2`, `T = 24`,
+and `R = 2`, the pilot contains:
+
+```text
+T(D+1)R = 24 × 3 × 2 = 144 positions
+```
+
+The pilot is not used to draw conclusions. In particular, it measures noise
+between seeds and recommends how many replications will be needed in a **new**
+production campaign.
+
+### 5. Render and run the pilot
+
+This procedure assumes that you completed installation and `init` in the
+[Grid example](what-when-how-grid.md#2-generate-the-starter-project), that
+`$ROOT` and the Bash array `SA` are still defined, and that the resource
+calibration at `mon-analyse-sa/configs/00-calibration.yml` contains at least one
+complete run.
+
+The files under `protocols/nantes-scientific/` are declarations with machine
+placeholders. They cannot be passed directly to `eqasim-sa`. From the
+`openmole-eqasim` root, render the pilot with the paths on your machine:
 
 ```bash
-python protocols/nantes-scientific/render_protocol.py \
-  protocols/nantes-scientific/01-canonical-morris-pilot.yml rendered/pilot.yml \
+mkdir -p rendered
+uv run --project "$ROOT/eqasim-sa" --locked python \
+  "$ROOT/eqasim-sa/protocols/nantes-scientific/render_protocol.py" \
+  "$ROOT/eqasim-sa/protocols/nantes-scientific/01-canonical-morris-pilot.yml" \
+  "$ROOT/rendered/canonical-morris-pilot.yml" \
   --model-config "$ROOT/eqasim-france/config_local_nantes.yml" \
   --model-root "$ROOT/eqasim-france" \
-  --data-manifest "$ROOT/study/manifest.json" \
+  --data-manifest "$ROOT/mon-analyse-sa/manifest.json" \
   --lockfile "$ROOT/eqasim-france/uv.lock" \
-  --scratch "$ROOT/scratch" --data-path "$ROOT/eqasim-data" \
-  --campaign-root "$ROOT/campaigns/canonical-morris-pilot"
+  --scratch "$ROOT/mon-analyse-sa/scratch" \
+  --data-path "$ROOT/eqasim-data" \
+  --campaign-root "$ROOT/mon-analyse-sa/campaigns/canonical-morris-pilot"
 ```
 
-The project defines `SA` as a Bash command array. `"${SA[@]}"` runs that command
-without losing its arguments. See [Getting started](getting-started.md#generated-project-runner).
-`plan` creates and seals the plan. `check` validates it and the execution setup.
-`estimate` reports the expected resource cost. `run` executes missing runs. `analyze`
-creates the result files. The Nantes scientific files have no calibration block.
-Therefore, first run `plan`. Then obtain a valid external or calibration resource
-estimate, or execute explicitly under your site's procedure. Fresh `check` and
-`estimate` calls are not promised to work without resource observations.
+Among other checks, the renderer verifies the model's fixed values and replaces
+the placeholders without changing the scientific question.
 
-Execute and analyze the pilot:
+Next, plan the campaign. If you have a complete, compatible resource-calibration
+campaign, provide it explicitly to `check` and `estimate`:
 
 ```bash
-PILOT=rendered/pilot.yml
+PILOT="$ROOT/rendered/canonical-morris-pilot.yml"
+CALIBRATION="$ROOT/mon-analyse-sa/configs/00-calibration.yml"
+
 "${SA[@]}" plan --meta-config "$PILOT"
+"${SA[@]}" check --meta-config "$PILOT" --calibration-meta-config "$CALIBRATION"
+"${SA[@]}" estimate --meta-config "$PILOT" --calibration-meta-config "$CALIBRATION"
 "${SA[@]}" run --meta-config "$PILOT"
 "${SA[@]}" analyze --meta-config "$PILOT"
 ```
 
-Inspect `replication-allocation.json`. Continue only when its allocation status
-is `recommended`. A `capped` or `infeasible` status means stop and revise the
-study. Never proceed automatically. The production renderer reads the pilot
-evidence through `--pilot-campaign-root`:
+Without a compatible calibration observation, `check` and `estimate` cannot
+correctly quantify resources. In that case, follow your site's explicit
+procedure before `run`; do not confuse this resource calibration with the
+scientific pilot.
+
+### 6. Move from pilot to production
+
+Open
+`$ROOT/mon-analyse-sa/campaigns/canonical-morris-pilot/replication-allocation.json`.
+Continue only if `status` is `recommended`. The `capped` and `infeasible`
+statuses require you to revise the budget or target precision.
+
+The production renderer reads this recommendation and creates another campaign:
 
 ```bash
-python protocols/nantes-scientific/render_protocol.py \
-  protocols/nantes-scientific/02-canonical-morris-production.yml rendered/production.yml \
+uv run --project "$ROOT/eqasim-sa" --locked python \
+  "$ROOT/eqasim-sa/protocols/nantes-scientific/render_protocol.py" \
+  "$ROOT/eqasim-sa/protocols/nantes-scientific/02-canonical-morris-production.yml" \
+  "$ROOT/rendered/canonical-morris-production.yml" \
   --model-config "$ROOT/eqasim-france/config_local_nantes.yml" \
   --model-root "$ROOT/eqasim-france" \
-  --data-manifest "$ROOT/study/manifest.json" \
+  --data-manifest "$ROOT/mon-analyse-sa/manifest.json" \
   --lockfile "$ROOT/eqasim-france/uv.lock" \
-  --scratch "$ROOT/scratch" --data-path "$ROOT/eqasim-data" \
-  --campaign-root "$ROOT/campaigns/canonical-morris-production" \
-  --pilot-campaign-root "$ROOT/campaigns/canonical-morris-pilot"
-```
+  --scratch "$ROOT/mon-analyse-sa/scratch" \
+  --data-path "$ROOT/eqasim-data" \
+  --campaign-root "$ROOT/mon-analyse-sa/campaigns/canonical-morris-production" \
+  --pilot-campaign-root "$ROOT/mon-analyse-sa/campaigns/canonical-morris-pilot"
 
-Execute and analyze production:
-
-```bash
-PRODUCTION=rendered/production.yml
+PRODUCTION="$ROOT/rendered/canonical-morris-production.yml"
 "${SA[@]}" plan --meta-config "$PRODUCTION"
+"${SA[@]}" check --meta-config "$PRODUCTION" --calibration-meta-config "$CALIBRATION"
+"${SA[@]}" estimate --meta-config "$PRODUCTION" --calibration-meta-config "$CALIBRATION"
 "${SA[@]}" run --meta-config "$PRODUCTION"
 "${SA[@]}" analyze --meta-config "$PRODUCTION"
 ```
 
-For another study, author a complete configuration. There is no generic render
-step for arbitrary studies.
+If the pilot recommends `R` replications, production contains `24 × 3 × R =
+72R` positions. The pilot remains unchanged: never change its phase or seeds to
+turn it into production.
 
-## What you get
+### 7. Read the production result
 
-- `indicators.parquet`: one row per completed run and indicator.
-- `replication-dispersion.parquet`: variation across simulator seeds.
-- `canonical-morris-ranking.parquet`: final screening ranks and intervals. An interval is a range that shows design uncertainty.
-- `canonical-morris-convergence.parquet`: the same evidence at nested checkpoints.
-- `canonical-morris-rank-reversals.parquet`: evidence of rank reversals. A rank reversal occurs when resampling swaps two factors' order.
-- `noise-floor.parquet`: seed variation and Monte Carlo error. Monte Carlo error is uncertainty caused by using finitely many simulator seeds.
-- `replication-allocation.json`: pilot-only recommendation for a new production campaign.
-- `output-summary.parquet`, `convergence-evidence.parquet`, `governed-report.json`, and `analysis-generation.json`: summaries, stopping evidence, governed status, paths, and hashes.
+The main file is `canonical-morris-ranking.parquet`:
 
-Bootstrap means repeatedly resampling whole trajectories to assess finite-design
-uncertainty. It does not resample individual seed replications as trajectories.
+| Column | Plain-language meaning |
+| --- | --- |
+| `mu_star` | mean magnitude of the elementary effects |
+| `mu_star_ci_low`, `mu_star_ci_high` | uncertainty obtained by resampling whole trajectories |
+| `rank` and its interval | the factor's position and the stability of that position |
+| `top_k_probability` | how often the factor is among the top `k` during bootstrap |
+| `seed_std` | variability of elementary effects across seed replications, not raw output noise |
 
-Read status progression as follows:
+**Fictitious** illustration:
 
-- `pilot_only`: use the result only for replication planning.
-- `unstable`: draw no screening conclusion.
-- `conditional`: make only an internal conditional screening statement.
-- Robustness pending or `claimAuthorized: false`: this is not an authorized final decision.
+| Factor | Rank | `mu_star` | Rank interval | Top-2 probability |
+| --- | ---: | ---: | ---: | ---: |
+| `matching_minimum_observations` | `1` | `0.18` | `1-2` | `1.00` |
+| `matching_minimum_age` | `2` | `0.11` | `1-2` | `1.00` |
 
-## What you may say
+With `screening_top_k: 2`, both factors remain in the study. The table does not
+say that the first factor explains 18% of the variance: `mu_star` is a Morris
+effect magnitude, not a variance share. Because this protocol contains exactly
+two factors, their top-2 probability is necessarily `1.00`: this conservative
+cutoff cannot remove either one. The ranks, their intervals, and reversals are
+used here to check the ordering and its stability before FP compares both
+factors. A different study that needs a top-1 cutoff must declare it before
+`plan`, not select it after seeing the ranking.
 
-You may say that production screening conditionally retains factors when the
-declared stopping criteria pass. You must state the charter and pending
-robustness checks.
+FP means **factor prioritization**: the next Sobol stage compares the two retained
+factors to decide which one should be learned more accurately first.
 
-You may not say that screening proves a factor unimportant, estimates a variance
-share, gives an FP or FF result, or authorizes a claim. A pilot supports only
-replication planning.
+Next, check:
 
-Wide intervals, rank reversals, or failed convergence must remain visible. Use a
-new campaign with a larger predeclared budget, or retain the affected factors.
-Never hide unstable evidence.
+- `canonical-morris-convergence.parquet` for changes across checkpoints;
+- `canonical-morris-rank-reversals.parquet` for rank reversals;
+- `noise-floor.parquet` for raw noise between seeds, including `intrinsic_sd` and `mcse`;
+- `convergence-evidence.parquet` for the stopping criterion;
+- `governed-report.json` for the final status.
 
-## Before you run
+`pilot_only` prohibits any screening conclusion. `unstable` means that the
+ranking has not converged. `conditional` permits only an internal result
+conditional on the charter. The current contract leaves robustness checks
+pending and keeps `claimAuthorized: false`: it does not produce an authorized
+final claim.
 
-- Declare the decision setting, uncertainty model, estimand, and primary indicator.
-- Justify independent factors and each discrete distribution.
-- Use an even `levels` value of at least 4 and at least two trajectories.
-- Check nested checkpoints, bootstrap count, budget, and stopping criteria.
-- Separate pilot and production campaign names and roots.
-- Declare robustness checks before planning.
+## What you can conclude
 
-## Continue
+After complete, converged production, you may state which factors are
+**conditionally retained** for the next study within the declared setting,
+supports, and indicator.
 
-- Previous: [Discrete OAT](what-when-how-discrete_oat.md)
-- Next: [Multi-scramble Sobol](what-when-how-multiscramble_sobol.md)
-- Reference: [YAML](yaml-reference.md#canonical-morris), [parameters and methods](parameters-and-methods.md#canonical-morris), and [workflow and results](workflow-and-results.md#canonical-morris-rankingparquet)
+You may not say that an unretained factor is unimportant, that it can be fixed,
+or that `mu_star` is a variance share. You may never draw a conclusion from the
+pilot alone.
+
+## Checklist
+
+- The charter names the decision, estimand, and primary indicator.
+- Each support and the factor-independence assumption are justified.
+- `levels` is even and at least 4; `Delta` is not added to the YAML.
+- Pilot and production have distinct names and roots.
+- Production uses only a pilot recommendation with `recommended` status.
+- Convergence criteria and robustness checks are read before any conclusion is written.
+
+## Next steps
+
+- Local demonstration: [Discrete OAT](what-when-how-discrete_oat.md)
+- Prioritization or fixing: [Multi-scramble Sobol](what-when-how-multiscramble_sobol.md)
+- Complete protocol: [Scientific Nantes](../protocols/nantes-scientific/README.md)
+- References: [YAML](yaml-reference.md), [parameters and methods](parameters-and-methods.md), and [workflow and results](workflow-and-results.md)

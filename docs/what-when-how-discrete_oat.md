@@ -1,37 +1,168 @@
-# Discrete OAT: what, when, and how
+# Discrete OAT: observe local changes step by step
 
-**Use discrete OAT for descriptive local triage between adjacent numeric levels.**
+**Practical example: summarize the local effect of `sampling_rate` across two neighborhoods.**
 
 **English** | [Français](../docs-fr/what-when-how-discrete_oat.md)
 
-## What
+## At a glance
 
-OAT means "one factor at a time." The method follows short paths where one
-numeric factor changes and all other factors stay fixed. Each change uses two
-neighboring declared values.
+OAT means "one factor at a time." The method changes one numeric parameter while
+the others remain fixed. It compares only neighboring values: for example,
+`0.001` with `0.002`, then `0.002` with `0.003`.
 
-A seed is an integer that selects a simulator random stream. Replication seeds
-repeat each setting to show random variation between seeds.
+It answers a local, aggregated question:
 
-It answers: "Which local adjacent changes should receive more attention?" This
-is descriptive local triage, not scientific screening. Use
-[canonical Morris](what-when-how-canonical_morris.md) for scientific screening.
-Its effects use local normalized steps. They are not canonical Morris effects.
+> Averaged across the visited neighborhoods, which numeric parameters produce the largest output changes?
 
-## When
+This method is useful for a demonstration or an initial diagnosis. It is not a
+scientific Morris design: its steps are not all the same size, and it provides
+neither variance shares nor proof that a factor can be discarded.
 
-Use it to check local behavior and triage numeric factors in a demonstration.
+## How it differs from Grid
 
-Do not use it for text values, named structured configurations, interactions,
-variance shares, factor prioritization, or factor fixing. A variance share is the
-portion of output variation attributed to an input. Do not use it as a
-scientific screening result.
+Grid runs every combination. OAT instead builds paths: at each step, only one
+parameter changes. With several parameters, this costs less than a large grid,
+but the result depends on the neighborhoods that the paths visit.
 
-## Parameter examples
+With only one parameter, as in the example below, OAT mainly teaches you how to
+read a **normalized local effect**: the change in the indicator is divided by
+the relative size of the step within the declared domain.
 
-This numeric-only fragment uses three actual eqasim-france candidates. Every
-factor key must already exist under `config:` in the sealed model YAML, and every
-domain must be strictly increasing:
+## End-to-end practical example
+
+This guide assumes that you have completed the project-generation steps in the
+[Grid example](what-when-how-grid.md#2-generate-the-starter-project). Run the
+commands from `mon-analyse-sa/`, with `$ROOT` and the Bash array `SA` defined as
+shown in the [getting-started guide](getting-started.md#install-with-uv).
+
+### 1. Ask the question
+
+Question: "Averaged across the `0.001 ↔ 0.002` and `0.002 ↔ 0.003`
+transitions selected by the design, does `sampling_rate` produce a large local
+change in distance from the references?"
+
+We observe the same three indicators as in the [Grid example](what-when-how-grid.md):
+age against INSEE, distance against HTS, and number of vehicles against HTS.
+For Nantes/EDGT 44, the distance indicator is an asymmetric secondary
+diagnostic: synthetic bins use Euclidean activity-to-activity distance, whereas
+HTS bins use routed distance.
+
+### 2. Use the generated file
+
+After `eqasim-sa init`, the rendered `configs/02-discrete-oat.yml` file already
+contains this example:
+
+```yaml
+charter:
+  status: demonstration
+
+experiment:
+  method: discrete_oat
+  seed_role: replication
+  trajectories: 2
+  design_seed: 20260817
+  replications:
+    seeds: [1301, 1302]
+
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002, 0.003]
+```
+
+The other blocks in the rendered file define the model, data, three indicators,
+local execution, and calibration. The source file
+`src/eqasim_sa/templates/02-discrete-oat.yml` contains placeholders; run the copy
+created in your project by `init`.
+
+The values must be numeric, distinct, and strictly increasing. The seed remains
+a replication in `experiment.replications.seeds`; never declare `random_seed` as
+an analysis parameter.
+
+### 3. Understand the design size
+
+The file declares:
+
+- `D = 1` parameter;
+- `T = 2` trajectories;
+- `R = 2` replication seeds.
+
+The design therefore contains `T(D+1)R = 2 × 2 × 2 = 8` positions. Some
+positions may represent exactly the same setting and seed. The starter therefore
+normally produces **8 statistical positions but 6 unique runs**. The simulator
+does not execute the same `runId` twice.
+
+### 4. Understand the compared steps
+
+The total range is `0.003 - 0.001 = 0.002`:
+
+| Change | Step size | Fraction of the range |
+| --- | ---: | ---: |
+| `0.001 → 0.002` | `0.001` | `0.5` |
+| `0.002 → 0.003` | `0.001` | `0.5` |
+
+For each step, seed, and indicator, the method calculates the output change
+divided by the signed step fraction. It then aggregates these effects into **one
+row per factor and indicator**. The final file therefore does not contain one row
+for `0.001 → 0.002` and another for `0.002 → 0.003`. This normalization makes
+the effects comparable within the declared domain, but it does not turn them
+into variance shares.
+
+If you use `[0.001, 0.002, 0.005]` instead, the fractions become `0.25` and
+`0.75`. The two effects were then observed over different distances and must
+still be interpreted as local changes.
+
+### 5. Plan, check, and run
+
+From the generated project, start with resource calibration:
+
+```bash
+"${SA[@]}" plan --meta-config configs/00-calibration.yml
+"${SA[@]}" run --meta-config configs/00-calibration.yml
+
+TARGET=configs/02-discrete-oat.yml
+"${SA[@]}" plan --meta-config "$TARGET"
+"${SA[@]}" check --meta-config "$TARGET"
+"${SA[@]}" estimate --meta-config "$TARGET"
+"${SA[@]}" run --meta-config "$TARGET"
+"${SA[@]}" analyze --meta-config "$TARGET"
+```
+
+`check` is static unless you use `--smoke`. `analyze` computes the indicators
+and effects; it also creates the governed report.
+
+### 6. Read the results
+
+The results are stored under `campaigns/discrete_oat/`. The main file is
+`discrete-oat-effects.parquet`. It contains one row per factor and indicator,
+including:
+
+| Column | Simple interpretation |
+| --- | --- |
+| `mu` | mean local effect with its sign; positive means that the indicator increases as the factor increases |
+| `mu_star` | mean effect magnitude without canceling opposing signs |
+| `sigma` | standard deviation of all `T × R` elementary effects; it combines variation across trajectories and seeds |
+| `seed_std` | square root of the mean across-seed variance, computed separately within each trajectory |
+| `rank` | descriptive order by `mu_star` |
+
+Suppose, in a **fictional illustration**, that the row for the age indicator has
+`mu_star = 0.012` and `seed_std = 0.010`. The rate's mean local effect is then
+only slightly greater than the variation between seeds. This suggests keeping
+the parameter under consideration; it does not demonstrate a global effect.
+
+If `mu` is close to zero but `mu_star` is large, the observed steps produced
+effects with opposing signs that cancel in `mu`. If `sigma` is large, the
+dispersion may come from trajectories, neighborhoods, **or seeds**; compare it
+with `seed_std` before attributing it to local nonlinearity.
+
+The other files help you verify this interpretation:
+
+- `indicators.parquet` contains each indicator value for every run;
+- `replication-dispersion.parquet` shows dispersion across seeds;
+- `governed-report.json` contains `demonstration_noninferential` and `claimAuthorized: false`.
+
+## Extend the example to several parameters
+
+In a new campaign, you can compare, for example:
 
 ```yaml
 parameters:
@@ -43,97 +174,35 @@ parameters:
     values: [0, 5, 12]
 ```
 
-With the guide's `T=2` trajectories, `D=3` factors, and `R=2` replication
-seeds, the design has `T(D+1)R = 2 × 4 × 2 = 16` positions. Each step has a
-plain local meaning:
+With two trajectories and two seeds, this gives
+`2 × (3 + 1) × 2 = 16` positions. Every key must already exist under `config:`
+in the sealed model. Discrete OAT rejects categories and structured lists; use
+[Grid](what-when-how-grid.md) for those.
 
-- `sampling_rate` compares `0.001` to `0.002`, or `0.002` to `0.005`; the steps
-  are respectively `0.001/0.004 = 1/4` and `0.003/0.004 = 3/4` of its range;
-- `matching_minimum_observations` compares donor-cell thresholds `5` to `20`,
-  or `20` to `50`; the local fractions are `1/3` and `2/3` of its range;
-- `matching_minimum_age` compares entry ages `0` to `5`, or `5` to `12`; the
-  local fractions are `5/12` and `7/12` of its range.
+## What you can conclude
 
-The method divides each output change by that local fraction. It does not compare
-all pairs and does not estimate interactions. Structured factors would require a
-list-valued base key, but discrete OAT rejects them. Seeds belong only in
-`experiment.replications.seeds`; never declare `random_seed` as a factor. These
-domains demonstrate syntax and interpretation, not automatic scientific
-justification. See the [Nantes parameter
-catalogue](parameters-and-methods.md#nantes-parameter-catalogue).
+You can compare the factors' **aggregated local effects** across the neighborhoods
+selected in the demonstration. The aggregate file cannot rank the two
+`sampling_rate` transitions separately.
 
-## How
+You cannot say that a small local effect proves a factor is unimportant, because
+OAT does not cover every combination or every interaction. You cannot make
+claims about variance shares, factor prioritization, or factor fixing.
 
-The following YAML is a **fragment**. It does not run by itself.
+To decide scientifically which factors must remain under study, use
+[canonical Morris](what-when-how-canonical_morris.md).
 
-```yaml
-charter:
-  status: demonstration
-experiment:
-  method: discrete_oat
-  seed_role: replication
-  trajectories: 2
-  design_seed: 20260814
-  replications:
-    seeds: [1301, 1302]
-parameters:
-  sampling_rate:
-    values: [0.001, 0.002, 0.003]
-```
+## Checklist
 
-Start from the complete generated [`02-discrete-oat.yml`](../src/eqasim_sa/templates/02-discrete-oat.yml).
-The generated project defines `SA` as a Bash command array. `"${SA[@]}"` runs
-that command without losing its arguments. See [Getting started](getting-started.md#generated-project-runner).
-
-First run the generated resource calibration as explained in
-[Getting started](getting-started.md#first-resource-calibration). `check` and
-`estimate` need its runtime and storage observations. Then use these commands.
-`plan` creates and seals the plan. `check` validates it and the execution setup.
-`estimate` reports the expected resource cost. `run` executes missing runs. `analyze`
-creates the result files.
-
-```bash
-TARGET=configs/02-discrete-oat.yml
-"${SA[@]}" plan --meta-config "$TARGET"
-"${SA[@]}" check --meta-config "$TARGET"
-"${SA[@]}" estimate --meta-config "$TARGET"
-"${SA[@]}" run --meta-config "$TARGET"
-"${SA[@]}" analyze --meta-config "$TARGET"
-```
-
-## What you get
-
-- `indicators.parquet`: one row per completed run and indicator.
-- `replication-dispersion.parquet`: variation across replication seeds.
-- `discrete-oat-effects.parquet`: local normalized adjacent-level effects.
-- `output-summary.parquet`: a summary of each indicator over design positions.
-- `governed-report.json`: a report with `inferenceStatus: demonstration_noninferential` and `claimAuthorized: false`.
-- `analysis-generation.json`: output paths and hashes for this analysis.
-
-`mu_star` summarizes effect magnitude. `mu` keeps its direction. `sigma` shows
-variation across paths. These values describe only the declared local steps.
-
-## What you may say
-
-You may say that a factor showed large or small local adjacent-level effects in
-this demonstration. You may retain a factor for more study.
-
-You may not call this unqualified screening. You may not say that a factor has a
-variance share, is globally unimportant, or can be fixed. The method changes one
-factor while holding the others fixed. It therefore does not estimate combined
-effects between factors, called interactions.
-
-## Before you run
-
-- Confirm that the campaign is a demonstration.
-- Use only numeric factors with at least two distinct values.
-- Put each factor's values in strict increasing order.
-- Check the trajectory count and total design size.
-- Run the referenced resource calibration first.
-- Use a new `campaign_root` after a design or context change.
+- The question specifies the outputs and numeric neighborhoods being studied.
+- Every domain contains at least two strictly increasing values.
+- The parameters are numeric; no structured configuration is used.
+- The number of positions is calculated before `plan`.
+- A modified configuration uses a new `campaign` and a new `campaign_root`.
+- The result is presented as descriptive local triage, not scientific screening.
 
 ## Continue
 
 - Previous: [Grid](what-when-how-grid.md)
 - Next: [Canonical Morris](what-when-how-canonical_morris.md)
-- Reference: [YAML](yaml-reference.md#discrete-oat), [parameters and methods](parameters-and-methods.md#historical-morris-and-discrete-oat), and [workflow and results](workflow-and-results.md#discrete-oat-effectsparquet)
+- References: [YAML](yaml-reference.md), [parameters and methods](parameters-and-methods.md), and [workflow and results](workflow-and-results.md)
