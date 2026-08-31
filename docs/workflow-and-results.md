@@ -122,6 +122,7 @@ campaigns/grid/
 │   │   └── slurm.lock
 │   ├── transactions/
 │   └── slurm/
+│       ├── submission-intent.json  # only while submission outcome is unproved
 │       ├── active-jobs.json  # present only while jobs are owned
 │       └── submitit/
 ├── analysis/
@@ -392,7 +393,8 @@ command.
 
 Runs are distributed in batches among at most `workers` slots. Each slot
 processes its batch serially and reuses its cache. A private lease prevents two
-processes from using the same cache. `state.json` is `active` or `clean`; a
+processes from using the same cache. `state-<contextHash>.json` is `active` or
+`clean`; a
 missing, invalid, or unclean state causes the cache to be purged before reuse.
 
 A lease per `runId` supplements this protection across invocations. Analysis
@@ -408,7 +410,12 @@ array, and `slurm_array_parallelism=workers`; each job reloads the
 meta-configuration and rechecks its SHA-256 and the `contextHash`.
 Submitit files and the active-job journal live under
 `<campaign>/.eqasim-sa/slurm/`; no scheduler files are written beside scientific
-campaign outputs.
+campaign outputs. A durable submission intent is written before contacting the
+scheduler. If the scheduler reply is lost, that intent blocks automatic retry
+until an operator verifies the scheduler, preventing duplicate arrays. Current
+journals recover interrupted temporary hard links. Historical `.submitit`
+journals are inspected read-only and must be reconciled with the version that
+created them.
 
 The code and tests cover construction and simulated behavior of the SLURM
 backend. They do not constitute validation on a real SLURM cluster.

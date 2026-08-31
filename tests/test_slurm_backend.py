@@ -24,6 +24,10 @@ def journal_path(root: Path) -> Path:
     return slurm_state(root) / slurm.ACTIVE_JOB_JOURNAL
 
 
+def intent_path(root: Path) -> Path:
+    return slurm_state(root) / slurm.SUBMISSION_INTENT
+
+
 def submitit_folder(root: Path) -> Path:
     return slurm_state(root) / "submitit" / "%j"
 
@@ -133,9 +137,12 @@ def test_slurm_backend_forces_cluster_submits_one_ordered_array(tmp_path: Path) 
         "slurm_array_parallelism": 3,
     }
     assert executor.map_calls == [(str, (2, 1))]
-    assert observed_journals == [
-        {"jobIds": [job.job_id for job in FakeExecutor.jobs], "version": 1}
+    assert len(observed_journals) == 1
+    assert observed_journals[0]["jobIds"] == [
+        job.job_id for job in FakeExecutor.jobs
     ]
+    assert observed_journals[0]["version"] == 2
+    assert slurm.SUBMISSION_ID.fullmatch(observed_journals[0]["submissionId"])
     assert all(job.wait_calls == 1 for job in FakeExecutor.jobs)
     assert not journal.exists()
 
@@ -238,46 +245,32 @@ def test_slurm_backend_reconciles_leftover_journal_before_new_submission(
     assert FakeExecutor.instances == []
 
 
-def test_slurm_backend_reconciles_safe_legacy_journal_under_new_lease_before_submit(
+def test_slurm_backend_treats_legacy_journal_as_read_only_and_refuses_submit(
     tmp_path: Path,
 ) -> None:
     legacy_journal = tmp_path / ".submitit" / slurm.ACTIVE_JOB_JOURNAL
     legacy_journal.parent.mkdir()
     slurm._write_journal(legacy_journal, ("750",))
-    events = []
-
-    class LegacyJob(FakeJob):
-        def wait(self) -> None:
-            events.append("legacy-terminal")
-            super().wait()
-
-    class OrderedExecutor(FakeExecutor):
-        def map_array(self, function, specs):  # type: ignore[no-untyped-def]
-            events.append("new-submission")
-            return super().map_array(function, specs)
-
-    legacy_job = LegacyJob(job_id="750")
+    before = legacy_journal.read_bytes(), legacy_journal.stat().st_mtime_ns
     reconstructed = []
-    OrderedExecutor.jobs = [FakeJob("new")]
 
     def factory(folder: Path, job_id: str) -> FakeJob:
         reconstructed.append((folder, job_id))
-        return legacy_job
+        return FakeJob(job_id=job_id)
 
     backend = SlurmBackend(
         tmp_path,
         1,
         {},
-        executor_factory=OrderedExecutor,
+        executor_factory=FakeExecutor,
         job_factory=factory,
     )
 
-    assert list(backend.map(str, (1,))) == ["new"]
-    assert reconstructed == [(tmp_path / ".submitit/%j", "750")]
-    assert events[:2] == ["legacy-terminal", "new-submission"]
-    assert legacy_job.cancelled and legacy_job.wait_calls == 1
-    assert not legacy_journal.exists()
-    assert legacy_journal.parent.is_dir()
+    with pytest.raises(RuntimeError, match="read-only"):
+        list(backend.map(str, (1,)))
+
+    assert not reconstructed and not FakeExecutor.instances
+    assert (legacy_journal.read_bytes(), legacy_journal.stat().st_mtime_ns) == before
 
 
 def test_slurm_backend_rejects_symlinked_legacy_state_before_submit(
@@ -342,11 +335,81 @@ def test_slurm_backend_refuses_unsafe_leftover_journal_before_executor(
         executor_factory=FakeExecutor,
     )
 
-    with pytest.raises(ValueError, match="journal"):
+    with pytest.raises(ValueError, match="SLURM|journal"):
         list(backend.map(str, (1,)))
 
     assert journal.exists() or journal.is_symlink()
     assert FakeExecutor.instances == []
+
+
+def test_slurm_submission_failure_leaves_durable_intent_and_blocks_retry(
+    tmp_path: Path,
+) -> None:
+    class UncertainExecutor(FakeExecutor):
+        def map_array(self, function, specs):  # type: ignore[no-untyped-def]
+            raise OSError("scheduler reply lost")
+
+    backend = SlurmBackend(tmp_path, 1, {}, executor_factory=UncertainExecutor)
+    with pytest.raises(slurm.PublicationOutcomeUnknown, match="outcome is unknown"):
+        list(backend.map(str, (1,)))
+
+    intent = json.loads(intent_path(tmp_path).read_text())
+    assert intent["version"] == 1 and intent["specCount"] == 1
+    assert slurm.SUBMISSION_ID.fullmatch(intent["submissionId"])
+    assert not journal_path(tmp_path).exists()
+    UncertainExecutor.instances = []
+
+    with pytest.raises(slurm.PublicationOutcomeUnknown, match="inspect the scheduler"):
+        list(backend.map(str, (1,)))
+    assert not UncertainExecutor.instances
+
+
+def test_slurm_reconciles_matching_intent_and_journal_after_crash(
+    tmp_path: Path,
+) -> None:
+    state = slurm_state(tmp_path)
+    state.mkdir(parents=True)
+    submission = slurm.SubmissionIntent("a" * 32, 1)
+    journal = slurm.ActiveJobs(("910",), submission.submission_id)
+    slurm._write_intent(intent_path(tmp_path), submission)
+    slurm._write_journal(journal_path(tmp_path), journal)
+    job = FakeJob(job_id="910")
+    backend = SlurmBackend(
+        tmp_path,
+        1,
+        {},
+        executor_factory=FakeExecutor,
+        job_factory=lambda folder, job_id: job,
+    )
+
+    assert list(backend.map(str, ())) == []
+    assert job.cancelled and job.wait_calls == 1
+    assert not intent_path(tmp_path).exists() and not journal_path(tmp_path).exists()
+
+
+@pytest.mark.parametrize("linked", [False, True])
+def test_slurm_recovers_interrupted_journal_publication(
+    tmp_path: Path, linked: bool
+) -> None:
+    state = slurm_state(tmp_path)
+    state.mkdir(parents=True)
+    journal = slurm.ActiveJobs(("920",))
+    temporary = state / (f".{slurm.ACTIVE_JOB_JOURNAL}." + "b" * 32 + ".tmp")
+    temporary.write_bytes(slurm._journal_bytes(journal))
+    if linked:
+        os.link(temporary, journal_path(tmp_path))
+    job = FakeJob(job_id="920")
+    backend = SlurmBackend(
+        tmp_path,
+        1,
+        {},
+        executor_factory=FakeExecutor,
+        job_factory=lambda folder, job_id: job,
+    )
+
+    assert list(backend.map(str, ())) == []
+    assert job.cancelled and job.wait_calls == 1
+    assert not temporary.exists() and not journal_path(tmp_path).exists()
 
 
 def test_remote_job_is_named_serializable_and_revalidates_context(

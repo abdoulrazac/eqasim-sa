@@ -116,6 +116,16 @@ campaigns/grid/
 │       └── travel.parquet
 ├── logs/
 │   └── <runId>.log
+├── .eqasim-sa/
+│   ├── locks/
+│   │   ├── runs/<runId>.lock
+│   │   ├── analysis.lock
+│   │   └── slurm.lock
+│   ├── transactions/
+│   └── slurm/
+│       ├── submission-intent.json  # tant que l'issue de soumission est inconnue
+│       ├── active-jobs.json        # tant que les jobs sont possédés
+│       └── submitit/
 ├── analysis/
 │   ├── staging/
 │   └── generations/
@@ -136,12 +146,18 @@ indicateurs sont exécutées, avec `synthesis.output` toujours présente.
 Les sorties d'analyse finales résident dans un unique répertoire immuable
 `analysis/generations/<generationId>/`. `analysis/staging/` ne contient que le
 travail transactionnel et reste vide après la fin normale d'une commande.
+`.eqasim-sa/` regroupe la coordination technique durable propre à la campagne :
+leases privées aux modules, transactions run sur le même filesystem et état
+Submitit. Ce répertoire n'est pas du scratch, n'est jamais créé dans le parent
+de la campagne et disparaît avec elle. Les anciens `.eqasim-sa-tmp`,
+`.eqasim-sa-run-locks`, `.submitit` et locks de parent sont acceptés par `init`
+lorsqu'ils sont sûrs, mais les commandes courantes ne les recréent pas.
 
 ```text
 scratch/eqasim-sa/<campaign>/workers/<slot>/
 ├── lease.lock
-├── state.json
-├── cache/
+├── state-<contextHash>.json
+├── cache/<contextHash>/
 └── attempt-<uuid>/
 ```
 
@@ -362,9 +378,11 @@ et n'envoie que les runs manquants. Une relance après interruption reprend donc
 sans recalculer les runs complets. Une relance totalement complète renvoie un
 succès avec `total: 0`.
 
-Les écritures Parquet utilisent un fichier temporaire, `fsync` et remplacement
-atomique. `analyze` sauvegarde les sources et sorties avant publication et les
-restaure si un indicateur les mute ou si l'analyse échoue.
+Les écritures durables utilisent un staging sur le même filesystem, `fsync` et
+soit une création exclusive, soit un remplacement restaurable. `analyze`
+capture une coupe stable de la campagne, sérialise dans sa transaction de
+génération privée et ne déplace le pointeur qu'après avoir revérifié toutes les
+sources sélectionnées.
 
 Ne réparez jamais un état en créant un marqueur ou en modifiant un plan. Corrigez
 la cause, supprimez seulement le scratch jetable si aucun processus n'est actif,
@@ -374,11 +392,14 @@ puis relancez la même commande.
 
 Les runs sont distribués en lots entre au plus `workers` slots. Chaque slot
 traite son lot en série et réutilise son cache. Un lease privé empêche deux
-processus d'utiliser le même cache. `state.json` vaut `active` ou `clean`; un
-état absent, invalide ou non propre entraîne la purge du cache avant réutilisation.
+processus d'utiliser le même cache. `state-<contextHash>.json` vaut `active` ou
+`clean`; un état absent, invalide ou non propre entraîne la purge du cache avant
+réutilisation.
 
-Un lease par `runId` complète cette protection côté SLURM. Les caches ne sont
-jamais partagés entre slots.
+Un lease par `runId` complète cette protection entre invocations. La publication
+d'analyse et le journal SLURM possèdent chacun leur lease privée. Aucun lock
+d'orchestration global n'existe. Les caches ne sont jamais partagés entre slots
+ou contextes.
 
 ## Local et SLURM
 
@@ -386,6 +407,14 @@ Le backend local lance les lots en parallèle dans le processus de commande et
 interrompt les groupes de sous-processus sur `Ctrl-C`. Le backend SLURM utilise
 Submitit, un job array et `slurm_array_parallelism=workers`; chaque job recharge
 la méta-configuration et revérifie son SHA-256 et le `contextHash`.
+Les fichiers Submitit, l'intention durable de soumission et le journal des jobs
+actifs résident sous `<campaign>/.eqasim-sa/slurm/`; aucun état ordonnanceur
+n'est dispersé parmi les sorties scientifiques. L'intention est écrite avant de
+contacter l'ordonnanceur : si sa réponse est perdue, elle bloque toute relance
+automatique jusqu'à vérification humaine, ce qui évite les tableaux dupliqués.
+Les hardlinks temporaires interrompus des journaux courants sont récupérés. Les
+journaux historiques `.submitit` sont inspectés sans être modifiés et doivent
+être réconciliés avec la version qui les a créés.
 
 Le code et les tests couvrent la construction et le comportement simulé du
 backend SLURM. Ils ne constituent pas une validation sur un cluster SLURM réel.
