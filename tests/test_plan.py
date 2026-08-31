@@ -18,6 +18,24 @@ from eqasim_sa.core.indicators import ArtifactSet
 from eqasim_sa.core.plan import GridDesign, build_plan
 from eqasim_sa.core.run import compute_run_id
 from eqasim_sa.ports.simulator import IndicatorRequirement
+from tests.provenance_helpers import (
+    context_hash as provenance_context_hash,
+    scientific_context_descriptor,
+)
+
+
+class _PluginDistribution:
+    name = "test-indicator-plugin"
+    version = "1.0.0"
+    files = (Path("tests/test_plan.py"),)
+
+    def locate_file(self, path: Path) -> Path:
+        return Path(__file__).parent.parent / path
+
+
+def _context() -> tuple[dict[str, str], str]:
+    descriptor = scientific_context_descriptor()
+    return descriptor, provenance_context_hash(descriptor)
 
 
 def base() -> dict:
@@ -58,13 +76,14 @@ def design(root: Path, **changes) -> GridDesign:
 
 
 def morris_design(root: Path, **changes):  # type: ignore[no-untyped-def]
+    descriptor, context_hash = _context()
     values = dict(
         base_config=base(),
         factors={"b": [-1.0, 1.0], "a": [0, 2, 5]},
         seeds=(41, 42),
         requirements={"run": ["stage"]},
-        context_hash="c" * 64,
-        context_descriptor={"version": "test"},
+        context_hash=context_hash,
+        context_descriptor=descriptor,
         campaign_root=root,
         trajectories=3,
         design_seed=20260814,
@@ -74,13 +93,14 @@ def morris_design(root: Path, **changes):  # type: ignore[no-untyped-def]
 
 
 def sobol_design(root: Path, **changes):  # type: ignore[no-untyped-def]
+    descriptor, context_hash = _context()
     values = dict(
         base_config=base(),
         factors={"b": ["x", "y", "z"], "a": [1, 2]},
         seeds=(101, 102, 103),
         requirements={"run": ["stage"]},
-        context_hash="c" * 64,
-        context_descriptor={"version": "test"},
+        context_hash=context_hash,
+        context_descriptor=descriptor,
         campaign_root=root,
         base_sample_size=4,
         design_seed=20260814,
@@ -182,7 +202,9 @@ def test_sobol_exact_qmc_mapping_roles_identity_metadata_and_cardinality(
     assert table.schema.metadata == {
         b"planSchemaVersion": b"1",
         b"canonicalizationVersion": b"1",
-        b"contextDescriptor": b'{"version":"test"}',
+        b"contextDescriptor": json.dumps(
+            current.context_descriptor, sort_keys=True, separators=(",", ":")
+        ).encode(),
         b"sobolDesignVersion": b"1",
         b"sobolDesign": encoded,
     }
@@ -190,13 +212,14 @@ def test_sobol_exact_qmc_mapping_roles_identity_metadata_and_cardinality(
 
 
 def test_sobol_rejects_factor_without_effective_projected_contrast(tmp_path: Path):
+    descriptor, context_hash = _context()
     design = plan_module.SobolDesign(
         base(),
         {"sampling_rate": [0.001, 0.002], "matching_age_scheme": ["matching_6", "analysis_7"]},
         (1401, 1402),
         {},
-        "c" * 64,
-        {"version": "test"},
+        context_hash,
+        descriptor,
         tmp_path / "degenerate",
         2,
         20260814,
@@ -207,13 +230,14 @@ def test_sobol_rejects_factor_without_effective_projected_contrast(tmp_path: Pat
 
 
 def test_sobol_accepts_identifiable_factors_with_position_deduplication(tmp_path: Path):
+    descriptor, context_hash = _context()
     design = plan_module.SobolDesign(
         base(),
         {"sampling_rate": [0.001, 0.002], "matching_age_scheme": ["matching_6", "analysis_7"]},
         (1401, 1402),
         {},
-        "c" * 64,
-        {"version": "test"},
+        context_hash,
+        descriptor,
         tmp_path / "valid",
         4,
         20260814,
@@ -393,6 +417,32 @@ def test_sobol_meta_config_rejects_non_int64_cardinalities(
         load_meta_config(meta)
 
 
+@pytest.mark.parametrize("limit", ["resamples", "work"])
+def test_sobol_bootstrap_caps_precede_indicator_plugin_resolution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    limit: str,
+) -> None:
+    meta, _, _, _ = meta_fixture(tmp_path)
+    _sobol_meta(
+        meta,
+        bootstrap_resamples=(
+            plan_module.MAX_BOOTSTRAP_RESAMPLES + 1
+            if limit == "resamples"
+            else 19
+        ),
+    )
+    monkeypatch.setattr(
+        "eqasim_sa.adapters.meta_config._indicator_blocks",
+        lambda *args: (_ for _ in ()).throw(AssertionError("plugins resolved")),
+    )
+    if limit == "work":
+        monkeypatch.setattr(plan_module, "MAX_BOOTSTRAP_WORK_CELLS", 1)
+
+    with pytest.raises(ValueError, match="operational safe cap"):
+        load_meta_config(meta)
+
+
 def test_sobol_meta_config_requires_at_least_two_seed_values_with_specific_message(
     tmp_path: Path,
 ) -> None:
@@ -485,6 +535,41 @@ def test_grid_schema_order_identity_and_no_mutation(tmp_path: Path) -> None:
     ]
     assert {row["method"] for row in rows} == {"grid"}
     assert {row["role"] for row in rows} == {"point"}
+
+
+def test_universal_position_cap_precedes_table_allocation_for_core_methods(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert plan_module.MAX_PLAN_POSITIONS == 1_000_000
+    assert plan_module.MAX_PLAN_CELLS == 20_000_000
+    monkeypatch.setattr(plan_module, "MAX_PLAN_POSITIONS", 1)
+    monkeypatch.setattr(
+        plan_module,
+        "_table",
+        lambda *args: (_ for _ in ()).throw(AssertionError("table allocated")),
+    )
+
+    for current in (
+        design(tmp_path / "grid"),
+        morris_design(tmp_path / "morris"),
+        sobol_design(tmp_path / "sobol"),
+    ):
+        with pytest.raises(ValueError, match="safe cap of 1 design positions"):
+            build_plan(current)
+
+
+def test_universal_cell_cap_precedes_grid_table_allocation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(plan_module, "MAX_PLAN_CELLS", 95)
+    monkeypatch.setattr(
+        plan_module,
+        "_table",
+        lambda *args: (_ for _ in ()).throw(AssertionError("table allocated")),
+    )
+
+    with pytest.raises(ValueError, match="safe cap of 95 table cells"):
+        build_plan(design(tmp_path / "grid"))
 
 
 def test_morris_exact_mixed_radix_factoradic_rows_and_metadata(tmp_path: Path) -> None:
@@ -586,7 +671,9 @@ def test_morris_exact_mixed_radix_factoradic_rows_and_metadata(tmp_path: Path) -
     assert table.schema.metadata == {
         b"planSchemaVersion": b"1",
         b"canonicalizationVersion": b"1",
-        b"contextDescriptor": b'{"version":"test"}',
+        b"contextDescriptor": json.dumps(
+            current.context_descriptor, sort_keys=True, separators=(",", ":")
+        ).encode(),
         b"morrisDesignVersion": b"1",
         b"morrisDesign": json.dumps(
             {**definition, "trajectories": 3}, sort_keys=True, separators=(",", ":")
@@ -743,18 +830,62 @@ def test_morris_meta_config_is_strict(tmp_path: Path, change, message: str) -> N
         load_meta_config(meta)
 
 
-def test_duplicates_preserve_positions_share_runs_and_replay(tmp_path: Path) -> None:
+def test_duplicates_preserve_exact_plan_and_memoize_resolved_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = {"resolve": 0, "run_id": 0}
+    real_resolve = plan_module.resolve_config
+    real_compute = plan_module.compute_run_id
+
+    def counted_resolve(*args):  # type: ignore[no-untyped-def]
+        calls["resolve"] += 1
+        return real_resolve(*args)
+
+    def counted_compute(*args):  # type: ignore[no-untyped-def]
+        calls["run_id"] += 1
+        return real_compute(*args)
+
+    monkeypatch.setattr(plan_module, "resolve_config", counted_resolve)
+    monkeypatch.setattr(plan_module, "compute_run_id", counted_compute)
     current = design(tmp_path / "campaign", factors={"a": [1, 1]}, seeds=(4, 5))
     first = build_plan(current)
     path = tmp_path / "campaign" / "plan.parquet"
     before, mtime = path.read_bytes(), path.stat().st_mtime_ns
+    assert calls == {"resolve": 2, "run_id": 2}
+    assert hashlib.sha256(before).hexdigest() == (
+        "ac0869dd6d8d25778c5d7ed1c4b1470985ee1e4c8ee7d7b2e2445152b871a35a"
+    )
     second = build_plan(current)
     rows = pq.read_table(path).to_pylist()
+    assert calls == {"resolve": 4, "run_id": 4}
     assert first.status == "created" and second.status == "unchanged"
     assert len({row["designId"] for row in rows}) == 4
     assert rows[0]["runId"] == rows[2]["runId"]
     assert rows[0]["runId"] != rows[1]["runId"]
     assert path.read_bytes() == before and path.stat().st_mtime_ns == mtime
+
+
+def test_memoization_key_distinguishes_signed_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = 0
+    real_compute = plan_module.compute_run_id
+
+    def counted_compute(*args):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+        return real_compute(*args)
+
+    monkeypatch.setattr(plan_module, "compute_run_id", counted_compute)
+    current = design(
+        tmp_path / "campaign", factors={"a": [-0.0, 0.0, -0.0]}, seeds=(4,)
+    )
+    build_plan(current)
+    rows = pq.read_table(current.campaign_root / "plan.parquet").to_pylist()
+
+    assert calls == 2
+    assert rows[0]["runId"] != rows[1]["runId"]
+    assert rows[0]["runId"] == rows[2]["runId"]
 
 
 def test_factor_mapping_order_is_ignored_but_level_order_changes_design(
@@ -1178,10 +1309,16 @@ def test_meta_config_parses_strict_artifacts_and_three_indicator_forms(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    loads = []
+
     class EntryPoint:
+        group = "eqasim_sa.indicators"
         name = "extension"
+        value = "tests.test_plan:extension"
+        dist = _PluginDistribution()
 
         def load(self):  # type: ignore[no-untyped-def]
+            loads.append(self.name)
             return lambda artifacts: 1.0
 
     class EntryPoints(tuple):
@@ -1198,16 +1335,18 @@ def test_meta_config_parses_strict_artifacts_and_three_indicator_forms(
         + (
             "artifacts:\n"
             "  age:\n    class: Age class\n    synthetic: Proportion_EQASIM\n    references: [INSEE]\n"
+            "  distance:\n    class: Distance class\n    synthetic: Proportion_EQASIM\n    references: [HTS]\n"
             "indicators:\n"
             "  - pair: {scalarizer: tv_distance, artifact: age, reference: INSEE}\n"
-            "  - product: {scalarizers: [tv_distance], artifacts: [age]}\n"
+            "  - product: {scalarizers: [tv_distance], artifacts: [distance]}\n"
             "  - custom: {function: extension, artifact: age}\n"
         )
     )
     loaded = load_meta_config(meta)
+    assert loads == []
     assert loaded.indicator_requirements == (
         IndicatorRequirement("tv_distance(age, ref=INSEE)", "age"),
-        IndicatorRequirement("tv_distance(age, ref=INSEE)", "age"),
+        IndicatorRequirement("tv_distance(distance, ref=HTS)", "distance"),
         IndicatorRequirement("extension(age)", "age"),
     )
 
@@ -1254,12 +1393,62 @@ def test_custom_indicator_entry_point_class_is_instantiated_without_arguments(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    loads = []
+
     class Extension:
         def compute(self, artifacts):  # type: ignore[no-untyped-def]
             return 1.0
 
     class EntryPoint:
+        group = "eqasim_sa.indicators"
         name = "extension"
+        value = "tests.test_plan:extension"
+        dist = _PluginDistribution()
+
+        def load(self):  # type: ignore[no-untyped-def]
+            loads.append(self.name)
+            return Extension
+
+    class EntryPoints(tuple):
+        def select(self, **selection):  # type: ignore[no-untyped-def]
+            return self if selection == {"group": "eqasim_sa.indicators"} else ()
+
+    monkeypatch.setattr(
+        "eqasim_sa.adapters.meta_config.importlib.metadata.entry_points",
+        lambda: EntryPoints((EntryPoint(),)),
+    )
+    meta, _, _, _ = meta_fixture(tmp_path)
+    meta.write_text(
+        meta.read_text()
+        + (
+            "artifacts:\n  age: {class: c, synthetic: s, references: []}\n"
+            "indicators:\n  - custom: {function: extension, artifact: age}\n"
+        )
+    )
+    loaded = load_meta_config(meta)
+    assert loads == []
+    artifact = tmp_path / "age.parquet"
+    pq.write_table(pa.table({"value": [1]}), artifact)
+    assert loaded.indicators[0].compute(ArtifactSet({"age": artifact})) == 1.0
+    assert loads == ["extension"]
+
+
+def test_custom_indicator_entry_point_class_requiring_arguments_is_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Extension:
+        def __init__(self, required):  # type: ignore[no-untyped-def]
+            self.required = required
+
+        def compute(self, artifacts):  # type: ignore[no-untyped-def]
+            return 1.0
+
+    class EntryPoint:
+        group = "eqasim_sa.indicators"
+        name = "extension"
+        value = "tests.test_plan:extension"
+        dist = _PluginDistribution()
 
         def load(self):  # type: ignore[no-untyped-def]
             return Extension
@@ -1283,41 +1472,5 @@ def test_custom_indicator_entry_point_class_is_instantiated_without_arguments(
     loaded = load_meta_config(meta)
     artifact = tmp_path / "age.parquet"
     pq.write_table(pa.table({"value": [1]}), artifact)
-    assert loaded.indicators[0].compute(ArtifactSet({"age": artifact})) == 1.0
-
-
-def test_custom_indicator_entry_point_class_requiring_arguments_is_rejected(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class Extension:
-        def __init__(self, required):  # type: ignore[no-untyped-def]
-            self.required = required
-
-        def compute(self, artifacts):  # type: ignore[no-untyped-def]
-            return 1.0
-
-    class EntryPoint:
-        name = "extension"
-
-        def load(self):  # type: ignore[no-untyped-def]
-            return Extension
-
-    class EntryPoints(tuple):
-        def select(self, **selection):  # type: ignore[no-untyped-def]
-            return self if selection == {"group": "eqasim_sa.indicators"} else ()
-
-    monkeypatch.setattr(
-        "eqasim_sa.adapters.meta_config.importlib.metadata.entry_points",
-        lambda: EntryPoints((EntryPoint(),)),
-    )
-    meta, _, _, _ = meta_fixture(tmp_path)
-    meta.write_text(
-        meta.read_text()
-        + (
-            "artifacts:\n  age: {class: c, synthetic: s, references: []}\n"
-            "indicators:\n  - custom: {function: extension, artifact: age}\n"
-        )
-    )
     with pytest.raises(TypeError, match="extension.*without arguments"):
-        load_meta_config(meta)
+        loaded.indicators[0].compute(ArtifactSet({"age": artifact}))

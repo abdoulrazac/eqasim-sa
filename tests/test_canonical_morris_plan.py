@@ -1,7 +1,6 @@
 import copy
 import hashlib
 import json
-import math
 from pathlib import Path
 
 import pyarrow.parquet as pq
@@ -16,20 +15,27 @@ from eqasim_sa.core.charter import (
     serialize_scientific_contract,
 )
 from eqasim_sa.core.plan import (
-    CANONICAL_MORRIS_DOMAIN,
+    MAX_BOOTSTRAP_RESAMPLES,
     CanonicalMorrisDesign,
     DiscreteOATDesign,
     MorrisDesign,
     _available_scientific_runs,
     _canonical_definition,
     _discrete_uniform_generalized_inverse_index,
-    _trajectory_distance,
     build_plan,
     estimate_plan,
     load_run_specs,
 )
+from eqasim_sa.core.sensitivity import engine_descriptor, morris_unit_trajectories
 from tests.test_charter import _scientific
 from tests.test_plan import base, meta_fixture
+from tests.provenance_helpers import (
+    TEST_EQASIM_SA_SHA256,
+    TEST_EQASIM_SA_VERSION,
+    context_hash,
+    scientific_context_descriptor,
+    scientific_indicator_definition,
+)
 
 
 def _scientific_contract(factors: dict[str, list], distributions: dict[str, dict]) -> dict:
@@ -84,7 +90,7 @@ def _scientific_contract(factors: dict[str, list], distributions: dict[str, dict
                     {
                         "metric": "rank_stability",
                         "threshold": 0.05,
-                        "consecutive_checks": 2,
+                        "consecutive_checks": 1,
                     }
                 ]
             },
@@ -99,12 +105,23 @@ def _scientific_contract(factors: dict[str, list], distributions: dict[str, dict
         },
         set(factors),
         {"synthetic(value)"},
+        {
+            "synthetic(value)": scientific_indicator_definition(
+                "synthetic", "value"
+            )
+        },
     )
     typed_distributions = {
         name: parse_distribution(distribution, name)
         for name, distribution in distributions.items()
     }
-    return serialize_scientific_contract(charter, factors, typed_distributions)
+    return serialize_scientific_contract(
+        charter,
+        factors,
+        typed_distributions,
+        TEST_EQASIM_SA_VERSION,
+        TEST_EQASIM_SA_SHA256,
+    )
 
 
 def canonical_design(root: Path, **changes) -> CanonicalMorrisDesign:
@@ -117,13 +134,18 @@ def canonical_design(root: Path, **changes) -> CanonicalMorrisDesign:
         }
         for name in factors
     }
+    descriptor = scientific_context_descriptor()
+    context_hash = hashlib.sha256(
+        b"eqasim-sa:context:v1\0"
+        + json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
     values = dict(
         base_config=base(),
         factors=factors,
         seeds=(41, 42),
         requirements={"run": ["stage"]},
-        context_hash="c" * 64,
-        context_descriptor={"version": "test"},
+        context_hash=context_hash,
+        context_descriptor=descriptor,
         campaign_root=root,
         trajectories=3,
         levels=4,
@@ -149,20 +171,29 @@ def canonical_design(root: Path, **changes) -> CanonicalMorrisDesign:
             for name in values["factors"]
         }
     if "scientific_contract" not in changes:
+        contract_factors = values["factors"]
+        contract_distributions = values["distributions"]
+        if any(
+            len(support) < 2 or len(set(support)) != len(support)
+            for support in contract_factors.values()
+        ):
+            contract_factors = factors
+            contract_distributions = distributions
         values["scientific_contract"] = _scientific_contract(
-            values["factors"], values["distributions"]
+            contract_factors, contract_distributions
         )
     return CanonicalMorrisDesign(**values)
 
 
 def discrete_design(root: Path, cls=DiscreteOATDesign):  # type: ignore[no-untyped-def]
+    descriptor = scientific_context_descriptor()
     return cls(
         base(),
         {"b": [-1.0, 1.0], "a": [0, 2, 5]},
         (41,),
         {"run": ["stage"]},
-        "c" * 64,
-        {"version": "test"},
+        context_hash(descriptor),
+        descriptor,
         root,
         16,
         20260814,
@@ -173,11 +204,12 @@ def canonical_meta(tmp_path: Path) -> Path:
     tmp_path.mkdir(parents=True, exist_ok=True)
     meta, _, _, _ = meta_fixture(tmp_path)
     document = _scientific(meta)
+    document["charter"]["stopping"]["criteria"][0]["consecutive_checks"] = 1
     document["experiment"] = {
         "method": "canonical_morris",
         "seed_role": "replication",
         "levels": 4,
-        "trajectories": 2,
+        "trajectories": 3,
         "candidate_trajectories": 8,
         "design_seed": 20260820,
         "replications": {"seeds": [41, 42]},
@@ -186,7 +218,7 @@ def canonical_meta(tmp_path: Path) -> Path:
         "completeness_threshold": 1.0,
         "bootstrap_resamples": 101,
         "confidence_level": 0.95,
-        "convergence_checkpoints": [2],
+        "convergence_checkpoints": [2, 3],
         "screening_top_k": 2,
     }
     meta.write_text(yaml.safe_dump(document, sort_keys=False))
@@ -224,16 +256,40 @@ def test_canonical_exact_delta_grid_mapping_cardinality_crn_and_metadata(
 
     assert result.design_positions == 3 * (2 + 1) * 2
     assert table.schema.metadata[b"planSchemaVersion"] == b"2"
+    assert table.schema.metadata[b"canonicalMorrisDesignVersion"] == b"3"
     assert metadata["delta"] == {"numerator": 2, "denominator": 3}
     assert metadata["p"] == 4
     assert metadata["inverseCdfMap"] == "discrete-uniform-generalized-inverse-v1"
-    assert metadata["selectionAlgorithm"] == "greedy-sum-pairwise-squared-distance"
-    assert metadata["selectionVersion"] == 1
+    assert metadata["numericalEngine"] == engine_descriptor(
+        "canonical_morris",
+        sample_size=design.candidate_trajectories,
+        sample_seeds=(design.design_seed,),
+        levels=design.levels,
+        selected_trajectories=design.trajectories,
+    )
     assert metadata["replicationBaseSeeds"] == [41, 42]
     assert metadata["seedDerivation"]["version"] == 1
-    assert len(metadata["candidatePoolIdentities"]) == 12
-    assert len(set(metadata["candidatePoolIdentities"])) == 12
-    assert [item["selectionOrder"] for item in metadata["selectedTrajectories"]] == [0, 1, 2]
+    expected_matrices = morris_unit_trajectories(
+        ("a", "b"),
+        candidate_trajectories=12,
+        selected_trajectories=3,
+        levels=4,
+        seed=20260820,
+    )
+    assert metadata["selectedTrajectories"] == [
+        {
+            "matrix": matrix,
+            "trajectoryId": hashlib.sha256(
+                b"eqasim-sa:design:canonical-morris:v3\0"
+                + json.dumps(
+                    {"matrix": matrix, "selectedIndex": index},
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest(),
+        }
+        for index, matrix in enumerate(expected_matrices)
+    ]
     assert metadata["scientificContract"] == design.scientific_contract
     assert metadata["scientificContract"]["charter"]["stochastic"]["target"] == "conditional_mean"
     assert not ({"unitA", "unitB"} & set(table.column_names))
@@ -317,67 +373,49 @@ def test_canonical_is_order_independent_and_sensitive_to_seed_and_support_order(
     assert (changed_support.campaign_root / "plan.parquet").read_bytes() != original
 
 
-def test_canonical_greedy_selection_and_tie_break_are_deterministic(tmp_path: Path) -> None:
+def test_canonical_salib_selection_and_trajectory_ids_are_deterministic(
+    tmp_path: Path,
+) -> None:
     design = canonical_design(tmp_path / "campaign")
     definition, selected = _canonical_definition(design, tuple(sorted(design.factors)))
-    selected_ids = [identity for identity, _ in selected]
     again = _canonical_definition(copy.deepcopy(design), tuple(sorted(design.factors)))
     assert again == (definition, selected)
 
-    candidate_definition = definition["candidateDefinition"]
-    encoded = json.dumps(candidate_definition, sort_keys=True, separators=(",", ":")).encode()
-    universe = math.factorial(2) * 4**2
-    offset = int.from_bytes(
-        hashlib.sha256(CANONICAL_MORRIS_DOMAIN + encoded + b"\0offset").digest(), "big"
-    ) % universe
-    stride = int.from_bytes(
-        hashlib.sha256(CANONICAL_MORRIS_DOMAIN + encoded + b"\0stride").digest(), "big"
-    ) % universe or 1
-    while math.gcd(stride, universe) != 1:
-        stride = (stride + 1) % universe or 1
-    from eqasim_sa.core.plan import _canonical_candidate
-
-    pool = {}
-    for index in range(design.candidate_trajectories):
-        matrix = _canonical_candidate((offset + index * stride) % universe, 2, 4)
-        identity = hashlib.sha256(
-            json.dumps(matrix, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()
-        pool[identity] = matrix
-    identities = sorted(pool)
-    pairs = [
-        (left, right)
-        for index, left in enumerate(identities)
-        for right in identities[index + 1 :]
-    ]
-    maximum_pair_distance = max(
-        _trajectory_distance(pool[left], pool[right]) for left, right in pairs
+    matrices = morris_unit_trajectories(
+        ("a", "b"),
+        candidate_trajectories=design.candidate_trajectories,
+        selected_trajectories=design.trajectories,
+        levels=design.levels,
+        seed=design.design_seed,
     )
-    expected_pair = min(
-        pair
-        for pair in pairs
-        if _trajectory_distance(pool[pair[0]], pool[pair[1]])
-        == maximum_pair_distance
-    )
-    assert selected_ids[:2] == list(expected_pair)
-
-    remaining = sorted(set(pool) - set(expected_pair))
-    scores = {
-        candidate: sum(
-            sum(
-                (left - right) ** 2
-                for left_point in pool[candidate]
-                for right_point in pool[chosen]
-                for left, right in zip(left_point, right_point)
-            )
-            for chosen in expected_pair
+    expected = [
+        (
+            hashlib.sha256(
+                b"eqasim-sa:design:canonical-morris:v3\0"
+                + json.dumps(
+                    {"matrix": matrix, "selectedIndex": index},
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest(),
+            matrix,
         )
-        for candidate in remaining
-    }
-    expected_third = min(
-        candidate for candidate in remaining if scores[candidate] == max(scores.values())
+        for index, matrix in enumerate(matrices)
+    ]
+    assert selected == expected
+    assert definition["numericalEngine"] == engine_descriptor(
+        "canonical_morris",
+        sample_size=design.candidate_trajectories,
+        sample_seeds=(design.design_seed,),
+        levels=design.levels,
+        selected_trajectories=design.trajectories,
     )
-    assert selected_ids[2] == expected_third
+    assert definition["selectedTrajectories"] == [
+        {"matrix": matrix, "trajectoryId": identity}
+        for identity, matrix in expected
+    ]
+    assert "candidatePoolIdentities" not in definition
+    assert "selectionAlgorithm" not in definition
 
 
 def test_discrete_uniform_generalized_inverse_exact_jump_boundaries() -> None:
@@ -396,6 +434,7 @@ def test_discrete_uniform_generalized_inverse_exact_jump_boundaries() -> None:
         ({"trajectories": 0}, "trajectories"),
         ({"trajectories": 1, "convergence_checkpoints": (1,)}, "trajectories"),
         ({"candidate_trajectories": 2}, "candidate_trajectories"),
+        ({"candidate_trajectories": 3}, "strictly greater"),
         ({"candidate_trajectories": 33}, "candidate_trajectories"),
         ({"candidate_trajectories": 501}, "candidate_trajectories"),
         ({"design_seed": 2**63}, "design_seed"),
@@ -423,6 +462,60 @@ def test_canonical_core_validation_boundaries(
         build_plan(canonical_design(tmp_path / "campaign", **changes))
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("metric", "ci_width", "rank_stability"),
+        ("consecutive_checks", 2, "at most 1"),
+    ],
+)
+def test_canonical_stopping_is_rejected_in_meta_and_core_plan_validation(
+    tmp_path: Path,
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    meta = canonical_meta(tmp_path / "meta")
+    document = yaml.safe_load(meta.read_text())
+    document["charter"]["stopping"]["criteria"][0][field] = value
+    meta.write_text(yaml.safe_dump(document, sort_keys=False))
+    with pytest.raises(ValueError, match=message):
+        load_meta_config(meta)
+
+    design = canonical_design(tmp_path / "core")
+    contract = copy.deepcopy(design.scientific_contract)
+    contract["charter"]["stopping"][0][field] = value
+    with pytest.raises(ValueError, match=message):
+        build_plan(
+            canonical_design(
+                tmp_path / "core", scientific_contract=contract
+            )
+        )
+
+
+def test_canonical_bootstrap_caps_precede_plan_table_allocation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import eqasim_sa.core.plan as plan_module
+
+    monkeypatch.setattr(
+        plan_module,
+        "_table",
+        lambda *args: (_ for _ in ()).throw(AssertionError("table allocated")),
+    )
+    with pytest.raises(ValueError, match="operational safe cap"):
+        build_plan(
+            canonical_design(
+                tmp_path / "resamples",
+                bootstrap_resamples=MAX_BOOTSTRAP_RESAMPLES + 1,
+            )
+        )
+
+    monkeypatch.setattr(plan_module, "MAX_BOOTSTRAP_WORK_CELLS", 1)
+    with pytest.raises(ValueError, match="bootstrap work.*work cells"):
+        build_plan(canonical_design(tmp_path / "work"))
+
+
 def test_canonical_rejects_excessive_selection_work(tmp_path: Path) -> None:
     factors = {f"factor_{index}": [0, 1] for index in range(10)}
     with pytest.raises(ValueError, match="distance-computation budget"):
@@ -438,18 +531,42 @@ def test_canonical_rejects_excessive_selection_work(tmp_path: Path) -> None:
         )
 
 
+def test_universal_position_cap_precedes_trajectory_table_allocation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import eqasim_sa.core.plan as plan_module
+
+    monkeypatch.setattr(plan_module, "MAX_PLAN_POSITIONS", 1)
+    monkeypatch.setattr(
+        plan_module,
+        "_table",
+        lambda *args: (_ for _ in ()).throw(AssertionError("table allocated")),
+    )
+
+    for design in (
+        discrete_design(tmp_path / "discrete"),
+        canonical_design(tmp_path / "canonical"),
+    ):
+        with pytest.raises(ValueError, match="safe cap of 1 design positions"):
+            build_plan(design)
+
+
 def test_canonical_meta_contract_is_typed_sealed_and_reconstructed(tmp_path: Path) -> None:
     meta = canonical_meta(tmp_path)
     loaded = load_meta_config(meta)
     assert loaded.method == "canonical_morris"
     assert loaded.levels == 4 and loaded.candidate_trajectories == 8
-    assert loaded.convergence_checkpoints == (2,)
+    assert loaded.convergence_checkpoints == (2, 3)
     contract = serialize_scientific_contract(
-        loaded.charter, loaded.factors, loaded.distributions
+        loaded.charter,
+        loaded.factors,
+        loaded.distributions,
+        loaded.eqasim_sa_version,
+        loaded.eqasim_sa_sha256,
     )
     assert [item["name"] for item in contract["parameters"]] == ["a", "b"]
     result = plan_from_meta_config(meta)
-    assert result.design_positions == 12
+    assert result.design_positions == 18
     design = _design(loaded)
     path = loaded.campaign_root / "plan.parquet"
     assert len(load_run_specs(path, design, loaded.campaign)) == result.unique_runs
@@ -472,6 +589,20 @@ def test_canonical_meta_rejects_candidate_pool_above_safe_cap(tmp_path: Path) ->
     document["experiment"]["candidate_trajectories"] = 501
     meta.write_text(yaml.safe_dump(document, sort_keys=False))
     with pytest.raises(ValueError, match="at most 500"):
+        load_meta_config(meta)
+
+
+def test_canonical_meta_requires_candidate_pool_strictly_larger_than_selection(
+    tmp_path: Path,
+) -> None:
+    meta = canonical_meta(tmp_path)
+    document = yaml.safe_load(meta.read_text())
+    document["experiment"]["candidate_trajectories"] = document["experiment"][
+        "trajectories"
+    ]
+    meta.write_text(yaml.safe_dump(document, sort_keys=False))
+
+    with pytest.raises(ValueError, match="strictly greater"):
         load_meta_config(meta)
 
 
@@ -545,10 +676,19 @@ def test_canonical_requires_scientific_and_discrete_requires_demonstration(
         load_meta_config(meta)
 
 
-def test_canonical_budget_rejects_before_plan_publication(tmp_path: Path) -> None:
+def test_canonical_budget_rejects_before_table_allocation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import eqasim_sa.core.plan as plan_module
+
     contract = copy.deepcopy(canonical_design(tmp_path / "unused").scientific_contract)
     contract["charter"]["budget"] = {"maximum_runs": 1, "reserve_fraction": 0.5}
     design = canonical_design(tmp_path / "campaign", scientific_contract=contract)
+    monkeypatch.setattr(
+        plan_module,
+        "_table",
+        lambda *args: (_ for _ in ()).throw(AssertionError("table allocated")),
+    )
     with pytest.raises(
         ValueError,
         match="canonical Morris design positions 18 exceed scientific execution budget 0",

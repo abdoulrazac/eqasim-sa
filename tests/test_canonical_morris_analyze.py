@@ -1,6 +1,7 @@
 import hashlib
 import json
 import math
+import statistics
 import copy
 from dataclasses import replace
 from pathlib import Path
@@ -20,22 +21,28 @@ from eqasim_sa.core.analyze import (
     analyze,
 )
 from eqasim_sa.core.indicators import ArtifactSet, RegisteredIndicator
-from eqasim_sa.core.ledger import RunRecord, write_parquet_atomic, write_run
+from eqasim_sa.core.ledger import RunRecord, write_parquet_atomic
 from eqasim_sa.core.plan import build_plan
-from tests.test_analyze import _campaign, _custom_indicator, _morris_campaign
+from eqasim_sa.core.sensitivity import morris_statistics
+from tests.test_analyze import (
+    _campaign,
+    _custom_indicator,
+    _morris_campaign,
+    _write_verified_run,
+    root_relative,
+)
 from tests.test_canonical_morris_plan import canonical_design, canonical_meta, discrete_design
+from tests.provenance_helpers import (
+    context_hash,
+    execution_evidence,
+    scientific_context_descriptor,
+    scientific_registered_indicator,
+)
 
 
 def _descriptor() -> tuple[dict[str, str], str]:
-    descriptor = {
-        "eqasimCommit": "a",
-        "dataManifestSha256": "b",
-        "lockfileSha256": "c",
-        "eqasimSaVersion": "0.3.0",
-    }
-    encoded = json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
-    context_hash = hashlib.sha256(b"eqasim-sa:context:v1\0" + encoded).hexdigest()
-    return descriptor, context_hash
+    descriptor = scientific_context_descriptor()
+    return descriptor, context_hash(descriptor)
 
 
 def _design(root: Path, **changes):  # type: ignore[no-untyped-def]
@@ -83,7 +90,7 @@ def _analyze_tables(design, table, rows):  # type: ignore[no-untyped-def]
     )
 
 
-def test_canonical_effects_use_common_signed_delta_and_replication_first(
+def test_canonical_point_statistics_use_salib_with_replication_mean_outputs(
     tmp_path: Path,
 ) -> None:
     design, table, rows = _tables(tmp_path)
@@ -112,6 +119,32 @@ def test_canonical_effects_use_common_signed_delta_and_replication_first(
         ]
     )
     result = {row["factor"]: row for row in ranking.to_pylist()}
+    observations = {run_id: value for run_id, _, value in rows}
+    point_values = {}
+    for location in table.to_pylist():
+        trajectory = int(location["role"].split(":")[1])
+        rank = int(location["role"].split(":")[3])
+        point_values.setdefault((trajectory, rank), []).append(
+            observations[location["runId"]]
+        )
+    sealed = json.loads(table.schema.metadata[b"canonicalMorrisDesign"])
+    matrices = [item["matrix"] for item in sealed["selectedTrajectories"]]
+    unit_inputs = np.asarray(matrices, dtype=np.float64).reshape(-1, 2) / 3
+    mean_outputs = np.asarray(
+        [
+            [statistics.fmean(point_values[trajectory, rank]) for rank in range(3)]
+            for trajectory in range(3)
+        ]
+    ).reshape(-1)
+    expected = morris_statistics(
+        ("a", "b"), unit_inputs, mean_outputs, levels=4
+    )
+    for factor in ("a", "b"):
+        assert (
+            result[factor]["mu"],
+            result[factor]["mu_star"],
+            result[factor]["sigma"],
+        ) == pytest.approx(expected[factor])
     assert result["a"]["delta"] == pytest.approx(2 / 3)
     assert result["a"]["mu"] == pytest.approx(45.0)
     assert result["a"]["mu_star"] == pytest.approx(45.0)
@@ -184,7 +217,8 @@ def test_canonical_exact_ties_use_average_ranks_fractional_top_k_and_tie_probabi
     "damage",
     [
         "noncanonical-metadata",
-        "candidate-pool",
+        "trajectory-id",
+        "engine",
         "candidate-type",
         "method",
         "role",
@@ -202,9 +236,15 @@ def test_canonical_refuses_metadata_and_row_tampering(
     locations = table.to_pylist()
     if damage == "noncanonical-metadata":
         metadata[b"canonicalMorrisDesign"] += b" "
-    elif damage == "candidate-pool":
+    elif damage == "trajectory-id":
         sealed = json.loads(metadata[b"canonicalMorrisDesign"])
-        sealed["candidatePoolIdentities"].reverse()
+        sealed["selectedTrajectories"][0]["trajectoryId"] = "0" * 64
+        metadata[b"canonicalMorrisDesign"] = json.dumps(
+            sealed, sort_keys=True, separators=(",", ":")
+        ).encode()
+    elif damage == "engine":
+        sealed = json.loads(metadata[b"canonicalMorrisDesign"])
+        sealed["numericalEngine"]["version"] = "0"
         metadata[b"canonicalMorrisDesign"] = json.dumps(
             sealed, sort_keys=True, separators=(",", ":")
         ).encode()
@@ -266,13 +306,45 @@ def test_canonical_analyzer_rejects_sealed_settings_below_scientific_minima(
         sealed, sort_keys=True, separators=(",", ":")
     ).encode()
     damaged = table.replace_schema_metadata(metadata)
-    with pytest.raises(ValueError, match="sealed analysis settings"):
+    with pytest.raises(ValueError, match="sealed analysis settings|bootstrap_resamples"):
         _canonical_morris_tables(
             damaged,
             rows,
             sealed["bootstrapResamples"],
             design.confidence_level,
             tuple(sealed["convergenceCheckpoints"]),
+            design.screening_top_k,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("metric", "ci_width", "rank_stability"),
+        ("consecutive_checks", 2, "at most 1"),
+    ],
+)
+def test_canonical_analyzer_revalidates_sealed_stopping_contract(
+    tmp_path: Path,
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    design, table, _ = _tables(tmp_path)
+    metadata = dict(table.schema.metadata)
+    sealed = json.loads(metadata[b"canonicalMorrisDesign"])
+    sealed["scientificContract"]["charter"]["stopping"][0][field] = value
+    metadata[b"canonicalMorrisDesign"] = json.dumps(
+        sealed, sort_keys=True, separators=(",", ":")
+    ).encode()
+
+    with pytest.raises(ValueError, match=message):
+        _canonical_morris_tables(
+            table.replace_schema_metadata(metadata),
+            [],
+            design.bootstrap_resamples,
+            design.confidence_level,
+            design.convergence_checkpoints,
             design.screening_top_k,
         )
 
@@ -295,7 +367,7 @@ def test_discrete_oat_analyzer_preserves_adjacent_effects_under_new_identity(
             pa.table({"synthetic": [value]}),
             design.campaign_root / "archives" / run_id / "value.parquet",
         )
-        write_run(
+        _write_verified_run(
             design.campaign_root,
             RunRecord(
                 run_id,
@@ -306,8 +378,9 @@ def test_discrete_oat_analyzer_preserves_adjacent_effects_under_new_identity(
                 1.0,
                 {"a": row["a"], "b": row["b"]},
             ),
+            execution_evidence(design.context_hash),
         )
-    indicator = RegisteredIndicator("synthetic", "value", _artifact_value)
+    indicator = scientific_registered_indicator("synthetic", "value")
     result = analyze(
         design.campaign_root,
         (indicator,),
@@ -324,7 +397,7 @@ def test_discrete_oat_analyzer_preserves_adjacent_effects_under_new_identity(
     manifest = json.loads(
         (design.campaign_root / "analysis-generation.json").read_text()
     )
-    assert manifest["version"] == 6
+    assert manifest["version"] == 7
     assert manifest["sensitivityMethod"] == "discrete_oat"
 
 
@@ -343,7 +416,7 @@ def _completed_campaign(tmp_path: Path, **changes):  # type: ignore[no-untyped-d
             pa.table({"synthetic": [value]}),
             design.campaign_root / "archives" / run_id / "value.parquet",
         )
-        write_run(
+        _write_verified_run(
             design.campaign_root,
             RunRecord(
                 run_id,
@@ -354,9 +427,115 @@ def _completed_campaign(tmp_path: Path, **changes):  # type: ignore[no-untyped-d
                 1.0,
                 {"a": row["a"], "b": row["b"]},
             ),
+            execution_evidence(design.context_hash),
         )
-    indicator = RegisteredIndicator("synthetic", "value", _artifact_value)
+    indicator = scientific_registered_indicator("synthetic", "value")
     return design, indicator
+
+
+@pytest.mark.parametrize("completed_count", [0, 1])
+def test_canonical_descriptive_only_publishes_partial_or_empty_outputs_without_inference(
+    tmp_path: Path,
+    completed_count: int,
+) -> None:
+    design, table, rows = _tables(tmp_path)
+    values = {run_id: value for run_id, _, value in rows}
+    plan_rows = {row["runId"]: row for row in table.to_pylist()}
+    for run_id in sorted(values)[:completed_count]:
+        row = plan_rows[run_id]
+        write_parquet_atomic(
+            pa.table({"synthetic": [values[run_id]]}),
+            design.campaign_root / "archives" / run_id / "value.parquet",
+        )
+        _write_verified_run(
+            design.campaign_root,
+            RunRecord(
+                run_id,
+                "test",
+                row["seed"],
+                design.context_hash,
+                "node",
+                1.0,
+                {"a": row["a"], "b": row["b"]},
+            ),
+        )
+    indicator = scientific_registered_indicator("synthetic", "value")
+    options = {
+        "campaign": "test",
+        "completeness_threshold": 1.0,
+        "method": "canonical_morris",
+        "bootstrap_resamples": design.bootstrap_resamples,
+        "confidence_level": design.confidence_level,
+        "convergence_checkpoints": design.convergence_checkpoints,
+        "screening_top_k": design.screening_top_k,
+    }
+
+    with pytest.raises(ValueError, match="below threshold"):
+        analyze(design.campaign_root, (indicator,), **options)
+    assert not (design.campaign_root / ".eqasim-sa-analysis").exists()
+
+    result = analyze(
+        design.campaign_root,
+        (indicator,),
+        descriptive_only=True,
+        **options,
+    )
+
+    assert result.completed == completed_count
+    assert result.inference_status == "incomplete_noninferential"
+    assert result.dispersion_path is not None
+    assert result.sensitivity_method is None
+    assert result.sensitivity_path is None
+    assert result.convergence_path is None
+    assert result.rank_reversals_path is None
+    assert result.noise_floor_path is None
+    assert result.replication_allocation_path is None
+    assert result.convergence_evidence_path is None
+    assert pq.read_table(result.path).num_rows == completed_count
+    assert pq.read_table(result.output_summary_path)["n"].to_pylist() == [
+        completed_count
+    ]
+    manifest = json.loads(
+        (design.campaign_root / "analysis-generation.json").read_text()
+    )
+    assert set(manifest["outputs"]) == {
+        "capturedRunSet",
+        "indicators",
+        "dispersion",
+        "outputSummary",
+        "governedReport",
+    }
+    assert manifest["provenance"]["analysisOptions"]["descriptiveOnly"] is True
+    report = json.loads(result.governed_report_path.read_text())
+    assert report["inferenceStatus"] == "incomplete_noninferential"
+    assert "incomplete_noninferential" in report["reasonCodes"]
+    assert report["claimAuthorized"] is False
+
+
+def test_complete_canonical_descriptive_only_is_explicitly_noninferential(
+    tmp_path: Path,
+) -> None:
+    design, indicator = _completed_campaign(tmp_path)
+
+    result = analyze(
+        design.campaign_root,
+        (indicator,),
+        campaign="test",
+        completeness_threshold=1.0,
+        method="canonical_morris",
+        bootstrap_resamples=design.bootstrap_resamples,
+        confidence_level=design.confidence_level,
+        convergence_checkpoints=design.convergence_checkpoints,
+        screening_top_k=design.screening_top_k,
+        descriptive_only=True,
+    )
+
+    assert result.inference_status == "descriptive_noninferential"
+    assert result.sensitivity_path is None
+    assert result.convergence_path is None
+    assert result.noise_floor_path is None
+    report = json.loads(result.governed_report_path.read_text())
+    assert "descriptive_noninferential" in report["reasonCodes"]
 
 
 @pytest.mark.parametrize(
@@ -387,7 +566,7 @@ def test_canonical_analyze_rejects_scientific_minimum_boundaries(
         )
 
 
-def test_canonical_transactionally_publishes_noise_allocation_and_manifest_v6(
+def test_canonical_transactionally_publishes_noise_allocation_and_manifest_v7(
     tmp_path: Path,
 ) -> None:
     design, indicator = _completed_campaign(tmp_path)
@@ -411,13 +590,22 @@ def test_canonical_transactionally_publishes_noise_allocation_and_manifest_v6(
     manifest = json.loads(
         (design.campaign_root / "analysis-generation.json").read_text()
     )
-    assert manifest["version"] == 6
+    assert manifest["version"] == 7
+    assert manifest["layout"] == "immutable-generation-v1"
     assert manifest["inferenceStatus"] == "pilot_only"
-    assert manifest["noiseFloorPath"] == result.noise_floor_path.name
-    assert manifest["replicationAllocationPath"] == result.replication_allocation_path.name
+    assert manifest["noiseFloorPath"] == root_relative(
+        design.campaign_root, result.noise_floor_path
+    )
+    assert manifest["replicationAllocationPath"] == root_relative(
+        design.campaign_root, result.replication_allocation_path
+    )
     assert manifest["sensitivityMethod"] == "canonical_morris"
-    assert manifest["convergencePath"] == result.convergence_path.name
-    assert manifest["rankReversalsPath"] == result.rank_reversals_path.name
+    assert manifest["convergencePath"] == root_relative(
+        design.campaign_root, result.convergence_path
+    )
+    assert manifest["rankReversalsPath"] == root_relative(
+        design.campaign_root, result.rank_reversals_path
+    )
 
     noise = pq.read_table(result.noise_floor_path)
     assert noise.schema == pa.schema(
@@ -587,10 +775,10 @@ def test_canonical_production_publishes_noise_without_allocation(tmp_path: Path)
     )
     assert result.noise_floor_path.is_file()
     assert result.replication_allocation_path is None
-    assert result.inference_status == "unstable"
+    assert result.inference_status == "conditional"
     assert not stale.exists()
     manifest = json.loads((design.campaign_root / "analysis-generation.json").read_text())
-    assert manifest["inferenceStatus"] == "unstable"
+    assert manifest["inferenceStatus"] == "conditional"
     assert manifest["replicationAllocationPath"] is None
 
 
@@ -705,6 +893,7 @@ def test_application_passes_sealed_canonical_analysis_and_exposes_extra_paths(
         confidence_level=0.95,
         convergence_checkpoints=(2, 3),
         screening_top_k=2,
+        meta_config_sha256="a" * 64,
         charter=SimpleNamespace(status="scientific"),
     )
     result = SimpleNamespace(
@@ -747,11 +936,13 @@ def test_application_passes_sealed_canonical_analysis_and_exposes_extra_paths(
         "eqasim_sa.adapters.application.analyze",
         lambda *args, **kwargs: seen.update(kwargs) or result,
     )
-    payload = analyze_from_meta_config(Path("meta.yml"))
+    payload = analyze_from_meta_config(Path("meta.yml"), descriptive_only=True)
     assert seen["bootstrap_resamples"] == 101
     assert seen["confidence_level"] == 0.95
     assert seen["convergence_checkpoints"] == (2, 3)
     assert seen["screening_top_k"] == 2
+    assert seen["meta_config_sha256"] == "a" * 64
+    assert seen["descriptive_only"] is True
     assert validation == {
         "path": root / "plan.parquet",
         "design": sealed_design,

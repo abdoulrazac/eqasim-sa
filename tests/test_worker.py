@@ -47,6 +47,10 @@ def test_batch_execution_is_sequential_and_order_is_restored() -> None:
 def test_ordered_results_rejects_missing_or_duplicate_indices() -> None:
     with pytest.raises(RuntimeError, match="indices"):
         ordered_results(((Indexed(0, "a"), Indexed(0, "b")),), 2)
+    with pytest.raises(RuntimeError, match="indices"):
+        ordered_results(((Indexed(0, "a"), Indexed(2, "b")),), 2)
+    with pytest.raises(RuntimeError, match="indices"):
+        ordered_results(((Indexed(-1, "a"),),), 1)
 
 
 def test_run_lease_is_exclusive_and_interruptible(tmp_path) -> None:  # type: ignore[no-untyped-def]

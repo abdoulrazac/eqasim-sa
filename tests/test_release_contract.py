@@ -15,9 +15,14 @@ import yaml
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.core.analyze import analyze
 from eqasim_sa.core.indicators import RegisteredIndicator
-from eqasim_sa.core.ledger import RunRecord, write_parquet_atomic, write_run
+from eqasim_sa.core.ledger import RunRecord, write_parquet_atomic
 from eqasim_sa.core.plan import build_plan
-from tests.test_analyze import _artifact_value, _custom_indicator, _sobol_campaign
+from tests.test_analyze import (
+    _artifact_value,
+    _custom_indicator,
+    _sobol_campaign,
+    _write_verified_run,
+)
 from tests.test_canonical_morris_analyze import _completed_campaign
 from tests.test_canonical_morris_plan import canonical_design, canonical_meta, discrete_design
 from tests.test_charter import _scientific
@@ -32,6 +37,7 @@ from tests.test_nantes_scientific_protocol import (
 from tests.test_plan import design as grid_design
 from tests.test_plan import meta_fixture, morris_design, sobol_design
 from tests.test_structured_configurations import _grid_design as structured_grid_design
+from tests.provenance_helpers import execution_evidence, scientific_registered_indicator
 
 
 def _metadata(root: Path, design) -> dict[bytes, bytes]:  # type: ignore[no-untyped-def]
@@ -52,6 +58,15 @@ def test_release_version_and_plan_schema_matrix(tmp_path: Path) -> None:
     assert pyproject["tool"]["setuptools"]["package-data"] == {
         "eqasim_sa": ["templates/*.yml", "templates/*.md"]
     }
+    dependencies = set(pyproject["project"]["dependencies"])
+    assert "pandas==2.3.3" in dependencies
+    assert "matplotlib==3.10.8" in dependencies
+    assert next(
+        package for package in lock["package"] if package["name"] == "pandas"
+    )["version"] == "2.3.3"
+    assert next(
+        package for package in lock["package"] if package["name"] == "matplotlib"
+    )["version"] == "3.10.8"
 
     cases = (
         ("grid", grid_design(tmp_path / "grid"), b"1", None),
@@ -82,12 +97,20 @@ def test_release_version_and_plan_schema_matrix(tmp_path: Path) -> None:
         assert metadata[b"planSchemaVersion"] == schema_version, method
         assert metadata[b"canonicalizationVersion"] == b"1", method
         if design_version_key is not None:
-            assert metadata[design_version_key] == b"1", method
+            expected_version = (
+                b"3"
+                if method in {"canonical_morris", "multiscramble_sobol"}
+                else b"1"
+            )
+            assert metadata[design_version_key] == expected_version, method
         descriptor = json.loads(metadata[b"contextDescriptor"])
-        if method == "canonical_morris":
-            assert descriptor == {"version": "test"}
-        elif method == "multiscramble_sobol":
-            assert descriptor["eqasimSaVersion"] == "0.3.0"
+        assert descriptor == design.context_descriptor
+        assert set(descriptor) == {
+            "eqasimCommit",
+            "dataManifestSha256",
+            "lockfileSha256",
+            "eqasimSaVersion",
+        }
 
     structured = structured_grid_design(tmp_path / "structured-grid")
     structured_metadata = _metadata(structured.campaign_root, structured)
@@ -153,7 +176,7 @@ def test_release_analysis_status_and_governed_report_matrix(tmp_path: Path) -> N
     demonstration_report = json.loads(
         demonstration_result.governed_report_path.read_text()
     )
-    assert demonstration_manifest["version"] == 6
+    assert demonstration_manifest["version"] == 7
     assert demonstration_result.inference_status == "demonstration_noninferential"
     assert demonstration_report["claimAuthorized"] is False
 
@@ -209,7 +232,7 @@ def test_release_analysis_status_and_governed_report_matrix(tmp_path: Path) -> N
         convergence_checkpoints=production.convergence_checkpoints,
         screening_top_k=production.screening_top_k,
     )
-    assert production_result.inference_status == "unstable"
+    assert production_result.inference_status == "conditional"
 
     original_multiscramble = multiscramble_design(tmp_path / "unused-multiscramble")
     multiscramble_contract = copy.deepcopy(original_multiscramble.scientific_contract)
@@ -229,7 +252,7 @@ def test_release_analysis_status_and_governed_report_matrix(tmp_path: Path) -> N
             pa.table({"synthetic": [value]}),
             multiscramble.campaign_root / "archives" / run_id / "age.parquet",
         )
-        write_run(
+        _write_verified_run(
             multiscramble.campaign_root,
             RunRecord(
                 run_id,
@@ -240,10 +263,11 @@ def test_release_analysis_status_and_governed_report_matrix(tmp_path: Path) -> N
                 1.0,
                 {"a": row["a"]},
             ),
+            execution_evidence(multiscramble.context_hash),
         )
     multiscramble_result = analyze(
         multiscramble.campaign_root,
-        (RegisteredIndicator("synthetic", "age", _artifact_value),),
+        (scientific_registered_indicator("synthetic", "age"),),
         campaign="test",
         completeness_threshold=1.0,
         seed_role="factor",
@@ -254,14 +278,14 @@ def test_release_analysis_status_and_governed_report_matrix(tmp_path: Path) -> N
 
     for result, expected_status in (
         (pilot_result, "pilot_only"),
-        (production_result, "unstable"),
+        (production_result, "conditional"),
         (multiscramble_result, "unstable"),
     ):
         manifest = json.loads(
-            (result.path.parent / "analysis-generation.json").read_text()
+            (result.path.parents[3] / "analysis-generation.json").read_text()
         )
         report = json.loads(result.governed_report_path.read_text())
-        assert manifest["version"] == 6
+        assert manifest["version"] == 7
         assert manifest["inferenceStatus"] == expected_status
         assert report["inferenceStatus"] == expected_status
         assert report["robustness"]["status"] == "pending"

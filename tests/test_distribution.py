@@ -14,6 +14,7 @@ from eqasim_sa.adapters.fake.simulator import FakeSimulator
 from eqasim_sa.core.analyze import analyze
 from eqasim_sa.core.indicators import RegisteredIndicator
 from eqasim_sa.core.plan import (
+    DiscreteOATDesign,
     GridDesign,
     SobolDesign,
     _table,
@@ -39,10 +40,12 @@ def test_installed_metadata_and_commands(tmp_path: Path) -> None:
         "PyYAML==6.0.3",
         "submitit==1.5.4",
         "numpy==2.3.5",
+        "pandas==2.3.3",
+        "matplotlib==3.10.8",
+        "SALib==1.5.2",
         "scipy==1.17.1",
     ]
     assert "synpp" not in runtime
-    assert all("salib" not in requirement.lower() for requirement in requirements)
     help_result = subprocess.run(
         [installed_script("eqasim-sa"), "--help"],
         cwd=tmp_path,
@@ -106,6 +109,7 @@ def test_installed_metadata_and_commands(tmp_path: Path) -> None:
         for name in ("00-calibration.yml", "01-grid.yml", "02-discrete-oat.yml", "03-sobol.yml")
     )
     assert "method: discrete_oat" in resources["02-discrete-oat.yml"].read_text()
+    assert "design_seed: 20260817" in resources["02-discrete-oat.yml"].read_text()
     assert "method: sobol" in resources["03-sobol.yml"].read_text()
     assert "base_sample_size: 4" in resources["03-sobol.yml"].read_text()
     assert "matching_age_scheme" in resources["01-grid.yml"].read_text()
@@ -143,6 +147,21 @@ def test_installed_metadata_and_commands(tmp_path: Path) -> None:
     grid_table = _table(grid, tuple(sorted(factors)))
     assert grid_table.num_rows == 8
     assert len(set(grid_table["runId"].to_pylist())) == 8
+    oat = DiscreteOATDesign(
+        base,
+        {"sampling_rate": [0.001, 0.002, 0.003]},
+        (1301, 1302),
+        {},
+        "a" * 64,
+        {},
+        Path("discrete-oat"),
+        2,
+        20260817,
+    )
+    oat_table = _table(oat, ("sampling_rate",))
+    assert oat_table.num_rows == 8
+    assert len(set(oat_table["runId"].to_pylist())) == 6
+    assert set(oat_table["sampling_rate"].to_pylist()) == {0.001, 0.002, 0.003}
     sobol = SobolDesign(
         base, factors, (1401, 1402), {}, "a" * 64, {}, Path("sobol"), 4, 20260814
     )

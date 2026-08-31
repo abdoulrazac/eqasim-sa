@@ -1,3 +1,9 @@
+import hashlib
+import json
+import math
+import os
+import threading
+from dataclasses import replace
 from pathlib import Path
 
 import pyarrow as pa
@@ -7,6 +13,7 @@ import pytest
 from eqasim_sa.core import ledger
 from eqasim_sa.core.ledger import RunRecord, is_complete, run_path, write_run
 from eqasim_sa.core.run import RunSpec, compute_run_id, pending_run_specs
+from eqasim_sa.ports.simulator import EXECUTION_EVIDENCE_DOMAIN, ExecutionEvidence
 
 
 def codecs(path: Path) -> set[str]:
@@ -58,11 +65,37 @@ def test_writes_one_row_zstd_ledger_at_exact_path(tmp_path: Path) -> None:
 
 def test_rejects_reserved_parameter_and_invalid_scalar(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="reserved"):
-        write_run(tmp_path, RunRecord("a" * 32, "c", 1, "x", "n", 0, {"seed": 3}))
+        write_run(tmp_path, RunRecord("a" * 32, "c", 1, "x", "n", 0.0, {"seed": 3}))
     with pytest.raises(TypeError):
-        write_run(tmp_path, RunRecord("a" * 32, "c", 1, "x", "n", 0, {"x": [1]}))
+        write_run(tmp_path, RunRecord("a" * 32, "c", 1, "x", "n", 0.0, {"x": [1]}))
     with pytest.raises(TypeError):
-        write_run(tmp_path, RunRecord("a" * 32, "c", 1, "x", "n", 0, {"x": None}))
+        write_run(tmp_path, RunRecord("a" * 32, "c", 1, "x", "n", 0.0, {"x": None}))
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"run_id": "../escape"}, "run_id"),
+        ({"campaign": ""}, "campaign"),
+        ({"seed": True}, "seed"),
+        ({"context_hash": ""}, "context_hash"),
+        ({"node": None}, "node"),
+        ({"duration": 0}, "duration"),
+        ({"duration": -1.0}, "duration"),
+        ({"duration": math.nan}, "duration"),
+        ({"duration": math.inf}, "duration"),
+        ({"scratch_bytes": True}, "scratch_bytes"),
+        ({"scratch_bytes": -1}, "scratch_bytes"),
+        ({"scratch_bytes": 2**63}, "scratch_bytes"),
+    ],
+)
+def test_rejects_invalid_duration_and_scratch_before_write(
+    tmp_path: Path, changes: dict[str, object], message: str
+) -> None:
+    record = RunRecord("a" * 32, "demo", 1, "ctx", "node", 1.0, {})
+    with pytest.raises(ValueError, match=message):
+        write_run(tmp_path, replace(record, **changes))
+    assert not (tmp_path / "runs").exists()
 
 
 def test_rejects_invalid_run_id_before_constructing_path(tmp_path: Path) -> None:
@@ -198,6 +231,404 @@ def complete(root: Path, spec: RunSpec) -> Path:
             spec.parameters,
         ),
     )
+
+
+def execution_evidence(context_hash: str = "c" * 64) -> ExecutionEvidence:
+    return ExecutionEvidence(
+        context_hash,
+        "1" * 64,
+        "2" * 64,
+        ("PATH", "TOKEN"),
+        "3" * 64,
+        ("/usr/bin/python3", "-m", "synpp"),
+        "4" * 40,
+        "5" * 64,
+        schema_version=2,
+        eqasim_sa_sha256="6" * 64,
+    )
+
+
+def complete_v2(
+    root: Path, spec: RunSpec, evidence: ExecutionEvidence | None = None
+) -> tuple[Path, Path, bytes]:
+    root.mkdir(parents=True, exist_ok=True)
+    source = root / "source.parquet"
+    pq.write_table(pa.table({"value": [1, 2]}), source, compression="zstd")
+    source_bytes = source.read_bytes()
+    run_id = compute_run_id(spec.resolved_config, spec.seed)
+    record = RunRecord(
+        run_id,
+        spec.campaign,
+        spec.seed,
+        spec.expected_context_hash,
+        "node",
+        1.0,
+        spec.parameters,
+    )
+    with ledger.archive_transaction(
+        root, run_id, (("output.parquet", source),)
+    ) as publication:
+        marker = publication.commit(record, execution_evidence=evidence)
+    return marker, root / "archives" / run_id / "output.parquet", source_bytes
+
+
+def test_archive_transaction_never_replaces_a_competing_marker(
+    tmp_path: Path,
+) -> None:
+    spec = run_spec(rate=1)
+    tmp_path.mkdir(exist_ok=True)
+    source = tmp_path / "source.parquet"
+    pq.write_table(pa.table({"value": [1]}), source, compression="zstd")
+    record = replace(expected_record(spec), node="node", duration=1.0)
+
+    with ledger.archive_transaction(
+        tmp_path, record.run_id, (("output.parquet", source),)
+    ) as publication:
+        marker = write_run(tmp_path, record)
+        before = marker.read_bytes()
+        with pytest.raises(FileExistsError, match="completion marker"):
+            publication.commit(record)
+
+    assert marker.read_bytes() == before
+    assert not (tmp_path / "archives" / record.run_id).exists()
+
+
+def test_archive_marker_commit_uses_only_descriptors_held_during_prepare(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spec = run_spec(rate=1)
+    source = tmp_path / "source.parquet"
+    pq.write_table(pa.table({"value": [1]}), source, compression="zstd")
+    record = replace(expected_record(spec), node="node", duration=1.0)
+
+    with ledger.archive_transaction(
+        tmp_path, record.run_id, (("output.parquet", source),)
+    ) as publication:
+        monkeypatch.setattr(
+            ledger,
+            "_open_directory_path",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("campaign reopened by pathname")
+            ),
+        )
+        marker = publication.commit(record)
+
+    assert marker.is_file()
+
+
+def test_archive_transaction_marker_race_is_no_clobber_and_self_consistent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spec = run_spec(rate=1)
+    tmp_path.mkdir(exist_ok=True)
+    sources = []
+    for value in (1, 2):
+        source = tmp_path / f"source-{value}.parquet"
+        pq.write_table(pa.table({"value": [value]}), source, compression="zstd")
+        sources.append(source)
+    record = replace(expected_record(spec), node="node", duration=1.0)
+    barrier = threading.Barrier(2)
+    real_publish = ledger._publish_run_marker_no_clobber
+
+    def race(staging, runs, name, table):  # type: ignore[no-untyped-def]
+        barrier.wait(timeout=5)
+        return real_publish(staging, runs, name, table)
+
+    monkeypatch.setattr(ledger, "_publish_run_marker_no_clobber", race)
+    committed = []
+    errors = []
+
+    def publish(value: int) -> None:
+        try:
+            with ledger.archive_transaction(
+                tmp_path,
+                record.run_id,
+                (("output.parquet", sources[value - 1]),),
+            ) as publication:
+                publication.commit(record)
+            committed.append(value)
+        except BaseException as error:
+            errors.append(error)
+
+    threads = [threading.Thread(target=publish, args=(value,)) for value in (1, 2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(10)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert len(committed) == 1, [repr(error) for error in errors]
+    assert len(errors) == 1 and isinstance(errors[0], FileExistsError)
+    completion = ledger._completion_state(tmp_path, expected_record(spec))
+    assert completion is not None and completion.archive_integrity == ledger.VERIFIED
+    archive = tmp_path / "archives" / record.run_id / "output.parquet"
+    assert pq.read_table(archive).to_pylist() == [{"value": committed[0]}]
+    assert not tuple((tmp_path / "archives").glob(".*.backup"))
+
+
+def test_campaign_lock_uses_stable_created_parent_and_owned_regular_file(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "nested" / "campaign"
+    blocked = threading.Event()
+
+    with ledger.campaign_lock(root, "plan"):
+        root.mkdir()
+
+        def contend() -> None:
+            try:
+                with ledger.campaign_lock(root, "plan", blocking=False):
+                    pass
+            except BlockingIOError:
+                blocked.set()
+
+        thread = threading.Thread(target=contend)
+        thread.start()
+        thread.join(5)
+        assert not thread.is_alive() and blocked.is_set()
+
+    digest = hashlib.sha256(os.fsencode(root.absolute())).hexdigest()[:16]
+    lock = root.parent / f".eqasim-sa-plan-{digest}.lock"
+    lock.unlink()
+    foreign = root.parent / "foreign"
+    foreign.write_text("foreign")
+    os.link(foreign, lock)
+    with pytest.raises(ValueError, match="owned regular"):
+        with ledger.campaign_lock(root, "plan"):
+            pass
+
+
+def expected_record(spec: RunSpec) -> RunRecord:
+    return RunRecord(
+        compute_run_id(spec.resolved_config, spec.seed),
+        spec.campaign,
+        spec.seed,
+        spec.expected_context_hash,
+        "",
+        0.0,
+        spec.parameters,
+    )
+
+
+def test_v2_marker_has_canonical_manifest_and_copies_zstd_bytes(
+    tmp_path: Path,
+) -> None:
+    spec = run_spec(rate=1)
+    marker, artifact, source_bytes = complete_v2(tmp_path, spec)
+    metadata = dict(pq.ParquetFile(marker).schema_arrow.metadata or {})
+    manifest = json.loads(metadata[ledger.ARTIFACT_MANIFEST])
+    canonical = json.dumps(
+        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
+
+    assert metadata[ledger.COMPLETION_MARKER_VERSION] == b"2"
+    assert metadata[ledger.ARTIFACT_MANIFEST] == canonical
+    assert manifest == [
+        {
+            "name": "output.parquet",
+            "sha256": hashlib.sha256(source_bytes).hexdigest(),
+            "size": len(source_bytes),
+        }
+    ]
+    assert artifact.read_bytes() == source_bytes
+    state = ledger._completion_state(tmp_path, expected_record(spec))
+    assert state is not None and state.archive_integrity == ledger.VERIFIED
+    assert is_complete(tmp_path, spec)
+
+
+def test_v2_marker_binds_canonical_execution_evidence(tmp_path: Path) -> None:
+    spec = run_spec(rate=1)
+    expected = execution_evidence()
+    marker, _, _ = complete_v2(tmp_path, spec, expected)
+    metadata = dict(pq.ParquetFile(marker).schema_arrow.metadata or {})
+
+    assert metadata[ledger.EXECUTION_EVIDENCE] == expected.canonical_bytes()
+    document = json.loads(metadata[ledger.EXECUTION_EVIDENCE])
+    digest = document.pop("evidenceSha256")
+    descriptor = json.dumps(
+        document, sort_keys=True, separators=(",", ":")
+    ).encode()
+    assert digest == hashlib.sha256(EXECUTION_EVIDENCE_DOMAIN + descriptor).hexdigest()
+    state = ledger._completion_state(tmp_path, expected_record(spec))
+    assert state is not None and state.execution_evidence == expected
+
+
+@pytest.mark.parametrize(
+    "damage", ["format", "digest", "context", "invocation", "extra"]
+)
+def test_v2_reader_rejects_execution_evidence_metadata_tamper(
+    tmp_path: Path, damage: str
+) -> None:
+    spec = run_spec(rate=1)
+    marker, _, _ = complete_v2(tmp_path, spec, execution_evidence())
+    table = pq.read_table(marker)
+    metadata = dict(table.schema.metadata or {})
+    document = json.loads(metadata[ledger.EXECUTION_EVIDENCE])
+    if damage == "format":
+        metadata[ledger.EXECUTION_EVIDENCE] = json.dumps(document, indent=2).encode()
+    else:
+        if damage == "digest":
+            document["environmentSha256"] = "invalid"
+        elif damage == "context":
+            document = json.loads(execution_evidence("d" * 64).canonical_bytes())
+        elif damage == "invocation":
+            document["invocation"].append("--tampered")
+        else:
+            document["unexpected"] = True
+        metadata[ledger.EXECUTION_EVIDENCE] = json.dumps(
+            document, sort_keys=True, separators=(",", ":")
+        ).encode()
+    pq.write_table(table.replace_schema_metadata(metadata), marker, compression="zstd")
+
+    with pytest.raises(ValueError, match="completion marker"):
+        is_complete(tmp_path, spec)
+
+
+@pytest.mark.parametrize(
+    "damage",
+    ["tamper", "hash", "missing", "extra", "symlink", "directory", "fifo"],
+)
+def test_v2_reader_rejects_archive_inventory_and_content_damage(
+    tmp_path: Path, damage: str
+) -> None:
+    spec = run_spec(rate=1)
+    _, artifact, _ = complete_v2(tmp_path, spec)
+    if damage == "tamper":
+        artifact.write_bytes(artifact.read_bytes() + b"tampered")
+    elif damage == "hash":
+        content = bytearray(artifact.read_bytes())
+        content[len(content) // 2] ^= 1
+        artifact.write_bytes(content)
+    elif damage == "missing":
+        artifact.unlink()
+    elif damage == "extra":
+        pq.write_table(
+            pa.table({"extra": [1]}), artifact.parent / "extra.parquet"
+        )
+    elif damage == "symlink":
+        source = tmp_path / "source.parquet"
+        artifact.unlink()
+        artifact.symlink_to(source)
+    elif damage == "directory":
+        artifact.unlink()
+        artifact.mkdir()
+    else:
+        artifact.unlink()
+        os.mkfifo(artifact)
+
+    with pytest.raises(ValueError, match="completion marker"):
+        is_complete(tmp_path, spec)
+
+
+def test_v2_reader_rejects_archive_changed_while_hashing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec = run_spec(rate=1)
+    _, artifact, _ = complete_v2(tmp_path, spec)
+    original_hash = ledger._hash_descriptor
+
+    def mutate_after_hash(descriptor: int, interrupted=None):  # type: ignore[no-untyped-def]
+        digest = original_hash(descriptor, interrupted)
+        artifact.write_bytes(b"x" * artifact.stat().st_size)
+        return digest
+
+    monkeypatch.setattr(ledger, "_hash_descriptor", mutate_after_hash)
+    with pytest.raises(ValueError, match="changed while hashing"):
+        is_complete(tmp_path, spec)
+
+
+def test_v2_reader_rejects_campaign_root_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    campaign = tmp_path / "campaign"
+    spec = run_spec(rate=1)
+    complete_v2(campaign, spec)
+    original_hash = ledger._hash_descriptor
+
+    def replace_root_after_hash(descriptor: int, interrupted=None):  # type: ignore[no-untyped-def]
+        digest = original_hash(descriptor, interrupted)
+        campaign.rename(tmp_path / "detached")
+        campaign.mkdir()
+        return digest
+
+    monkeypatch.setattr(ledger, "_hash_descriptor", replace_root_after_hash)
+    with pytest.raises(ValueError, match="campaign root changed"):
+        is_complete(campaign, spec)
+
+
+def test_v2_reader_rejects_symlinked_archive_directory(tmp_path: Path) -> None:
+    spec = run_spec(rate=1)
+    _, artifact, _ = complete_v2(tmp_path, spec)
+    archive = artifact.parent
+    detached = archive.with_name("detached")
+    archive.rename(detached)
+    archive.symlink_to(detached, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="completion marker"):
+        is_complete(tmp_path, spec)
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_v1_marker_is_read_as_legacy_unbound_without_migration(
+    tmp_path: Path, explicit: bool
+) -> None:
+    spec = run_spec(rate=1)
+    marker = complete(tmp_path, spec)
+    if explicit:
+        table = pq.read_table(marker).replace_schema_metadata(
+            {ledger.COMPLETION_MARKER_VERSION: b"1"}
+        )
+        pq.write_table(table, marker, compression="zstd")
+    before = marker.read_bytes()
+
+    state = ledger._completion_state(tmp_path, expected_record(spec))
+
+    assert state is not None
+    assert state.archive_integrity == ledger.LEGACY_UNBOUND
+    assert state.artifacts == ()
+    assert marker.read_bytes() == before
+
+
+def test_unknown_completion_marker_version_is_rejected(tmp_path: Path) -> None:
+    spec = run_spec(rate=1)
+    marker = complete(tmp_path, spec)
+    table = pq.read_table(marker).replace_schema_metadata(
+        {ledger.COMPLETION_MARKER_VERSION: b"99"}
+    )
+    pq.write_table(table, marker, compression="zstd")
+
+    with pytest.raises(ValueError, match="unsupported completion marker version"):
+        is_complete(tmp_path, spec)
+
+
+def test_noncanonical_v2_manifest_is_rejected(tmp_path: Path) -> None:
+    spec = run_spec(rate=1)
+    marker, _, _ = complete_v2(tmp_path, spec)
+    table = pq.read_table(marker)
+    metadata = dict(table.schema.metadata or {})
+    document = json.loads(metadata[ledger.ARTIFACT_MANIFEST])
+    metadata[ledger.ARTIFACT_MANIFEST] = json.dumps(document, indent=2).encode()
+    pq.write_table(
+        table.replace_schema_metadata(metadata), marker, compression="zstd"
+    )
+
+    with pytest.raises(ValueError, match="noncanonical"):
+        is_complete(tmp_path, spec)
+
+
+def test_marker_writer_rejects_symlinked_parent_directory(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    campaign = tmp_path / "campaign"
+    campaign.mkdir()
+    (campaign / "runs").symlink_to(outside, target_is_directory=True)
+    record = RunRecord("a" * 32, "demo", 1, "ctx", "node", 1.0, {})
+
+    with pytest.raises(OSError):
+        write_run(campaign, record)
+    assert not tuple(outside.iterdir())
 
 
 def test_pending_runs_are_ordered_and_validated_before_filtering(

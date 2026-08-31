@@ -7,9 +7,12 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 import yaml
-from scipy.stats import qmc
 
-from eqasim_sa.core.charter import parse_charter, parse_distribution, serialize_scientific_contract
+from eqasim_sa.core.charter import (
+    parse_charter,
+    parse_distribution,
+    serialize_scientific_contract,
+)
 from eqasim_sa.core.plan import (
     MULTISCRAMBLE_SOBOL_DOMAIN,
     MultiScrambleSobolDesign,
@@ -17,6 +20,7 @@ from eqasim_sa.core.plan import (
     estimate_plan,
     load_run_specs,
 )
+from eqasim_sa.core.sensitivity import engine_descriptor, sobol_unit_positions
 from eqasim_sa.adapters.application import (
     _design,
     analyze_from_meta_config,
@@ -25,6 +29,13 @@ from eqasim_sa.adapters.application import (
 from eqasim_sa.adapters.meta_config import load_meta_config
 from tests.test_charter import _scientific
 from tests.test_plan import base, meta_fixture
+from tests.provenance_helpers import (
+    TEST_EQASIM_SA_SHA256,
+    TEST_EQASIM_SA_VERSION,
+    context_hash,
+    scientific_context_descriptor,
+    scientific_indicator_definition,
+)
 
 
 def multiscramble_design(root: Path, **changes) -> MultiScrambleSobolDesign:
@@ -60,7 +71,7 @@ def multiscramble_design(root: Path, **changes) -> MultiScrambleSobolDesign:
                 "setting": "test",
                 "objective": "fp",
                 "estimand": "Sobol indices",
-                "primary_indicator": "synthetic",
+                "primary_indicator": "synthetic(age)",
             },
             "uncertainty": {
                 "dependence": {"kind": "independent", "rationale": "design assumption"},
@@ -79,28 +90,33 @@ def multiscramble_design(root: Path, **changes) -> MultiScrambleSobolDesign:
             "robustness": {"checks": [{"name": "support", "rationale": "declared"}]},
         },
         set(full_factors),
-        {"synthetic"},
+        {"synthetic(age)"},
+        {
+            "synthetic(age)": scientific_indicator_definition(
+                "synthetic", "age"
+            )
+        },
     )
     typed = {name: parse_distribution(value, name) for name, value in distributions.items()}
-    descriptor = {
-        "eqasimCommit": "a",
-        "dataManifestSha256": "b",
-        "lockfileSha256": "c",
-        "eqasimSaVersion": "0.3.0",
-    }
-    descriptor_bytes = json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
+    descriptor = scientific_context_descriptor()
     values = dict(
         base_config=base(),
         factors=factors,
         seeds=(10, 20),
         requirements={},
-        context_hash=hashlib.sha256(b"eqasim-sa:context:v1\0" + descriptor_bytes).hexdigest(),
+        context_hash=context_hash(descriptor),
         context_descriptor=descriptor,
         campaign_root=root,
         base_sample_sizes=(2, 4),
-        scramble_seeds=(5, 6, 9, 11),
+        scramble_seeds=(1, 3, 10, 17),
         distributions=distributions,
-        scientific_contract=serialize_scientific_contract(charter, full_factors, typed),
+        scientific_contract=serialize_scientific_contract(
+            charter,
+            full_factors,
+            typed,
+            TEST_EQASIM_SA_VERSION,
+            TEST_EQASIM_SA_SHA256,
+        ),
         confidence_level=0.95,
     )
     values.update(changes)
@@ -109,6 +125,9 @@ def multiscramble_design(root: Path, **changes) -> MultiScrambleSobolDesign:
 
 def multiscramble_meta_document(meta: Path, objective: str = "fp", tolerance=None) -> dict:  # type: ignore[no-untyped-def]
     document = _scientific(meta)
+    document["charter"]["stopping"]["criteria"] = [
+        {"metric": "ci_width", "threshold": 0.1, "consecutive_checks": 2}
+    ]
     document["charter"]["stochastic"] = {
         "target": "finite_seed_factor",
         "random_source": "simulator_seed",
@@ -138,13 +157,31 @@ def multiscramble_meta_document(meta: Path, objective: str = "fp", tolerance=Non
         "method": "multiscramble_sobol",
         "seed_role": "factor",
         "base_sample_sizes": [2, 4],
-        "scramble_seeds": [13, 14, 29, 31],
+        "scramble_seeds": [16, 20, 21, 27],
     }
     document["analysis"] = {"completeness_threshold": 1.0, "confidence_level": 0.95}
     return document
 
 
-def test_multiscramble_plan_exact_scipy_roles_identity_nesting_and_cardinality(tmp_path: Path) -> None:
+def test_multiscramble_plan_exact_salib_roles_identity_nesting_and_cardinality(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import eqasim_sa.core.plan as plan_module
+
+    calls = {"resolve": 0, "run_id": 0}
+    real_resolve = plan_module.resolve_config
+    real_compute = plan_module.compute_run_id
+
+    def counted_resolve(*args):  # type: ignore[no-untyped-def]
+        calls["resolve"] += 1
+        return real_resolve(*args)
+
+    def counted_compute(*args):  # type: ignore[no-untyped-def]
+        calls["run_id"] += 1
+        return real_compute(*args)
+
+    monkeypatch.setattr(plan_module, "resolve_config", counted_resolve)
+    monkeypatch.setattr(plan_module, "compute_run_id", counted_compute)
     design = multiscramble_design(tmp_path / "campaign")
     result = build_plan(design)
     table = pq.read_table(design.campaign_root / "plan.parquet")
@@ -152,33 +189,24 @@ def test_multiscramble_plan_exact_scipy_roles_identity_nesting_and_cardinality(t
     by_role = {row["role"]: row for row in table.to_pylist()}
 
     assert result.design_positions == 4 * 4 * (2 * 2 + 2)
+    assert calls == {"resolve": result.unique_runs, "run_id": result.unique_runs}
     assert table.schema.metadata[b"planSchemaVersion"] == b"2"
+    assert table.schema.metadata[b"multiScrambleSobolDesignVersion"] == b"3"
     assert set(table.schema.metadata) == {
         b"planSchemaVersion", b"canonicalizationVersion", b"contextDescriptor",
         b"multiScrambleSobolDesignVersion", b"multiScrambleSobolDesign",
     }
     samples = []
     for scramble, scramble_seed in enumerate(design.scramble_seeds):
-        sample = qmc.Sobol(
-            d=4, scramble=True, bits=64, rng=scramble_seed, optimization=None
-        ).random_base2(m=2)
-        projected = [[math.floor(float(value) * 2) for value in row] for row in sample]
-        samples.append(projected)
-        for row_index in (0, 1, 3):
-            a, b = projected[row_index][:2], projected[row_index][2:]
-            expected = {
-                f"scramble:{scramble}:A:row:{row_index}": a,
-                f"scramble:{scramble}:B:row:{row_index}": b,
-                f"scramble:{scramble}:AB:factor:a:row:{row_index}": [b[0], a[1]],
-                f"scramble:{scramble}:BA:factor:a:row:{row_index}": [a[0], b[1]],
-                f"scramble:{scramble}:AB:factor:seed:row:{row_index}": [a[0], b[1]],
-                f"scramble:{scramble}:BA:factor:seed:row:{row_index}": [b[0], a[1]],
-            }
-            for expected_role, indices in expected.items():
-                assert (by_role[expected_role]["a"], by_role[expected_role]["seed"]) == (
-                    indices[0],
-                    design.seeds[indices[1]],
-                )
+        sample = sobol_unit_positions(("a", "seed"), 4, scramble_seed)
+        samples.append(sample)
+        for role, point in sample:
+            indices = [math.floor(value * 2) for value in point]
+            expected_role = f"scramble:{scramble}:{role}"
+            assert (by_role[expected_role]["a"], by_role[expected_role]["seed"]) == (
+                indices[0],
+                design.seeds[indices[1]],
+            )
         prefixes = []
         for checkpoint in sealed["baseSampleSizes"]:
             prefix = {
@@ -198,6 +226,13 @@ def test_multiscramble_plan_exact_scipy_roles_identity_nesting_and_cardinality(t
     ).hexdigest()[:32]
     assert by_role[role]["designId"] == expected_id
     assert sealed["baseSampleSizes"] == [2, 4]
+    assert sealed["numericalEngine"] == engine_descriptor(
+        "multiscramble_sobol",
+        sample_size=design.base_sample_sizes[-1],
+        sample_seeds=design.scramble_seeds,
+    )
+    assert sealed["saltelliEstimator"] == "symmetric-forward-reverse-salib-v1"
+    assert "qmc" not in sealed
     assert sealed["scientificContract"]["parameters"][-1]["name"] == "seed"
     assert (
         sealed["scientificContract"]["charter"]["stochastic"]["target"]
@@ -231,6 +266,40 @@ def test_multiscramble_load_is_row_order_insensitive_and_tamper_evident(tmp_path
 def test_multiscramble_validation_boundaries(tmp_path: Path, changes: dict, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         build_plan(multiscramble_design(tmp_path / "campaign", **changes))
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("metric", "rank_stability", "ci_width"),
+        ("consecutive_checks", 3, "at most 2"),
+    ],
+)
+def test_multiscramble_stopping_is_rejected_in_meta_and_core_plan_validation(
+    tmp_path: Path,
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    meta_root = tmp_path / "meta"
+    meta_root.mkdir()
+    meta, _, _, _ = meta_fixture(meta_root)
+    document = multiscramble_meta_document(meta)
+    document["charter"]["budget"]["maximum_runs"] = 200
+    document["charter"]["stopping"]["criteria"][0][field] = value
+    meta.write_text(yaml.safe_dump(document, sort_keys=False))
+    with pytest.raises(ValueError, match=message):
+        load_meta_config(meta)
+
+    design = multiscramble_design(tmp_path / "core")
+    contract = json.loads(json.dumps(design.scientific_contract))
+    contract["charter"]["stopping"][0][field] = value
+    with pytest.raises(ValueError, match=message):
+        build_plan(
+            multiscramble_design(
+                tmp_path / "core", scientific_contract=contract
+            )
+        )
 
 
 def test_multiscramble_rejects_conditional_mean_stochastic_mode(tmp_path: Path) -> None:
@@ -286,7 +355,7 @@ def test_multiscramble_ff_tolerance_above_one_is_rejected_by_core(tmp_path: Path
         )
 
 
-def test_multiscramble_table_cell_cap_precedes_qmc_allocation(
+def test_multiscramble_table_cell_cap_precedes_salib_allocation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import eqasim_sa.core.plan as plan_module
@@ -296,12 +365,31 @@ def test_multiscramble_table_cell_cap_precedes_qmc_allocation(
         tmp_path / "campaign", factors=factors, base_sample_sizes=(2,)
     )
     monkeypatch.setattr(
-        plan_module.qmc,
-        "Sobol",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("QMC allocated")),
+        plan_module,
+        "sobol_unit_positions",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("SALib sample allocated")
+        ),
     )
     with pytest.raises(ValueError, match="20000000 table cells"):
         build_plan(design)
+
+
+def test_multiscramble_position_cap_precedes_salib_allocation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import eqasim_sa.core.plan as plan_module
+
+    monkeypatch.setattr(plan_module, "MAX_PLAN_POSITIONS", 95)
+    monkeypatch.setattr(
+        plan_module,
+        "sobol_unit_positions",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("SALib sample allocated")
+        ),
+    )
+    with pytest.raises(ValueError, match="safe cap of 95 design positions"):
+        build_plan(multiscramble_design(tmp_path / "campaign"))
 
 
 def test_multiscramble_estimate_formula() -> None:
@@ -313,8 +401,10 @@ def test_multiscramble_estimate_formula() -> None:
 
 
 def test_multiscramble_budget_uses_structural_positions_not_unique_runs(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    import eqasim_sa.core.plan as plan_module
+
     permissive = multiscramble_design(tmp_path / "permissive")
     result = build_plan(permissive)
     assert result.design_positions == 96
@@ -327,6 +417,13 @@ def test_multiscramble_budget_uses_structural_positions_not_unique_runs(
     }
     restricted = multiscramble_design(
         tmp_path / "restricted", scientific_contract=contract
+    )
+    monkeypatch.setattr(
+        plan_module,
+        "sobol_unit_positions",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("SALib sample allocated")
+        ),
     )
     with pytest.raises(
         ValueError,
@@ -358,6 +455,9 @@ def test_multiscramble_meta_serializes_seed_as_scientific_factor(
     }
     document["parameters"]["seed"] = {"values": [10, 20], "distribution": distribution}
     document["charter"]["decision"]["objective"] = "fp"
+    document["charter"]["stopping"]["criteria"] = [
+        {"metric": "ci_width", "threshold": 0.1, "consecutive_checks": 2}
+    ]
     document["charter"]["uncertainty"]["inventory"]["parameters"].append(
         {
             "name": "seed",
@@ -370,7 +470,7 @@ def test_multiscramble_meta_serializes_seed_as_scientific_factor(
         "method": "multiscramble_sobol",
         "seed_role": "factor",
         "base_sample_sizes": [2, 4],
-        "scramble_seeds": [13, 14, 29, 31],
+        "scramble_seeds": [16, 20, 21, 27],
     }
     document["analysis"] = {"completeness_threshold": 1.0, "confidence_level": 0.95}
     document["charter"]["budget"]["maximum_runs"] = 200
@@ -379,7 +479,7 @@ def test_multiscramble_meta_serializes_seed_as_scientific_factor(
     loaded = load_meta_config(meta)
     design = _design(loaded)
     assert loaded.base_sample_sizes == (2, 4)
-    assert loaded.scramble_seeds == (13, 14, 29, 31)
+    assert loaded.scramble_seeds == (16, 20, 21, 27)
     assert design.scientific_contract["parameters"][-1]["name"] == "seed"
     result = plan_from_meta_config(meta)
     assert result.design_positions == 4 * 4 * (2 * 3 + 2)
@@ -423,6 +523,9 @@ def test_application_refuses_multiscramble_contract_substitution_before_analyze(
     }
     document["parameters"]["seed"] = {"values": [10, 20], "distribution": distribution}
     document["charter"]["decision"]["objective"] = "fp"
+    document["charter"]["stopping"]["criteria"] = [
+        {"metric": "ci_width", "threshold": 0.1, "consecutive_checks": 2}
+    ]
     document["charter"]["uncertainty"]["inventory"]["parameters"].append(
         {"name": "seed", "status": "varied", "provenance": "campaign", "rationale": "included"}
     )
@@ -430,7 +533,7 @@ def test_application_refuses_multiscramble_contract_substitution_before_analyze(
         "method": "multiscramble_sobol",
         "seed_role": "factor",
         "base_sample_sizes": [2, 4],
-        "scramble_seeds": [13, 14, 29, 31],
+        "scramble_seeds": [16, 20, 21, 27],
     }
     document["analysis"] = {"completeness_threshold": 1.0, "confidence_level": 0.95}
     document["charter"]["budget"]["maximum_runs"] = 200

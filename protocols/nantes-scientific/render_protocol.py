@@ -5,17 +5,20 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib.metadata
 import json
 import math
 import re
+import stat
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 import yaml
+
+from eqasim_sa.core.sensitivity import engine_descriptor, morris_unit_trajectories
+from eqasim_sa.core.software_identity import read_software_identity
 
 
 DIGEST = re.compile(r"[0-9a-f]{64}")
@@ -32,21 +35,19 @@ FACTOR_SUPPORTS = [
 CANONICAL_DESIGN_KEYS = {
     "bootstrapResamples",
     "candidateDefinition",
-    "candidatePoolIdentities",
     "confidenceLevel",
     "convergenceCheckpoints",
     "delta",
     "distributions",
     "factors",
     "inverseCdfMap",
+    "numericalEngine",
     "p",
     "replicationBaseSeeds",
     "scientificContract",
     "screeningTopK",
     "seedDerivation",
     "selectedTrajectories",
-    "selectionAlgorithm",
-    "selectionVersion",
     "trajectories",
 }
 ALLOCATION_KEYS = {
@@ -126,15 +127,12 @@ def _context_descriptor(arguments: argparse.Namespace) -> dict[str, str]:
     )
     if completed.returncode:
         raise ValueError(f"cannot resolve model Git HEAD: {completed.stderr.strip()}")
-    try:
-        version = importlib.metadata.version("eqasim-sa")
-    except importlib.metadata.PackageNotFoundError as error:
-        raise ValueError("cannot determine eqasim-sa version") from error
+    software = read_software_identity()
     return {
         "eqasimCommit": completed.stdout.strip(),
         "dataManifestSha256": _sha256(arguments.data_manifest),
         "lockfileSha256": _sha256(arguments.lockfile),
-        "eqasimSaVersion": version,
+        "eqasimSaVersion": software.version,
     }
 
 
@@ -147,11 +145,7 @@ def _object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def _json_file(root: Path | None, filename: str, argument: str) -> tuple[dict[str, Any], Path]:
-    root = _evidence_root(root, argument)
-    path = root / filename
-    if path.is_symlink() or not path.is_file():
-        raise ValueError(f"evidence must be a regular non-symlink file: {path}")
+def _read_json_file(path: Path) -> dict[str, Any]:
     try:
         document = json.loads(
             path.read_text(encoding="utf-8"),
@@ -165,7 +159,49 @@ def _json_file(root: Path | None, filename: str, argument: str) -> tuple[dict[st
     if not isinstance(document, dict):
         raise ValueError(f"JSON evidence must contain an object: {path}")
     _finite_json(document, str(path))
+    return document
+
+
+def _json_file(root: Path | None, filename: str, argument: str) -> tuple[dict[str, Any], Path]:
+    root = _evidence_root(root, argument)
+    path = root / filename
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"evidence must be a regular non-symlink file: {path}")
+    document = _read_json_file(path)
     return document, path
+
+
+def _safe_evidence_file(root: Path | None, relative: str, argument: str) -> Path:
+    root = _evidence_root(root, argument)
+    if (
+        type(relative) is not str
+        or not relative
+        or "\\" in relative
+        or "\0" in relative
+    ):
+        raise ValueError("manifest evidence path must be a safe relative POSIX path")
+    pure = PurePosixPath(relative)
+    if (
+        pure.is_absolute()
+        or pure.as_posix() != relative
+        or any(part in {"", ".", ".."} for part in pure.parts)
+    ):
+        raise ValueError("manifest evidence path must be a safe relative POSIX path")
+    current = root
+    for index, part in enumerate(pure.parts):
+        current /= part
+        try:
+            info = current.lstat()
+        except OSError as error:
+            raise ValueError(f"manifest evidence path is unavailable: {relative}") from error
+        if stat.S_ISLNK(info.st_mode):
+            raise ValueError(f"manifest evidence path must not traverse symlinks: {relative}")
+        if index + 1 < len(pure.parts):
+            if not stat.S_ISDIR(info.st_mode):
+                raise ValueError(f"manifest evidence parent must be a directory: {relative}")
+        elif not stat.S_ISREG(info.st_mode):
+            raise ValueError(f"evidence must be a regular non-symlink file: {current}")
+    return current
 
 
 def _sealed_morris_plan(
@@ -194,7 +230,7 @@ def _sealed_morris_plan(
         set(metadata) != expected_metadata
         or metadata.get(b"planSchemaVersion") != b"2"
         or metadata.get(b"canonicalizationVersion") != b"1"
-        or metadata.get(b"canonicalMorrisDesignVersion") != b"1"
+        or metadata.get(b"canonicalMorrisDesignVersion") != b"3"
     ):
         raise ValueError("canonical Morris plan metadata is missing or unsupported")
     try:
@@ -236,11 +272,6 @@ def _sealed_morris_plan(
         or design.get("confidenceLevel") != 0.95
         or design.get("screeningTopK") != 2
         or design.get("inverseCdfMap") != "discrete-uniform-generalized-inverse-v1"
-        or design.get("selectionAlgorithm")
-        != "greedy-sum-pairwise-squared-distance"
-        or design.get("selectionVersion") != 1
-        or not isinstance(design.get("candidatePoolIdentities"), list)
-        or len(design["candidatePoolIdentities"]) != 32
         or not isinstance(design.get("selectedTrajectories"), list)
         or len(design["selectedTrajectories"]) != 24
     ):
@@ -261,7 +292,41 @@ def _sealed_morris_plan(
         != FACTOR_SUPPORTS
     ):
         raise ValueError("plan candidate design is incompatible with the protocol")
+    if design.get("numericalEngine") != engine_descriptor(
+        "canonical_morris",
+        sample_size=candidate["candidateTrajectories"],
+        sample_seeds=(candidate["designSeed"],),
+        levels=candidate["levels"],
+        selected_trajectories=design["trajectories"],
+    ):
+        raise ValueError("plan SALib numerical engine is incompatible with the protocol")
+    matrices = morris_unit_trajectories(
+        tuple(item["name"] for item in candidate["factors"]),
+        candidate_trajectories=candidate["candidateTrajectories"],
+        selected_trajectories=design["trajectories"],
+        levels=candidate["levels"],
+        seed=candidate["designSeed"],
+    )
+    expected_selected = [
+        {
+            "matrix": matrix,
+            "trajectoryId": hashlib.sha256(
+                b"eqasim-sa:design:canonical-morris:v3\0"
+                + json.dumps(
+                    {"matrix": matrix, "selectedIndex": index},
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                    allow_nan=False,
+                ).encode("utf-8")
+            ).hexdigest(),
+        }
+        for index, matrix in enumerate(matrices)
+    ]
+    if design["selectedTrajectories"] != expected_selected:
+        raise ValueError("plan SALib-selected Morris trajectories are invalid")
     contract = design.get("scientificContract")
+    software = read_software_identity()
     charter = contract.get("charter") if isinstance(contract, dict) else None
     decision = charter.get("decision") if isinstance(charter, dict) else None
     stochastic = charter.get("stochastic") if isinstance(charter, dict) else None
@@ -269,7 +334,13 @@ def _sealed_morris_plan(
     contract_parameters = contract.get("parameters") if isinstance(contract, dict) else None
     if (
         not isinstance(contract, dict)
-        or set(contract) != {"charter", "parameters"}
+        or set(contract) != {"schemaVersion", "software", "charter", "parameters"}
+        or contract.get("schemaVersion") != 2
+        or contract.get("software")
+        != {
+            "eqasimSaVersion": expected_descriptor["eqasimSaVersion"],
+            "eqasimSaSha256": software.sha256,
+        }
         or not isinstance(contract_parameters, list)
         or len(contract_parameters) != 2
         or any(not isinstance(item, dict) for item in contract_parameters)
@@ -394,11 +465,57 @@ def _manifest_evidence(
     argument: str,
 ) -> tuple[dict[str, Any], dict[str, Any], Path, str]:
     manifest, _ = _json_file(root, "analysis-generation.json", argument)
-    _exact(manifest.get(path_field), evidence_name, f"manifest.{path_field}")
+    version = manifest.get("version")
+    selected_path = manifest.get(path_field)
+    if version == 6:
+        _exact(selected_path, evidence_name, f"manifest.{path_field}")
+        path = _safe_evidence_file(root, evidence_name, argument)
+        expected_size = None
+    elif version == 7:
+        _exact(manifest.get("layout"), "immutable-generation-v1", "manifest.layout")
+        generation_id = manifest.get("generationId")
+        if type(generation_id) is not str or DIGEST.fullmatch(generation_id) is None:
+            raise ValueError("manifest.generationId must be a lowercase SHA-256 digest")
+        if type(selected_path) is not str:
+            raise ValueError(f"manifest.{path_field} must be a relative path")
+        expected_parent = PurePosixPath(
+            ".eqasim-sa-analysis", "generations", generation_id
+        )
+        _exact(
+            manifest.get("generationPath"),
+            expected_parent.as_posix(),
+            "manifest.generationPath",
+        )
+        selected = PurePosixPath(selected_path)
+        if selected.parent != expected_parent or selected.name != evidence_name:
+            raise ValueError(
+                f"manifest.{path_field} must select {evidence_name} in its immutable generation"
+            )
+        outputs = manifest.get("outputs")
+        if not isinstance(outputs, dict):
+            raise ValueError("manifest.outputs must be an object")
+        matches = [
+            record
+            for record in outputs.values()
+            if isinstance(record, dict) and record.get("path") == selected_path
+        ]
+        if len(matches) != 1 or set(matches[0]) != {"path", "size", "sha256"}:
+            raise ValueError(f"manifest.outputs must contain {selected_path!r} exactly once")
+        record = matches[0]
+        if type(record["size"]) is not int or record["size"] < 0:
+            raise ValueError("manifest output size must be a non-negative integer")
+        expected_size = record["size"]
+        path = _safe_evidence_file(root, selected_path, argument)
+    else:
+        raise ValueError("analysis generation manifest version must be 6 or 7")
     recorded_digest = manifest.get(digest_field)
     if type(recorded_digest) is not str or DIGEST.fullmatch(recorded_digest) is None:
         raise ValueError(f"manifest.{digest_field} must be a lowercase SHA-256 digest")
-    evidence, path = _json_file(root, evidence_name, argument)
+    if version == 7 and matches[0]["sha256"] != recorded_digest:
+        raise ValueError(f"manifest.outputs digest does not match manifest.{digest_field}")
+    if expected_size is not None and path.stat().st_size != expected_size:
+        raise ValueError(f"manifest output size does not match {evidence_name}")
+    evidence = _read_json_file(path)
     actual_digest = _sha256(path)
     if recorded_digest != actual_digest:
         raise ValueError(f"manifest.{digest_field} does not match {evidence_name}")

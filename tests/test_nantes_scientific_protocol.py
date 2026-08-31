@@ -70,6 +70,7 @@ def _write_pilot_evidence(
     _write_json(
         root / "analysis-generation.json",
         {
+            "version": 6,
             "inferenceStatus": "pilot_only",
             "sensitivityMethod": "canonical_morris",
             "replicationAllocationPath": allocation.name,
@@ -125,11 +126,52 @@ def _write_screening_evidence(
     _write_json(
         root / "analysis-generation.json",
         {
+            "version": 6,
             "inferenceStatus": "conditional",
             "governedReportPath": report.name,
             "governedReportSha256": _digest(report),
         },
     )
+
+
+def _promote_evidence_to_v7(
+    root: Path,
+    filename: str,
+    logical_name: str,
+    path_field: str,
+    digest_field: str,
+) -> Path:
+    manifest_path = root / "analysis-generation.json"
+    manifest = json.loads(manifest_path.read_text())
+    source = root / filename
+    generation_id = hashlib.sha256(
+        f"test-generation:{filename}".encode()
+    ).hexdigest()
+    generation = root / ".eqasim-sa-analysis/generations" / generation_id
+    generation.mkdir(parents=True)
+    destination = generation / filename
+    source.rename(destination)
+    relative = destination.relative_to(root).as_posix()
+    digest = _digest(destination)
+    manifest.update(
+        {
+            "version": 7,
+            "layout": "immutable-generation-v1",
+            "generationId": generation_id,
+            "generationPath": generation.relative_to(root).as_posix(),
+            "outputs": {
+                logical_name: {
+                    "path": relative,
+                    "size": destination.stat().st_size,
+                    "sha256": digest,
+                }
+            },
+            path_field: relative,
+            digest_field: digest,
+        }
+    )
+    _write_json(manifest_path, manifest)
+    return destination
 
 
 def _fixture_paths(
@@ -277,12 +319,23 @@ def test_renderer_outputs_loadable_buildable_protocols_with_exact_contract(
         assert plan.design_positions == positions
         assert loaded.charter.budget.maximum_runs == maximum
         assert loaded.charter.budget.reserve_fraction == reserve
+        assert loaded.execution is not None
+        assert loaded.execution.invocation == (
+            "uv",
+            "run",
+            "--locked",
+            "python",
+            "-m",
+            "synpp",
+        )
         assert positions <= int(maximum * (1 - reserve))
         assert loaded.campaign_root == root.resolve()
         assert loaded.factors == {
             "matching_minimum_observations": [5, 20, 50],
             "matching_minimum_age": [0, 5, 12],
         }
+        if method == "multiscramble_sobol":
+            assert plan.unique_runs == 36
         roots.append(loaded.campaign_root)
 
     assert len(set(roots)) == len(TEMPLATES)
@@ -300,6 +353,104 @@ def test_renderer_outputs_loadable_buildable_protocols_with_exact_contract(
     assert production.charter.stochastic.allocation.provenance.endswith(allocation_digest)
     assert screening_digest in (rendered / TEMPLATES[2]).read_text()
     assert screening_digest in (rendered / TEMPLATES[3]).read_text()
+
+
+def test_renderer_accepts_v6_and_v7_immutable_generation_evidence(
+    tmp_path: Path,
+) -> None:
+    paths = _fixture_paths(tmp_path)
+
+    # The fixture's first successful renders consume the legacy v6 flat layout.
+    v6 = _render(
+        TEMPLATES[1],
+        tmp_path / "production-v6.yml",
+        paths,
+        tmp_path / "production-v6",
+    )
+    assert load_meta_config(v6).method == "canonical_morris"
+
+    allocation = _promote_evidence_to_v7(
+        paths["pilot"],
+        "replication-allocation.json",
+        "replicationAllocation",
+        "replicationAllocationPath",
+        "replicationAllocationSha256",
+    )
+    report = _promote_evidence_to_v7(
+        paths["screening"],
+        "governed-report.json",
+        "governedReport",
+        "governedReportPath",
+        "governedReportSha256",
+    )
+    production = _render(
+        TEMPLATES[1],
+        tmp_path / "production-v7.yml",
+        paths,
+        tmp_path / "production-v7",
+    )
+    prioritization = _render(
+        TEMPLATES[2],
+        tmp_path / "fp-v7.yml",
+        paths,
+        tmp_path / "fp-v7",
+    )
+    assert _digest(allocation) in production.read_text()
+    assert _digest(report) in prioritization.read_text()
+
+
+@pytest.mark.parametrize("unsafe", ["/absolute.json", "../escape.json"])
+def test_renderer_rejects_unsafe_v7_evidence_paths(
+    tmp_path: Path, unsafe: str
+) -> None:
+    paths = _fixture_paths(tmp_path)
+    _promote_evidence_to_v7(
+        paths["pilot"],
+        "replication-allocation.json",
+        "replicationAllocation",
+        "replicationAllocationPath",
+        "replicationAllocationSha256",
+    )
+    manifest_path = paths["pilot"] / "analysis-generation.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["replicationAllocationPath"] = unsafe
+    manifest["outputs"]["replicationAllocation"]["path"] = unsafe
+    _write_json(manifest_path, manifest)
+
+    output = tmp_path / "unsafe.yml"
+    result = subprocess.run(
+        _render_command(TEMPLATES[1], output, paths, tmp_path / "campaign"),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "immutable generation" in result.stderr or "safe relative" in result.stderr
+    assert not output.exists()
+
+
+def test_renderer_rejects_symlinked_v7_generation_component(tmp_path: Path) -> None:
+    paths = _fixture_paths(tmp_path)
+    evidence = _promote_evidence_to_v7(
+        paths["pilot"],
+        "replication-allocation.json",
+        "replicationAllocation",
+        "replicationAllocationPath",
+        "replicationAllocationSha256",
+    )
+    generation = evidence.parent
+    actual = generation.with_name("actual-generation")
+    generation.rename(actual)
+    generation.symlink_to(actual.name, target_is_directory=True)
+
+    output = tmp_path / "symlinked-v7.yml"
+    result = subprocess.run(
+        _render_command(TEMPLATES[1], output, paths, tmp_path / "campaign"),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "must not traverse symlinks" in result.stderr
+    assert not output.exists()
 
 
 @pytest.mark.parametrize("selected", [1, 21])
@@ -556,7 +707,7 @@ def test_renderer_rejects_symlinked_evidence_file(tmp_path: Path) -> None:
         text=True,
     )
     assert result.returncode != 0
-    assert "regular non-symlink file" in result.stderr
+    assert "must not traverse symlinks" in result.stderr
     assert not output.exists()
 
 

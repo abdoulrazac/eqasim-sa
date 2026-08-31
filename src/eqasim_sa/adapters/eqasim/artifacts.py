@@ -24,6 +24,7 @@ ARTIFACT_STAGE = {
     for stage, artifacts in STAGE_ARTIFACTS.items()
     for artifact in artifacts
 }
+CSV_BLOCK_SIZE = 1 << 20
 
 
 def normalize_outputs(
@@ -76,22 +77,40 @@ def _normalize(
         resolved_output
     ):
         raise ValueError(f"eqasim artifact escapes output directory: {name}")
-    table = csv.read_csv(
-        resolved_source, parse_options=csv.ParseOptions(delimiter=delimiter)
-    )
-    if remove_index and "" in table.column_names:
-        if table.column_names.count("") != 1 or table.column_names[0] != "":
-            raise ValueError(f"invalid anonymous index in {source}")
-        index = table.column(0)
-        if (
-            not pa.types.is_integer(index.type)
-            or index.null_count
-            or index.to_pylist() != list(range(table.num_rows))
-        ):
-            raise ValueError(f"anonymous index is not sequential in {source}")
-        table = table.remove_column(0)
-    if "" in table.column_names:
-        raise ValueError(f"unexpected anonymous column in {source}")
     destination = normalized / f"{name}.parquet"
-    pq.write_table(table, destination, compression="zstd")
+    try:
+        with csv.open_csv(
+            resolved_source,
+            read_options=csv.ReadOptions(block_size=CSV_BLOCK_SIZE),
+            parse_options=csv.ParseOptions(delimiter=delimiter),
+        ) as reader:
+            column_names = reader.schema.names
+            has_index = remove_index and "" in column_names
+            if has_index and (column_names.count("") != 1 or column_names[0] != ""):
+                raise ValueError(f"invalid anonymous index in {source}")
+            if "" in column_names and not has_index:
+                raise ValueError(f"unexpected anonymous column in {source}")
+            if has_index and not pa.types.is_integer(reader.schema.field(0).type):
+                raise ValueError(f"anonymous index is not sequential in {source}")
+
+            schema = reader.schema.remove(0) if has_index else reader.schema
+            offset = 0
+            with pq.ParquetWriter(destination, schema, compression="zstd") as writer:
+                for batch in reader:
+                    if has_index:
+                        index = batch.column(0)
+                        expected = range(offset, offset + batch.num_rows)
+                        if index.null_count or any(
+                            value != position
+                            for value, position in zip(index.to_pylist(), expected)
+                        ):
+                            raise ValueError(
+                                f"anonymous index is not sequential in {source}"
+                            )
+                        batch = batch.remove_column(0)
+                    writer.write_batch(batch)
+                    offset += batch.num_rows
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        raise
     return Artifact(destination.name, destination)

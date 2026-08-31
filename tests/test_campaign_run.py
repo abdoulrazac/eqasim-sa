@@ -1,3 +1,4 @@
+import copy
 import hashlib
 import json
 import os
@@ -7,6 +8,7 @@ import subprocess
 import sys
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pyarrow as pa
@@ -14,13 +16,19 @@ import pyarrow.parquet as pq
 import pytest
 
 import eqasim_sa.core.plan as plan_module
-from eqasim_sa.adapters.application import run_from_meta_config
+from eqasim_sa.adapters.application import analyze_from_meta_config, run_from_meta_config
 from eqasim_sa.adapters.backends.local import LocalBackend
-from eqasim_sa.adapters.eqasim.simulator import eqasim_requirements
+from eqasim_sa.adapters.data_manifest import generate_data_manifest
+from eqasim_sa.adapters.eqasim.config import EqasimSettings
+from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator, eqasim_requirements
+from eqasim_sa.adapters.execution_seal import create_execution_seal
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.adapters.worker import Indexed, WorkerBatch
 from eqasim_sa.core.plan import GridDesign, build_plan, load_run_specs
 from eqasim_sa.core.run import RunResult, summarize_runs
+from eqasim_sa.core.software_identity import read_software_identity
+from eqasim_sa.ports.simulator import ExecutionEvidence
+from tests.provenance_helpers import context_hash, scientific_context_descriptor
 
 
 def meta_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
@@ -32,14 +40,18 @@ def meta_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     )
     subprocess.run(["git", "config", "user.name", "Test"], cwd=model, check=True)
     config = model / "config.yml"
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "input.txt").write_text("sealed data\n")
     config.write_text(
-        "working_directory: /ignored\nrun: [old]\nconfig:\n  a: 0\n  b: x\n  processes: 1\n  random_seed: 9\n"
+        "working_directory: /ignored\nrun: [old]\nconfig:\n  a: 0\n  b: x\n"
+        "  data_path: ../data\n  processes: 1\n  random_seed: 9\n"
     )
     (model / "lock.yml").write_text("locked\n")
     subprocess.run(["git", "add", "."], cwd=model, check=True)
     subprocess.run(["git", "commit", "-qm", "fixture"], cwd=model, check=True)
     manifest = tmp_path / "manifest.json"
-    manifest.write_text("{}\n")
+    generate_data_manifest(data, manifest)
     meta = tmp_path / "meta.yml"
     meta.write_text(
         "campaign: demo\ncampaign_root: campaign\nmodel:\n  config: model/config.yml\n  root: model\n"
@@ -75,8 +87,61 @@ def test_execution_is_optional_strict_and_resolved(tmp_path: Path) -> None:
     execution = load_meta_config(meta).execution
     assert execution is not None
     assert execution.backend == "local" and execution.workers == 2
+    assert execution.processes == 1
     assert execution.scratch == scratch.resolve()
     assert execution.invocation == ("python3", "-m", "synpp")
+    assert execution.data_path == (tmp_path / "data").resolve()
+
+
+def test_meta_config_stores_runner_source_digest_and_states(tmp_path: Path) -> None:
+    meta, _, _, _ = meta_fixture(tmp_path)
+
+    loaded = load_meta_config(meta)
+
+    assert loaded.eqasim_sa_sha256 == loaded.software_identity.sha256
+    assert loaded.eqasim_sa_source_states == loaded.software_identity.source_states
+    assert "eqasimSaSha256" not in loaded.context_descriptor
+    assert loaded.eqasim_sa_source_states
+
+
+def test_data_path_override_is_hashed_and_passed_as_the_same_absolute_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from eqasim_sa.adapters.application import plan_from_meta_config
+
+    meta, _, _, manifest = meta_fixture(tmp_path)
+    alternate = tmp_path / "alternate-data"
+    alternate.mkdir()
+    (alternate / "input.txt").write_text("alternate sealed data\n")
+    generate_data_manifest(alternate, manifest, replace=True)
+    meta.write_text(
+        meta.read_text()
+        .replace("seeds: [41, 42]", "seeds: [41]")
+        .replace("values: [1, 2]", "values: [1]")
+        .replace("values: [x, y]", "values: [x]")
+    )
+    plan_from_meta_config(meta)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    record = tmp_path / "record.json"
+    monkeypatch.setenv("EQASIM_SPY_RECORD", str(record))
+    add_execution(
+        meta,
+        scratch,
+        workers=1,
+        invocation=[sys.executable, str(Path(__file__).with_name("eqasim_spy.py"))],
+        overrides={"data_path": "alternate-data"},
+    )
+
+    loaded = load_meta_config(meta)
+    payload = run_from_meta_config(meta)
+    arguments = json.loads(record.read_text())["argv"]
+
+    assert loaded.execution is not None
+    assert loaded.execution.data_path == alternate.resolve()
+    assert arguments[arguments.index("--data_path") + 1] == str(alternate.resolve())
+    assert payload["completed"] == 1
 
 
 @pytest.mark.parametrize(
@@ -103,6 +168,38 @@ def test_execution_rejects_invalid_values(
         load_meta_config(meta)
 
 
+def test_execution_rejects_worker_cap_and_nonpositive_local_processes(
+    tmp_path: Path,
+) -> None:
+    meta, _, _, _ = meta_fixture(tmp_path)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    add_execution(meta, scratch, workers=1025)
+    with pytest.raises(ValueError, match="workers"):
+        load_meta_config(meta)
+
+    process_root = tmp_path / "processes"
+    process_root.mkdir()
+    meta, _, _, _ = meta_fixture(process_root)
+    scratch = process_root / "scratch"
+    scratch.mkdir()
+    add_execution(meta, scratch, backend="local", overrides={"processes": 0})
+    with pytest.raises(ValueError, match="processes"):
+        load_meta_config(meta)
+
+
+@pytest.mark.parametrize("overlap", ["model", "data"])
+def test_execution_rejects_scratch_overlapping_model_or_effective_data(
+    tmp_path: Path, overlap: str
+) -> None:
+    meta, model, _, _ = meta_fixture(tmp_path)
+    scratch = model if overlap == "model" else tmp_path / "data"
+    add_execution(meta, scratch)
+
+    with pytest.raises(ValueError, match="overlap"):
+        load_meta_config(meta)
+
+
 def test_slurm_execution_resources_are_optional_strict_and_do_not_affect_plan(
     tmp_path: Path,
 ) -> None:
@@ -116,12 +213,29 @@ def test_slurm_execution_resources_are_optional_strict_and_do_not_affect_plan(
     add_execution(meta, scratch, backend="slurm", overrides={"processes": 1})
     execution = load_meta_config(meta).execution
     assert execution is not None
+    assert execution.processes == 1
     assert execution.slurm.timeout_min == 1440
     assert execution.slurm.mem_gb is None
     assert execution.slurm.partition is None
     assert plan_from_meta_config(meta).status == "unchanged"
     assert first.status == "created"
     assert (tmp_path / "campaign" / "plan.parquet").read_bytes() == before
+
+
+def test_execution_stores_process_count_from_sealed_config_without_override(
+    tmp_path: Path,
+) -> None:
+    meta, model, config, _ = meta_fixture(tmp_path)
+    config.write_text(config.read_text().replace("processes: 1", "processes: 4"))
+    subprocess.run(["git", "add", "config.yml"], cwd=model, check=True)
+    subprocess.run(["git", "commit", "-qm", "process count"], cwd=model, check=True)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    add_execution(meta, scratch, backend="slurm")
+
+    execution = load_meta_config(meta).execution
+
+    assert execution is not None and execution.processes == 4
 
 
 @pytest.mark.parametrize(
@@ -195,6 +309,140 @@ def test_slurm_rejects_non_positive_or_non_integer_processes(
         load_meta_config(meta)
 
 
+def test_execution_seal_freezes_child_environment_and_absolute_invocation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    meta, _, _, _ = meta_fixture(tmp_path)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    frozen_record = tmp_path / "frozen-record.json"
+    changed_record = tmp_path / "changed-record.json"
+    secret = "runtime-secret-value"
+    monkeypatch.setenv("EQASIM_SPY_RECORD", str(frozen_record))
+    monkeypatch.setenv("EQASIM_TEST_SECRET", secret)
+    add_execution(
+        meta,
+        scratch,
+        workers=1,
+        invocation=[sys.executable, str(Path(__file__).with_name("eqasim_spy.py"))],
+    )
+    loaded = load_meta_config(meta)
+    seal = create_execution_seal(loaded)
+    monkeypatch.setenv("EQASIM_SPY_RECORD", str(changed_record))
+    monkeypatch.setenv("EQASIM_TEST_SECRET", "changed")
+    settings = EqasimSettings(
+        loaded.model_config,
+        loaded.model_root,
+        seal.invocation,
+        loaded.campaign,
+        scratch,
+        loaded.context_hash,
+    )
+    resolved = copy.deepcopy(loaded.model_document)
+    resolved["run"] = ["synthesis.output", "analysis.synthesis.population"]
+    resolved["config"]["random_seed"] = 41
+    adapter = EqasimSimulator(
+        settings,
+        loaded.model_document,
+        loaded.model_bytes,
+        execution_seal=seal,
+    )
+
+    manifest = adapter.simulate(resolved, 41, settings.workdir)
+    evidence = ExecutionEvidence.from_bytes(manifest.execution_evidence or b"")
+
+    assert Path(seal.invocation[0]).is_absolute()
+    assert seal.environment["EQASIM_SPY_RECORD"] == str(frozen_record)
+    assert frozen_record.is_file() and not changed_record.exists()
+    assert secret.encode() not in (manifest.execution_evidence or b"")
+    assert "EQASIM_TEST_SECRET" in evidence.environment_variables
+    assert evidence.schema_version == 2
+    assert evidence.eqasim_sa_sha256 == loaded.eqasim_sa_sha256
+
+
+def test_execution_seal_model_failure_is_sticky_after_state_is_restored(
+    tmp_path: Path,
+) -> None:
+    meta, model, _, _ = meta_fixture(tmp_path)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    add_execution(meta, scratch, workers=1)
+    seal = create_execution_seal(load_meta_config(meta))
+    foreign = model / "untracked"
+    foreign.write_text("drift")
+
+    with pytest.raises(RuntimeError, match="no longer clean") as first:
+        seal.guard()
+    foreign.unlink()
+    with pytest.raises(RuntimeError) as second:
+        seal.guard()
+
+    assert str(second.value) == str(first.value)
+
+
+def test_execution_seal_rejects_control_input_drift(tmp_path: Path) -> None:
+    meta, _, _, manifest = meta_fixture(tmp_path)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    add_execution(meta, scratch, workers=1)
+    seal = create_execution_seal(load_meta_config(meta))
+    manifest.write_bytes(manifest.read_bytes() + b"\n")
+
+    with pytest.raises(RuntimeError, match="control input changed"):
+        seal.guard()
+
+
+def test_execution_seal_rejects_runner_source_state_drift(tmp_path: Path) -> None:
+    meta, _, _, _ = meta_fixture(tmp_path)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    add_execution(meta, scratch, workers=1)
+    loaded = load_meta_config(meta)
+    package = tmp_path / "installed" / "eqasim_sa"
+    package.mkdir(parents=True)
+    source = package / "runner.py"
+    source.write_text("VALUE = 1\n")
+    identity = read_software_identity(package, version=loaded.eqasim_sa_version)
+    seal = create_execution_seal(replace(loaded, software_identity=identity))
+    source.write_text("VALUE = 2\n")
+
+    with pytest.raises(RuntimeError, match="source changed after sealing"):
+        seal.guard()
+
+
+def test_execution_seal_rejects_model_head_and_executable_drift(
+    tmp_path: Path,
+) -> None:
+    head_root = tmp_path / "head"
+    head_root.mkdir()
+    meta, model, _, _ = meta_fixture(head_root)
+    scratch = head_root / "scratch"
+    scratch.mkdir()
+    add_execution(meta, scratch, workers=1)
+    seal = create_execution_seal(load_meta_config(meta))
+    subprocess.run(
+        ["git", "commit", "--allow-empty", "-qm", "drift"], cwd=model, check=True
+    )
+    with pytest.raises(RuntimeError, match="HEAD changed"):
+        seal.guard()
+
+    executable_root = tmp_path / "executable"
+    executable_root.mkdir()
+    meta, _, _, _ = meta_fixture(executable_root)
+    scratch = executable_root / "scratch"
+    scratch.mkdir()
+    executable = executable_root / "runner"
+    executable.write_text("#!/bin/sh\nexit 0\n")
+    executable.chmod(0o700)
+    add_execution(meta, scratch, workers=1, invocation=[str(executable)])
+    seal = create_execution_seal(load_meta_config(meta))
+    executable.write_text("#!/bin/sh\nexit 1\n")
+    executable.chmod(0o700)
+    with pytest.raises(RuntimeError, match="executable changed"):
+        seal.guard()
+
+
 def test_slurm_campaign_composes_remote_job_without_local_simulator(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -212,7 +460,7 @@ def test_slurm_campaign_composes_remote_job_without_local_simulator(
     plan_from_meta_config(meta)
     scratch = tmp_path / "scratch"
     scratch.mkdir()
-    add_execution(meta, scratch, backend="slurm", workers=7, overrides={"processes": 1})
+    add_execution(meta, scratch, backend="slurm", workers=7, overrides={"processes": 3})
     observed = {}
 
     class Backend:
@@ -253,7 +501,7 @@ def test_slurm_campaign_composes_remote_job_without_local_simulator(
     assert observed["folder"].parent.is_dir()
     assert not observed["folder"].parent.is_symlink()
     assert observed["workers"] == 7
-    assert observed["parameters"] == {"timeout_min": 1440, "cpus_per_task": 1}
+    assert observed["parameters"] == {"timeout_min": 1440, "cpus_per_task": 3}
     assert type(observed["function"]).__name__ == "EqasimSlurmJob"
     assert (
         observed["function"].meta_config_sha256
@@ -402,6 +650,7 @@ def test_remote_jobs_survive_workdir_loss_and_resume_only_from_runs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from eqasim_sa.adapters import application
+    from eqasim_sa.adapters import data_manifest
     from eqasim_sa.adapters.application import plan_from_meta_config
     from eqasim_sa.adapters.backends.slurm import EqasimSlurmJob
     from eqasim_sa.core.run import compute_run_id
@@ -439,11 +688,22 @@ def test_remote_jobs_survive_workdir_loss_and_resume_only_from_runs(
         meta,
         loaded.context_hash,
         hashlib.sha256(meta.read_bytes()).hexdigest(),
+        loaded.eqasim_sa_sha256,
     )
     monkeypatch.setenv("EQASIM_SPY_RECORD", str(tmp_path / "record.json"))
+    real_hash = data_manifest._hash_descriptor
+    hash_calls = 0
+
+    def counted_hash(descriptor: int) -> str:
+        nonlocal hash_calls
+        hash_calls += 1
+        return real_hash(descriptor)
+
+    monkeypatch.setattr(data_manifest, "_hash_descriptor", counted_hash)
 
     first_batch = WorkerBatch(0, (Indexed(0, specs[0]),))
     assert job(first_batch)[0].value.status == "completed"
+    assert hash_calls == 1
     first_id = compute_run_id(specs[0].resolved_config, specs[0].seed)
     first_marker = loaded.campaign_root / "runs" / f"{first_id}.parquet"
     first_archives = tuple(
@@ -464,6 +724,7 @@ def test_remote_jobs_survive_workdir_loss_and_resume_only_from_runs(
 
     second_batch = WorkerBatch(0, (Indexed(0, specs[1]),))
     assert job(second_batch)[0].value.status == "completed"
+    assert hash_calls == 2
     assert workdir.is_dir()
     assert {
         path: (path.read_bytes(), path.stat().st_mtime_ns) for path in durable
@@ -582,13 +843,14 @@ def test_morris_plan_reconstruction_deduplicates_coincident_structural_positions
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "campaign"
+    descriptor = scientific_context_descriptor()
     design = plan_module.MorrisDesign(
         {"config": {"a": 0}},
         {"a": [0, 1]},
         (11,),
         {"run": ["stage"]},
-        "c" * 64,
-        {"version": "test"},
+        context_hash(descriptor),
+        descriptor,
         root,
         trajectories=2,
         design_seed=7,
@@ -611,13 +873,14 @@ def test_sobol_plan_reconstruction_deduplicates_without_losing_positions(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "campaign"
+    descriptor = scientific_context_descriptor()
     design = plan_module.SobolDesign(
         {"config": {"a": 0}},
         {"a": [0, 1]},
         (11, 12),
         {"run": ["stage"]},
-        "c" * 64,
-        {"version": "test"},
+        context_hash(descriptor),
+        descriptor,
         root,
         base_sample_size=8,
         design_seed=7,
@@ -664,6 +927,26 @@ def test_plan_reconstruction_rejects_tampering_before_effect(tmp_path: Path) -> 
     assert not any(
         (loaded.campaign_root / name).exists() for name in ("runs", "archives", "logs")
     )
+
+
+def test_grid_analysis_reconstructs_and_rejects_tampered_sealed_plan(
+    tmp_path: Path,
+) -> None:
+    from eqasim_sa.adapters.application import plan_from_meta_config
+
+    meta, _, _, _ = meta_fixture(tmp_path)
+    plan_from_meta_config(meta)
+    path = tmp_path / "campaign" / "plan.parquet"
+    table = pq.read_table(path)
+    roles = table["role"].to_pylist()
+    roles[0] = "forged"
+    table = table.set_column(
+        table.column_names.index("role"), "role", pa.array(roles, type=pa.string())
+    )
+    pq.write_table(table, path, compression="zstd")
+
+    with pytest.raises(ValueError, match="mismatch|role|content"):
+        analyze_from_meta_config(meta)
 
 
 @pytest.mark.parametrize("damage", ["missing", "symlink", "truncated", "metadata"])
@@ -802,6 +1085,7 @@ def test_sobol_capacity_warning_is_exact_and_precedes_backend_submission(
     execution = SimpleNamespace(
         backend=backend,
         workers=2,
+        processes=1,
         overrides={},
         invocation=("spy",),
         scratch=tmp_path,
@@ -809,6 +1093,7 @@ def test_sobol_capacity_warning_is_exact_and_precedes_backend_submission(
             timeout_min=1, mem_gb=None, partition=None, account=None, qos=None
         ),
     )
+    software_identity = read_software_identity()
     meta = SimpleNamespace(
         method="sobol",
         campaign="demo",
@@ -825,6 +1110,8 @@ def test_sobol_capacity_warning_is_exact_and_precedes_backend_submission(
         context_descriptor={"version": "test"},
         base_sample_size=4,
         design_seed=7,
+        software_identity=software_identity,
+        eqasim_sa_sha256=software_identity.sha256,
     )
     monkeypatch.setattr(application, "load_meta_config", lambda path: meta)
     monkeypatch.setattr(application, "_design", lambda *args: object())
@@ -896,6 +1183,7 @@ def test_sobol_capacity_warning_is_absent_when_work_fits_or_is_complete(
     pq.write_table(pa.table({"position": list(range(8))}), root / "plan.parquet")
     meta_path = tmp_path / "meta.yml"
     meta_path.write_text("sealed")
+    software_identity = read_software_identity()
     meta = SimpleNamespace(
         method="sobol",
         campaign="demo",
@@ -908,6 +1196,7 @@ def test_sobol_capacity_warning_is_absent_when_work_fits_or_is_complete(
         context_descriptor={},
         base_sample_size=2,
         design_seed=1,
+        software_identity=software_identity,
     )
     monkeypatch.setattr(application, "load_meta_config", lambda path: meta)
     monkeypatch.setattr(application, "_design", lambda *args: object())
@@ -943,6 +1232,58 @@ def test_execution_never_changes_plan(tmp_path: Path) -> None:
     second = plan_from_meta_config(meta)
     assert first.status == "created" and second.status == "unchanged"
     assert (tmp_path / "campaign" / "plan.parquet").read_bytes() == before
+
+
+def test_local_campaign_hashes_data_once_and_persists_execution_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from eqasim_sa.adapters import data_manifest
+    from eqasim_sa.adapters.application import plan_from_meta_config
+    from eqasim_sa.core import ledger
+
+    meta, _, _, _ = meta_fixture(tmp_path)
+    meta.write_text(
+        meta.read_text()
+        .replace("values: [1, 2]", "values: [1]")
+        .replace("values: [x, y]", "values: [x]")
+    )
+    plan_from_meta_config(meta)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    add_execution(
+        meta,
+        scratch,
+        invocation=[sys.executable, str(Path(__file__).with_name("eqasim_spy.py"))],
+    )
+    monkeypatch.setenv("EQASIM_SPY_RECORD", str(tmp_path / "record.json"))
+    monkeypatch.setenv("EQASIM_RUNTIME_SECRET", "must-not-be-persisted")
+    real_hash = data_manifest._hash_descriptor
+    calls = 0
+
+    def counted_hash(descriptor: int) -> str:
+        nonlocal calls
+        calls += 1
+        return real_hash(descriptor)
+
+    monkeypatch.setattr(data_manifest, "_hash_descriptor", counted_hash)
+
+    payload = run_from_meta_config(meta)
+
+    assert payload["completed"] == 2 and calls == 1
+    markers = tuple((tmp_path / "campaign" / "runs").glob("*.parquet"))
+    assert len(markers) == 2
+    evidence_payloads = {
+        dict(pq.ParquetFile(marker).schema_arrow.metadata or {})[
+            ledger.EXECUTION_EVIDENCE
+        ]
+        for marker in markers
+    }
+    assert len(evidence_payloads) == 1
+    evidence_payload = next(iter(evidence_payloads))
+    assert b"must-not-be-persisted" not in evidence_payload
+    evidence = ExecutionEvidence.from_bytes(evidence_payload)
+    assert evidence.context_hash == load_meta_config(meta).context_hash
 
 
 def test_real_subprocess_campaign_deduplicates_and_reports_partial_failure(
@@ -1043,6 +1384,20 @@ def test_campaign_resume_filters_before_simulator_backend_and_preflight(
         "LocalBackend",
         lambda *args: (_ for _ in ()).throw(AssertionError("backend instantiated")),
     )
+    monkeypatch.setattr(
+        application,
+        "create_execution_seal",
+        lambda *args: (_ for _ in ()).throw(AssertionError("data tree hashed")),
+    )
+    real_load_manifest = application.load_data_manifest
+    parsed = 0
+
+    def counted_manifest(path: Path):  # type: ignore[no-untyped-def]
+        nonlocal parsed
+        parsed += 1
+        return real_load_manifest(path)
+
+    monkeypatch.setattr(application, "load_data_manifest", counted_manifest)
     assert run_from_meta_config(meta) == {
         "status": "completed",
         "total": 0,
@@ -1052,6 +1407,7 @@ def test_campaign_resume_filters_before_simulator_backend_and_preflight(
         "failures": [],
         "error": None,
     }
+    assert parsed == 1
     assert not (scratch / "eqasim-sa" / "demo" / "workers").exists()
 
 

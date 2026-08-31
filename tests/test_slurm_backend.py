@@ -9,24 +9,54 @@ from types import SimpleNamespace
 import cloudpickle
 import pytest
 
+from eqasim_sa.adapters.backends import slurm
 from eqasim_sa.adapters.backends.slurm import EqasimSlurmJob, SlurmBackend
 from eqasim_sa.adapters.worker import Indexed, WorkerBatch
 from eqasim_sa.core.run import RunResult, RunSpec
+from eqasim_sa.core.software_identity import read_software_identity
 
 
 class FakeJob:
-    def __init__(self, result=None, error: BaseException | None = None) -> None:
+    next_id = 100
+
+    def __init__(
+        self,
+        result=None,
+        error: BaseException | None = None,
+        *,
+        job_id: str | None = None,
+        wait_error: BaseException | None = None,
+        on_result=None,
+    ) -> None:
+        self.job_id = job_id or str(FakeJob.next_id)
+        FakeJob.next_id += 1
         self.value = result
         self.error = error
+        self.wait_error = wait_error
+        self.on_result = on_result
         self.cancelled = False
+        self.finished = False
+        self.wait_calls = 0
 
     def result(self):  # type: ignore[no-untyped-def]
+        if self.on_result is not None:
+            self.on_result()
+        self.finished = True
         if self.error is not None:
             raise self.error
         return self.value
 
     def cancel(self, check: bool = True) -> None:
         self.cancelled = True
+
+    def done(self, force_check: bool = False) -> bool:
+        return self.finished
+
+    def wait(self) -> None:
+        self.wait_calls += 1
+        if self.wait_error is not None:
+            raise self.wait_error
+        self.finished = True
 
 
 class BrokenCancelJob(FakeJob):
@@ -58,10 +88,21 @@ class FakeExecutor:
 def reset_executor() -> None:
     FakeExecutor.instances = []
     FakeExecutor.jobs = []
+    FakeJob.next_id = 100
 
 
 def test_slurm_backend_forces_cluster_submits_one_ordered_array(tmp_path: Path) -> None:
-    FakeExecutor.jobs = [FakeJob("second"), FakeJob("first")]
+    journal = tmp_path / ".submitit" / slurm.ACTIVE_JOB_JOURNAL
+    observed_journals = []
+    FakeExecutor.jobs = [
+        FakeJob(
+            "second",
+            on_result=lambda: observed_journals.append(
+                json.loads(journal.read_text())
+            ),
+        ),
+        FakeJob("first"),
+    ]
     backend = SlurmBackend(
         tmp_path / ".submitit" / "%j",
         3,
@@ -80,6 +121,11 @@ def test_slurm_backend_forces_cluster_submits_one_ordered_array(tmp_path: Path) 
         "slurm_array_parallelism": 3,
     }
     assert executor.map_calls == [(str, (2, 1))]
+    assert observed_journals == [
+        {"jobIds": [job.job_id for job in FakeExecutor.jobs], "version": 1}
+    ]
+    assert all(job.wait_calls == 1 for job in FakeExecutor.jobs)
+    assert not journal.exists()
 
 
 def test_slurm_backend_accepts_empty_input_without_executor(tmp_path: Path) -> None:
@@ -95,12 +141,16 @@ def test_slurm_backend_rejects_result_cardinality_and_cancels_on_abnormal_exit(
     backend = SlurmBackend(tmp_path / "%j", 2, {}, executor_factory=FakeExecutor)
     with pytest.raises(RuntimeError, match="cardinality"):
         list(backend.map(str, (1, 2)))
+    assert FakeExecutor.jobs[0].cancelled
+    assert FakeExecutor.jobs[0].wait_calls == 1
+    assert not (tmp_path / slurm.ACTIVE_JOB_JOURNAL).exists()
 
     failure, pending = FakeJob(error=RuntimeError("collect failed")), FakeJob(2)
     FakeExecutor.jobs = [failure, pending]
     with pytest.raises(RuntimeError, match="collect failed"):
         list(backend.map(str, (1, 2)))
-    assert failure.cancelled and pending.cancelled
+    assert not failure.cancelled and pending.cancelled
+    assert failure.wait_calls == pending.wait_calls == 1
 
     completed, failure, pending = (
         FakeJob(1),
@@ -111,7 +161,8 @@ def test_slurm_backend_rejects_result_cardinality_and_cancels_on_abnormal_exit(
     with pytest.raises(RuntimeError, match="second failed"):
         list(backend.map(str, (1, 2, 3)))
     assert not completed.cancelled
-    assert failure.cancelled and pending.cancelled
+    assert not failure.cancelled and pending.cancelled
+    assert all(job.wait_calls == 1 for job in (completed, failure, pending))
 
 
 def test_slurm_backend_cancels_and_propagates_keyboard_interrupt(
@@ -122,7 +173,8 @@ def test_slurm_backend_cancels_and_propagates_keyboard_interrupt(
     backend = SlurmBackend(tmp_path / "%j", 1, {}, executor_factory=FakeExecutor)
     with pytest.raises(KeyboardInterrupt):
         list(backend.map(str, (1, 2)))
-    assert interrupted.cancelled and pending.cancelled
+    assert not interrupted.cancelled and pending.cancelled
+    assert interrupted.wait_calls == pending.wait_calls == 1
 
 
 def test_slurm_backend_cancels_on_early_iterator_close_without_masking_errors(
@@ -136,6 +188,94 @@ def test_slurm_backend_cancels_on_early_iterator_close_without_masking_errors(
     assert next(iterator) == 1
     iterator.close()
     assert not first.cancelled and second.cancelled
+    assert first.wait_calls == second.wait_calls == 1
+    assert not (tmp_path / slurm.ACTIVE_JOB_JOURNAL).exists()
+
+
+def test_slurm_backend_reconciles_leftover_journal_before_new_submission(
+    tmp_path: Path,
+) -> None:
+    journal = tmp_path / slurm.ACTIVE_JOB_JOURNAL
+    jobs = {
+        "700_0": FakeJob(job_id="700_0"),
+        "700_1": FakeJob(job_id="700_1"),
+    }
+    slurm._write_journal(journal, tuple(jobs))
+    reconstructed = []
+
+    def factory(folder: Path, job_id: str) -> FakeJob:
+        reconstructed.append((folder, job_id))
+        return jobs[job_id]
+
+    backend = SlurmBackend(
+        tmp_path / "%j",
+        1,
+        {},
+        executor_factory=FakeExecutor,
+        job_factory=factory,
+    )
+
+    assert list(backend.map(str, ())) == []
+    assert reconstructed == [
+        (tmp_path / "%j", "700_0"),
+        (tmp_path / "%j", "700_1"),
+    ]
+    assert all(job.cancelled and job.wait_calls == 1 for job in jobs.values())
+    assert not journal.exists()
+    assert FakeExecutor.instances == []
+
+
+def test_slurm_backend_preserves_leftover_journal_when_recovery_is_unconfirmed(
+    tmp_path: Path,
+) -> None:
+    journal = tmp_path / slurm.ACTIVE_JOB_JOURNAL
+    job = FakeJob(
+        job_id="800",
+        wait_error=RuntimeError("scheduler unavailable"),
+    )
+    slurm._write_journal(journal, (job.job_id,))
+    backend = SlurmBackend(
+        tmp_path / "%j",
+        1,
+        {},
+        executor_factory=FakeExecutor,
+        job_factory=lambda folder, job_id: job,
+    )
+
+    with pytest.raises(RuntimeError, match="terminal state"):
+        list(backend.map(str, (1,)))
+
+    assert job.cancelled and job.wait_calls == 1
+    assert journal.is_file()
+    assert FakeExecutor.instances == []
+
+
+@pytest.mark.parametrize("damage", ["schema", "unsafe-id", "symlink"])
+def test_slurm_backend_refuses_unsafe_leftover_journal_before_executor(
+    tmp_path: Path,
+    damage: str,
+) -> None:
+    journal = tmp_path / slurm.ACTIVE_JOB_JOURNAL
+    if damage == "symlink":
+        target = tmp_path / "target.json"
+        target.write_text('{"jobIds":["900"],"version":1}')
+        journal.symlink_to(target)
+    elif damage == "unsafe-id":
+        journal.write_text('{"jobIds":["../900"],"version":1}')
+    else:
+        journal.write_text('{"jobs":["900"],"version":1}')
+    backend = SlurmBackend(
+        tmp_path / "%j",
+        1,
+        {},
+        executor_factory=FakeExecutor,
+    )
+
+    with pytest.raises(ValueError, match="journal"):
+        list(backend.map(str, (1,)))
+
+    assert journal.exists() or journal.is_symlink()
+    assert FakeExecutor.instances == []
 
 
 def test_remote_job_is_named_serializable_and_revalidates_context(
@@ -158,6 +298,7 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
         "gethostname",
         lambda: (_ for _ in ()).throw(AssertionError("hostname read by remote job")),
     )
+    software_identity = read_software_identity()
     descriptor = {
         "eqasimCommit": "a",
         "dataManifestSha256": "b",
@@ -187,6 +328,8 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
         model_bytes=b"config",
         campaign_root=tmp_path,
         structured_factors={},
+        software_identity=software_identity,
+        eqasim_sa_sha256=software_identity.sha256,
     )
     monkeypatch.setattr(slurm, "load_meta_config", lambda path: meta)
     settings_calls = []
@@ -223,7 +366,9 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
         ),
     )
     spec = RunSpec("demo", {"config": {}}, 1, context_hash, {})
-    job = EqasimSlurmJob(meta_path, context_hash, meta_sha256)
+    job = EqasimSlurmJob(
+        meta_path, context_hash, meta_sha256, software_identity.sha256
+    )
 
     batch = WorkerBatch(2, (Indexed(0, spec),))
     restored, restored_batch = cloudpickle.loads(cloudpickle.dumps((job, batch)))
@@ -233,6 +378,7 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
         "meta_config_path": tmp_path / "meta.yml",
         "expected_context_hash": context_hash,
         "meta_config_sha256": meta_sha256,
+        "expected_eqasim_sa_sha256": software_identity.sha256,
     }
     assert restored(restored_batch) == (Indexed(0, RunResult("id", "completed")),)
     assert settings_calls == [
@@ -242,6 +388,7 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
             meta.execution.invocation,
             meta.campaign,
             node_scratch,
+            context_hash,
         )
     ]
     assert observed == [
@@ -253,8 +400,15 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
         )
     ]
 
+    meta.charter = SimpleNamespace(status="scientific")
+    with pytest.raises(ValueError, match="effective data_path and execution seal"):
+        job(batch)
+    del meta.charter
+
     with pytest.raises(ValueError, match="contextHash"):
-        EqasimSlurmJob(meta_path, "different", meta_sha256)(batch)
+        EqasimSlurmJob(
+            meta_path, "different", meta_sha256, software_identity.sha256
+        )(batch)
 
     monkeypatch.setattr(
         slurm,
@@ -275,7 +429,12 @@ def test_remote_job_rejects_meta_config_byte_changes_before_reload(
     meta_path = tmp_path / "meta.yml"
     original = b"campaign: original\n"
     meta_path.write_bytes(original)
-    job = EqasimSlurmJob(meta_path, "context", hashlib.sha256(original).hexdigest())
+    job = EqasimSlurmJob(
+        meta_path,
+        "context",
+        hashlib.sha256(original).hexdigest(),
+        "e" * 64,
+    )
     meta_path.write_bytes(b"campaign: changed\n")
     reloaded = False
 

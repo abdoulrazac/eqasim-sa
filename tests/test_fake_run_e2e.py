@@ -1,4 +1,6 @@
 import os
+import threading
+import time
 from pathlib import Path
 
 import pyarrow as pa
@@ -8,7 +10,7 @@ import pytest
 from eqasim_sa.adapters.backends.local import LocalBackend
 from eqasim_sa.adapters.fake.simulator import FakeSimulator
 from eqasim_sa.core import ledger
-from eqasim_sa.core.run import RunSpec, run_one, validate_manifest
+from eqasim_sa.core.run import RunSpec, execute_run, run_one, validate_manifest
 from eqasim_sa.ports.simulator import Artifact, Manifest, SimulationError
 
 
@@ -68,6 +70,165 @@ def test_real_subprocess_archives_then_skips(tmp_path: Path) -> None:
     assert simulator.calls == 1
     assert backend.calls == 2
     assert archive.read_bytes() == before
+
+
+def test_concurrent_execute_run_simulates_and_publishes_only_once(
+    tmp_path: Path,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    lock = threading.Lock()
+    calls = 0
+
+    class BlockingSimulator(FakeSimulator):
+        def simulate(self, config, seed, workdir):  # type: ignore[no-untyped-def]
+            nonlocal calls
+            with lock:
+                calls += 1
+            entered.set()
+            assert release.wait(5)
+            return super().simulate(config, seed, workdir)
+
+    campaign = tmp_path / "campaign"
+    workdir = tmp_path / "work"
+    results = []
+
+    def run() -> None:
+        results.append(
+            execute_run(spec(), BlockingSimulator(), campaign, workdir)
+        )
+
+    first = threading.Thread(target=run)
+    second = threading.Thread(target=run)
+    first.start()
+    assert entered.wait(5)
+    second.start()
+    time.sleep(0.1)
+    assert calls == 1
+    release.set()
+    first.join(10)
+    second.join(10)
+
+    assert not first.is_alive() and not second.is_alive()
+    assert calls == 1
+    assert sorted(result.status for result in results) == ["completed", "skipped"]
+    assert len(tuple((campaign / "runs").glob("*.parquet"))) == 1
+    assert len(tuple((campaign / "archives").iterdir())) == 1
+
+
+def test_zstd_artifact_uses_bounded_validation_and_exact_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class CapturingSimulator(FakeSimulator):
+        source_bytes = b""
+
+        def simulate(self, config, seed, workdir):  # type: ignore[no-untyped-def]
+            manifest = super().simulate(config, seed, workdir)
+            self.source_bytes = manifest.artifacts[0].path.read_bytes()
+            return manifest
+
+    def forbid_full_table_load(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("publication must not call pq.read_table")
+
+    monkeypatch.setattr(ledger.pq, "read_table", forbid_full_table_load)
+    simulator = CapturingSimulator()
+    result = run_one(
+        spec(),
+        simulator,
+        LocalBackend(),
+        tmp_path / "campaign",
+        tmp_path / "work",
+        "ctx",
+    )
+
+    archive = (
+        tmp_path
+        / "campaign"
+        / "archives"
+        / result.run_id
+        / "population.parquet"
+    )
+    assert result.status == "completed"
+    assert archive.read_bytes() == simulator.source_bytes
+
+
+def test_invalid_manifest_scratch_is_rejected_before_publication(
+    tmp_path: Path,
+) -> None:
+    class InvalidScratch(FakeSimulator):
+        def simulate(self, config, seed, workdir):  # type: ignore[no-untyped-def]
+            manifest = super().simulate(config, seed, workdir)
+            return Manifest(
+                manifest.artifacts, manifest.attempt_directory, scratch_bytes=-1
+            )
+
+    campaign = tmp_path / "campaign"
+    result = run_one(
+        spec(), InvalidScratch(), LocalBackend(), campaign, tmp_path / "work", "ctx"
+    )
+
+    assert result.status == "failed"
+    assert "scratch_bytes" in result.error
+    assert not (campaign / "runs" / f"{result.run_id}.parquet").exists()
+    assert not (campaign / "archives" / result.run_id).exists()
+
+
+def test_failure_after_first_staged_artifact_leaves_no_partial_archive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class TwoArtifacts(FakeSimulator):
+        def simulate(self, config, seed, workdir):  # type: ignore[no-untyped-def]
+            manifest = super().simulate(config, seed, workdir)
+            first = manifest.artifacts[0]
+            return Manifest(
+                (first, Artifact("second.parquet", first.path)),
+                manifest.attempt_directory,
+            )
+
+    original = ledger._copy_parquet_artifact
+    calls = 0
+
+    def fail_second(source, destination, name, interrupted):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("second artifact failed")
+        return original(source, destination, name, interrupted)
+
+    monkeypatch.setattr(ledger, "_copy_parquet_artifact", fail_second)
+    campaign = tmp_path / "campaign"
+    result = run_one(
+        spec(), TwoArtifacts(), LocalBackend(), campaign, tmp_path / "work", "ctx"
+    )
+
+    assert result.status == "failed"
+    assert not (campaign / "archives" / result.run_id).exists()
+    assert not tuple((campaign / "archives").glob(".*.tmp"))
+    assert not (campaign / "runs" / f"{result.run_id}.parquet").exists()
+
+
+def test_orphan_archive_symlink_is_replaced_without_following_it(
+    tmp_path: Path,
+) -> None:
+    from eqasim_sa.core.run import compute_run_id
+
+    campaign = tmp_path / "campaign"
+    run_id = compute_run_id(spec().resolved_config, spec().seed)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    sentinel = outside / "keep"
+    sentinel.write_text("untouched")
+    archive = campaign / "archives" / run_id
+    archive.parent.mkdir(parents=True)
+    archive.symlink_to(outside, target_is_directory=True)
+
+    result = run_one(
+        spec(), FakeSimulator(), LocalBackend(), campaign, tmp_path / "work", "ctx"
+    )
+
+    assert result.status == "completed"
+    assert archive.is_dir() and not archive.is_symlink()
+    assert sentinel.read_text() == "untouched"
 
 
 def test_context_mismatch_and_process_failure_publish_no_run(tmp_path: Path) -> None:
@@ -152,6 +313,22 @@ def test_rejects_duplicate_and_symlink_escape(tmp_path: Path) -> None:
     duplicate = Artifact("inside.parquet", inside)
     with pytest.raises(ValueError, match="duplicate"):
         validate_manifest(Manifest((duplicate, duplicate), attempt), tmp_path)
+
+
+def test_rejects_artifact_with_symlinked_parent(tmp_path: Path) -> None:
+    attempt = tmp_path / "attempt"
+    real = attempt / "real"
+    real.mkdir(parents=True)
+    source = real / "population.parquet"
+    pq.write_table(pa.table({"value": [1]}), source, compression="zstd")
+    linked = attempt / "linked"
+    linked.symlink_to(real, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="escapes"):
+        validate_manifest(
+            Manifest((Artifact("population.parquet", linked / source.name),), attempt),
+            tmp_path,
+        )
 
 
 def test_rejects_attempt_directory_outside_workdir(tmp_path: Path) -> None:
@@ -395,34 +572,41 @@ def test_run_file_is_published_last_and_archive_failure_is_incomplete(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    destinations: list[Path] = []
-    original = ledger.write_parquet_atomic
-
-    def observe(table, destination):  # type: ignore[no-untyped-def]
-        result = original(table, destination)
-        destinations.append(destination)
-        return result
-
-    monkeypatch.setattr(ledger, "write_parquet_atomic", observe)
     import eqasim_sa.core.run as run_module
 
-    monkeypatch.setattr(run_module, "write_parquet_atomic", observe)
+    events: list[str] = []
+    original_rename = ledger.os.rename
+    original_publish = ledger._publish_run_marker_no_clobber
+    campaign = tmp_path / "ordered"
+
+    def observe_rename(source, target, *args, **kwargs):  # type: ignore[no-untyped-def]
+        result = original_rename(source, target, *args, **kwargs)
+        if kwargs.get("src_dir_fd") is not None and str(source).endswith(".tmp"):
+            events.append("archive")
+        return result
+
+    def observe_marker(staging, runs, name, table):  # type: ignore[no-untyped-def]
+        assert (campaign / "archives" / name.removesuffix(".parquet")).is_dir()
+        events.append("marker")
+        return original_publish(staging, runs, name, table)
+
+    monkeypatch.setattr(ledger.os, "rename", observe_rename)
+    monkeypatch.setattr(ledger, "_publish_run_marker_no_clobber", observe_marker)
     result = run_one(
         spec(),
         FakeSimulator(),
         LocalBackend(),
-        tmp_path / "ordered",
+        campaign,
         tmp_path / "work",
         "ctx",
     )
     assert result.status == "completed"
-    assert "archives" in destinations[0].parts
-    assert "runs" in destinations[-1].parts
+    assert events == ["archive", "marker"]
 
-    def fail_archive(table, destination):  # type: ignore[no-untyped-def]
+    def fail_archive(source, destination, name, interrupted):  # type: ignore[no-untyped-def]
         raise OSError("archive failure")
 
-    monkeypatch.setattr(run_module, "write_parquet_atomic", fail_archive)
+    monkeypatch.setattr(ledger, "_copy_parquet_artifact", fail_archive)
     failed = run_one(
         RunSpec("other", spec().resolved_config, 43, "ctx", {}),
         FakeSimulator(),
@@ -433,6 +617,8 @@ def test_run_file_is_published_last_and_archive_failure_is_incomplete(
     )
     assert failed.status == "failed"
     assert not (tmp_path / "broken" / "runs" / f"{failed.run_id}.parquet").exists()
+    assert not (tmp_path / "broken" / "archives" / failed.run_id).exists()
+    assert not tuple((tmp_path / "broken" / "archives").glob(".*.tmp"))
 
 
 @pytest.mark.parametrize("failure", ["archive", "run", "enospc"])
@@ -449,10 +635,11 @@ def test_partial_publication_replays_without_cleanup(
     (campaign / "plan.parquet").parent.mkdir(parents=True)
     (campaign / "plan.parquet").write_bytes(b"sealed-plan")
     before = (campaign / "plan.parquet").read_bytes()
-    real_archive, real_run = run_module.write_parquet_atomic, run_module.write_run
+    real_archive = ledger._copy_parquet_artifact
+    real_marker = ledger._publish_run_marker_no_clobber
     calls = 0
 
-    def fail_archive(table, destination):  # type: ignore[no-untyped-def]
+    def fail_archive(source, destination, name, interrupted):  # type: ignore[no-untyped-def]
         nonlocal calls
         calls += 1
         if calls == 1:
@@ -460,14 +647,14 @@ def test_partial_publication_replays_without_cleanup(
                 errno.ENOSPC if failure == "enospc" else errno.EIO,
                 "injected publication",
             )
-        return real_archive(table, destination)
+        return real_archive(source, destination, name, interrupted)
 
     if failure in {"archive", "enospc"}:
-        monkeypatch.setattr(run_module, "write_parquet_atomic", fail_archive)
+        monkeypatch.setattr(ledger, "_copy_parquet_artifact", fail_archive)
     else:
         monkeypatch.setattr(
-            run_module,
-            "write_run",
+            ledger,
+            "_publish_run_marker_no_clobber",
             lambda *args: (_ for _ in ()).throw(OSError("injected final marker")),
         )
     first = run_one(spec(), FakeSimulator(), LocalBackend(), campaign, work, "ctx")
@@ -487,8 +674,8 @@ def test_partial_publication_replays_without_cleanup(
     log = campaign / "logs" / f"{first.run_id}.log"
     log.parent.mkdir(exist_ok=True)
     log.write_text("old failure")
-    monkeypatch.setattr(run_module, "write_parquet_atomic", real_archive)
-    monkeypatch.setattr(run_module, "write_run", real_run)
+    monkeypatch.setattr(ledger, "_copy_parquet_artifact", real_archive)
+    monkeypatch.setattr(ledger, "_publish_run_marker_no_clobber", real_marker)
     replay = run_one(spec(), FakeSimulator(), LocalBackend(), campaign, work, "ctx")
     assert replay.status == "completed" and pq.read_table(stale).to_pylist()
     assert (campaign / "runs" / f"{replay.run_id}.parquet").is_file()

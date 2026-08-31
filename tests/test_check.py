@@ -9,13 +9,22 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from eqasim_sa.core.indicators import TableArtifact, TotalVariationIndicator
 from eqasim_sa.core.plan import GridDesign, unique_config_seed_pairs
+from eqasim_sa.core.software_identity import read_software_identity
 from eqasim_sa.ports.simulator import Artifact, Manifest
+from tests.provenance_helpers import context_hash
 
 
 def design(
     root: Path, factors: dict[str, list], seeds: tuple[int, ...] = (1,)
 ) -> GridDesign:
+    descriptor = {
+        "eqasimCommit": "a",
+        "dataManifestSha256": "b",
+        "lockfileSha256": "c",
+        "eqasimSaVersion": "0.1.0",
+    }
     return GridDesign(
         {
             "working_directory": "/ignored",
@@ -25,13 +34,8 @@ def design(
         factors,
         seeds,
         {"run": ["stage"]},
-        "c" * 64,
-        {
-            "eqasimCommit": "a",
-            "dataManifestSha256": "b",
-            "lockfileSha256": "c",
-            "eqasimSaVersion": "0.1.0",
-        },
+        context_hash(descriptor),
+        descriptor,
         root,
     )
 
@@ -70,6 +74,7 @@ def test_static_check_accepts_sealed_structural_coincidences_but_grid_still_reje
         model_root=tmp_path,
         calibration_meta_configs=(),
         indicator_requirements=(),
+        software_identity=read_software_identity(),
     )
     monkeypatch.setattr(application, "load_meta_config", lambda *args, **kwargs: meta)
     monkeypatch.setattr(application, "load_run_specs", lambda *args: ())
@@ -394,12 +399,13 @@ def test_static_check_never_touches_referenced_data(
         model_document=base.base_config,
         factors={"rate": [1]},
         seeds=(1,),
-        context_hash="c" * 64,
+        context_hash=base.context_hash,
         context_descriptor=base.context_descriptor,
         execution=SimpleNamespace(invocation=("spy",), scratch=tmp_path, workers=1),
         model_root=tmp_path,
         calibration_meta_configs=(),
         indicator_requirements=(),
+        software_identity=read_software_identity(),
     )
     monkeypatch.setattr(
         application,
@@ -441,8 +447,9 @@ def test_static_check_never_touches_referenced_data(
     assert payload["status"] == "valid"
 
 
-def test_smoke_executes_exactly_two_runs_and_removes_owned_paths(
-    tmp_path: Path, monkeypatch
+@pytest.mark.parametrize("indicator_case", [None, "missing-column", "duplicate-class"])
+def test_smoke_applies_run_overrides_and_computes_every_indicator(
+    tmp_path: Path, monkeypatch, indicator_case: str | None
 ) -> None:
     from eqasim_sa.adapters import application
     from eqasim_sa.core.run import RunSpec
@@ -452,18 +459,41 @@ def test_smoke_executes_exactly_two_runs_and_removes_owned_paths(
     config = {
         "working_directory": "/ignored",
         "run": ["synthesis.output", "analysis.synthesis.population"],
-        "config": {"rate": 1, "sampling_rate": 1, "random_seed": 1},
+        "config": {
+            "rate": 1,
+            "sampling_rate": 1,
+            "random_seed": 1,
+            "data_path": "sealed-data",
+        },
     }
     spec = RunSpec("demo", config, 1, "c" * 64, {"rate": 1})
+    override_data = tmp_path / "override-data"
+    override_data.mkdir()
+    indicators = (
+        ()
+        if indicator_case is None
+        else (
+            TotalVariationIndicator(
+                TableArtifact("age", "class", "synthetic", True),
+                "reference",
+            ),
+        )
+    )
     meta = SimpleNamespace(
         seeds=(1, 2, 3),
         model_config=tmp_path / "config.yml",
         campaign_root=target,
         model_root=tmp_path,
-        execution=SimpleNamespace(invocation=("spy",)),
+        execution=SimpleNamespace(
+            invocation=("spy",),
+            overrides={"data_path": override_data},
+            data_path=None,
+        ),
         model_document=config,
         model_bytes=b"x",
         structured_factors={},
+        indicators=indicators,
+        software_identity=read_software_identity(),
     )
     (tmp_path / "config.yml").write_text("config: {}")
     seen, simulators = [], []
@@ -479,7 +509,14 @@ def test_smoke_executes_exactly_two_runs_and_removes_owned_paths(
             self.interrupted = True
 
         def simulate(self, resolved, seed, workdir):
-            seen.append((seed, resolved["config"]["sampling_rate"], workdir))
+            seen.append(
+                (
+                    seed,
+                    resolved["config"]["sampling_rate"],
+                    resolved["config"]["data_path"],
+                    workdir,
+                )
+            )
             attempt = workdir / f"attempt-{seed}"
             attempt.mkdir(parents=True)
             names = (
@@ -499,15 +536,33 @@ def test_smoke_executes_exactly_two_runs_and_removes_owned_paths(
             artifacts = []
             for name in names:
                 artifact = attempt / f"{name}.parquet"
-                pq.write_table(pa.table({"value": [seed]}), artifact)
+                if name == "age" and indicator_case == "duplicate-class":
+                    table = pa.table(
+                        {
+                            "class": ["same", "same"],
+                            "synthetic": [1.0, 0.0],
+                            "reference": [0.0, 1.0],
+                        }
+                    )
+                else:
+                    table = pa.table({"value": [seed]})
+                pq.write_table(table, artifact)
                 artifacts.append(Artifact(artifact.name, artifact))
             return Manifest(tuple(artifacts), attempt)
 
     monkeypatch.setattr(application, "EqasimSimulator", Simulator)
 
-    application._smoke(meta, (spec,))
+    if indicator_case is None:
+        application._smoke(meta, (spec,))
+    else:
+        message = "missing declared column" if indicator_case == "missing-column" else "duplicate class labels"
+        with pytest.raises(ValueError, match=message):
+            application._smoke(meta, (spec,))
 
-    assert [(seed, rate) for seed, rate, _ in seen] == [(1, 0.001), (2, 0.001)]
+    assert [(seed, rate, data) for seed, rate, data, _ in seen] == [
+        (1, 0.001, str(override_data)),
+        (2, 0.001, str(override_data)),
+    ]
     assert len(simulators) == 1 and simulators[0].interrupted
-    assert all(not workdir.parents[2].exists() for _, _, workdir in seen)
+    assert all(not workdir.parents[2].exists() for _, _, _, workdir in seen)
     assert not tuple(target.iterdir())

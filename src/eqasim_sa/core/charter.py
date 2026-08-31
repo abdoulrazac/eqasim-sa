@@ -1,7 +1,13 @@
 import json
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
+
+from eqasim_sa.core.indicators import (
+    indicator_definition_sha256,
+    validate_indicator_definition,
+)
 
 
 class CharterStatus(StrEnum):
@@ -63,6 +69,8 @@ class Decision:
     estimand: str
     primary_indicator: str
     practical_tolerance: float | None
+    primary_indicator_definition: dict[str, object] | None = None
+    primary_indicator_definition_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -171,6 +179,49 @@ INVENTORY_CATEGORIES = (
     "numerics",
 )
 INT64_MAX = 2**63 - 1
+
+
+def validate_scientific_stopping(
+    method: str,
+    criteria: Sequence[StoppingCriterion | dict],
+    checkpoint_count: int,
+) -> None:
+    """Validate the stopping declaration that a scientific method can evaluate."""
+    if type(checkpoint_count) is not int or checkpoint_count <= 0:
+        raise ValueError("scientific stopping checkpoint count must be positive")
+    supported = {
+        "canonical_morris": ("rank_stability", checkpoint_count - 1),
+        "multiscramble_sobol": ("ci_width", checkpoint_count),
+    }
+    if method not in supported:
+        raise ValueError(f"scientific stopping is not supported for method {method!r}")
+    metric, maximum_checks = supported[method]
+    if not isinstance(criteria, (list, tuple)) or len(criteria) != 1:
+        raise ValueError(
+            f"{method} stopping must declare exactly one {metric} criterion"
+        )
+    criterion = criteria[0]
+    if isinstance(criterion, StoppingCriterion):
+        actual_metric = criterion.metric
+        consecutive_checks = criterion.consecutive_checks
+    elif isinstance(criterion, dict):
+        actual_metric = criterion.get("metric")
+        consecutive_checks = criterion.get("consecutive_checks")
+    else:
+        raise TypeError(f"{method} stopping criterion must be a mapping")
+    if actual_metric != metric:
+        raise ValueError(
+            f"{method} stopping must declare exactly the {metric} metric"
+        )
+    if type(consecutive_checks) is not int or consecutive_checks <= 0:
+        raise ValueError(
+            f"{method} stopping consecutive_checks must be a positive integer"
+        )
+    if consecutive_checks > maximum_checks:
+        raise ValueError(
+            f"{method} stopping consecutive_checks must be at most "
+            f"{maximum_checks} for {checkpoint_count} checkpoints"
+        )
 
 
 def _mapping(value: object, name: str) -> dict:
@@ -379,7 +430,11 @@ def parse_distribution(value: object, name: str) -> ParameterDistribution:
     )
 
 
-def _decision(value: object, indicator_names: set[str]) -> Decision:
+def _decision(
+    value: object,
+    indicator_names: set[str],
+    indicator_definitions: dict[str, dict[str, object]] | None,
+) -> Decision:
     document = _mapping(value, "charter.decision")
     base = {"claim", "use", "setting", "objective", "estimand", "primary_indicator"}
     objective = document.get("objective")
@@ -405,6 +460,21 @@ def _decision(value: object, indicator_names: set[str]) -> Decision:
         if parsed_objective is SensitivityObjective.FACTOR_FIXING
         else None
     )
+    definition = (
+        None
+        if indicator_definitions is None
+        else indicator_definitions.get(primary)
+    )
+    if indicator_definitions is not None and definition is None:
+        raise ValueError(
+            "charter.decision.primary_indicator has no canonical definition"
+        )
+    definition_sha256 = None
+    if definition is not None:
+        validate_indicator_definition(definition, require_scientific=True)
+        if definition["name"] != primary:
+            raise ValueError("primary indicator definition name does not match decision")
+        definition_sha256 = indicator_definition_sha256(definition)
     return Decision(
         _text(document["claim"], "charter.decision.claim"),
         use,
@@ -413,6 +483,8 @@ def _decision(value: object, indicator_names: set[str]) -> Decision:
         _text(document["estimand"], "charter.decision.estimand"),
         primary,
         tolerance,
+        definition,
+        definition_sha256,
     )
 
 
@@ -525,6 +597,7 @@ def parse_charter(
     value: object | None,
     parameter_names: set[str],
     indicator_names: set[str],
+    indicator_definitions: dict[str, dict[str, object]] | None = None,
 ) -> AnalysisCharter:
     status = charter_status(value)
     if status is CharterStatus.DEMONSTRATION:
@@ -598,7 +671,7 @@ def parse_charter(
             )
         )
     return ScientificCharter(
-        _decision(document["decision"], indicator_names),
+        _decision(document["decision"], indicator_names, indicator_definitions),
         _dependence(uncertainty["dependence"], parameter_names),
         _inventory(uncertainty["inventory"], parameter_names),
         Budget(maximum_runs, reserve),
@@ -621,7 +694,27 @@ def validate_scientific_contract(
     except (TypeError, ValueError) as error:
         raise ValueError("scientific_contract must be JSON-safe") from error
     document = _mapping(contract, "scientific_contract")
-    _exact(document, {"charter", "parameters"}, "scientific_contract")
+    _exact(
+        document,
+        {"schemaVersion", "software", "charter", "parameters"},
+        "scientific_contract",
+    )
+    if document["schemaVersion"] != 2 or type(document["schemaVersion"]) is not int:
+        raise ValueError("scientific_contract schemaVersion must equal 2")
+    software = _mapping(document["software"], "scientific_contract.software")
+    _exact(
+        software,
+        {"eqasimSaVersion", "eqasimSaSha256"},
+        "scientific_contract.software",
+    )
+    _text(software["eqasimSaVersion"], "scientific_contract software version")
+    software_sha256 = software["eqasimSaSha256"]
+    if (
+        not isinstance(software_sha256, str)
+        or len(software_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in software_sha256)
+    ):
+        raise ValueError("scientific_contract software digest must be lowercase SHA-256")
     charter = _mapping(document["charter"], "scientific_contract.charter")
     _exact(
         charter,
@@ -644,6 +737,8 @@ def validate_scientific_contract(
             "objective",
             "estimand",
             "primary_indicator",
+            "primary_indicator_definition",
+            "primary_indicator_definition_sha256",
             "practical_tolerance",
         },
         "scientific_contract.charter.decision",
@@ -651,6 +746,18 @@ def validate_scientific_contract(
     for key in ("claim", "setting", "estimand", "primary_indicator"):
         if "\0" in _text(decision[key], f"scientific_contract decision {key}"):
             raise ValueError(f"scientific_contract decision {key} must not contain NUL")
+    primary_definition = validate_indicator_definition(
+        decision["primary_indicator_definition"], require_scientific=True
+    )
+    if primary_definition["name"] != decision["primary_indicator"]:
+        raise ValueError(
+            "scientific_contract primary indicator definition name does not match"
+        )
+    expected_definition_sha256 = indicator_definition_sha256(primary_definition)
+    if decision["primary_indicator_definition_sha256"] != expected_definition_sha256:
+        raise ValueError(
+            "scientific_contract primary indicator definition digest does not match"
+        )
     if decision["use"] not in {item.value for item in DecisionUse}:
         raise ValueError("scientific_contract decision use must be diagnostic or prognostic")
     if decision["objective"] not in allowed_objectives:
@@ -815,13 +922,25 @@ def serialize_scientific_contract(
     charter: ScientificCharter,
     factors: dict[str, list],
     distributions: dict[str, ParameterDistribution],
+    eqasim_sa_version: str,
+    eqasim_sa_sha256: str,
 ) -> dict:
     if not isinstance(charter, ScientificCharter):
         raise TypeError("canonical scientific contract requires a ScientificCharter")
     if set(factors) != set(distributions):
         raise ValueError("scientific contract distributions must exactly match factors")
     decision = charter.decision
+    if (
+        decision.primary_indicator_definition is None
+        or decision.primary_indicator_definition_sha256 is None
+    ):
+        raise ValueError("scientific contract requires a sealed primary indicator definition")
     contract = {
+        "schemaVersion": 2,
+        "software": {
+            "eqasimSaVersion": eqasim_sa_version,
+            "eqasimSaSha256": eqasim_sa_sha256,
+        },
         "charter": {
             "status": charter.status.value,
             "decision": {
@@ -831,6 +950,10 @@ def serialize_scientific_contract(
                 "objective": decision.objective.value,
                 "estimand": decision.estimand,
                 "primary_indicator": decision.primary_indicator,
+                "primary_indicator_definition": decision.primary_indicator_definition,
+                "primary_indicator_definition_sha256": (
+                    decision.primary_indicator_definition_sha256
+                ),
                 "practical_tolerance": decision.practical_tolerance,
             },
             "uncertainty": {
@@ -890,4 +1013,12 @@ def serialize_scientific_contract(
             for name in sorted(factors)
         ],
     }
+    validate_scientific_contract(
+        contract,
+        factors,
+        distributions,
+        allowed_objectives=frozenset(
+            {SensitivityObjective.SCREENING.value, SensitivityObjective.FACTOR_PRIORITIZATION.value, SensitivityObjective.FACTOR_FIXING.value}
+        ),
+    )
     return contract

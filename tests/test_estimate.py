@@ -19,6 +19,7 @@ from eqasim_sa.core.plan import (
 )
 from eqasim_sa.core.run import compute_run_id
 from eqasim_sa.ports.simulator import IndicatorRequirement
+from tests.provenance_helpers import context_hash
 
 
 def test_estimate_plan_uses_unique_runs_and_observed_arithmetic_means() -> None:
@@ -133,12 +134,13 @@ def test_application_estimate_passes_sobol_formula_inputs_and_unique_runs(
         "lockfileSha256": "c",
         "eqasimSaVersion": "0.1.0",
     }
+    sealed_context_hash = context_hash(descriptor)
     design = SobolDesign(
         {"config": {"rate": 0}},
         {"rate": [0, 1]},
         (7, 8),
         {"run": ["synthesis.output", "analysis.synthesis.population"]},
-        "c" * 64,
+        sealed_context_hash,
         descriptor,
         root,
         base_sample_size=8,
@@ -149,7 +151,15 @@ def test_application_estimate_passes_sobol_formula_inputs_and_unique_runs(
     run_id = compute_run_id(spec.resolved_config, spec.seed)
     marker = write_run(
         root,
-        RunRecord(run_id, "demo", spec.seed, "c" * 64, "node", 2.0, spec.parameters),
+        RunRecord(
+            run_id,
+            "demo",
+            spec.seed,
+            sealed_context_hash,
+            "node",
+            2.0,
+            spec.parameters,
+        ),
     )
     archive = root / "archives" / run_id
     archive.mkdir(parents=True)
@@ -191,12 +201,13 @@ def campaign(
         "lockfileSha256": "c",
         "eqasimSaVersion": "0.1.0",
     }
+    sealed_context_hash = context_hash(descriptor)
     common = (
         {"config": {"rate": 0}},
         {"rate": [0, 1] if morris else [1, 1]},
         (7,),
         {"run": ["synthesis.output", "analysis.synthesis.population"]},
-        "c" * 64,
+        sealed_context_hash,
         descriptor,
         root,
     )
@@ -211,7 +222,14 @@ def campaign(
     marker = write_run(
         root,
         RunRecord(
-            run_id, "demo", 7, "c" * 64, "node", duration, spec.parameters, 100
+            run_id,
+            "demo",
+            7,
+            sealed_context_hash,
+            "node",
+            duration,
+            spec.parameters,
+            100,
         ),
     )
     archive = root / "archives" / run_id

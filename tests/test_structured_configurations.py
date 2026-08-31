@@ -23,6 +23,7 @@ from eqasim_sa.core.indicators import ArtifactSet, RegisteredIndicator
 from eqasim_sa.core.ledger import RunRecord, write_parquet_atomic, write_run
 from eqasim_sa.core.plan import GridDesign, MorrisDesign, SobolDesign, build_plan, load_run_specs
 from eqasim_sa.core.run import RunResult, RunSpec, compute_run_id
+from eqasim_sa.core.software_identity import read_software_identity
 from eqasim_sa.ports.simulator import SimulationError
 from tests.test_multiscramble_sobol_plan import multiscramble_meta_document
 from tests.test_multiscramble_sobol_plan import multiscramble_design
@@ -166,7 +167,7 @@ def test_scientific_structured_factor_applies_distribution_to_labels(
 ) -> None:
     meta = structured_meta(tmp_path)
     document = multiscramble_meta_document(meta)
-    document["experiment"]["scramble_seeds"] = [5, 6, 11, 15]
+    document["experiment"]["scramble_seeds"] = [1, 3, 5, 10]
     distribution = {
         "family": "discrete_uniform",
         "transform": "identity",
@@ -755,6 +756,7 @@ def test_slurm_callable_preserves_structured_snapshot_without_list_cli(
     fixture.interrupt()
     campaign = tmp_path / "campaign"
     campaign.mkdir()
+    software_identity = read_software_identity()
     descriptor = {
         "eqasimCommit": "a",
         "dataManifestSha256": "b",
@@ -786,6 +788,8 @@ def test_slurm_callable_preserves_structured_snapshot_without_list_cli(
         model_bytes=(tmp_path / "model" / "config.yml").read_bytes(),
         campaign_root=campaign,
         structured_factors=mapping,
+        software_identity=software_identity,
+        eqasim_sa_sha256=software_identity.sha256,
     )
     meta.execution.scratch.mkdir()
     monkeypatch.setattr(slurm, "load_meta_config", lambda path: meta)
@@ -810,7 +814,9 @@ def test_slurm_callable_preserves_structured_snapshot_without_list_cli(
     spec = RunSpec("demo", resolved, 41, context_hash, {"matching_attributes": "reduced"})
     digest = hashlib.sha256(meta_path.read_bytes()).hexdigest()
 
-    result = slurm.EqasimSlurmJob(meta_path, context_hash, digest)(
+    result = slurm.EqasimSlurmJob(
+        meta_path, context_hash, digest, software_identity.sha256
+    )(
         WorkerBatch(0, (Indexed(0, spec),))
     )
 
@@ -833,6 +839,7 @@ def test_public_smoke_check_preserves_structured_snapshot_without_list_cli(
             "reduced": ["sex"],
         }
     }
+    software_identity = read_software_identity()
     meta = SimpleNamespace(
         seeds=(41, 42),
         model_config=tmp_path / "model" / "config.yml",
@@ -842,6 +849,7 @@ def test_public_smoke_check_preserves_structured_snapshot_without_list_cli(
         model_document=base,
         model_bytes=(tmp_path / "model" / "config.yml").read_bytes(),
         structured_factors=mapping,
+        software_identity=software_identity,
     )
     resolved = copy.deepcopy(base)
     resolved["run"] = ["synthesis.output"]

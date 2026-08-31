@@ -9,17 +9,17 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-import pyarrow.parquet as pq
-
 from eqasim_sa.core.ledger import (
     RunRecord,
+    _validate_directory_path,
+    _validate_regular_path,
+    archive_transaction,
     completion_ids,
     copy_file_atomic,
     fsync_directory,
     is_complete,
+    run_lease,
     validate_parameters,
-    write_parquet_atomic,
-    write_run,
 )
 from eqasim_sa.ports.backend import Backend
 from eqasim_sa.ports.simulator import (
@@ -118,29 +118,46 @@ def compute_run_id(config: ResolvedConfig, seed: int) -> str:
 def validate_manifest(
     manifest: Manifest, workdir: Path
 ) -> tuple[tuple[str, Path], ...]:
-    attempt, work = (
-        manifest.attempt_directory.resolve(strict=True),
-        workdir.resolve(strict=True),
-    )
+    attempt = Path(os.path.abspath(os.fspath(manifest.attempt_directory)))
+    work = Path(os.path.abspath(os.fspath(workdir)))
+    try:
+        _validate_directory_path(work)
+        _validate_directory_path(attempt)
+    except FileNotFoundError:
+        raise
+    except (OSError, ValueError) as error:
+        raise ValueError("attempt directory or workdir traverses a symlink") from error
     if attempt == work or not attempt.is_relative_to(work):
         raise ValueError("attempt directory escapes workdir")
     if not manifest.artifacts:
         raise ValueError("manifest must contain at least one artifact")
     validated: dict[str, Path] = {}
     for artifact in manifest.artifacts:
-        if not ARTIFACT_NAME.fullmatch(artifact.name) or not artifact.name.endswith(
-            ".parquet"
+        if (
+            type(artifact.name) is not str
+            or not ARTIFACT_NAME.fullmatch(artifact.name)
+            or not artifact.name.endswith(".parquet")
         ):
             raise ValueError(f"invalid artifact name: {artifact.name!r}")
         if artifact.name in validated:
             raise ValueError(f"duplicate artifact name: {artifact.name!r}")
+        if not isinstance(artifact.path, Path):
+            raise TypeError("artifact paths must be Path objects")
         if ".." in artifact.path.parts:
             raise ValueError(f"artifact path contains parent segment: {artifact.path}")
-        source = artifact.path.resolve(strict=True)
-        if not source.is_file() or not source.is_relative_to(attempt):
+        source = Path(os.path.abspath(os.fspath(artifact.path)))
+        if not source.is_relative_to(attempt):
             raise ValueError(f"artifact escapes attempt directory: {artifact.path}")
+        try:
+            _validate_regular_path(source)
+        except FileNotFoundError:
+            raise
+        except (OSError, ValueError) as error:
+            raise ValueError(
+                f"artifact escapes attempt directory: {artifact.path}"
+            ) from error
         validated[artifact.name] = source
-    return tuple(sorted(validated.items()))
+    return tuple(sorted(validated.items(), key=lambda item: item[0].encode("utf-8")))
 
 
 def execute_run(
@@ -151,75 +168,95 @@ def execute_run(
     interrupted=None,
 ) -> RunResult:  # type: ignore[no-untyped-def]
     run_id = ""
-    publishing = False
     try:
         run_id = compute_run_id(spec.resolved_config, spec.seed)
-        if is_complete(campaign_root, spec):
-            _remove_failure_log(campaign_root, run_id)
-            return RunResult(run_id, "skipped")
-        start = time.monotonic()
-        manifest = simulator.simulate(spec.resolved_config, spec.seed, workdir)
-        publishing = True
-        for name, source in validate_manifest(manifest, workdir):
-            if interrupted is not None and interrupted():
-                raise KeyboardInterrupt
-            table = pq.read_table(source)
-            write_parquet_atomic(table, campaign_root / "archives" / run_id / name)
-        if interrupted is not None and interrupted():
-            raise KeyboardInterrupt
-        _remove_failure_log(campaign_root, run_id)
-        attempt = manifest.attempt_directory.resolve(strict=True)
-        resolved_workdir = workdir.resolve(strict=True)
-        if attempt == resolved_workdir or not attempt.is_relative_to(resolved_workdir):
-            raise ValueError("successful attempt escapes workdir")
-        shutil.rmtree(attempt)
-        write_run(
-            campaign_root,
-            RunRecord(
-                run_id,
-                spec.campaign,
-                spec.seed,
-                spec.expected_context_hash,
-                os.uname().nodename,
-                time.monotonic() - start,
-                spec.parameters,
-                manifest.scratch_bytes,
-            ),
-        )
-        return RunResult(run_id, "completed")
-    except SimulationError as error:
-        try:
-            log = error.log_path.resolve(strict=True)
-            attempt, work = (
-                error.attempt_directory.resolve(strict=True),
-                workdir.resolve(),
-            )
-            if attempt == work or not attempt.is_relative_to(work):
-                raise ValueError(
-                    f"simulation attempt escapes workdir: {error.attempt_directory}"
-                )
-            if not log.is_file() or not log.is_relative_to(attempt):
-                raise ValueError(
-                    f"simulation log escapes attempt directory: {error.log_path}"
-                )
-            copy_file_atomic(log, campaign_root / "logs" / f"{run_id}.log")
-        except Exception as log_error:
-            return RunResult(
-                run_id, "failed", f"{error}; log publication failed: {log_error}"
-            )
-        return RunResult(run_id, "failed", str(error))
     except Exception as error:
-        if not publishing:
-            return RunResult(run_id, "failed", str(error))
-        try:
-            from eqasim_sa.core.ledger import _write_atomic
+        return RunResult(run_id, "failed", str(error))
+    try:
+        with run_lease(campaign_root, run_id, interrupted):
+            publishing = False
+            try:
+                if is_complete(campaign_root, spec):
+                    _remove_failure_log(campaign_root, run_id)
+                    return RunResult(run_id, "skipped")
+                start = time.monotonic()
+                manifest = simulator.simulate(spec.resolved_config, spec.seed, workdir)
+                publishing = True
+                artifacts = validate_manifest(manifest, workdir)
+                with archive_transaction(
+                    campaign_root, run_id, artifacts, interrupted
+                ) as publication:
+                    if interrupted is not None and interrupted():
+                        raise KeyboardInterrupt
+                    _remove_failure_log(campaign_root, run_id)
+                    attempt = Path(
+                        os.path.abspath(os.fspath(manifest.attempt_directory))
+                    )
+                    resolved_workdir = Path(os.path.abspath(os.fspath(workdir)))
+                    _validate_directory_path(attempt)
+                    if attempt == resolved_workdir or not attempt.is_relative_to(
+                        resolved_workdir
+                    ):
+                        raise ValueError("successful attempt escapes workdir")
+                    shutil.rmtree(attempt)
+                    publication.commit(
+                        RunRecord(
+                            run_id,
+                            spec.campaign,
+                            spec.seed,
+                            spec.expected_context_hash,
+                            os.uname().nodename,
+                            time.monotonic() - start,
+                            spec.parameters,
+                            manifest.scratch_bytes,
+                        ),
+                        execution_evidence=manifest.execution_evidence,
+                    )
+                return RunResult(run_id, "completed")
+            except SimulationError as error:
+                try:
+                    log = error.log_path.resolve(strict=True)
+                    attempt, work = (
+                        error.attempt_directory.resolve(strict=True),
+                        workdir.resolve(),
+                    )
+                    if attempt == work or not attempt.is_relative_to(work):
+                        raise ValueError(
+                            "simulation attempt escapes workdir: "
+                            f"{error.attempt_directory}"
+                        )
+                    if not log.is_file() or not log.is_relative_to(attempt):
+                        raise ValueError(
+                            f"simulation log escapes attempt directory: {error.log_path}"
+                        )
+                    copy_file_atomic(
+                        log, campaign_root / "logs" / f"{run_id}.log"
+                    )
+                except Exception as log_error:
+                    return RunResult(
+                        run_id,
+                        "failed",
+                        f"{error}; log publication failed: {log_error}",
+                    )
+                return RunResult(run_id, "failed", str(error))
+            except Exception as error:
+                if not publishing:
+                    return RunResult(run_id, "failed", str(error))
+                try:
+                    from eqasim_sa.core.ledger import _write_atomic
 
-            destination = campaign_root / "logs" / f"{run_id}.log"
-            _write_atomic(destination, lambda path: path.write_text(str(error) + "\n"))
-        except Exception as log_error:
-            return RunResult(
-                run_id, "failed", f"{error}; log publication failed: {log_error}"
-            )
+                    destination = campaign_root / "logs" / f"{run_id}.log"
+                    _write_atomic(
+                        destination, lambda path: path.write_text(str(error) + "\n")
+                    )
+                except Exception as log_error:
+                    return RunResult(
+                        run_id,
+                        "failed",
+                        f"{error}; log publication failed: {log_error}",
+                    )
+                return RunResult(run_id, "failed", str(error))
+    except Exception as error:
         return RunResult(run_id, "failed", str(error))
 
 

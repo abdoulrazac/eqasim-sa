@@ -62,6 +62,28 @@ def test_total_variation_normalizes_archived_masses(
     assert 0.0 <= value <= 1.0
 
 
+@pytest.mark.parametrize(
+    ("synthetic", "reference"),
+    [([1.0, 0.0], [0.0, 1.0]), ([0.0, 0.0], [0.0, 0.0])],
+)
+def test_total_variation_rejects_duplicate_classes_before_normalization(
+    tmp_path: Path,
+    synthetic: list[float],
+    reference: list[float],
+) -> None:
+    path = archive(
+        tmp_path,
+        **{
+            "class": ["same", "same"],
+            "synthetic": synthetic,
+            "reference": reference,
+        },
+    )
+
+    with pytest.raises(ValueError, match="duplicate class labels"):
+        indicator().compute(ArtifactSet({"distribution": path}))
+
+
 def test_proportional_references_have_distinct_identities_but_equal_tv(
     tmp_path: Path,
 ) -> None:

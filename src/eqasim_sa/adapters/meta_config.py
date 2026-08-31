@@ -14,6 +14,7 @@ from eqasim_sa.adapters.eqasim.config import (
     load_yaml_source,
     validate_eqasim_document,
 )
+from eqasim_sa.adapters.eqasim.artifacts import ARTIFACT_STAGE
 from eqasim_sa.adapters.eqasim.simulator import DEDICATED, validate_transport
 from eqasim_sa.core.charter import (
     AllocationPhase,
@@ -25,13 +26,18 @@ from eqasim_sa.core.charter import (
     charter_status,
     parse_charter,
     parse_distribution,
+    validate_scientific_stopping,
 )
 from eqasim_sa.core.indicators import (
     ArtifactDeclaration,
     CustomDeclaration,
     PairDeclaration,
+    PluginIdentity,
     ProductDeclaration,
+    RegisteredIndicatorFactory,
     TotalVariationIndicator,
+    analysis_identity,
+    plugin_identity_from_entry_point,
     resolve_indicators,
 )
 from eqasim_sa.core.plan import (
@@ -40,9 +46,17 @@ from eqasim_sa.core.plan import (
     MAX_MULTISCRAMBLE_DESIGN_POSITIONS,
     MAX_MULTISCRAMBLE_TABLE_CELLS,
     canonical_morris_distance_terms,
+    validate_bootstrap_resamples,
+    validate_canonical_morris_bootstrap_work,
     validate_morris_values,
+    validate_sobol_bootstrap_work,
 )
 from eqasim_sa.core.run import EXCLUDED_PATHS
+from eqasim_sa.core.software_identity import (
+    SoftwareIdentity,
+    read_software_identity,
+    verify_software_source_states,
+)
 from eqasim_sa.ports.simulator import IndicatorRequirement
 
 SCALARIZERS = {
@@ -65,10 +79,12 @@ class SlurmResources:
 class Execution:
     backend: str
     workers: int
+    processes: int
     scratch: Path
     invocation: tuple[str, ...]
     overrides: dict[str, object]
     slurm: SlurmResources
+    data_path: Path | None
 
 
 @dataclass(frozen=True)
@@ -77,6 +93,7 @@ class MetaConfig:
     campaign_root: Path
     model_config: Path
     model_root: Path
+    data_manifest: Path
     factors: dict[str, list]
     distributions: dict[str, ParameterDistribution]
     charter: AnalysisCharter
@@ -97,6 +114,7 @@ class MetaConfig:
     completeness_threshold: float
     context_descriptor: dict[str, str]
     context_hash: str
+    meta_config_sha256: str
     model_document: dict
     model_bytes: bytes
     execution: Execution | None
@@ -105,7 +123,20 @@ class MetaConfig:
     artifacts: dict[str, ArtifactDeclaration]
     indicators: tuple[object, ...]
     indicator_requirements: tuple[IndicatorRequirement, ...]
+    software_identity: SoftwareIdentity
     structured_factors: dict[str, dict[str, list[str]]] = field(default_factory=dict)
+
+    @property
+    def eqasim_sa_version(self) -> str:
+        return self.software_identity.version
+
+    @property
+    def eqasim_sa_sha256(self) -> str:
+        return self.software_identity.sha256
+
+    @property
+    def eqasim_sa_source_states(self):  # type: ignore[no-untyped-def]
+        return self.software_identity.source_states
 
 
 def _mapping(value: object, name: str) -> dict:
@@ -203,7 +234,26 @@ def _campaign_root(path: Path, model_root: Path) -> Path:
     return resolved
 
 
-def _execution(value: object, base: Path, model_document: dict) -> Execution:
+def _overlap(left: Path, right: Path) -> bool:
+    return left == right or left.is_relative_to(right) or right.is_relative_to(left)
+
+
+def _resolved_directory(path: Path, name: str) -> Path:
+    absolute = Path(os.path.abspath(path))
+    current = Path(absolute.anchor)
+    for part in absolute.parts[1:]:
+        current /= part
+        if current.exists() and current.is_symlink():
+            raise ValueError(f"{name} must not traverse a symlink")
+    resolved = path.resolve(strict=True)
+    if not resolved.is_dir():
+        raise ValueError(f"{name} must be an existing directory")
+    return resolved
+
+
+def _execution(
+    value: object, base: Path, model_root: Path, model_document: dict
+) -> Execution:
     document = _mapping(value, "execution")
     required = {"backend", "workers", "scratch", "invocation"}
     optional = {"overrides", "slurm"}
@@ -215,22 +265,17 @@ def _execution(value: object, base: Path, model_document: dict) -> Execution:
     scratch, invocation = document["scratch"], document["invocation"]
     if backend not in {"local", "slurm"}:
         raise ValueError("execution.backend must be local or slurm")
-    if isinstance(workers, bool) or not isinstance(workers, int) or workers <= 0:
-        raise ValueError("execution.workers must be a strictly positive integer")
+    if (
+        isinstance(workers, bool)
+        or not isinstance(workers, int)
+        or not 0 < workers <= 1024
+    ):
+        raise ValueError("execution.workers must be an integer in [1,1024]")
     if not isinstance(scratch, str):
         raise TypeError("execution.scratch must be a string path")
     if not scratch or "\0" in scratch:
         raise ValueError("execution.scratch must be a non-empty path without NUL")
-    scratch_path = base / scratch
-    absolute_scratch = Path(os.path.abspath(scratch_path))
-    current = Path(absolute_scratch.anchor)
-    for part in absolute_scratch.parts[1:]:
-        current /= part
-        if current.exists() and current.is_symlink():
-            raise ValueError("execution.scratch must not traverse a symlink")
-    scratch_path = scratch_path.resolve(strict=True)
-    if not scratch_path.is_dir():
-        raise ValueError("execution.scratch must be an existing directory")
+    scratch_path = _resolved_directory(base / scratch, "execution.scratch")
     if (
         not isinstance(invocation, list)
         or not invocation
@@ -257,28 +302,33 @@ def _execution(value: object, base: Path, model_document: dict) -> Execution:
             raise TypeError(f"override {name!r} must preserve the sealed YAML type")
         validate_transport(name, value)
         if name == "data_path":
-            candidate = base / value
-            absolute = Path(os.path.abspath(candidate))
-            current = Path(absolute.anchor)
-            for part in absolute.parts[1:]:
-                current /= part
-                if current.exists() and current.is_symlink():
-                    raise ValueError("override 'data_path' must not traverse a symlink")
-            resolved = candidate.resolve(strict=True)
-            if not resolved.is_dir():
-                raise ValueError("override 'data_path' must be an existing directory")
-            validated[name] = resolved
+            validated[name] = _resolved_directory(
+                base / value, "override 'data_path'"
+            )
         else:
             validated[name] = value
-    processes = validated.get("processes")
-    if (
-        backend == "slurm"
-        and processes is not None
-        and (type(processes) is not int or processes <= 0)
-    ):
+    processes = validated.get("processes", model_config.get("processes", 1))
+    if type(processes) is not int or processes <= 0:
         raise ValueError(
-            "execution.overrides.processes must be a strictly positive integer for slurm"
+            "effective execution processes must be a strictly positive integer"
         )
+    effective_data_path = validated.get("data_path", model_config.get("data_path"))
+    if effective_data_path is None:
+        data_path = None
+    elif isinstance(effective_data_path, Path):
+        data_path = effective_data_path
+    elif isinstance(effective_data_path, str):
+        if not effective_data_path or "\0" in effective_data_path:
+            raise ValueError("effective execution data_path must be a non-empty path")
+        data_path = _resolved_directory(
+            model_root / effective_data_path, "effective execution data_path"
+        )
+    else:
+        raise TypeError("effective execution data_path must be a string path")
+    if _overlap(scratch_path, model_root):
+        raise ValueError("execution.scratch must not overlap model.root")
+    if data_path is not None and _overlap(scratch_path, data_path):
+        raise ValueError("execution.scratch must not overlap the effective data tree")
     raw_slurm = _mapping(document.get("slurm", {}), "execution.slurm")
     allowed_slurm = {"timeout_min", "mem_gb", "partition", "account", "qos"}
     if set(raw_slurm) - allowed_slurm:
@@ -315,10 +365,12 @@ def _execution(value: object, base: Path, model_document: dict) -> Execution:
     return Execution(
         backend,
         workers,
+        processes,
         scratch_path,
         tuple(invocation),
         validated,
         SlurmResources(timeout_min, mem_gb, **strings),
+        data_path,
     )
 
 
@@ -379,7 +431,10 @@ def _indicator_blocks(
             declaration["references"], f"artifact {name!r} references", True
         )
         artifacts[name] = ArtifactDeclaration(
-            declaration["class"], declaration["synthetic"], references
+            declaration["class"],
+            declaration["synthetic"],
+            references,
+            ARTIFACT_STAGE.get(name),
         )
     raw_indicators = document.get("indicators", [])
     if not isinstance(raw_indicators, list):
@@ -435,27 +490,20 @@ def _indicator_blocks(
             raise ValueError(
                 f"custom indicator {name!r} must have exactly one eqasim_sa.indicators entry point"
             )
-        implementation = matches[0].load()
-        if isinstance(implementation, type):
-            try:
-                implementation = implementation()
-            except TypeError as error:
-                raise TypeError(
-                    f"custom indicator {name!r} class must be instantiable without arguments"
-                ) from error
-        if not callable(implementation) and not callable(
-            getattr(implementation, "compute", None)
-        ):
-            raise TypeError(
-                f"custom indicator {name!r} must provide compute(artifacts)"
-            )
-        custom[name] = lambda artifact, implementation=implementation: implementation
+        identity = plugin_identity_from_entry_point(matches[0])
+        custom[name] = RegisteredIndicatorFactory(
+            matches[0],
+            identity,
+        )
     resolved = resolve_indicators(
         declarations,
         artifacts,
         SCALARIZERS,
         custom,
     )
+    names = [item.name for item in resolved]
+    if len(names) != len(set(names)):
+        raise ValueError("resolved indicator names must be unique")
     requirements = tuple(
         IndicatorRequirement(
             item.name,
@@ -471,8 +519,10 @@ def _indicator_blocks(
 def load_meta_config(
     path: Path, validate_factors: bool = True, deadline: float | None = None
 ) -> MetaConfig:
+    software_identity = read_software_identity()
     source = _file(path, "meta-config")
     source_state = _state(source)
+    source_sha256 = _digest(source, deadline)
     base = source.parent
     document = _mapping(load_yaml_document(source), "meta-config root")
     required = {
@@ -619,11 +669,12 @@ def load_meta_config(
             raise ValueError("experiment.trajectories must be an integer at least 2")
         if (
             type(candidate_trajectories) is not int
-            or candidate_trajectories < trajectories
+            or candidate_trajectories <= trajectories
             or candidate_trajectories > MAX_CANONICAL_MORRIS_CANDIDATES
         ):
             raise ValueError(
-                "experiment.candidate_trajectories must be an integer at least trajectories "
+                "experiment.candidate_trajectories must be an integer strictly greater "
+                "than trajectories "
                 f"and at most {MAX_CANONICAL_MORRIS_CANDIDATES}"
             )
         if type(design_seed) is not int or not -(2**63) <= design_seed < 2**63:
@@ -675,13 +726,11 @@ def load_meta_config(
         bootstrap_resamples = analysis.get("bootstrap_resamples")
         confidence_level = analysis["confidence_level"]
         minimum_resamples = 100 if method == "canonical_morris" else 1
-        if method != "multiscramble_sobol" and (
-            type(bootstrap_resamples) is not int
-            or not minimum_resamples <= bootstrap_resamples <= 2**63 - 1
-        ):
-            raise ValueError(
-                "analysis.bootstrap_resamples must be a signed int64 integer at least "
-                f"{minimum_resamples}"
+        if method != "multiscramble_sobol":
+            validate_bootstrap_resamples(
+                bootstrap_resamples,
+                method=f"analysis {method}",
+                minimum=minimum_resamples,
             )
         if (
             type(confidence_level) is not float
@@ -775,7 +824,7 @@ def load_meta_config(
         "eqasimCommit": commit,
         "dataManifestSha256": _digest(manifest, deadline),
         "lockfileSha256": _digest(lockfile, deadline),
-        "eqasimSaVersion": importlib.metadata.version("eqasim-sa"),
+        "eqasimSaVersion": software_identity.version,
     }
     if _git(root, "rev-parse", "--verify", "HEAD", deadline=deadline) != commit or _git(
         root, "status", "--porcelain=v1", "--untracked-files=all", deadline=deadline
@@ -929,6 +978,13 @@ def load_meta_config(
             raise ValueError(
                 "analysis.screening_top_k must be a positive integer no greater than factor count"
             )
+        validate_canonical_morris_bootstrap_work(
+            bootstrap_resamples,
+            len(factors),
+            trajectories,
+            len(seeds),
+            convergence_checkpoints,
+        )
     if method == "sobol":
         if len(factors) + 1 < 2:
             raise ValueError("Sobol requires at least two factors including seed")
@@ -936,6 +992,9 @@ def load_meta_config(
             raise ValueError("Sobol supports at most 10600 factors")
         if base_sample_size * (2 * (len(factors) + 1) + 2) > 2**63 - 1:
             raise ValueError("Sobol N(2D+2) must fit in signed int64")
+        validate_sobol_bootstrap_work(
+            bootstrap_resamples, base_sample_size, len(factors) + 1
+        )
     if method == "multiscramble_sobol":
         dimensions = len(factors) + 1
         positions = len(scramble_seeds) * base_sample_sizes[-1] * (2 * dimensions + 2)
@@ -957,7 +1016,7 @@ def load_meta_config(
     if not isinstance(campaign_root, str):
         raise TypeError("campaign_root must be a string")
     execution = (
-        _execution(document["execution"], base, model_document)
+        _execution(document["execution"], base, root, model_document)
         if "execution" in document
         else None
     )
@@ -977,6 +1036,7 @@ def load_meta_config(
         document.get("charter"),
         set(raw_parameters),
         {item.name for item in indicators},
+        {item.name: analysis_identity(item) for item in indicators},
     )
     if method == "canonical_morris":
         if not isinstance(charter.stochastic, ConditionalMeanStochastic):
@@ -995,6 +1055,11 @@ def load_meta_config(
             raise ValueError("canonical_morris requires sensitivity objective screening")
         if charter.dependence.kind.value != "independent":
             raise ValueError("canonical_morris requires independent parameter dependence")
+        validate_scientific_stopping(
+            method,
+            charter.stopping,
+            len(convergence_checkpoints),
+        )
     if method == "multiscramble_sobol":
         if not isinstance(charter.stochastic, FiniteSeedFactorStochastic):
             raise ValueError(
@@ -1013,13 +1078,20 @@ def load_meta_config(
                 "multiscramble_sobol practical_tolerance must be a dimensionless "
                 "total-order variance-share tolerance in [0,1]"
             )
+        validate_scientific_stopping(
+            method,
+            charter.stopping,
+            len(base_sample_sizes),
+        )
     if any(_state(item) != state for item, state in control_states):
         raise RuntimeError("sealed control input changed while loading")
+    verify_software_source_states(software_identity)
     return MetaConfig(
         campaign,
         _campaign_root(base / campaign_root, root),
         config,
         root,
+        manifest,
         factors,
         distributions,
         charter,
@@ -1040,6 +1112,7 @@ def load_meta_config(
         completeness_threshold,
         descriptor,
         hashlib.sha256(b"eqasim-sa:context:v1\0" + encoded).hexdigest(),
+        source_sha256,
         model_document,
         config_bytes,
         execution,
@@ -1048,5 +1121,6 @@ def load_meta_config(
         artifacts,
         indicators,
         indicator_requirements,
+        software_identity,
         structured_factors,
     )

@@ -7,7 +7,13 @@ from pathlib import Path
 import pytest
 
 from eqasim_sa.adapters import data_manifest
-from eqasim_sa.adapters.data_manifest import DOMAIN, generate_data_manifest
+from eqasim_sa.adapters.data_manifest import (
+    DOMAIN,
+    generate_data_manifest,
+    load_data_manifest,
+    verify_data_manifest,
+    verify_data_tree_state,
+)
 
 
 def test_generates_deterministic_auditable_manifest(tmp_path: Path) -> None:
@@ -96,6 +102,71 @@ def test_empty_tree_has_stable_manifest(tmp_path: Path) -> None:
     document = json.loads(destination.read_bytes())
     assert document["files"] == []
     assert document["treeSha256"] == hashlib.sha256(DOMAIN + b"[]").hexdigest()
+
+
+@pytest.mark.parametrize("damage", ["extra", "missing", "content"])
+def test_runtime_verification_rejects_exact_tree_damage(
+    tmp_path: Path, damage: str
+) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    source = data / "input.bin"
+    source.write_bytes(b"sealed")
+    destination = tmp_path / "manifest.json"
+    generate_data_manifest(data, destination)
+    manifest = load_data_manifest(destination)
+    if damage == "extra":
+        (data / "extra.bin").write_bytes(b"extra")
+    elif damage == "missing":
+        source.unlink()
+    else:
+        source.write_bytes(b"SEALed")
+
+    with pytest.raises(ValueError, match=damage if damage != "content" else "content"):
+        verify_data_manifest(data, manifest)
+
+
+def test_runtime_metadata_guard_rejects_change_after_one_content_verification(
+    tmp_path: Path,
+) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    source = data / "input.bin"
+    source.write_bytes(b"sealed")
+    destination = tmp_path / "manifest.json"
+    generate_data_manifest(data, destination)
+    state = verify_data_manifest(data, load_data_manifest(destination))
+
+    source.touch()
+
+    with pytest.raises(RuntimeError, match="metadata changed"):
+        verify_data_tree_state(state)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda document: document.update(schemaVersion=True),
+        lambda document: document.update(algorithm="sha512"),
+        lambda document: document["files"].append(document["files"][0]),
+        lambda document: document["files"][0].update(path="../escape"),
+        lambda document: document.update(treeSha256="0" * 64),
+    ],
+)
+def test_central_manifest_parser_rejects_schema_damage(
+    tmp_path: Path, mutation
+) -> None:  # type: ignore[no-untyped-def]
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "input").write_text("value")
+    destination = tmp_path / "manifest.json"
+    generate_data_manifest(data, destination)
+    document = json.loads(destination.read_text())
+    mutation(document)
+    destination.write_text(json.dumps(document))
+
+    with pytest.raises(ValueError, match="invalid data manifest"):
+        load_data_manifest(destination)
 
 
 def test_rejects_tree_changed_after_an_earlier_file_was_hashed(

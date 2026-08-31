@@ -12,12 +12,13 @@ from eqasim_sa.core.analyze import (
     _governed_report,
     _output_summary_table,
 )
-from eqasim_sa.core.ledger import write_parquet_atomic, write_run, RunRecord
+from eqasim_sa.core.ledger import write_parquet_atomic, RunRecord
 from eqasim_sa.core.analyze import analyze
-from tests.test_analyze import _custom_indicator
+from tests.test_analyze import _custom_indicator, _write_verified_run, root_relative
 from tests.test_canonical_morris_analyze import _completed_campaign, _design
 from tests.test_multiscramble_sobol_plan import multiscramble_design
 from eqasim_sa.core.plan import build_plan
+from tests.provenance_helpers import execution_evidence, scientific_registered_indicator
 
 
 def test_output_summary_weights_design_positions_and_uses_declared_formulas() -> None:
@@ -93,7 +94,9 @@ def _grid_with_duplicate_positions(tmp_path: Path) -> Path:
         write_parquet_atomic(
             pa.table({"synthetic": [value]}), root / "archives" / run_id / "age.parquet"
         )
-        write_run(root, RunRecord(run_id, "test", 1, "hash", "node", 1.0, {}))
+        _write_verified_run(
+            root, RunRecord(run_id, "test", 1, "hash", "node", 1.0, {})
+        )
     return root
 
 
@@ -110,9 +113,9 @@ def test_demonstration_publishes_noninferential_governed_artifacts_and_hashes(
     )
 
     assert result.inference_status == "demonstration_noninferential"
-    assert result.output_summary_path == root / "output-summary.parquet"
+    assert result.output_summary_path.name == "output-summary.parquet"
     assert result.convergence_evidence_path is None
-    assert result.governed_report_path == root / "governed-report.json"
+    assert result.governed_report_path.name == "governed-report.json"
     assert pq.read_table(result.output_summary_path).to_pylist()[0]["n"] == 3
     report = json.loads(result.governed_report_path.read_text())
     assert report["inferenceStatus"] == "demonstration_noninferential"
@@ -125,7 +128,7 @@ def test_demonstration_publishes_noninferential_governed_artifacts_and_hashes(
         ("outputSummary", result.output_summary_path),
         ("governedReport", result.governed_report_path),
     ):
-        assert manifest[f"{prefix}Path"] == path.name
+        assert manifest[f"{prefix}Path"] == root_relative(root, path)
         assert manifest[f"{prefix}Sha256"] == __import__("hashlib").sha256(
             path.read_bytes()
         ).hexdigest()
@@ -379,8 +382,10 @@ def test_canonical_pilot_publishes_governed_evidence_exclusions_and_hashes(
     assert {row["classification"] for row in report["factorEvidence"]} == {"screening"}
     assert report["claimAuthorized"] is False
     manifest = json.loads((design.campaign_root / "analysis-generation.json").read_text())
-    assert manifest["version"] == 6
-    assert manifest["convergenceEvidencePath"] == result.convergence_evidence_path.name
+    assert manifest["version"] == 7
+    assert manifest["convergenceEvidencePath"] == root_relative(
+        design.campaign_root, result.convergence_evidence_path
+    )
     assert manifest["convergenceEvidenceSha256"] == __import__("hashlib").sha256(
         result.convergence_evidence_path.read_bytes()
     ).hexdigest()
@@ -429,9 +434,10 @@ def _complete_multiscramble(design) -> None:  # type: ignore[no-untyped-def]
             pa.table({"synthetic": [value]}),
             design.campaign_root / "archives" / run_id / "age.parquet",
         )
-        write_run(
+        _write_verified_run(
             design.campaign_root,
             RunRecord(run_id, "test", row["seed"], design.context_hash, "node", 1.0, {"a": row["a"]}),
+            execution_evidence(design.context_hash),
         )
 
 
@@ -440,7 +446,6 @@ def test_multiscramble_exposes_scientific_status_and_nonactionable_seed(
 ) -> None:
     original = multiscramble_design(tmp_path / "unused")
     contract = copy.deepcopy(original.scientific_contract)
-    contract["charter"]["decision"]["primary_indicator"] = "custom(age)"
     contract["charter"]["stopping"] = [
         {"metric": "ci_width", "threshold": 1e300, "consecutive_checks": 2}
     ]
@@ -449,7 +454,7 @@ def test_multiscramble_exposes_scientific_status_and_nonactionable_seed(
 
     result = analyze(
         design.campaign_root,
-        (_custom_indicator(),),
+        (scientific_registered_indicator("synthetic", "age"),),
         campaign="test",
         completeness_threshold=1.0,
         seed_role="factor",

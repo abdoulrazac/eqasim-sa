@@ -137,7 +137,7 @@ execution:
   backend: local
   workers: 1
   scratch: "__MACHINE_SCRATCH__"
-  invocation: [python, -m, synpp]
+  invocation: [uv, run, --locked, python, -m, synpp]
   overrides:
     data_path: "__MACHINE_DATA_PATH__"
     processes: 1

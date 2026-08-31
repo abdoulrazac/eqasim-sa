@@ -15,7 +15,7 @@ experiment:
   method: discrete_oat
   seed_role: replication
   trajectories: 2
-  design_seed: 20260814
+  design_seed: 20260817
   replications:
     seeds: [1301, 1302]
 parameters:

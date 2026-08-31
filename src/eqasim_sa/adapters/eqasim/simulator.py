@@ -18,7 +18,9 @@ import yaml
 
 from eqasim_sa.adapters.eqasim.artifacts import ARTIFACT_STAGE, normalize_outputs
 from eqasim_sa.adapters.eqasim.config import STAGES, EqasimSettings, WorkerPaths
+from eqasim_sa.adapters.execution_seal import ExecutionSeal
 from eqasim_sa.core.ledger import fsync_directory
+from eqasim_sa.core.software_identity import SoftwareSourceGuard
 from eqasim_sa.ports.simulator import (
     IndicatorRequirement,
     JsonValue,
@@ -41,6 +43,8 @@ class EqasimSimulator:
         config_bytes: bytes | None = None,
         slot: int = 0,
         structured_factors: dict[str, dict[str, list[str]]] | None = None,
+        execution_seal: ExecutionSeal | None = None,
+        software_guard: SoftwareSourceGuard | None = None,
     ) -> None:
         self.settings = settings
         self.base_config = copy.deepcopy(base_config)
@@ -58,6 +62,8 @@ class EqasimSimulator:
         self._root_identity: tuple[int, int] | None = None
         self._lease_lock = threading.Lock()
         self.structured_factors = copy.deepcopy(structured_factors or {})
+        self.execution_seal = execution_seal
+        self.software_guard = software_guard
 
     @contextmanager
     def lease(self):  # type: ignore[no-untyped-def]
@@ -129,6 +135,17 @@ class EqasimSimulator:
     def _prepare_cache(self) -> None:
         self._validate_lease()
         cache = self.paths.cache
+        if cache.parent != self.paths.root:
+            parent = cache.parent
+            if parent.is_symlink() or parent.exists() and not parent.is_dir():
+                raise ValueError(
+                    "worker cache namespace must be a non-symlink directory"
+                )
+            parent.mkdir(mode=0o700, exist_ok=True)
+            info = parent.stat(follow_symlinks=False)
+            if info.st_uid != os.getuid():
+                raise ValueError("worker cache namespace must be owned by the current user")
+            parent.chmod(0o700)
         if cache.is_symlink() or cache.exists() and not cache.is_dir():
             raise ValueError("worker cache must be a non-symlink directory")
         state = None
@@ -229,6 +246,26 @@ class EqasimSimulator:
         if self._lease_descriptor is None:
             with self.lease():
                 return self.simulate(config, seed, workdir)
+        if self.software_guard is not None:
+            self.software_guard.guard()
+        if self.execution_seal is not None:
+            self.execution_seal.guard()
+        try:
+            manifest = self._simulate(config, seed, workdir)
+        except BaseException:
+            if self.execution_seal is not None:
+                self.execution_seal.guard()
+            if self.software_guard is not None:
+                self.software_guard.guard()
+            raise
+        if self.execution_seal is not None:
+            self.execution_seal.guard()
+        if self.software_guard is not None:
+            self.software_guard.guard()
+        self._write_state("clean")
+        return manifest
+
+    def _simulate(self, config: ResolvedConfig, seed: int, workdir: Path) -> Manifest:
         expected_workdir = self.paths.root
         if workdir.resolve() != expected_workdir.resolve():
             raise ValueError(f"workdir must be {expected_workdir}")
@@ -365,12 +402,14 @@ class EqasimSimulator:
         if self._interrupted.is_set():
             raise KeyboardInterrupt
         scratch_bytes = _directory_bytes(self.paths.cache)
-        self._write_state("clean")
-        return Manifest(artifacts, attempt, scratch_bytes)
+        evidence = None if self.execution_seal is None else self.execution_seal.evidence
+        return Manifest(artifacts, attempt, scratch_bytes, evidence)
 
     def _run_owned(self, command: list[str], **options) -> subprocess.CompletedProcess:  # type: ignore[no-untyped-def]
         options.pop("check", None)
         timeout = options.pop("timeout", None)
+        if self.execution_seal is not None:
+            options["env"] = self.execution_seal.environment
         with self._process_lock:
             if self._interrupted.is_set():
                 raise KeyboardInterrupt

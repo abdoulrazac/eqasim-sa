@@ -19,6 +19,7 @@ class EqasimSettings:
     invocation: tuple[str, ...]
     campaign: str
     scratch: Path
+    context_hash: str | None = None
 
     def __post_init__(self) -> None:
         config = self.config_path.resolve(strict=True)
@@ -35,6 +36,10 @@ class EqasimSettings:
             raise ValueError("invocation must contain non-empty arguments")
         if not CAMPAIGN.fullmatch(self.campaign):
             raise ValueError("campaign must be one safe path segment")
+        if self.context_hash is not None and re.fullmatch(
+            r"[0-9a-f]{64}", self.context_hash
+        ) is None:
+            raise ValueError("context_hash must be 64 lowercase hexadecimal characters")
         object.__setattr__(self, "config_path", config)
         object.__setattr__(self, "eqasim_root", root)
         object.__setattr__(self, "scratch", scratch)
@@ -43,7 +48,12 @@ class EqasimSettings:
         if isinstance(slot, bool) or not isinstance(slot, int) or slot < 0:
             raise ValueError("worker slot must be a non-negative integer")
         root = self.scratch / "eqasim-sa" / self.campaign / "workers" / str(slot)
-        return WorkerPaths(root, root / "lease.lock", root / "state.json", root / "cache")
+        cache = root / "cache"
+        state = root / "state.json"
+        if self.context_hash is not None:
+            cache /= self.context_hash
+            state = root / f"state-{self.context_hash}.json"
+        return WorkerPaths(root, root / "lease.lock", state, cache)
 
     @property
     def workdir(self) -> Path:

@@ -81,6 +81,11 @@ def parser() -> argparse.ArgumentParser:
         "analyze", help="rebuild indicators from run archives"
     )
     analyze.add_argument("--meta-config", type=Path, required=True)
+    analyze.add_argument(
+        "--descriptive-only",
+        action="store_true",
+        help="publish non-inferential descriptive outputs from completed runs",
+    )
     fake = commands.add_parser("fake-run", help="execute one installed fake run")
     fake.add_argument("--campaign-root", type=Path, required=True)
     fake.add_argument("--campaign", required=True)
@@ -302,7 +307,11 @@ def dispatch(
         try:
             if analyze_factory is None:
                 raise RuntimeError("analyze adapter is not configured")
-            payload = analyze_factory(arguments.meta_config)
+            payload = (
+                analyze_factory(arguments.meta_config, descriptive_only=True)
+                if arguments.descriptive_only
+                else analyze_factory(arguments.meta_config)
+            )
             print(json.dumps(payload, sort_keys=True, allow_nan=False))
             return 0
         except (Exception, KeyboardInterrupt) as error:

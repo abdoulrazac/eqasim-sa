@@ -263,10 +263,20 @@ def test_init_rerun_accepts_user_created_campaign_state(tmp_path: Path) -> None:
         (archive / f"{name}.parquet").write_bytes(b"owned")
     pq.write_table(pa.table({"value": [1.0]}), campaign / "indicators.parquet")
     (campaign / "analysis-generation.json").write_text("{}\n")
+    analysis_state = campaign / ".eqasim-sa-analysis"
+    (analysis_state / "staging").mkdir(parents=True)
+    generation = analysis_state / "generations" / ("b" * 64)
+    generation.mkdir(parents=True)
+    pq.write_table(pa.table({"value": [1.0]}), generation / "indicators.parquet")
 
     protected = {
         path: (path.read_bytes(), path.stat().st_mtime_ns, path.stat().st_nlink)
-        for path in (campaign / "plan.parquet", marker, backup)
+        for path in (
+            campaign / "plan.parquet",
+            marker,
+            backup,
+            generation / "indicators.parquet",
+        )
     }
     result = init_from_inputs(
         "project", root, model, data, None, invocation()

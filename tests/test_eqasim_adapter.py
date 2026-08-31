@@ -8,6 +8,7 @@ from pathlib import Path
 import pyarrow.parquet as pq
 import pytest
 
+import eqasim_sa.adapters.eqasim.artifacts as artifacts_module
 from eqasim_sa.adapters.eqasim.artifacts import normalize_outputs
 from eqasim_sa.adapters.eqasim.config import EqasimSettings, load_config
 from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator
@@ -92,6 +93,65 @@ def test_workdir_is_derived_only_from_scratch_and_campaign(tmp_path: Path) -> No
         Path("eqasim-sa/nantes.v1/workers/0"),
         Path("eqasim-sa/nantes.v1/workers/0"),
     )
+
+
+def test_worker_cache_is_namespaced_by_the_full_context_hash(tmp_path: Path) -> None:
+    current = settings(tmp_path)
+    first_hash, second_hash = "a" * 64, "b" * 64
+    first = EqasimSettings(
+        current.config_path,
+        current.eqasim_root,
+        current.invocation,
+        current.campaign,
+        current.scratch,
+        first_hash,
+    ).worker(3)
+    second = EqasimSettings(
+        current.config_path,
+        current.eqasim_root,
+        current.invocation,
+        current.campaign,
+        current.scratch,
+        second_hash,
+    ).worker(3)
+
+    assert first.root == second.root
+    assert first.cache == first.root / "cache" / first_hash
+    assert second.cache == second.root / "cache" / second_hash
+    assert first.cache != second.cache
+    assert first.state == first.root / f"state-{first_hash}.json"
+    assert second.state == second.root / f"state-{second_hash}.json"
+
+
+def test_context_cache_state_isolation_prevents_cross_context_reuse(
+    tmp_path: Path,
+) -> None:
+    current = settings(tmp_path)
+
+    def adapter(context_hash: str) -> EqasimSimulator:
+        scoped = EqasimSettings(
+            current.config_path,
+            current.eqasim_root,
+            current.invocation,
+            current.campaign,
+            current.scratch,
+            context_hash,
+        )
+        return EqasimSimulator(scoped, load_config(scoped.config_path, 42))
+
+    first, second = adapter("a" * 64), adapter("b" * 64)
+    with first.lease():
+        first._prepare_cache()
+        sentinel = first.paths.cache / "stale"
+        sentinel.write_text("first context")
+        first._write_state("active")
+    with second.lease():
+        second._prepare_cache()
+        second._write_state("clean")
+    assert sentinel.is_file()
+    with first.lease():
+        first._prepare_cache()
+    assert not sentinel.exists()
 
 
 def test_simulator_recreates_deleted_workdir_and_preserves_confinement(
@@ -200,6 +260,67 @@ def test_real_spy_subprocess_normalizes_exact_inventory(
     assert {path.name for path in (attempt / "normalized").iterdir()} == {
         artifact.name for artifact in manifest.artifacts
     }
+
+
+def test_execution_guard_wraps_the_complete_simulation_and_supplies_child_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current = settings(tmp_path)
+    record = tmp_path / "record.json"
+    monkeypatch.setenv("EQASIM_SPY_RECORD", str(record))
+
+    class Seal:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.environment = dict(os.environ)
+            self.evidence = b"sealed evidence"
+
+        def guard(self) -> None:
+            self.calls += 1
+
+    seal = Seal()
+    adapter = EqasimSimulator(
+        current,
+        load_config(current.config_path, 42),
+        execution_seal=seal,  # type: ignore[arg-type]
+    )
+    manifest = adapter.simulate(
+        load_config(current.config_path, 42), 42, current.workdir
+    )
+
+    assert seal.calls == 2
+    assert manifest.execution_evidence == b"sealed evidence"
+    assert record.is_file()
+
+
+def test_post_simulation_guard_failure_leaves_cache_state_active(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current = settings(tmp_path)
+    monkeypatch.setenv("EQASIM_SPY_RECORD", str(tmp_path / "record.json"))
+
+    class Seal:
+        environment = dict(os.environ)
+        evidence = b"unused"
+        calls = 0
+
+        def guard(self) -> None:
+            self.calls += 1
+            if self.calls == 2:
+                raise RuntimeError("post-simulation drift")
+
+    adapter = EqasimSimulator(
+        current,
+        load_config(current.config_path, 42),
+        execution_seal=Seal(),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(RuntimeError, match="post-simulation drift"):
+        adapter.simulate(load_config(current.config_path, 42), 42, current.workdir)
+
+    assert json.loads(adapter.paths.state.read_text()) == {"status": "active"}
 
 
 def test_executes_config_run_and_normalizes_only_requested_stage_artifacts(
@@ -415,6 +536,99 @@ def test_rejects_invalid_analysis_csv(
             load_config(current.config_path, 42), 42, current.workdir
         )
     assert current.config_path.read_bytes() == before
+
+
+def test_analysis_csv_streams_multiple_batches_with_global_anonymous_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    attempt = tmp_path / "attempt"
+    output, normalized = attempt / "output", attempt / "normalized"
+    output.mkdir(parents=True)
+    normalized.mkdir()
+    values = [f"value-{index:03d}" for index in range(200)]
+    source = output / "age.csv"
+    source.write_text(
+        ",value\n"
+        + "".join(f"{index},{value}\n" for index, value in enumerate(values)),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(artifacts_module, "CSV_BLOCK_SIZE", 64)
+
+    artifact = artifacts_module._normalize(
+        source, output, normalized, "age", ",", True
+    )
+    parquet = pq.ParquetFile(artifact.path)
+
+    assert parquet.metadata.num_row_groups > 1
+    table = parquet.read()
+    assert table.column_names == ["value"]
+    assert table["value"].to_pylist() == values
+
+
+def test_cross_batch_anonymous_index_failure_removes_partial_parquet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    attempt = tmp_path / "attempt"
+    output, normalized = attempt / "output", attempt / "normalized"
+    output.mkdir(parents=True)
+    normalized.mkdir()
+    indices = list(range(200))
+    indices[150] = 0
+    source = output / "age.csv"
+    source.write_text(
+        ",value\n" + "".join(f"{index},x\n" for index in indices),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(artifacts_module, "CSV_BLOCK_SIZE", 64)
+
+    with pytest.raises(ValueError, match="anonymous index is not sequential"):
+        artifacts_module._normalize(
+            source, output, normalized, "age", ",", True
+        )
+
+    assert not (normalized / "age.parquet").exists()
+
+
+def test_streaming_writer_failure_removes_partial_parquet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    attempt = tmp_path / "attempt"
+    output, normalized = attempt / "output", attempt / "normalized"
+    output.mkdir(parents=True)
+    normalized.mkdir()
+    source = output / "persons.csv"
+    source.write_text(
+        "id;value\n" + "".join(f"{index};x\n" for index in range(200)),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(artifacts_module, "CSV_BLOCK_SIZE", 64)
+    real_writer = artifacts_module.pq.ParquetWriter
+
+    class FailingWriter:
+        def __init__(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            self.writer = real_writer(*args, **kwargs)
+            self.writes = 0
+
+        def __enter__(self):  # type: ignore[no-untyped-def]
+            return self
+
+        def __exit__(self, *args):  # type: ignore[no-untyped-def]
+            self.writer.close()
+
+        def write_batch(self, batch):  # type: ignore[no-untyped-def]
+            self.writes += 1
+            if self.writes == 2:
+                raise OSError("injected writer failure")
+            self.writer.write_batch(batch)
+
+    monkeypatch.setattr(artifacts_module.pq, "ParquetWriter", FailingWriter)
+
+    with pytest.raises(OSError, match="injected writer failure"):
+        artifacts_module._normalize(
+            source, output, normalized, "persons", ";", False
+        )
+
+    assert not (normalized / "persons.parquet").exists()
 
 
 def test_rejects_output_symlink_escaping_attempt(tmp_path: Path) -> None:

@@ -1,7 +1,7 @@
 import copy
-import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -11,13 +11,14 @@ import tempfile
 import threading
 import time
 from argparse import Namespace
+from contextlib import ExitStack
 from pathlib import Path
 
 import pyarrow.parquet as pq
 
 from eqasim_sa.adapters.backends.local import LocalBackend
 from eqasim_sa.adapters.backends.slurm import EqasimSlurmJob, SlurmBackend
-from eqasim_sa.adapters.data_manifest import DOMAIN, generate_data_manifest
+from eqasim_sa.adapters.data_manifest import generate_data_manifest, load_data_manifest
 from eqasim_sa.adapters.eqasim.artifacts import ANALYSIS, POPULATION
 from eqasim_sa.adapters.eqasim.config import (
     EqasimSettings,
@@ -32,14 +33,21 @@ from eqasim_sa.adapters.eqasim.simulator import (
     probe_environment,
     validate_transport,
 )
+from eqasim_sa.adapters.execution_seal import create_execution_seal
 from eqasim_sa.adapters.fake.simulator import FakeSimulator
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.adapters.templates import render_project
 from eqasim_sa.adapters.worker import execute_batch, ordered_results, worker_batches
 from eqasim_sa.cli import dispatch
+from eqasim_sa.core.analysis_publication import (
+    ANALYSIS_STATE_DIRECTORY,
+    OUTPUT_FILENAMES,
+)
 from eqasim_sa.core.analyze import analyze
 from eqasim_sa.core.charter import serialize_scientific_contract
+from eqasim_sa.core.indicators import ArtifactSet
 from eqasim_sa.core.ledger import (
+    campaign_lock,
     completion_duration,
     completion_ids,
     completion_scratch_bytes,
@@ -66,6 +74,10 @@ from eqasim_sa.core.run import (
     execute_run,
     pending_run_specs,
     summarize_runs,
+)
+from eqasim_sa.core.software_identity import (
+    SoftwareSourceGuard,
+    verify_software_source_states,
 )
 
 
@@ -94,11 +106,17 @@ def plan_from_meta_config(path: Path) -> PlanResult:
     ).encode()
     if (
         set(meta.context_descriptor)
-        != {"eqasimCommit", "dataManifestSha256", "lockfileSha256", "eqasimSaVersion"}
+        != {
+            "eqasimCommit",
+            "dataManifestSha256",
+            "lockfileSha256",
+            "eqasimSaVersion",
+        }
         or hashlib.sha256(b"eqasim-sa:context:v1\0" + descriptor).hexdigest()
         != meta.context_hash
     ):
         raise ValueError("context descriptor does not match contextHash")
+    verify_software_source_states(meta.software_identity)
     requirements = dict(eqasim_requirements(meta.indicator_requirements))
     config_requirements = requirements.get("config", {})
     if not isinstance(config_requirements, dict):
@@ -107,17 +125,10 @@ def plan_from_meta_config(path: Path) -> PlanResult:
         if f"config.{name}" in EXCLUDED_PATHS or name in DEDICATED:
             raise ValueError(f"requirements contain infrastructure option: {name!r}")
         validate_transport(name, value)
-    ancestor = meta.campaign_root.parent
-    while not ancestor.exists():
-        ancestor = ancestor.parent
-    lock_name = hashlib.sha256(os.fsencode(meta.campaign_root)).hexdigest()[:16]
-    lock_path = ancestor / f".eqasim-sa-plan-{lock_name}.lock"
-    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-    try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
-        return build_plan(_design(meta, requirements))
-    finally:
-        os.close(descriptor)
+    with campaign_lock(meta.campaign_root, "plan"):
+        result = build_plan(_design(meta, requirements))
+        verify_software_source_states(meta.software_identity)
+        return result
 
 
 def _warn_sobol_capacity(
@@ -141,6 +152,31 @@ def _warn_sobol_capacity(
         pass
 
 
+def _apply_execution_overrides(
+    specs: tuple[RunSpec, ...], overrides: dict[str, object]
+) -> tuple[RunSpec, ...]:
+    if not overrides:
+        return specs
+    result = []
+    for spec in specs:
+        config = copy.deepcopy(spec.resolved_config)
+        nested = config.get("config")
+        if not isinstance(nested, dict):
+            raise TypeError("resolved config block must be a mapping")
+        for name, value in overrides.items():
+            nested[name] = str(value) if isinstance(value, Path) else value
+        result.append(
+            RunSpec(
+                spec.campaign,
+                config,
+                spec.seed,
+                spec.expected_context_hash,
+                spec.parameters,
+            )
+        )
+    return tuple(result)
+
+
 def run_from_meta_config(path: Path) -> dict:
     meta_path = path.resolve(strict=True)
     meta_bytes = meta_path.read_bytes()
@@ -149,17 +185,27 @@ def run_from_meta_config(path: Path) -> dict:
         raise RuntimeError("meta-config changed while preparing execution")
     if meta.execution is None:
         raise ValueError("execution section is required for run")
+    if (
+        getattr(getattr(meta, "charter", None), "status", None) == "scientific"
+        and getattr(meta.execution, "data_path", None) is None
+    ):
+        raise ValueError(
+            "scientific execution requires an effective data_path and execution seal"
+        )
+    verify_software_source_states(meta.software_identity)
+    if getattr(meta.execution, "data_path", None) is not None:
+        load_data_manifest(meta.data_manifest)
     requirements = dict(eqasim_requirements(meta.indicator_requirements))
     design = _design(meta, requirements)
     specs = load_run_specs(meta.campaign_root / "plan.parquet", design, meta.campaign)
     unique_runs = len(specs)
     campaign_root = meta.campaign_root.resolve(strict=True)
-    lock_name = hashlib.sha256(os.fsencode(campaign_root)).hexdigest()[:16]
-    lock_path = campaign_root.parent / f".eqasim-sa-campaign-{lock_name}.lock"
-    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    lock_stack = ExitStack()
     try:
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock_stack.enter_context(
+                campaign_lock(campaign_root, "campaign", blocking=False)
+            )
         except BlockingIOError as error:
             raise RuntimeError(
                 "another invocation is already running this campaign"
@@ -179,34 +225,25 @@ def run_from_meta_config(path: Path) -> dict:
                 meta.execution.workers,
                 meta.method,
             )
-        if meta.execution.overrides:
-            overridden = []
-            for spec in specs:
-                config = copy.deepcopy(spec.resolved_config)
-                nested = config.get("config")
-                if not isinstance(nested, dict):
-                    raise TypeError("resolved config block must be a mapping")
-                for name, value in meta.execution.overrides.items():
-                    nested[name] = str(value) if isinstance(value, Path) else value
-                overridden.append(
-                    RunSpec(
-                        spec.campaign,
-                        config,
-                        spec.seed,
-                        spec.expected_context_hash,
-                        spec.parameters,
-                    )
-                )
-            specs = tuple(overridden)
+        specs = _apply_execution_overrides(specs, meta.execution.overrides)
         if meta.execution.backend == "local":
+            execution_seal = (
+                create_execution_seal(meta)
+                if getattr(meta.execution, "data_path", None) is not None
+                else None
+            )
             settings = EqasimSettings(
                 meta.model_config,
                 meta.model_root,
-                meta.execution.invocation,
+                execution_seal.invocation
+                if execution_seal is not None
+                else meta.execution.invocation,
                 meta.campaign,
                 meta.execution.scratch,
+                meta.context_hash,
             )
             interrupted = threading.Event()
+            software_guard = SoftwareSourceGuard(meta.software_identity)
             active: set[EqasimSimulator] = set()
             active_lock = threading.Lock()
 
@@ -224,6 +261,8 @@ def run_from_meta_config(path: Path) -> dict:
                     meta.model_bytes,
                     batch.slot,
                     meta.structured_factors,
+                    execution_seal,
+                    software_guard,
                 )
                 with active_lock:
                     active.add(simulator)
@@ -254,7 +293,7 @@ def run_from_meta_config(path: Path) -> dict:
             slurm = meta.execution.slurm
             parameters: dict[str, object] = {
                 "timeout_min": slurm.timeout_min,
-                "cpus_per_task": meta.execution.overrides.get("processes", 1),
+                "cpus_per_task": meta.execution.processes,
             }
             if slurm.mem_gb is not None:
                 parameters["mem_gb"] = slurm.mem_gb
@@ -280,32 +319,103 @@ def run_from_meta_config(path: Path) -> dict:
                 meta_path,
                 meta.context_hash,
                 hashlib.sha256(meta_bytes).hexdigest(),
+                meta.eqasim_sa_sha256,
             )
             batches = worker_batches(specs, meta.execution.workers)
             results = ordered_results(list(backend.map(job, batches)), len(specs))
     finally:
-        os.close(descriptor)
+        lock_stack.close()
     return summarize_runs(
         [compute_run_id(spec.resolved_config, spec.seed) for spec in specs], results
     )
 
 
-def _execute_exclusive(spec, simulator, campaign_root, workdir, interrupted=None):  # type: ignore[no-untyped-def]
-    run_id = compute_run_id(spec.resolved_config, spec.seed)
-    with run_lease(campaign_root, run_id, interrupted):
-        return execute_run(spec, simulator, campaign_root, workdir, interrupted)
+def _legacy_scientific_plan(path: Path) -> tuple[str, int] | None:
+    try:
+        metadata = pq.ParquetFile(path).schema_arrow.metadata or {}
+    except FileNotFoundError:
+        return None
+    found = []
+    for method, version_key, design_key in (
+        (
+            "canonical_morris",
+            b"canonicalMorrisDesignVersion",
+            b"canonicalMorrisDesign",
+        ),
+        (
+            "multiscramble_sobol",
+            b"multiScrambleSobolDesignVersion",
+            b"multiScrambleSobolDesign",
+        ),
+    ):
+        version_present = version_key in metadata
+        design_present = design_key in metadata
+        if version_present != design_present:
+            raise ValueError(f"plan has incomplete {method} version metadata")
+        if not version_present:
+            continue
+        version = metadata[version_key]
+        if version not in {b"1", b"2", b"3"}:
+            raise ValueError(f"plan has unsupported {method} design version")
+        found.append((method, int(version)))
+    if len(found) > 1:
+        raise ValueError("plan declares multiple scientific methods")
+    return found[0] if found and found[0][1] in {1, 2} else None
 
 
-def analyze_from_meta_config(path: Path) -> dict:
+def _legacy_plan_from_meta_path(path: Path) -> tuple[str, tuple[str, int]] | None:
+    try:
+        source = path.resolve(strict=True)
+        document = load_yaml_document(source)
+    except FileNotFoundError:
+        return None
+    if not isinstance(document, dict):
+        return None
+    campaign_root = document.get("campaign_root")
+    experiment = document.get("experiment")
+    if not isinstance(campaign_root, str) or not isinstance(experiment, dict):
+        return None
+    method = experiment.get("method")
+    if not isinstance(method, str):
+        return None
+    legacy = _legacy_scientific_plan(
+        source.parent / campaign_root / "plan.parquet"
+    )
+    return (method, legacy) if legacy is not None else None
+
+
+def analyze_from_meta_config(path: Path, descriptive_only: bool = False) -> dict:
+    if type(descriptive_only) is not bool:
+        raise TypeError("descriptive_only must be a bool")
+    early = _legacy_plan_from_meta_path(path)
+    if early is not None:
+        declared_method, (legacy_method, legacy_version) = early
+        if declared_method != legacy_method:
+            raise ValueError(
+                f"legacy {legacy_method} plan does not match declared method {declared_method}"
+            )
+        if not descriptive_only:
+            raise ValueError(
+                f"{legacy_method} design v{legacy_version} is legacy and cannot support "
+                "inference; replan the campaign with the current SALib design v3"
+            )
     meta = load_meta_config(path)
     _validate_scientific_method(meta)
-    if getattr(meta, "structured_factors", {}) or meta.method in {
-        "canonical_morris",
-        "multiscramble_sobol",
-    }:
+    plan_path = meta.campaign_root / "plan.parquet"
+    legacy = _legacy_scientific_plan(plan_path)
+    if legacy is not None and legacy[0] != meta.method:
+        raise ValueError(
+            f"legacy {legacy[0]} plan does not match declared method {meta.method}"
+        )
+    if legacy is not None and not descriptive_only:
+        raise ValueError(
+            f"{legacy[0]} design v{legacy[1]} is legacy and cannot support inference; "
+            "replan the campaign with the current SALib design v3"
+        )
+    if legacy is None:
         # Full-context run identity is an adapter preflight: core analysis has no base config.
         design = _design(meta)
-        load_run_specs(meta.campaign_root / "plan.parquet", design, meta.campaign)
+        load_run_specs(plan_path, design, meta.campaign)
     result = analyze(
         meta.campaign_root,
         meta.indicators,
@@ -317,6 +427,8 @@ def analyze_from_meta_config(path: Path) -> dict:
         confidence_level=getattr(meta, "confidence_level", None),
         convergence_checkpoints=getattr(meta, "convergence_checkpoints", None),
         screening_top_k=getattr(meta, "screening_top_k", None),
+        meta_config_sha256=getattr(meta, "meta_config_sha256", None),
+        descriptive_only=descriptive_only,
     )
     return {
         "status": "completed",
@@ -420,7 +532,11 @@ def _design(meta, requirements=None):  # type: ignore[no-untyped-def]
             for name, distribution in meta.distributions.items()
         }
         contract = serialize_scientific_contract(
-            meta.charter, meta.factors, meta.distributions
+            meta.charter,
+            meta.factors,
+            meta.distributions,
+            meta.eqasim_sa_version,
+            meta.eqasim_sa_sha256,
         )
         return CanonicalMorrisDesign(
             *common,
@@ -454,7 +570,11 @@ def _design(meta, requirements=None):  # type: ignore[no-untyped-def]
             for name, distribution in meta.distributions.items()
         }
         contract = serialize_scientific_contract(
-            meta.charter, full_factors, meta.distributions
+            meta.charter,
+            full_factors,
+            meta.distributions,
+            meta.eqasim_sa_version,
+            meta.eqasim_sa_sha256,
         )
         return MultiScrambleSobolDesign(
             *common,
@@ -644,16 +764,17 @@ def _static_check(path: Path, calibrations: tuple[Path, ...]):  # type: ignore[n
         meta = None
     checks.append(item)
     dependency = lambda: (_ for _ in ()).throw(ValueError("meta-config unavailable"))
-    item, specs = _check(
-        "sealedPlan",
-        (
-            lambda: load_run_specs(
-                meta.campaign_root / "plan.parquet", design, meta.campaign
-            )
+    def sealed_plan():  # type: ignore[no-untyped-def]
+        if meta is None:
+            raise ValueError("meta-config unavailable")
+        verify_software_source_states(meta.software_identity)
+        loaded = load_run_specs(
+            meta.campaign_root / "plan.parquet", design, meta.campaign
         )
-        if meta
-        else dependency,
-    )
+        verify_software_source_states(meta.software_identity)
+        return loaded
+
+    item, specs = _check("sealedPlan", sealed_plan if meta else dependency)
     checks.append(item)
     sealed_valid = item["status"] == "passed"
     item, _ = _check(
@@ -785,6 +906,13 @@ def _smoke_log(root: Path, run_id: str) -> str:
 
 
 def _smoke(meta, specs) -> None:  # type: ignore[no-untyped-def]
+    if (
+        getattr(getattr(meta, "charter", None), "status", None) == "scientific"
+        and getattr(meta.execution, "data_path", None) is None
+    ):
+        raise ValueError(
+            "scientific execution requires an effective data_path and execution seal"
+        )
     seeds = tuple(dict.fromkeys(meta.seeds))
     if (
         not specs
@@ -792,6 +920,9 @@ def _smoke(meta, specs) -> None:  # type: ignore[no-untyped-def]
         or "sampling_rate" not in specs[0].resolved_config.get("config", {})
     ):
         raise ValueError("smoke requires sampling_rate and two distinct explicit seeds")
+    specs = _apply_execution_overrides(
+        tuple(specs), getattr(meta.execution, "overrides", {})
+    )
     temporary_parent = Path(tempfile.gettempdir()).resolve(strict=True)
     target = meta.campaign_root.resolve(strict=True)
     if temporary_parent == target or temporary_parent.is_relative_to(target):
@@ -802,18 +933,28 @@ def _smoke(meta, specs) -> None:  # type: ignore[no-untyped-def]
         owned = Path(parent)
         campaign_root, scratch = owned / "campaign", owned / "scratch"
         scratch.mkdir()
+        execution_seal = (
+            create_execution_seal(meta)
+            if getattr(meta.execution, "data_path", None) is not None
+            else None
+        )
         settings = EqasimSettings(
             meta.model_config,
             meta.model_root,
-            meta.execution.invocation,
+            execution_seal.invocation
+            if execution_seal is not None
+            else meta.execution.invocation,
             "smoke",
             scratch,
+            getattr(meta, "context_hash", None),
         )
         simulator = EqasimSimulator(
             settings,
             meta.model_document,
             meta.model_bytes,
             structured_factors=meta.structured_factors,
+            execution_seal=execution_seal,
+            software_guard=SoftwareSourceGuard(meta.software_identity),
         )
         first = specs[0]
         smoke_specs = []
@@ -879,6 +1020,19 @@ def _smoke(meta, specs) -> None:  # type: ignore[no-untyped-def]
                     raise RuntimeError(
                         f"{result.run_id}: smoke archive mutated while validating"
                     )
+                artifacts = ArtifactSet({item.stem: item for item in entries})
+                for indicator in getattr(meta, "indicators", ()):
+                    try:
+                        value = indicator.compute(artifacts)
+                    except Exception as error:
+                        raise ValueError(
+                            f"{result.run_id}: smoke indicator {indicator.name!r}: {error}"
+                        ) from error
+                    if type(value) is not float or not math.isfinite(value):
+                        raise ValueError(
+                            f"{result.run_id}: smoke indicator {indicator.name!r} "
+                            "must return a finite float"
+                        )
         finally:
             simulator.interrupt()
 
@@ -969,54 +1123,8 @@ def _regular(path: Path, description: str, private: bool = False) -> None:
 
 def _validate_project_manifest(path: Path) -> None:
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(document, dict) or set(document) != {
-            "algorithm", "files", "schemaVersion", "treeSha256",
-        }:
-            raise ValueError
-        if (
-            type(document["schemaVersion"]) is not int
-            or document["schemaVersion"] != 1
-            or document["algorithm"] != "sha256"
-        ):
-            raise ValueError
-        records = document["files"]
-        if not isinstance(records, list):
-            raise ValueError
-        paths = []
-        for record in records:
-            if not isinstance(record, dict) or set(record) != {"path", "size", "sha256"}:
-                raise ValueError
-            name, size, digest = record["path"], record["size"], record["sha256"]
-            if (
-                not isinstance(name, str)
-                or not name
-                or name.startswith("/")
-                or "\\" in name
-                or "\0" in name
-                or any(part in {"", ".", ".."} for part in name.split("/"))
-                or type(size) is not int
-                or size < 0
-                or not isinstance(digest, str)
-                or re.fullmatch(r"[0-9a-f]{64}", digest) is None
-            ):
-                raise ValueError
-            name.encode("utf-8")
-            paths.append(name)
-        if len(paths) != len(set(paths)) or paths != sorted(
-            paths, key=lambda item: item.encode("utf-8")
-        ):
-            raise ValueError
-        canonical = json.dumps(
-            records, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-        ).encode()
-        if (
-            not isinstance(document["treeSha256"], str)
-            or re.fullmatch(r"[0-9a-f]{64}", document["treeSha256"]) is None
-            or hashlib.sha256(DOMAIN + canonical).hexdigest() != document["treeSha256"]
-        ):
-            raise ValueError
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
+        load_data_manifest(path)
+    except ValueError as error:
         raise ValueError("invalid project manifest") from error
 
 
@@ -1114,13 +1222,16 @@ def _init_campaign_allowed(
     derived = INIT_DERIVED["grid" if method == "calibration" else method]
     allowed = {
         "plan.parquet", "runs", "archives", "logs", ".eqasim-sa-tmp",
-        ".eqasim-sa-run-locks", *derived,
+        ".eqasim-sa-run-locks", ANALYSIS_STATE_DIRECTORY, *derived,
     }
     temporary = re.compile(r"\.([0-9a-f]{32})\.parquet\.([A-Za-z0-9_-]+)\.tmp")
     backup = re.compile(r"\.([0-9a-f]{32})\.parquet\.([A-Za-z0-9_-]+)\.backup")
     for entry in root.iterdir():
         if entry.is_symlink() or entry.name not in allowed:
             raise FileExistsError(f"foreign content in init campaign: {entry.name}")
+        if entry.name == ANALYSIS_STATE_DIRECTORY:
+            _analysis_state_allowed(entry, method)
+            continue
         if entry.name == "plan.parquet" or entry.name in derived:
             _regular(entry, f"campaigns/{method}/{entry.name}")
             continue
@@ -1219,6 +1330,56 @@ def _init_campaign_allowed(
                     )
 
 
+def _analysis_state_allowed(path: Path, method: str) -> None:
+    info = path.lstat()
+    if (
+        not stat.S_ISDIR(info.st_mode)
+        or info.st_uid != os.getuid()
+        or path.is_symlink()
+    ):
+        raise FileExistsError(
+            f"foreign content in init campaign: {ANALYSIS_STATE_DIRECTORY}"
+        )
+    children = {entry.name: entry for entry in path.iterdir()}
+    if set(children) - {"staging", "generations"}:
+        raise FileExistsError(
+            f"foreign content in init campaign: {ANALYSIS_STATE_DIRECTORY}"
+        )
+    staging = children.get("staging")
+    if staging is not None:
+        if staging.is_symlink() or not staging.is_dir() or any(staging.iterdir()):
+            raise FileExistsError(
+                f"foreign content in init campaign: {ANALYSIS_STATE_DIRECTORY}/staging"
+            )
+    generations = children.get("generations")
+    if generations is None:
+        return
+    if generations.is_symlink() or not generations.is_dir():
+        raise FileExistsError(
+            f"foreign content in init campaign: {ANALYSIS_STATE_DIRECTORY}/generations"
+        )
+    for generation in generations.iterdir():
+        if (
+            generation.is_symlink()
+            or not generation.is_dir()
+            or re.fullmatch(r"[0-9a-f]{64}", generation.name) is None
+        ):
+            raise FileExistsError(
+                f"foreign content in init campaign: {ANALYSIS_STATE_DIRECTORY}/generations"
+            )
+        outputs = tuple(generation.iterdir())
+        if not outputs or any(output.name not in OUTPUT_FILENAMES for output in outputs):
+            raise FileExistsError(
+                f"foreign content in init campaign: {ANALYSIS_STATE_DIRECTORY}/generations/{generation.name}"
+            )
+        for output in outputs:
+            _regular(
+                output,
+                f"campaigns/{method}/{ANALYSIS_STATE_DIRECTORY}/generations/"
+                f"{generation.name}/{output.name}",
+            )
+
+
 def _scratch_allowed(root: Path, campaigns: set[str]) -> None:
     if root.is_symlink() or not root.is_dir():
         raise FileExistsError("scratch must be a regular non-symlink directory")
@@ -1250,13 +1411,21 @@ def _scratch_allowed(root: Path, campaigns: set[str]) -> None:
             for item in slot.iterdir():
                 attempt = re.fullmatch(r"attempt-[0-9a-f]{32}", item.name) is not None
                 state_temp = re.fullmatch(r"\.state-[0-9a-f]{32}\.tmp", item.name) is not None
+                context_state = (
+                    re.fullmatch(r"state-[0-9a-f]{64}\.json", item.name) is not None
+                )
                 if item.is_symlink() or (
                     item.name not in {"lease.lock", "state.json", "cache"}
+                    and not context_state
                     and not attempt and not state_temp
                 ):
                     raise FileExistsError("foreign content in init scratch")
-                if item.name in {"lease.lock", "state.json"}:
-                    _regular(item, f"scratch/{campaign.name}/{slot.name}/{item.name}", private=True)
+                if item.name in {"lease.lock", "state.json"} or context_state:
+                    _regular(
+                        item,
+                        f"scratch/{campaign.name}/{slot.name}/{item.name}",
+                        private=True,
+                    )
                 elif state_temp:
                     _regular(item, f"scratch/{campaign.name}/{slot.name}/{item.name}")
                 elif item.name == "cache" or attempt:

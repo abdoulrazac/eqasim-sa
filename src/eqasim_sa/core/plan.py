@@ -12,9 +12,17 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from scipy.stats import qmc
 
-from eqasim_sa.core.charter import validate_scientific_contract
+from eqasim_sa.core.charter import (
+    validate_scientific_contract,
+    validate_scientific_stopping,
+)
 from eqasim_sa.core.ledger import RESERVED_COLUMNS, write_parquet_atomic
 from eqasim_sa.core.run import RunSpec, compute_run_id
+from eqasim_sa.core.sensitivity import (
+    engine_descriptor,
+    morris_unit_trajectories,
+    sobol_unit_positions,
+)
 
 FIXED = ("designId", "method", "role", "runId", "seed", "contextHash")
 NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -22,16 +30,68 @@ HEX64 = re.compile(r"^[0-9a-f]{64}$")
 DOMAIN = b"eqasim-sa:design:grid:v1\0"
 MORRIS_DOMAIN = b"eqasim-sa:design:morris:v1\0"
 DISCRETE_OAT_DOMAIN = b"eqasim-sa:design:discrete-oat:v1\0"
-CANONICAL_MORRIS_DOMAIN = b"eqasim-sa:design:canonical-morris:v1\0"
+CANONICAL_MORRIS_DOMAIN = b"eqasim-sa:design:canonical-morris:v3\0"
 CANONICAL_MORRIS_SEED_DOMAIN = b"eqasim-sa:canonical-morris-seed:v1\0"
 SOBOL_DOMAIN = b"eqasim-sa:design:sobol:v1\0"
-MULTISCRAMBLE_SOBOL_DOMAIN = b"eqasim-sa:design:multiscramble-sobol:v1\0"
+MULTISCRAMBLE_SOBOL_DOMAIN = b"eqasim-sa:design:multiscramble-sobol:v3\0"
 MAX_CANONICAL_MORRIS_CANDIDATES = 500
 MAX_CANONICAL_MORRIS_DISTANCE_TERMS = 50_000_000
-# Keeps malformed declarations from committing multi-gigabyte QMC/Arrow allocations.
-MAX_MULTISCRAMBLE_DESIGN_POSITIONS = 1_000_000
-# D includes seed; Arrow stores D-1 factor columns plus the six fixed columns.
-MAX_MULTISCRAMBLE_TABLE_CELLS = 20_000_000
+# The protocol uses at most 1,999 resamples; this leaves operational headroom
+# while preventing hostile declarations from driving unbounded analysis work.
+MAX_BOOTSTRAP_RESAMPLES = 100_000
+MAX_BOOTSTRAP_WORK_CELLS = 50_000_000
+# Keep malformed declarations from committing multi-gigabyte list, QMC, or Arrow allocations.
+MAX_PLAN_POSITIONS = 1_000_000
+MAX_PLAN_CELLS = 20_000_000
+# Retained for readers that still validate the legacy method-specific names.
+MAX_MULTISCRAMBLE_DESIGN_POSITIONS = MAX_PLAN_POSITIONS
+MAX_MULTISCRAMBLE_TABLE_CELLS = MAX_PLAN_CELLS
+
+
+def validate_bootstrap_resamples(
+    value: object, *, method: str, minimum: int
+) -> int:
+    if (
+        type(value) is not int
+        or not minimum <= value <= MAX_BOOTSTRAP_RESAMPLES
+    ):
+        raise ValueError(
+            f"{method} bootstrap_resamples must be a signed-int64 integer "
+            f"between {minimum} and the operational safe cap "
+            f"{MAX_BOOTSTRAP_RESAMPLES}"
+        )
+    return value
+
+
+def validate_sobol_bootstrap_work(
+    bootstrap_resamples: int, base_sample_size: int, dimensions: int
+) -> None:
+    work = bootstrap_resamples * base_sample_size * (2 * dimensions + 2)
+    if work > MAX_BOOTSTRAP_WORK_CELLS:
+        raise ValueError(
+            "Sobol bootstrap B*N*(2D+2) exceeds the operational safe cap of "
+            f"{MAX_BOOTSTRAP_WORK_CELLS} work cells"
+        )
+
+
+def validate_canonical_morris_bootstrap_work(
+    bootstrap_resamples: int,
+    factors: int,
+    trajectories: int,
+    replications: int,
+    checkpoints: tuple[int, ...] | list[int],
+) -> None:
+    pairwise_rankings = factors * (factors - 1) // 2
+    work = bootstrap_resamples * len(checkpoints) * (
+        factors * trajectories * replications
+        + factors * factors
+        + pairwise_rankings
+    )
+    if work > MAX_BOOTSTRAP_WORK_CELLS:
+        raise ValueError(
+            "canonical Morris bootstrap work exceeds the operational safe cap of "
+            f"{MAX_BOOTSTRAP_WORK_CELLS} work cells"
+        )
 
 
 @dataclass(frozen=True)
@@ -433,7 +493,54 @@ def validate_multiscramble_scientific_contract(
         )
 
 
+def _validate_scientific_software_binding(
+    contract: dict, context_descriptor: dict
+) -> None:
+    try:
+        software = contract["software"]
+        version = context_descriptor["eqasimSaVersion"]
+    except (KeyError, TypeError) as error:
+        raise ValueError(
+            "scientific design context must bind eqasimSaVersion"
+        ) from error
+    if software.get("eqasimSaVersion") != version:
+        raise ValueError(
+            "scientific contract software version does not match the plan context descriptor"
+        )
+
+
 Design = GridDesign | MorrisDesign | DiscreteOATDesign | CanonicalMorrisDesign | SobolDesign | MultiScrambleSobolDesign
+
+
+def _plan_positions(design: Design, names: tuple[str, ...]) -> int:
+    if design.method == "grid":
+        return math.prod(len(design.factors[name]) for name in names) * len(
+            design.seeds
+        )
+    if design.method in {"morris", "discrete_oat", "canonical_morris"}:
+        return design.trajectories * (len(names) + 1) * len(design.seeds)
+    if design.method == "sobol":
+        return design.base_sample_size * (2 * len(names) + 2)
+    return (
+        len(design.scramble_seeds)
+        * design.base_sample_sizes[-1]
+        * (2 * len(names) + 2)
+    )
+
+
+def _validate_plan_allocation(design: Design, names: tuple[str, ...]) -> None:
+    positions = _plan_positions(design, names)
+    if positions > MAX_PLAN_POSITIONS:
+        raise ValueError(
+            f"{design.method} allocation exceeds the safe cap of "
+            f"{MAX_PLAN_POSITIONS} design positions"
+        )
+    columns = len(names) - ("seed" in names) + len(FIXED)
+    if positions * columns > MAX_PLAN_CELLS:
+        raise ValueError(
+            f"{design.method} allocation exceeds the safe cap of "
+            f"{MAX_PLAN_CELLS} table cells"
+        )
 
 
 def _validate(design: Design) -> tuple[str, ...]:
@@ -532,6 +639,24 @@ def _validate(design: Design) -> tuple[str, ...]:
         raise ValueError(
             "context_hash must contain 64 lowercase hexadecimal characters"
         )
+    if (
+        not isinstance(design.context_descriptor, dict)
+        or set(design.context_descriptor)
+        != {
+            "eqasimCommit",
+            "dataManifestSha256",
+            "lockfileSha256",
+            "eqasimSaVersion",
+        }
+        or any(type(value) is not str for value in design.context_descriptor.values())
+    ):
+        raise ValueError("context_descriptor must contain exactly four string keys")
+    descriptor_bytes = _json(design.context_descriptor)
+    if (
+        hashlib.sha256(b"eqasim-sa:context:v1\0" + descriptor_bytes).hexdigest()
+        != design.context_hash
+    ):
+        raise ValueError("context_hash does not match context_descriptor")
     config = design.requirements.get("config", {})
     if set(design.requirements) - {"run", "config"} or not isinstance(config, dict):
         raise ValueError("requirements may contain only run and config")
@@ -546,6 +671,7 @@ def _validate(design: Design) -> tuple[str, ...]:
             or not -(2**63) <= design.design_seed < 2**63
         ):
             raise ValueError("design_seed must be a signed int64")
+        _validate_plan_allocation(design, names)
         candidates = math.factorial(len(names)) * math.prod(
             2 * (len(design.factors[name]) - 1) for name in names
         )
@@ -559,15 +685,17 @@ def _validate(design: Design) -> tuple[str, ...]:
             raise ValueError("levels must be an even integer greater than or equal to 4")
         if type(design.trajectories) is not int or design.trajectories < 2:
             raise ValueError("canonical Morris trajectories must be at least 2")
+        _validate_plan_allocation(design, names)
         universe = math.factorial(dimensions) * design.levels**dimensions
         if (
             type(design.candidate_trajectories) is not int
-            or design.candidate_trajectories < design.trajectories
+            or design.candidate_trajectories <= design.trajectories
             or design.candidate_trajectories > MAX_CANONICAL_MORRIS_CANDIDATES
             or design.candidate_trajectories > universe
         ):
             raise ValueError(
-                "candidate_trajectories must be at least trajectories and at most "
+                "candidate_trajectories must be strictly greater than trajectories "
+                "and at most "
                 f"{min(universe, MAX_CANONICAL_MORRIS_CANDIDATES)}"
             )
         if canonical_morris_distance_terms(
@@ -605,6 +733,9 @@ def _validate(design: Design) -> tuple[str, ...]:
         validate_scientific_contract(
             design.scientific_contract, design.factors, design.distributions
         )
+        _validate_scientific_software_binding(
+            design.scientific_contract, design.context_descriptor
+        )
         stochastic = design.scientific_contract["charter"]["stochastic"]
         if stochastic["target"] != "conditional_mean":
             raise ValueError(
@@ -620,13 +751,11 @@ def _validate(design: Design) -> tuple[str, ...]:
             raise ValueError(
                 "canonical Morris production seed count must equal selected_replications"
             )
-        if (
-            type(design.bootstrap_resamples) is not int
-            or not 100 <= design.bootstrap_resamples < 2**63
-        ):
-            raise ValueError(
-                "canonical Morris bootstrap_resamples must be a signed int64 at least 100"
-            )
+        validate_bootstrap_resamples(
+            design.bootstrap_resamples,
+            method="canonical Morris",
+            minimum=100,
+        )
         if (
             type(design.confidence_level) is not float
             or not math.isfinite(design.confidence_level)
@@ -651,6 +780,18 @@ def _validate(design: Design) -> tuple[str, ...]:
             raise ValueError(
                 "screening_top_k must be a positive integer no greater than factor count"
             )
+        validate_canonical_morris_bootstrap_work(
+            design.bootstrap_resamples,
+            dimensions,
+            design.trajectories,
+            len(design.seeds),
+            checkpoints,
+        )
+        validate_scientific_stopping(
+            "canonical_morris",
+            design.scientific_contract["charter"]["stopping"],
+            len(checkpoints),
+        )
     if design.method == "sobol":
         if len(names) + 1 < 2:
             raise ValueError("Sobol requires at least two factors including seed")
@@ -666,6 +807,7 @@ def _validate(design: Design) -> tuple[str, ...]:
             raise ValueError("Sobol N(2D+2) must fit in signed int64")
         if type(design.design_seed) is not int or not 0 <= design.design_seed < 2**64:
             raise ValueError("design_seed must be an unsigned 64-bit integer")
+        _validate_plan_allocation(design, tuple(sorted((*names, "seed"))))
         return tuple(sorted((*names, "seed")))
     if design.method == "multiscramble_sobol":
         names = tuple(sorted((*names, "seed")))
@@ -691,16 +833,7 @@ def _validate(design: Design) -> tuple[str, ...]:
         positions = len(design.scramble_seeds) * sizes[-1] * (2 * dimensions + 2)
         if positions > 2**63 - 1:
             raise ValueError("multi-scramble Sobol S*N*(2D+2) must fit in signed int64")
-        if positions > MAX_MULTISCRAMBLE_DESIGN_POSITIONS:
-            raise ValueError(
-                "multi-scramble Sobol allocation exceeds the safe cap of "
-                f"{MAX_MULTISCRAMBLE_DESIGN_POSITIONS} design positions"
-            )
-        if positions * (dimensions + 5) > MAX_MULTISCRAMBLE_TABLE_CELLS:
-            raise ValueError(
-                "multi-scramble Sobol allocation exceeds the safe cap of "
-                f"{MAX_MULTISCRAMBLE_TABLE_CELLS} table cells"
-            )
+        _validate_plan_allocation(design, names)
         if set(design.distributions) != set(names):
             raise ValueError("distributions must exactly match multi-scramble Sobol factors")
         for name in names:
@@ -721,7 +854,17 @@ def _validate(design: Design) -> tuple[str, ...]:
             {**design.factors, "seed": list(design.seeds)},
             design.distributions,
         )
+        _validate_scientific_software_binding(
+            design.scientific_contract, design.context_descriptor
+        )
+        validate_scientific_stopping(
+            "multiscramble_sobol",
+            design.scientific_contract["charter"]["stopping"],
+            len(sizes),
+        )
         return names
+    if design.method == "grid":
+        _validate_plan_allocation(design, names)
     return names
 
 
@@ -820,36 +963,6 @@ def _discrete_oat_positions(design: DiscreteOATDesign, names: tuple[str, ...]): 
                 yield indices, replication, seed, role, definition
 
 
-def _canonical_candidate(code: int, dimensions: int, levels: int) -> list[list[int]]:
-    choices = []
-    for _ in range(dimensions):
-        code, digit = divmod(code, levels)
-        edge = digit // 2
-        choices.append((edge, 1 if digit % 2 == 0 else -1))
-    available, permutation = list(range(dimensions)), []
-    for remaining in range(dimensions, 0, -1):
-        block = math.factorial(remaining - 1)
-        index, code = divmod(code, block)
-        permutation.append(available.pop(index))
-    half = levels // 2
-    point = [edge if direction == 1 else edge + half for edge, direction in choices]
-    matrix = [list(point)]
-    for factor in permutation:
-        point = list(point)
-        point[factor] += choices[factor][1] * half
-        matrix.append(point)
-    return matrix
-
-
-def _trajectory_distance(left: list[list[int]], right: list[list[int]]) -> int:
-    return sum(
-        (left_value - right_value) ** 2
-        for left_point in left
-        for right_point in right
-        for left_value, right_value in zip(left_point, right_point)
-    )
-
-
 def _discrete_uniform_generalized_inverse_index(
     support_length: int, levels: int, grid_index: int
 ) -> int:
@@ -897,13 +1010,26 @@ def _canonical_definition(
         "levels": design.levels,
         "candidateTrajectories": design.candidate_trajectories,
     }
-    pool, selected = _canonical_selection(
-        candidate_definition, design.trajectories
+    matrices = morris_unit_trajectories(
+        names,
+        candidate_trajectories=design.candidate_trajectories,
+        selected_trajectories=design.trajectories,
+        levels=design.levels,
+        seed=design.design_seed,
     )
+    selected = [
+        (
+            hashlib.sha256(
+                CANONICAL_MORRIS_DOMAIN
+                + _json({"matrix": matrix, "selectedIndex": index})
+            ).hexdigest(),
+            matrix,
+        )
+        for index, matrix in enumerate(matrices)
+    ]
     definition = {
         "bootstrapResamples": design.bootstrap_resamples,
         "candidateDefinition": candidate_definition,
-        "candidatePoolIdentities": [identity for identity, _ in pool],
         "confidenceLevel": design.confidence_level,
         "convergenceCheckpoints": list(design.convergence_checkpoints),
         "delta": {"numerator": design.levels // 2, "denominator": design.levels - 1},
@@ -914,6 +1040,13 @@ def _canonical_definition(
             {"name": name, "support": design.factors[name]} for name in names
         ],
         "inverseCdfMap": "discrete-uniform-generalized-inverse-v1",
+        "numericalEngine": engine_descriptor(
+            design.method,
+            sample_size=design.candidate_trajectories,
+            sample_seeds=(design.design_seed,),
+            levels=design.levels,
+            selected_trajectories=design.trajectories,
+        ),
         "p": design.levels,
         "replicationBaseSeeds": list(design.seeds),
         "scientificContract": design.scientific_contract,
@@ -931,70 +1064,12 @@ def _canonical_definition(
             "version": 1,
         },
         "selectedTrajectories": [
-            {"candidateId": identity, "matrix": matrix, "selectionOrder": index}
-            for index, (identity, matrix) in enumerate(selected)
+            {"matrix": matrix, "trajectoryId": identity}
+            for identity, matrix in selected
         ],
-        "selectionAlgorithm": "greedy-sum-pairwise-squared-distance",
-        "selectionVersion": 1,
         "trajectories": design.trajectories,
     }
     return definition, selected
-
-
-def _canonical_selection(
-    candidate_definition: dict, trajectories: int
-) -> tuple[list[tuple[str, list[list[int]]]], list[tuple[str, list[list[int]]]]]:
-    dimensions = len(candidate_definition["factors"])
-    levels = candidate_definition["levels"]
-    encoded = _json(candidate_definition)
-    universe = math.factorial(dimensions) * levels**dimensions
-    offset = int.from_bytes(
-        hashlib.sha256(CANONICAL_MORRIS_DOMAIN + encoded + b"\0offset").digest(),
-        "big",
-    ) % universe
-    stride = int.from_bytes(
-        hashlib.sha256(CANONICAL_MORRIS_DOMAIN + encoded + b"\0stride").digest(),
-        "big",
-    ) % universe or 1
-    while math.gcd(stride, universe) != 1:
-        stride = (stride + 1) % universe or 1
-    pool = []
-    for index in range(candidate_definition["candidateTrajectories"]):
-        matrix = _canonical_candidate(
-            (offset + index * stride) % universe, dimensions, levels
-        )
-        identity = hashlib.sha256(_json(matrix)).hexdigest()
-        pool.append((identity, matrix))
-    by_identity = dict(pool)
-    if len(by_identity) != len(pool):
-        raise RuntimeError("canonical Morris candidate identity collision")
-    if trajectories == 1:
-        selected_ids = [min(by_identity)]
-    else:
-        best_pair = None
-        best_distance = -1
-        for pair in itertools.combinations(sorted(by_identity), 2):
-            distance = _trajectory_distance(by_identity[pair[0]], by_identity[pair[1]])
-            if distance > best_distance:
-                best_pair, best_distance = pair, distance
-        if best_pair is None:
-            raise RuntimeError("canonical Morris selection requires two candidates")
-        selected_ids = list(best_pair)
-        while len(selected_ids) < trajectories:
-            best_candidate = None
-            best_score = -1
-            for candidate in sorted(set(by_identity) - set(selected_ids)):
-                score = sum(
-                    _trajectory_distance(by_identity[candidate], by_identity[selected])
-                    for selected in selected_ids
-                )
-                if score > best_score:
-                    best_candidate, best_score = candidate, score
-            if best_candidate is None:
-                raise RuntimeError("canonical Morris candidate pool was exhausted")
-            selected_ids.append(best_candidate)
-    selected = [(identity, by_identity[identity]) for identity in selected_ids]
-    return pool, selected
 
 
 def _canonical_morris_positions(
@@ -1119,13 +1194,12 @@ def _multiscramble_definition(
         ],
         "mapping": "equal-width-v1",
         "maximumBaseSampleSize": design.base_sample_sizes[-1],
-        "qmc": {
-            "bits": 64,
-            "engine": "scipy.stats.qmc.Sobol",
-            "optimization": None,
-            "scramble": True,
-        },
-        "saltelliEstimator": "symmetric-ab-ba-v1",
+        "numericalEngine": engine_descriptor(
+            design.method,
+            sample_size=design.base_sample_sizes[-1],
+            sample_seeds=design.scramble_seeds,
+        ),
+        "saltelliEstimator": "symmetric-forward-reverse-salib-v1",
         "scientificContract": design.scientific_contract,
         "scrambleSeeds": list(design.scramble_seeds),
     }
@@ -1142,45 +1216,37 @@ def _multiscramble_sobol_positions(
     domains = {**design.factors, "seed": list(design.seeds)}
     maximum = design.base_sample_sizes[-1]
     for scramble, scramble_seed in enumerate(design.scramble_seeds):
-        sample = qmc.Sobol(
-            d=2 * len(names),
-            scramble=True,
-            bits=64,
-            rng=scramble_seed,
-            optimization=None,
-        ).random_base2(m=maximum.bit_length() - 1)
-        indices = [
-            tuple(
-                math.floor(float(value) * len(domains[name]))
-                for name, value in zip(names * 2, row)
+        positions = [
+            (
+                role,
+                tuple(
+                    math.floor(value * len(domains[name]))
+                    for name, value in zip(names, unit_position)
+                ),
             )
-            for row in sample
+            for role, unit_position in sobol_unit_positions(
+                names, maximum, scramble_seed
+            )
         ]
+        by_role = dict(positions)
+        if len(by_role) != len(positions):
+            raise RuntimeError("SALib returned duplicate multi-scramble Sobol roles")
         for checkpoint in design.base_sample_sizes:
+            pairs = [
+                by_role[f"A:row:{row}"] + by_role[f"B:row:{row}"]
+                for row in range(checkpoint)
+            ]
             try:
-                validate_sobol_effective_hybrid_contrasts(indices[:checkpoint], names)
+                validate_sobol_effective_hybrid_contrasts(pairs, names)
             except ValueError as error:
                 raise ValueError(
                     f"multi-scramble Sobol scramble {scramble}, checkpoint {checkpoint}: {error}"
                 ) from error
-        for row_index, point in enumerate(indices):
-            a, b = point[: len(names)], point[len(names) :]
-            positions = [
-                (f"scramble:{scramble}:A:row:{row_index}", a),
-                (f"scramble:{scramble}:B:row:{row_index}", b),
-            ]
-            for index, name in enumerate(names):
-                ab, ba = list(a), list(b)
-                ab[index], ba[index] = b[index], a[index]
-                positions.extend(
-                    (
-                        (f"scramble:{scramble}:AB:factor:{name}:row:{row_index}", tuple(ab)),
-                        (f"scramble:{scramble}:BA:factor:{name}:row:{row_index}", tuple(ba)),
-                    )
-                )
-            for role, selected in positions:
-                values = tuple(domains[name][index] for name, index in zip(names, selected))
-                yield values, role, definition
+        for role, selected in positions:
+            values = tuple(
+                domains[name][index] for name, index in zip(names, selected)
+            )
+            yield values, f"scramble:{scramble}:{role}", definition
 
 
 def _table(design: Design, names: tuple[str, ...]) -> pa.Table:
@@ -1227,7 +1293,7 @@ def _table(design: Design, names: tuple[str, ...]) -> pa.Table:
         metadata[b"planSchemaVersion"] = b"3" if design.structured_factors else b"2"
         metadata.update(
             {
-                b"canonicalMorrisDesignVersion": b"1",
+                b"canonicalMorrisDesignVersion": b"3",
                 b"canonicalMorrisDesign": _json(canonical),
             }
         )
@@ -1249,7 +1315,7 @@ def _table(design: Design, names: tuple[str, ...]) -> pa.Table:
         metadata[b"planSchemaVersion"] = b"3" if design.structured_factors else b"2"
         metadata.update(
             {
-                b"multiScrambleSobolDesignVersion": b"1",
+                b"multiScrambleSobolDesignVersion": b"3",
                 b"multiScrambleSobolDesign": _json(multiscramble),
             }
         )
@@ -1260,9 +1326,10 @@ def _table(design: Design, names: tuple[str, ...]) -> pa.Table:
         + [pa.int64(), pa.string()]
         + [scalar_types[type(design.factors[n][0])] for n in columns]
     )
-    rows, identifiers, runs, levels = (
+    rows, identifiers, runs, resolved_runs, levels = (
         [],
         set(),
+        {},
         {},
         [range(len(design.factors[name])) for name in columns],
     )
@@ -1341,9 +1408,22 @@ def _table(design: Design, names: tuple[str, ...]) -> pa.Table:
             raise RuntimeError("designId collision between distinct design positions")
         identifiers.add(design_id)
         levels = tuple(logical[name] for name in columns)
-        resolved = resolve_config(design, columns, levels, seed)
-        nested = resolved["config"]
-        canonical, run_id = _json(resolved), compute_run_id(resolved, seed)
+        projected = (
+            tuple(
+                (
+                    type(value),
+                    value.hex() if type(value) is float else value,
+                )
+                for value in levels
+            ),
+            (type(seed), seed),
+        )
+        cached = resolved_runs.get(projected)
+        if cached is None:
+            resolved = resolve_config(design, columns, levels, seed)
+            cached = (_json(resolved), compute_run_id(resolved, seed))
+            resolved_runs[projected] = cached
+        canonical, run_id = cached
         if runs.setdefault(run_id, canonical) != canonical:
             raise RuntimeError(
                 "runId collision between distinct resolved configurations"
@@ -1434,7 +1514,7 @@ def load_run_specs(
 
 def build_plan(design: Design) -> PlanResult:
     names = _validate(design)
-    candidate = _table(design, names)
+    design_positions = _plan_positions(design, names)
     if design.method in {"canonical_morris", "multiscramble_sobol"}:
         try:
             budget = design.scientific_contract["charter"]["budget"]
@@ -1443,12 +1523,12 @@ def build_plan(design: Design) -> PlanResult:
             )
         except (KeyError, TypeError) as error:
             raise ValueError("scientific_contract must contain charter budget") from error
-        design_positions = len(candidate)
         if allowed == 0 or design_positions > allowed:
             raise ValueError(
                 f"{'canonical Morris' if design.method == 'canonical_morris' else design.method} "
                 f"design positions {design_positions} exceed scientific execution budget {allowed}"
             )
+    candidate = _table(design, names)
     root, destination = design.campaign_root, design.campaign_root / "plan.parquet"
     if destination.is_symlink() or (destination.exists() and not destination.is_file()):
         raise ValueError("plan.parquet must be a regular non-symlink file")
