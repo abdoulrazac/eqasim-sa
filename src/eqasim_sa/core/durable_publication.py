@@ -331,8 +331,6 @@ def write_exclusive(
             published = destination.lstat()
             if file_identity(published) != file_identity(staged):
                 raise RuntimeError("exclusive destination differs from staged content")
-            temporary.unlink()
-            fsync_directory(staging)
             fsync_directory(destination.parent)
         except BaseException as commit_error:
             try:
@@ -350,6 +348,11 @@ def write_exclusive(
                     "exclusive commit failed and rollback could not be established"
                 ) from rollback_error
             raise commit_error
+        temporary.unlink(missing_ok=True)
+        try:
+            fsync_directory(staging)
+        except OSError:
+            pass
         return destination
     finally:
         if temporary.exists() and not preserve_temporary:

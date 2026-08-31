@@ -3,7 +3,10 @@ import hashlib
 import itertools
 import json
 import math
+import os
 import re
+import stat
+import time
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
@@ -16,7 +19,12 @@ from eqasim_sa.core.charter import (
     validate_scientific_contract,
     validate_scientific_stopping,
 )
-from eqasim_sa.core.durable_publication import write_parquet_exclusive
+from eqasim_sa.core.durable_publication import (
+    PublicationOutcomeUnknown,
+    file_state,
+    secure_directory,
+    write_parquet_exclusive,
+)
 from eqasim_sa.core.ledger import RESERVED_COLUMNS
 from eqasim_sa.core.run import RunSpec, compute_run_id
 from eqasim_sa.core.sensitivity import (
@@ -1513,6 +1521,118 @@ def load_run_specs(
     return tuple(specs.values())
 
 
+def _plan_transactions(root: Path) -> Path:
+    technical = root / ".eqasim-sa"
+    transactions = technical / "transactions"
+    secure_directory(technical, create=True)
+    if {entry.name for entry in technical.iterdir()} - {"transactions"}:
+        raise FileExistsError("campaign technical directory contains foreign state")
+    secure_directory(transactions, create=True)
+    allowed = f".plan.parquet."
+    for entry in transactions.iterdir():
+        info = entry.lstat()
+        if (
+            not entry.name.startswith(allowed)
+            or not entry.name.endswith(".tmp")
+            or not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid()
+            or info.st_nlink not in {1, 2}
+        ):
+            raise FileExistsError(
+                "campaign transaction directory contains foreign state"
+            )
+    return transactions
+
+
+def _pending_plan_link(destination: Path, transactions: Path) -> bool:
+    try:
+        visible = destination.lstat()
+    except FileNotFoundError:
+        return False
+    if not stat.S_ISREG(visible.st_mode) or visible.st_nlink < 2:
+        return False
+    for entry in transactions.iterdir():
+        try:
+            candidate = entry.lstat()
+        except FileNotFoundError:
+            continue
+        if (
+            entry.name.startswith(".plan.parquet.")
+            and entry.name.endswith(".tmp")
+            and stat.S_ISREG(candidate.st_mode)
+            and candidate.st_dev == visible.st_dev
+            and candidate.st_ino == visible.st_ino
+        ):
+            return True
+    return False
+
+
+def _read_committed_plan(
+    destination: Path, transactions: Path | None = None
+) -> pa.Table | None:
+    """Read only a plan whose exclusive publication has crossed its fsync point."""
+    deadline = time.monotonic() + 5.0
+    while True:
+        try:
+            descriptor = os.open(
+                destination, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+            )
+        except FileNotFoundError:
+            return None
+        try:
+            initial = os.fstat(descriptor)
+            if not stat.S_ISREG(initial.st_mode):
+                raise ValueError("plan.parquet must be a regular non-symlink file")
+            if initial.st_nlink != 1:
+                if transactions is None or not _pending_plan_link(
+                    destination, transactions
+                ):
+                    raise ValueError(
+                        "plan.parquet must not be a foreign hard-linked file"
+                    )
+                pending = True
+            else:
+                pending = False
+                with os.fdopen(os.dup(descriptor), "rb") as stream:
+                    table = pq.ParquetFile(stream).read()
+                final = os.fstat(descriptor)
+                try:
+                    visible = destination.lstat()
+                except FileNotFoundError:
+                    continue
+                if file_state(initial) != file_state(final) or file_state(
+                    initial
+                ) != file_state(visible):
+                    raise RuntimeError("plan.parquet changed while being read")
+                return table
+        finally:
+            os.close(descriptor)
+        if pending:
+            if time.monotonic() >= deadline:
+                raise PublicationOutcomeUnknown(
+                    "plan publication remains visible without a proven commit"
+                )
+            time.sleep(0.001)
+
+
+def _same_plan(candidate: pa.Table, existing: pa.Table) -> bool:
+    return candidate.schema.equals(
+        existing.schema, check_metadata=True
+    ) and candidate.equals(existing)
+
+
+def _validate_existing_plan_technical(root: Path) -> None:
+    technical = root / ".eqasim-sa"
+    if not technical.exists() and not technical.is_symlink():
+        return
+    secure_directory(technical)
+    children = {entry.name: entry for entry in technical.iterdir()}
+    if set(children) - {"locks", "transactions", "slurm"}:
+        raise FileExistsError("campaign technical directory contains foreign state")
+    for child in children.values():
+        secure_directory(child)
+
+
 def build_plan(design: Design) -> PlanResult:
     names = _validate(design)
     design_positions = _plan_positions(design, names)
@@ -1531,44 +1651,49 @@ def build_plan(design: Design) -> PlanResult:
             )
     candidate = _table(design, names)
     root, destination = design.campaign_root, design.campaign_root / "plan.parquet"
+    _validate_existing_plan_technical(root)
     if destination.is_symlink() or (destination.exists() and not destination.is_file()):
         raise ValueError("plan.parquet must be a regular non-symlink file")
     if destination.exists():
-        existing = pq.ParquetFile(destination).read()
-        if candidate.schema.equals(
-            existing.schema, check_metadata=True
-        ) and candidate.equals(existing):
-            return PlanResult(
-                "unchanged",
-                Path("plan.parquet"),
-                len(candidate),
-                len(set(candidate["runId"].to_pylist())),
-                design.context_hash,
-            )
-        raise FileExistsError("plan differs; choose a new campaign_root")
+        visible = destination.lstat()
+        if visible.st_nlink == 1:
+            existing = _read_committed_plan(destination)
+            if existing is not None and _same_plan(candidate, existing):
+                return PlanResult(
+                    "unchanged",
+                    Path("plan.parquet"),
+                    len(candidate),
+                    len(set(candidate["runId"].to_pylist())),
+                    design.context_hash,
+                )
+            if existing is not None:
+                raise FileExistsError("plan differs; choose a new campaign_root")
     if root.exists():
         entries = {entry.name for entry in root.iterdir()}
         if entries - {".eqasim-sa", "plan.parquet"}:
             raise FileExistsError("campaign_root contains durable state without a plan")
-    try:
-        write_parquet_exclusive(
-            candidate,
-            destination,
-            staging_directory=root / ".eqasim-sa" / "transactions",
-        )
-    except FileExistsError:
-        existing = pq.ParquetFile(destination).read()
-        if candidate.schema.equals(
-            existing.schema, check_metadata=True
-        ) and candidate.equals(existing):
-            return PlanResult(
-                "unchanged",
-                Path("plan.parquet"),
-                len(candidate),
-                len(set(candidate["runId"].to_pylist())),
-                design.context_hash,
+    transactions = _plan_transactions(root)
+    while True:
+        try:
+            write_parquet_exclusive(
+                candidate,
+                destination,
+                staging_directory=transactions,
             )
-        raise FileExistsError("plan differs; choose a new campaign_root") from None
+        except FileExistsError:
+            existing = _read_committed_plan(destination, transactions)
+            if existing is None:
+                continue
+            if _same_plan(candidate, existing):
+                return PlanResult(
+                    "unchanged",
+                    Path("plan.parquet"),
+                    len(candidate),
+                    len(set(candidate["runId"].to_pylist())),
+                    design.context_hash,
+                )
+            raise FileExistsError("plan differs; choose a new campaign_root") from None
+        break
     return PlanResult(
         "created",
         Path("plan.parquet"),

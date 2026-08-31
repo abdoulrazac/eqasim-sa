@@ -11,6 +11,7 @@ import pyarrow.parquet as pq
 import pytest
 
 import eqasim_sa.core.plan as plan_module
+import eqasim_sa.core.durable_publication as durable_publication
 from eqasim_sa.adapters.application import plan_from_meta_config
 from eqasim_sa.adapters.eqasim.config import load_yaml_document
 from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator, eqasim_requirements
@@ -1077,7 +1078,134 @@ def test_concurrent_equivalent_plans_use_no_clobber_without_parent_lock(
     assert all(not thread.is_alive() for thread in threads)
     assert not errors
     assert sorted(result.status for result in results) == ["created", "unchanged"]
+    published = campaign / "plan.parquet"
+    assert published.stat().st_nlink == 1
+    assert pq.ParquetFile(published).read().equals(
+        plan_module._table(current, plan_module._validate(current))
+    )
     assert not tuple(campaign.parent.glob(".eqasim-sa-*.lock"))
+
+
+def test_concurrent_different_plans_have_one_winner_and_one_conflict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    campaign = tmp_path / "campaign"
+    barrier = threading.Barrier(2)
+    real_publish = plan_module.write_parquet_exclusive
+    results = []
+    errors = []
+
+    def synchronized_publish(table, path, **options):  # type: ignore[no-untyped-def]
+        barrier.wait(5)
+        return real_publish(table, path, **options)
+
+    def publish(current: GridDesign) -> None:
+        try:
+            results.append(build_plan(current))
+        except BaseException as error:
+            errors.append(error)
+
+    monkeypatch.setattr(
+        plan_module, "write_parquet_exclusive", synchronized_publish
+    )
+    candidates = [
+        design(campaign, factors={"a": [1]}),
+        design(campaign, factors={"a": [2]}),
+    ]
+    threads = [
+        threading.Thread(target=publish, args=(current,)) for current in candidates
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(10)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert [result.status for result in results] == ["created"]
+    assert len(errors) == 1 and isinstance(errors[0], FileExistsError)
+    published = pq.ParquetFile(campaign / "plan.parquet").read()
+    assert sum(
+        published.equals(plan_module._table(current, plan_module._validate(current)))
+        for current in candidates
+    ) == 1
+
+
+def test_concurrent_plan_loser_waits_for_failed_winner_rollback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    campaign = tmp_path / "campaign"
+    current = design(campaign)
+    barrier = threading.Barrier(2)
+    real_publish = plan_module.write_parquet_exclusive
+    real_fsync = durable_publication.fsync_directory
+    failed = False
+    failure_lock = threading.Lock()
+    local = threading.local()
+    results = []
+    errors = []
+
+    def synchronized_publish(table, path, **options):  # type: ignore[no-untyped-def]
+        if not getattr(local, "started", False):
+            local.started = True
+            barrier.wait(5)
+        return real_publish(table, path, **options)
+
+    def fail_first_commit(path: Path) -> None:
+        nonlocal failed
+        if path == campaign:
+            with failure_lock:
+                if not failed:
+                    failed = True
+                    threading.Event().wait(0.05)
+                    raise OSError("injected commit failure")
+        real_fsync(path)
+
+    def publish() -> None:
+        try:
+            results.append(build_plan(current))
+        except BaseException as error:
+            errors.append(error)
+
+    monkeypatch.setattr(plan_module, "write_parquet_exclusive", synchronized_publish)
+    monkeypatch.setattr(durable_publication, "fsync_directory", fail_first_commit)
+    threads = [threading.Thread(target=publish) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(10)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert [result.status for result in results] == ["created"]
+    assert len(errors) == 1 and isinstance(errors[0], OSError)
+    assert (campaign / "plan.parquet").stat().st_nlink == 1
+    assert build_plan(current).status == "unchanged"
+
+
+@pytest.mark.parametrize("kind", ["symlink", "foreign", "transactions-symlink"])
+def test_plan_rejects_unowned_technical_namespace(
+    tmp_path: Path, kind: str
+) -> None:
+    root = tmp_path / kind
+    root.mkdir()
+    technical = root / ".eqasim-sa"
+    if kind == "symlink":
+        external = tmp_path / "external"
+        external.mkdir()
+        technical.symlink_to(external, target_is_directory=True)
+    else:
+        technical.mkdir()
+        if kind == "foreign":
+            (technical / "notes").write_text("not runtime state\n")
+        else:
+            external = tmp_path / "transactions"
+            external.mkdir()
+            (technical / "transactions").symlink_to(
+                external, target_is_directory=True
+            )
+
+    with pytest.raises((ValueError, FileExistsError), match="directory|foreign"):
+        build_plan(design(root, factors={"a": [1]}))
+    assert not (root / "plan.parquet").exists()
 
 
 def test_campaign_root_with_arbitrary_state_is_refused(tmp_path: Path) -> None:
