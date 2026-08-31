@@ -695,7 +695,7 @@ def test_simulator_writes_structured_snapshot_and_omits_list_cli_override(
 
     monkeypatch.setattr(simulator, "_run_owned", run)
     with pytest.raises(SimulationError, match="code 7") as failure:
-        simulator.simulate(resolved, 42, simulator.paths.root)
+        simulator.simulate(resolved, 42, simulator.workspace.root)
 
     snapshot = load_yaml_document(failure.value.attempt_directory / "config.yml")
     assert snapshot["config"]["matching_attributes"] == ["sex"]
@@ -709,7 +709,7 @@ def test_simulator_rejects_undeclared_composite_change(
     simulator, resolved = _simulator(tmp_path)
     resolved["config"]["undeclared"] = undeclared
     with pytest.raises(TypeError, match="undeclared"):
-        simulator.simulate(resolved, 42, simulator.paths.root)
+        simulator.simulate(resolved, 42, simulator.workspace.root)
 
 
 def test_simulator_keeps_scalar_cli_behavior(
@@ -725,10 +725,12 @@ def test_simulator_keeps_scalar_cli_behavior(
 
     monkeypatch.setattr(simulator, "_run_owned", run)
     with pytest.raises(SimulationError):
-        simulator.simulate(resolved, 42, simulator.paths.root)
+        simulator.simulate(resolved, 42, simulator.workspace.root)
     index = observed["command"].index("--sampling_rate")
     assert observed["command"][index + 1] == "0.25"
-    assert (next(simulator.paths.root.glob("attempt-*/config.yml"))).read_bytes() == simulator.config_bytes
+    assert (
+        next(simulator.workspace.root.glob("attempt-*/config.yml"))
+    ).read_bytes() == simulator.config_bytes
 
 
 def _failed_execution_spy(observed: list[tuple[list[str], dict]]):  # type: ignore[no-untyped-def]

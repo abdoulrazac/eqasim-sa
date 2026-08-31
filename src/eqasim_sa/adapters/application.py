@@ -33,6 +33,7 @@ from eqasim_sa.adapters.eqasim.simulator import (
     probe_environment,
     validate_transport,
 )
+from eqasim_sa.adapters.eqasim.workspace import WorkerWorkspace
 from eqasim_sa.adapters.execution_seal import create_execution_seal
 from eqasim_sa.adapters.fake.simulator import FakeSimulator
 from eqasim_sa.adapters.meta_config import load_meta_config
@@ -97,7 +98,7 @@ def build_eqasim(arguments: Namespace) -> tuple[EqasimSimulator, dict, object]:
     )
     config = load_config(settings.config_path, arguments.seed)
     simulator = EqasimSimulator(settings, config)
-    return simulator, config, simulator.paths.root
+    return simulator, config, simulator.workspace.root
 
 
 def plan_from_meta_config(path: Path) -> PlanResult:
@@ -268,14 +269,14 @@ def run_from_meta_config(path: Path) -> dict:
                 with active_lock:
                     active.add(simulator)
                 try:
-                    with simulator.lease():
+                    with simulator.workspace.session():
                         return execute_batch(
                             batch,
                             lambda spec: execute_run(
                                 spec,
                                 simulator,
                                 meta.campaign_root,
-                                simulator.paths.root,
+                                simulator.workspace.root,
                                 interrupted.is_set,
                             ),
                         )
@@ -974,7 +975,7 @@ def _smoke(meta, specs) -> None:  # type: ignore[no-untyped-def]
             )
         try:
             results = [
-                execute_run(spec, simulator, campaign_root, simulator.paths.root)
+                execute_run(spec, simulator, campaign_root, simulator.workspace.root)
                 for spec in smoke_specs
             ]
             if any(result.status != "completed" for result in results):
@@ -1387,69 +1388,6 @@ def _analysis_state_allowed(path: Path, method: str) -> None:
             )
 
 
-def _scratch_allowed(root: Path, campaigns: set[str]) -> None:
-    if root.is_symlink() or not root.is_dir():
-        raise FileExistsError("scratch must be a regular non-symlink directory")
-    entries = tuple(root.iterdir())
-    if not entries:
-        return
-    if (
-        len(entries) != 1
-        or entries[0].name != "eqasim-sa"
-        or entries[0].is_symlink()
-        or not entries[0].is_dir()
-    ):
-        raise FileExistsError("foreign content in init scratch")
-    tool = entries[0]
-    for campaign in tool.iterdir():
-        if campaign.name not in campaigns or campaign.is_symlink() or not campaign.is_dir():
-            raise FileExistsError("foreign content in init scratch")
-        campaign_entries = {item.name for item in campaign.iterdir()}
-        if campaign_entries - {"workers"}:
-            raise FileExistsError("foreign content in init scratch")
-        if not campaign_entries:
-            continue
-        workers = campaign / "workers"
-        if workers.is_symlink() or not workers.is_dir():
-            raise FileExistsError("foreign content in init scratch")
-        for slot in workers.iterdir():
-            if slot.is_symlink() or not slot.is_dir() or slot.name not in {"0", "1"}:
-                raise FileExistsError("foreign content in init scratch")
-            for item in slot.iterdir():
-                attempt = re.fullmatch(r"attempt-[0-9a-f]{32}", item.name) is not None
-                state_temp = re.fullmatch(r"\.state-[0-9a-f]{32}\.tmp", item.name) is not None
-                context_state = (
-                    re.fullmatch(r"state-[0-9a-f]{64}\.json", item.name) is not None
-                )
-                if item.is_symlink() or (
-                    item.name not in {"lease.lock", "state.json", "cache"}
-                    and not context_state
-                    and not attempt and not state_temp
-                ):
-                    raise FileExistsError("foreign content in init scratch")
-                if item.name in {"lease.lock", "state.json"} or context_state:
-                    _regular(
-                        item,
-                        f"scratch/{campaign.name}/{slot.name}/{item.name}",
-                        private=True,
-                    )
-                elif state_temp:
-                    _regular(item, f"scratch/{campaign.name}/{slot.name}/{item.name}")
-                elif item.name == "cache" or attempt:
-                    if attempt and {path.name for path in item.iterdir()} - {
-                        "config.yml", "run.log", "output", "normalized"
-                    }:
-                        raise FileExistsError("foreign content in init scratch")
-                    if not item.is_dir() or any(
-                        path.is_symlink()
-                        or path.stat(follow_symlinks=False).st_uid != os.getuid()
-                        or not (path.is_file() or path.is_dir())
-                        or path.is_file() and path.stat(follow_symlinks=False).st_nlink != 1
-                        for path in item.rglob("*")
-                    ):
-                        raise FileExistsError("foreign content in init scratch")
-
-
 def _publish_scaffold(
     destination: Path,
     templates: dict[str, bytes],
@@ -1569,7 +1507,7 @@ def init_from_inputs(
     campaign_names = {f"{project_name}-{method}" for method in INIT_METHODS}
     if scratch_relative is None and selected_scratch.exists():
         selected_scratch = _directory(selected_scratch, "scratch")
-        _scratch_allowed(selected_scratch, campaign_names)
+        WorkerWorkspace.validate_scratch(selected_scratch, campaign_names)
     expected = render_project(
         absolute, project_name, model, data, selected_scratch,
         invocation, model_config,
@@ -1602,7 +1540,7 @@ def init_from_inputs(
             _validate_project_manifest(absolute / "manifest.json")
         _durable_preflight(absolute, expected_artifacts)
         selected_scratch = _directory_or_create(selected_scratch, "scratch")
-    _scratch_allowed(selected_scratch, campaign_names)
+    WorkerWorkspace.validate_scratch(selected_scratch, campaign_names)
     manifest = absolute / "manifest.json"
     if not new_project and regenerate_data_manifest:
         generate_data_manifest(data, manifest, replace=True)

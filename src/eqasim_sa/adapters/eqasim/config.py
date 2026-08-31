@@ -1,11 +1,13 @@
 import copy
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 
+from eqasim_sa.adapters.eqasim.workspace import WorkerWorkspace
 from eqasim_sa.ports.simulator import ResolvedConfig
 
 CAMPAIGN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -44,28 +46,22 @@ class EqasimSettings:
         object.__setattr__(self, "eqasim_root", root)
         object.__setattr__(self, "scratch", scratch)
 
-    def worker(self, slot: int) -> "WorkerPaths":
-        if isinstance(slot, bool) or not isinstance(slot, int) or slot < 0:
-            raise ValueError("worker slot must be a non-negative integer")
-        root = self.scratch / "eqasim-sa" / self.campaign / "workers" / str(slot)
-        cache = root / "cache"
-        state = root / "state.json"
-        if self.context_hash is not None:
-            cache /= self.context_hash
-            state = root / f"state-{self.context_hash}.json"
-        return WorkerPaths(root, root / "lease.lock", state, cache)
+    def workspace(
+        self,
+        slot: int,
+        interrupted: Callable[[], bool] = lambda: False,
+    ) -> WorkerWorkspace:
+        return WorkerWorkspace(
+            self.scratch,
+            self.campaign,
+            slot,
+            self.context_hash,
+            interrupted,
+        )
 
     @property
     def workdir(self) -> Path:
-        return self.worker(0).root
-
-
-@dataclass(frozen=True)
-class WorkerPaths:
-    root: Path
-    lease: Path
-    state: Path
-    cache: Path
+        return self.workspace(0).root
 
 
 def load_config(path: Path, seed: int) -> ResolvedConfig:

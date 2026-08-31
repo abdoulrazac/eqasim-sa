@@ -343,12 +343,10 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
     class Simulator:
         def __init__(self) -> None:
             self.interruptions = 0
-            self.paths = SimpleNamespace(
-                root=node_scratch / "eqasim-sa" / "demo" / "workers" / "2"
+            self.workspace = SimpleNamespace(
+                root=node_scratch / "eqasim-sa" / "demo" / "workers" / "2",
+                session=lambda: nullcontext(self),
             )
-
-        def lease(self):  # type: ignore[no-untyped-def]
-            return nullcontext(self)
 
         def interrupt(self) -> None:
             self.interruptions += 1

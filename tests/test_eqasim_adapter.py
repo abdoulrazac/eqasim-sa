@@ -105,7 +105,7 @@ def test_worker_cache_is_namespaced_by_the_full_context_hash(tmp_path: Path) -> 
         current.campaign,
         current.scratch,
         first_hash,
-    ).worker(3)
+    ).workspace(3)
     second = EqasimSettings(
         current.config_path,
         current.eqasim_root,
@@ -113,14 +113,12 @@ def test_worker_cache_is_namespaced_by_the_full_context_hash(tmp_path: Path) -> 
         current.campaign,
         current.scratch,
         second_hash,
-    ).worker(3)
+    ).workspace(3)
 
     assert first.root == second.root
     assert first.cache == first.root / "cache" / first_hash
     assert second.cache == second.root / "cache" / second_hash
     assert first.cache != second.cache
-    assert first.state == first.root / f"state-{first_hash}.json"
-    assert second.state == second.root / f"state-{second_hash}.json"
 
 
 def test_context_cache_state_isolation_prevents_cross_context_reuse(
@@ -140,17 +138,17 @@ def test_context_cache_state_isolation_prevents_cross_context_reuse(
         return EqasimSimulator(scoped, load_config(scoped.config_path, 42))
 
     first, second = adapter("a" * 64), adapter("b" * 64)
-    with first.lease():
-        first._prepare_cache()
-        sentinel = first.paths.cache / "stale"
+    with first.workspace.session():
+        first.workspace.prepare_cache()
+        sentinel = first.workspace.cache / "stale"
         sentinel.write_text("first context")
-        first._write_state("active")
-    with second.lease():
-        second._prepare_cache()
-        second._write_state("clean")
+        first.workspace.mark_active()
+    with second.workspace.session():
+        second.workspace.prepare_cache()
+        second.workspace.mark_clean()
     assert sentinel.is_file()
-    with first.lease():
-        first._prepare_cache()
+    with first.workspace.session():
+        first.workspace.prepare_cache()
     assert not sentinel.exists()
 
 
@@ -229,7 +227,7 @@ def test_real_spy_subprocess_normalizes_exact_inventory(
     assert observed["argv"] == [
         str(attempt / "config.yml"),
         "--working-directory",
-        str(current.worker(0).cache),
+        str(current.workspace(0).cache),
         "--run",
         "synthesis.output",
         "--run",
@@ -320,7 +318,7 @@ def test_post_simulation_guard_failure_leaves_cache_state_active(
     with pytest.raises(RuntimeError, match="post-simulation drift"):
         adapter.simulate(load_config(current.config_path, 42), 42, current.workdir)
 
-    assert json.loads(adapter.paths.state.read_text()) == {"status": "active"}
+    assert adapter.workspace.status() == "active"
 
 
 def test_executes_config_run_and_normalizes_only_requested_stage_artifacts(
@@ -386,14 +384,14 @@ def test_failed_process_leaves_active_marker_and_next_run_purges_cache(
         adapter.simulate(
             load_config(current.config_path, 42), 42, current.workdir
         )
-    paths = current.worker(0)
-    assert json.loads(paths.state.read_text()) == {"status": "active"}
-    sentinel = paths.cache / "stale"
+    workspace = current.workspace(0)
+    assert workspace.status() == "active"
+    sentinel = workspace.cache / "stale"
     sentinel.write_text("purge me")
     monkeypatch.delenv("EQASIM_SPY_FAIL")
     adapter.simulate(load_config(current.config_path, 42), 42, current.workdir)
     assert not sentinel.exists()
-    assert json.loads(paths.state.read_text()) == {"status": "clean"}
+    assert workspace.status() == "clean"
 
 
 def test_malformed_marker_purges_cache_before_process(
@@ -401,12 +399,15 @@ def test_malformed_marker_purges_cache_before_process(
 ) -> None:
     current = settings(tmp_path)
     monkeypatch.setenv("EQASIM_SPY_RECORD", str(tmp_path / "record.json"))
-    paths = current.worker(0)
-    paths.cache.mkdir(parents=True)
-    sentinel = paths.cache / "stale"
+    workspace = current.workspace(0)
+    workspace.cache.mkdir(parents=True)
+    sentinel = workspace.cache / "stale"
     sentinel.write_text("stale")
-    paths.state.write_text("not-json")
-    simulator(current).simulate(load_config(current.config_path, 42), 42, paths.root)
+    state = workspace.root / "state.json"
+    state.write_text("not-json")
+    simulator(current).simulate(
+        load_config(current.config_path, 42), 42, workspace.root
+    )
     assert not sentinel.exists()
 
 
@@ -418,10 +419,10 @@ def test_slot_lease_wait_is_interruptible(tmp_path: Path) -> None:
     first, second = simulator(current), simulator(current)
     acquired = threading.Event()
     stopped = threading.Event()
-    with first.lease():
+    with first.workspace.session():
         def wait() -> None:
             try:
-                with second.lease():
+                with second.workspace.session():
                     acquired.set()
             except KeyboardInterrupt:
                 stopped.set()
@@ -438,13 +439,13 @@ def test_slot_lease_wait_is_interruptible(tmp_path: Path) -> None:
 def test_slot_lease_rejects_hard_link(tmp_path: Path) -> None:
     current = settings(tmp_path)
     adapter = simulator(current)
-    adapter._prepare_slot_root()
+    adapter.workspace.root.mkdir(parents=True)
     source = tmp_path / "foreign-lock"
     source.write_text("foreign")
-    os.link(source, adapter.paths.lease)
+    os.link(source, adapter.workspace.root / "lease.lock")
 
     with pytest.raises(ValueError, match="private owned regular file"):
-        with adapter.lease():
+        with adapter.workspace.session():
             pass
 
 

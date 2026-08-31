@@ -501,7 +501,7 @@ def test_smoke_applies_run_overrides_and_computes_every_indicator(
     class Simulator:
         def __init__(self, settings, *args, **kwargs):
             self.settings = settings
-            self.paths = SimpleNamespace(root=settings.worker(0).root)
+            self.workspace = SimpleNamespace(root=settings.workspace(0).root)
             self.interrupted = False
             simulators.append(self)
 

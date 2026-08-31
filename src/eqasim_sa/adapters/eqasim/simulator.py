@@ -1,25 +1,21 @@
 import copy
-import fcntl
 import json
 import math
 import os
 import re
 import signal
-import stat
 import subprocess
 import threading
 import time
 import uuid
 from collections.abc import Mapping, Sequence
-from contextlib import contextmanager
 from pathlib import Path
 
 import yaml
 
 from eqasim_sa.adapters.eqasim.artifacts import ARTIFACT_STAGE, normalize_outputs
-from eqasim_sa.adapters.eqasim.config import STAGES, EqasimSettings, WorkerPaths
+from eqasim_sa.adapters.eqasim.config import STAGES, EqasimSettings
 from eqasim_sa.adapters.execution_seal import ExecutionSeal
-from eqasim_sa.core.durable_publication import fsync_directory
 from eqasim_sa.core.software_identity import SoftwareSourceGuard
 from eqasim_sa.ports.simulator import (
     IndicatorRequirement,
@@ -57,154 +53,10 @@ class EqasimSimulator:
         self._groups: set[int] = set()
         self._process_lock = threading.Lock()
         self._interrupted = threading.Event()
-        self.paths = settings.worker(slot)
-        self._lease_descriptor: int | None = None
-        self._root_identity: tuple[int, int] | None = None
-        self._lease_lock = threading.Lock()
+        self.workspace = settings.workspace(slot, self._interrupted.is_set)
         self.structured_factors = copy.deepcopy(structured_factors or {})
         self.execution_seal = execution_seal
         self.software_guard = software_guard
-
-    @contextmanager
-    def lease(self):  # type: ignore[no-untyped-def]
-        with self._lease_lock:
-            if self._lease_descriptor is not None:
-                yield self
-                return
-            self._prepare_slot_root()
-            descriptor = os.open(
-                self.paths.lease, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600
-            )
-            try:
-                info = os.fstat(descriptor)
-                if (
-                    not stat.S_ISREG(info.st_mode)
-                    or info.st_nlink != 1
-                    or info.st_uid != os.getuid()
-                ):
-                    raise ValueError("worker lease must be a private owned regular file")
-                os.fchmod(descriptor, 0o600)
-                while True:
-                    if self._interrupted.is_set():
-                        raise KeyboardInterrupt
-                    try:
-                        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                        break
-                    except BlockingIOError:
-                        time.sleep(0.05)
-                self._lease_descriptor = descriptor
-                root_info = self.paths.root.stat(follow_symlinks=False)
-                self._root_identity = (root_info.st_dev, root_info.st_ino)
-                self._validate_lease()
-                yield self
-            finally:
-                self._lease_descriptor = None
-                self._root_identity = None
-                os.close(descriptor)
-
-    def _validate_lease(self) -> None:
-        if self._lease_descriptor is None or self._root_identity is None:
-            raise RuntimeError("worker cache lease is not held")
-        root = self.paths.root.stat(follow_symlinks=False)
-        held = os.fstat(self._lease_descriptor)
-        visible = self.paths.lease.stat(follow_symlinks=False)
-        if (
-            not stat.S_ISDIR(root.st_mode)
-            or (root.st_dev, root.st_ino) != self._root_identity
-            or not stat.S_ISREG(visible.st_mode)
-            or (held.st_dev, held.st_ino) != (visible.st_dev, visible.st_ino)
-        ):
-            raise RuntimeError("worker slot or lease identity changed while held")
-
-    def _prepare_slot_root(self) -> None:
-        current = self.settings.scratch
-        for part in ("eqasim-sa", self.settings.campaign, "workers", self.paths.root.name):
-            current = current / part
-            if current.is_symlink():
-                raise ValueError("worker slot must not traverse a symlink")
-            current.mkdir(mode=0o700, exist_ok=True)
-            if not current.is_dir():
-                raise ValueError("worker slot must be a directory")
-            info = current.stat(follow_symlinks=False)
-            if info.st_uid != os.getuid():
-                raise ValueError("worker slot must be owned by the current user")
-            current.chmod(0o700)
-        if current.resolve(strict=True) != self.paths.root.resolve(strict=True):
-            raise ValueError("worker slot path mismatch")
-
-    def _prepare_cache(self) -> None:
-        self._validate_lease()
-        cache = self.paths.cache
-        if cache.parent != self.paths.root:
-            parent = cache.parent
-            if parent.is_symlink() or parent.exists() and not parent.is_dir():
-                raise ValueError(
-                    "worker cache namespace must be a non-symlink directory"
-                )
-            parent.mkdir(mode=0o700, exist_ok=True)
-            info = parent.stat(follow_symlinks=False)
-            if info.st_uid != os.getuid():
-                raise ValueError("worker cache namespace must be owned by the current user")
-            parent.chmod(0o700)
-        if cache.is_symlink() or cache.exists() and not cache.is_dir():
-            raise ValueError("worker cache must be a non-symlink directory")
-        state = None
-        if self.paths.state.exists() or self.paths.state.is_symlink():
-            if self.paths.state.is_symlink() or not self.paths.state.is_file():
-                state = "invalid"
-            else:
-                try:
-                    info = self.paths.state.stat(follow_symlinks=False)
-                    if (
-                        not stat.S_ISREG(info.st_mode)
-                        or info.st_nlink != 1
-                        or info.st_uid != os.getuid()
-                    ):
-                        raise ValueError("worker state must be a private owned regular file")
-                    document = json.loads(self.paths.state.read_text(encoding="utf-8"))
-                    state = (
-                        document.get("status")
-                        if isinstance(document, dict)
-                        and set(document) == {"status"}
-                        and document.get("status") in {"active", "clean"}
-                        else "invalid"
-                    )
-                except (OSError, UnicodeError, ValueError):
-                    state = "invalid"
-        if cache.exists() and state != "clean":
-            import shutil
-
-            shutil.rmtree(cache)
-        cache.mkdir(mode=0o700, exist_ok=True)
-        self._validate_cache()
-
-    def _validate_cache(self) -> None:
-        for root, directories, files in os.walk(self.paths.cache, followlinks=False):
-            for name in (*directories, *files):
-                path = Path(root) / name
-                info = path.stat(follow_symlinks=False)
-                if path.is_symlink() or info.st_uid != os.getuid():
-                    raise ValueError("worker cache entries must be owned non-symlinks")
-                if stat.S_ISREG(info.st_mode):
-                    if info.st_nlink != 1:
-                        raise ValueError("worker cache files must not be hard links")
-                elif not stat.S_ISDIR(info.st_mode):
-                    raise ValueError("worker cache entries must be regular files or directories")
-
-    def _write_state(self, status: str) -> None:
-        self._validate_lease()
-        temporary = self.paths.root / f".state-{uuid.uuid4().hex}.tmp"
-        try:
-            with temporary.open("x", encoding="utf-8") as stream:
-                temporary.chmod(0o600)
-                json.dump({"status": status}, stream, sort_keys=True, separators=(",", ":"))
-                stream.write("\n")
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, self.paths.state)
-            fsync_directory(self.paths.root)
-        finally:
-            temporary.unlink(missing_ok=True)
 
     def interrupt(self) -> None:
         self._interrupted.set()
@@ -243,37 +95,35 @@ class EqasimSimulator:
         return eqasim_requirements(indicators)
 
     def simulate(self, config: ResolvedConfig, seed: int, workdir: Path) -> Manifest:
-        if self._lease_descriptor is None:
-            with self.lease():
-                return self.simulate(config, seed, workdir)
-        if self.software_guard is not None:
-            self.software_guard.guard()
-        if self.execution_seal is not None:
-            self.execution_seal.guard()
-        try:
-            manifest = self._simulate(config, seed, workdir)
-        except BaseException:
+        with self.workspace.session():
+            if self.software_guard is not None:
+                self.software_guard.guard()
+            if self.execution_seal is not None:
+                self.execution_seal.guard()
+            try:
+                manifest = self._simulate(config, seed, workdir)
+            except BaseException:
+                if self.execution_seal is not None:
+                    self.execution_seal.guard()
+                if self.software_guard is not None:
+                    self.software_guard.guard()
+                raise
             if self.execution_seal is not None:
                 self.execution_seal.guard()
             if self.software_guard is not None:
                 self.software_guard.guard()
-            raise
-        if self.execution_seal is not None:
-            self.execution_seal.guard()
-        if self.software_guard is not None:
-            self.software_guard.guard()
-        self._write_state("clean")
-        return manifest
+            self.workspace.mark_clean()
+            return manifest
 
     def _simulate(self, config: ResolvedConfig, seed: int, workdir: Path) -> Manifest:
-        expected_workdir = self.paths.root
+        expected_workdir = self.workspace.root
         if workdir.resolve() != expected_workdir.resolve():
             raise ValueError(f"workdir must be {expected_workdir}")
-        self._prepare_cache()
+        self.workspace.prepare_cache()
         resolved_workdir = workdir.resolve(strict=True)
         if not resolved_workdir.is_relative_to(self.settings.scratch):
             raise ValueError("workdir escapes scratch")
-        attempt = workdir / f"attempt-{uuid.uuid4().hex}"
+        attempt = self.workspace.create_attempt()
         output = attempt / "output"
         normalized = attempt / "normalized"
         output.mkdir(parents=True)
@@ -338,7 +188,7 @@ class EqasimSimulator:
             *self.settings.invocation,
             str(snapshot),
             "--working-directory",
-            str(self.paths.cache),
+            str(self.workspace.cache),
         ]
         for stage in requested_stages:
             command.extend(("--run", stage))
@@ -371,8 +221,8 @@ class EqasimSimulator:
             stream.write(json.dumps({"command": command}, ensure_ascii=False) + "\n")
             stream.flush()
             try:
-                self._write_state("active")
-                self._validate_lease()
+                self.workspace.mark_active()
+                self.workspace.validate_session()
                 completed = self._run_owned(
                     command,
                     cwd=self.settings.eqasim_root,
@@ -401,7 +251,7 @@ class EqasimSimulator:
             raise SimulationError(str(error), log, attempt) from error
         if self._interrupted.is_set():
             raise KeyboardInterrupt
-        scratch_bytes = _directory_bytes(self.paths.cache)
+        scratch_bytes = self.workspace.cache_bytes()
         evidence = None if self.execution_seal is None else self.execution_seal.evidence
         return Manifest(artifacts, attempt, scratch_bytes, evidence)
 
@@ -516,15 +366,3 @@ def _scalar_argument(key: str, value: object) -> str:
 
 def _same_value(left: object, right: object) -> bool:
     return type(left) is type(right) and left == right
-
-
-def _directory_bytes(root: Path) -> int:
-    total = 0
-    for path in root.rglob("*"):
-        if path.is_symlink():
-            raise ValueError("worker cache must not contain symlinks")
-        if path.is_file():
-            total += path.stat().st_size
-        elif not path.is_dir():
-            raise ValueError("worker cache contains an unsupported entry")
-    return total

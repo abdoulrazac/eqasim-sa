@@ -354,11 +354,11 @@ class EqasimSlurmJob:
             SoftwareSourceGuard(meta.software_identity),
         )
         try:
-            with simulator.lease():
+            with simulator.workspace.session():
                 return execute_batch(
                     batch,
                     lambda spec: execute_run(
-                        spec, simulator, meta.campaign_root, simulator.paths.root
+                        spec, simulator, meta.campaign_root, simulator.workspace.root
                     ),
                 )
         except BaseException:
