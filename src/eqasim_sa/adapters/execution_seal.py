@@ -14,16 +14,16 @@ from eqasim_sa.adapters.data_manifest import (
     verify_data_manifest,
     verify_data_tree_state,
 )
-from eqasim_sa.ports.simulator import (
-    CHILD_ENVIRONMENT_DOMAIN,
-    ExecutionEvidence,
-)
+from eqasim_sa.core.durable_publication import FileState, file_state
 from eqasim_sa.core.software_identity import (
     SoftwareIdentity,
     verify_software_source_states,
 )
+from eqasim_sa.ports.simulator import (
+    CHILD_ENVIRONMENT_DOMAIN,
+    ExecutionEvidence,
+)
 
-FileState = tuple[int, int, int, int, int]
 VOLATILE_ENVIRONMENT_NAMES = frozenset(
     {
         "HOSTNAME",
@@ -40,7 +40,7 @@ VOLATILE_ENVIRONMENT_PREFIXES = ("SLURM_", "SUBMITIT_")
 
 
 def _state(info: os.stat_result) -> FileState:
-    return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
+    return file_state(info)
 
 
 def normalized_child_environment(

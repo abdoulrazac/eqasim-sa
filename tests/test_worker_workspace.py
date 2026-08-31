@@ -12,7 +12,7 @@ def workspace(
     scratch: Path,
     *,
     slot: int = 0,
-    context_hash: str | None = "a" * 64,
+    context_hash: str = "a" * 64,
     interrupted=lambda: False,  # type: ignore[no-untyped-def]
 ) -> WorkerWorkspace:
     return WorkerWorkspace(scratch, "campaign", slot, context_hash, interrupted)
@@ -36,6 +36,14 @@ def test_workspace_owns_one_shared_slot_grammar(tmp_path: Path, slot: int) -> No
 def test_workspace_rejects_noncanonical_slots(tmp_path: Path, slot: object) -> None:
     with pytest.raises(ValueError, match="slot"):
         workspace(tmp_path, slot=slot)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("context_hash", [None, "", "../bad", "bad/name"])
+def test_workspace_requires_a_safe_context_hash(
+    tmp_path: Path, context_hash: object
+) -> None:
+    with pytest.raises((TypeError, ValueError), match="context_hash"):
+        workspace(tmp_path, context_hash=context_hash)  # type: ignore[arg-type]
 
 
 def test_clean_cache_is_reused_and_measured(tmp_path: Path) -> None:

@@ -578,7 +578,7 @@ def test_run_file_is_published_last_and_archive_failure_is_incomplete(
 
     events: list[str] = []
     original_rename = ledger.os.rename
-    original_publish = ledger._publish_run_marker_no_clobber
+    original_publish = ledger.write_parquet_exclusive
     campaign = tmp_path / "ordered"
 
     def observe_rename(source, target, *args, **kwargs):  # type: ignore[no-untyped-def]
@@ -587,13 +587,13 @@ def test_run_file_is_published_last_and_archive_failure_is_incomplete(
             events.append("archive")
         return result
 
-    def observe_marker(staging, runs, name, table):  # type: ignore[no-untyped-def]
-        assert (campaign / "archives" / name.removesuffix(".parquet")).is_dir()
+    def observe_marker(table, destination, **options):  # type: ignore[no-untyped-def]
+        assert (campaign / "archives" / destination.stem).is_dir()
         events.append("marker")
-        return original_publish(staging, runs, name, table)
+        return original_publish(table, destination, **options)
 
     monkeypatch.setattr(ledger.os, "rename", observe_rename)
-    monkeypatch.setattr(ledger, "_publish_run_marker_no_clobber", observe_marker)
+    monkeypatch.setattr(ledger, "write_parquet_exclusive", observe_marker)
     result = run_one(
         spec(),
         FakeSimulator(),
@@ -638,7 +638,7 @@ def test_partial_publication_replays_without_cleanup(
     (campaign / "plan.parquet").write_bytes(b"sealed-plan")
     before = (campaign / "plan.parquet").read_bytes()
     real_archive = ledger._copy_parquet_artifact
-    real_marker = ledger._publish_run_marker_no_clobber
+    real_marker = ledger.write_parquet_exclusive
     calls = 0
 
     def fail_archive(source, destination, name, interrupted):  # type: ignore[no-untyped-def]
@@ -656,8 +656,10 @@ def test_partial_publication_replays_without_cleanup(
     else:
         monkeypatch.setattr(
             ledger,
-            "_publish_run_marker_no_clobber",
-            lambda *args: (_ for _ in ()).throw(OSError("injected final marker")),
+            "write_parquet_exclusive",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                OSError("injected final marker")
+            ),
         )
     first = run_one(spec(), FakeSimulator(), LocalBackend(), campaign, work, "ctx")
     assert (
@@ -677,7 +679,7 @@ def test_partial_publication_replays_without_cleanup(
     log.parent.mkdir(exist_ok=True)
     log.write_text("old failure")
     monkeypatch.setattr(ledger, "_copy_parquet_artifact", real_archive)
-    monkeypatch.setattr(ledger, "_publish_run_marker_no_clobber", real_marker)
+    monkeypatch.setattr(ledger, "write_parquet_exclusive", real_marker)
     replay = run_one(spec(), FakeSimulator(), LocalBackend(), campaign, work, "ctx")
     assert replay.status == "completed" and pq.read_table(stale).to_pylist()
     assert (campaign / "runs" / f"{replay.run_id}.parquet").is_file()

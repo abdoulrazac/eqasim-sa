@@ -47,6 +47,7 @@ from eqasim_sa.core.analysis_publication import (
 from eqasim_sa.core.analyze import analyze
 from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
 from eqasim_sa.core.charter import serialize_scientific_contract
+from eqasim_sa.core.durable_publication import FileState, file_state
 from eqasim_sa.core.indicators import ArtifactSet
 from eqasim_sa.core.plan import (
     CanonicalMorrisDesign,
@@ -88,6 +89,7 @@ def build_eqasim(arguments: Namespace) -> tuple[EqasimSimulator, dict, object]:
         tuple(invocation),
         arguments.campaign,
         arguments.scratch,
+        arguments.current_context_hash,
     )
     config = load_config(settings.config_path, arguments.seed)
     simulator = EqasimSimulator(settings, config)
@@ -557,9 +559,8 @@ def _design(meta, requirements=None):  # type: ignore[no-untyped-def]
     return GridDesign(*common, structured_factors=structured_factors)
 
 
-def _file_state(path: Path) -> tuple[int, int, int, int, int]:
-    stat = path.stat()
-    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
+def _file_state(path: Path) -> FileState:
+    return file_state(path.stat())
 
 
 def _remaining(deadline: float | None) -> None:
@@ -601,11 +602,11 @@ def _estimate_state(
             continue
         seen.add(root)
         plan = root / "plan.parquet"
-        plan_snapshot = CampaignSnapshot.inspect_plan(plan)
-        plan_state = _file_state(plan)
-        specs = load_run_specs(plan, _design(meta), meta.campaign)
-        _remaining(deadline)
         try:
+            plan_snapshot = CampaignSnapshot.inspect_plan(plan)
+            plan_state = plan_snapshot.source.state
+            specs = load_run_specs(plan, _design(meta), meta.campaign)
+            _remaining(deadline)
             campaign_snapshot = CampaignSnapshot.capture(
                 root,
                 plan,
@@ -627,20 +628,10 @@ def _estimate_state(
                 positions,
             )
         if snapshot is not None:
-            snapshot.append((plan, plan_state))
-            for selected in campaign_snapshot.runs.values():
-                snapshot.append((selected.archive, _file_state(selected.archive)))
-                snapshot.append((selected.marker.path, _file_state(selected.marker.path)))
-                snapshot.extend(
-                    (artifact.path, _file_state(artifact.path))
-                    for artifact in selected.artifacts
-                )
+            snapshot.extend(campaign_snapshot.tracked_states)
         observations.extend(campaign_snapshot.measurements)
         if root == target_root:
-            target_durable += sum(
-                selected.durable_bytes
-                for selected in campaign_snapshot.runs.values()
-            )
+            target_durable += campaign_snapshot.durable_bytes
     target_plan = target_root / "plan.parquet"
     if target_plan_state is None or _file_state(target_plan) != target_plan_state:
         raise RuntimeError(f"target plan mutated while estimating {target_plan}")
@@ -649,7 +640,7 @@ def _estimate_state(
     payload = estimate_plan(
         design_positions,
         tuple(compute_run_id(spec.resolved_config, spec.seed) for spec in target_specs),
-        target_plan_state[2],
+        target_plan_state.size,
         tuple(observations),
         target.execution.workers,
         getattr(target, "method", "grid"),
@@ -668,7 +659,7 @@ def _estimate_state(
             else None
         ),
     )
-    durable = target_plan_state[2] + target_durable
+    durable = target_plan_state.size + target_durable
     return payload, target, target_specs, durable
 
 
@@ -782,7 +773,7 @@ def _static_check(path: Path, calibrations: tuple[Path, ...]):  # type: ignore[n
         _remaining(deadline)
         if (
             ancestor.is_symlink()
-            or _file_state(ancestor)[:2] != before[:2]
+            or _file_state(ancestor).identity != before.identity
             or _file_state(meta.execution.scratch) != scratch_before
             or any(_file_state(item) != state for item, state in snapshot)
         ):
@@ -893,7 +884,7 @@ def _smoke(meta, specs) -> None:  # type: ignore[no-untyped-def]
             else meta.execution.invocation,
             "smoke",
             scratch,
-            getattr(meta, "context_hash", None),
+            meta.context_hash,
         )
         simulator = EqasimSimulator(
             settings,

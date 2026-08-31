@@ -19,6 +19,9 @@ eqasim-sa/
 │   │   ├── plan.py
 │   │   ├── run.py
 │   │   ├── ledger.py
+│   │   ├── campaign_snapshot.py
+│   │   ├── durable_publication.py
+│   │   ├── analysis_publication.py
 │   │   ├── analyze.py
 │   │   └── indicators/
 │   ├── adapters/
@@ -27,7 +30,7 @@ eqasim-sa/
 │   │   ├── data_manifest.py
 │   │   ├── worker.py
 │   │   ├── backends/
-│   │   ├── eqasim/
+│   │   ├── eqasim/       # adaptateur et cycle de vie du workspace worker
 │   │   └── fake/
 │   └── templates/
 └── tests/
@@ -37,6 +40,14 @@ eqasim-sa/
 identités, designs, ledger et analyses sans connaître la CLI. `adapters/`
 charge le YAML, invoque synpp, normalise les artefacts, gère local/SLURM et câble
 l'application. `cli.py` se limite au parsing et aux enveloppes JSON.
+
+Les responsabilités filesystem sont volontairement profondes :
+`durable_publication.py` possède la capture stable et les commits résistants aux
+pannes ; `campaign_snapshot.py` possède les coupes cohérentes plan/runs/archives ;
+`analysis_publication.py` possède les générations d'analyse immuables ; et
+`adapters/eqasim/workspace.py` possède les slots workers jetables et leurs
+caches contextualisés. Les appelants ne réimplémentent ni noms temporaires, ni
+descripteurs, ni rollback, ni inventaire de workspace.
 
 ```mermaid
 flowchart TD
@@ -129,7 +140,10 @@ localement dans l'environnement verrouillé.
 - Le YAML modèle doit rester un blob Git propre et suivi.
 - Le plan est recalculable et immuable sous une racine donnée.
 - Le marqueur de run est publié après les archives et constitue la preuve unique.
+- Les plans et marqueurs de run sont publiés en no-clobber ; un marqueur existant n'est jamais remplacé.
 - Les écritures durables sont atomiques et les liens symboliques sont largement refusés.
+- La coordination durable d'une campagne reste confinée à `.eqasim-sa/`; les
+  tentatives et caches contextualisés jetables restent confinés au scratch.
 - Les overrides d'infrastructure ne modifient pas `runId`.
 - Les facteurs structurés nommés restent un mapping label-vers-liste séparé à la
   frontière adaptateur/cœur : le plan expose les labels, la résolution et le

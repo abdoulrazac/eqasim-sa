@@ -15,7 +15,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from eqasim_sa.core.durable_publication import (
-    PublicationOutcomeUnknown,
+    FileIdentity,
+    FileState,
     StableFile,
     absolute,
     directory_is_current,
@@ -27,6 +28,7 @@ from eqasim_sa.core.durable_publication import (
     open_directory,
     open_regular,
     secure_directory,
+    write_parquet_exclusive,
 )
 from eqasim_sa.ports.simulator import ExecutionEvidence
 
@@ -54,7 +56,6 @@ LEGACY_UNBOUND = "legacy_unbound"
 VERIFIED = "verified"
 _DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 _READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
-_STATE = tuple[int, int, int, int, int]
 
 
 @dataclass(frozen=True)
@@ -85,7 +86,7 @@ class CompletionState:
     execution_evidence: ExecutionEvidence | None
     marker: StableFile
     archive: Path | None
-    archive_state: tuple[int, int, int, int, int, int] | None
+    archive_state: FileState | None
     captured_artifacts: tuple[StableFile, ...]
 
 
@@ -97,14 +98,8 @@ def run_path(campaign_root: Path, run_id: str) -> Path:
     return campaign_root / "runs" / f"{run_id}.parquet"
 
 
-def _state(info: os.stat_result) -> _STATE:
-    return (
-        info.st_dev,
-        info.st_ino,
-        info.st_size,
-        info.st_mtime_ns,
-        info.st_ctime_ns,
-    )
+def _state(info: os.stat_result) -> FileState:
+    return file_state(info)
 
 
 @contextmanager
@@ -127,7 +122,7 @@ def run_lease(
         yield
 
 
-def _regular_path_is_current(path: Path, expected: _STATE) -> bool:
+def _regular_path_is_current(path: Path, expected: FileState) -> bool:
     try:
         descriptor, parent, _ = open_regular(path)
     except (OSError, ValueError):
@@ -229,7 +224,7 @@ def _verify_archive(
     campaign: int,
     run_id: str,
     artifacts: tuple[ArtifactManifestEntry, ...],
-) -> tuple[Path, tuple[int, int, int, int, int, int], tuple[StableFile, ...]]:
+) -> tuple[Path, FileState, tuple[StableFile, ...]]:
     archives = open_child_directory(campaign, "archives")
     try:
         archives_identity = file_identity(os.fstat(archives))
@@ -658,81 +653,6 @@ def _remove_entry_at(parent: int, name: str) -> None:
         os.unlink(name, dir_fd=parent)
 
 
-def _publish_run_marker_no_clobber(
-    staging: int, runs: int, name: str, table: pa.Table
-) -> None:
-    temporary_name = f".{name}.{uuid.uuid4().hex}.tmp"
-    descriptor = -1
-    linked = False
-    staged_identity: tuple[int, int] | None = None
-    try:
-        descriptor = os.open(
-            temporary_name,
-            os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW,
-            0o600,
-            dir_fd=staging,
-        )
-        with os.fdopen(os.dup(descriptor), "wb") as stream:
-            pq.write_table(table, stream, compression="zstd")
-            stream.flush()
-        os.fsync(descriptor)
-        staged = os.fstat(descriptor)
-        if not stat.S_ISREG(staged.st_mode) or staged.st_nlink != 1:
-            raise RuntimeError("staged completion marker is not a private regular file")
-        staged_identity = staged.st_dev, staged.st_ino
-        os.close(descriptor)
-        descriptor = -1
-        os.link(
-            temporary_name,
-            name,
-            src_dir_fd=staging,
-            dst_dir_fd=runs,
-            follow_symlinks=False,
-        )
-        linked = True
-        visible = os.stat(name, dir_fd=runs, follow_symlinks=False)
-        if (
-            not stat.S_ISREG(visible.st_mode)
-            or (visible.st_dev, visible.st_ino) != staged_identity
-        ):
-            raise RuntimeError("completion marker changed while publishing")
-        try:
-            os.fsync(runs)
-        except BaseException:
-            current = os.stat(name, dir_fd=runs, follow_symlinks=False)
-            if (current.st_dev, current.st_ino) != staged_identity:
-                raise RuntimeError(
-                    "completion marker outcome is unknown after directory fsync failure"
-                )
-            os.unlink(name, dir_fd=runs)
-            linked = False
-            os.fsync(runs)
-            raise
-    except BaseException:
-        if linked and staged_identity is not None:
-            try:
-                current = os.stat(name, dir_fd=runs, follow_symlinks=False)
-                if (current.st_dev, current.st_ino) == staged_identity:
-                    os.unlink(name, dir_fd=runs)
-                    linked = False
-                    os.fsync(runs)
-            except FileNotFoundError:
-                linked = False
-        raise
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-        try:
-            os.unlink(temporary_name, dir_fd=staging)
-        except OSError:
-            pass
-        if linked:
-            try:
-                os.fsync(staging)
-            except OSError:
-                pass
-
-
 class ArchiveTransaction:
     def __init__(
         self,
@@ -772,10 +692,10 @@ class ArchiveTransaction:
         self._staging = -1
         self._staging_name: str | None = None
         self._committed = False
-        self._archives_identity: tuple[int, int, int] | None = None
-        self._runs_identity: tuple[int, int, int] | None = None
-        self._technical_identity: tuple[int, int, int] | None = None
-        self._marker_staging_identity: tuple[int, int, int] | None = None
+        self._archives_identity: FileIdentity | None = None
+        self._runs_identity: FileIdentity | None = None
+        self._technical_identity: FileIdentity | None = None
+        self._marker_staging_identity: FileIdentity | None = None
 
     def prepare(self) -> None:
         absolute_path = absolute(self.campaign_root)
@@ -822,6 +742,38 @@ class ArchiveTransaction:
             return False
         return file_identity(visible) == file_identity(os.fstat(self._campaign))
 
+    def _publication_is_current(self) -> bool:
+        try:
+            return (
+                self._campaign_is_current()
+                and file_identity(
+                    os.stat("archives", dir_fd=self._campaign, follow_symlinks=False)
+                )
+                == self._archives_identity
+                and file_identity(
+                    os.stat("runs", dir_fd=self._campaign, follow_symlinks=False)
+                )
+                == self._runs_identity
+                and file_identity(
+                    os.stat(
+                        ".eqasim-sa",
+                        dir_fd=self._campaign,
+                        follow_symlinks=False,
+                    )
+                )
+                == self._technical_identity
+                and file_identity(
+                    os.stat(
+                        "transactions",
+                        dir_fd=self._technical,
+                        follow_symlinks=False,
+                    )
+                )
+                == self._marker_staging_identity
+            )
+        except OSError:
+            return False
+
     def commit(
         self,
         record: RunRecord,
@@ -835,33 +787,7 @@ class ArchiveTransaction:
         if record.run_id != self.run_id:
             raise ValueError("archive transaction run_id does not match RunRecord")
         evidence = _validated_execution_evidence(execution_evidence, record.context_hash)
-        if (
-            not self._campaign_is_current()
-            or file_identity(
-                os.stat("archives", dir_fd=self._campaign, follow_symlinks=False)
-            )
-            != self._archives_identity
-            or file_identity(
-                os.stat("runs", dir_fd=self._campaign, follow_symlinks=False)
-            )
-            != self._runs_identity
-            or file_identity(
-                os.stat(
-                    ".eqasim-sa",
-                    dir_fd=self._campaign,
-                    follow_symlinks=False,
-                )
-            )
-            != self._technical_identity
-            or file_identity(
-                os.stat(
-                    "transactions",
-                    dir_fd=self._technical,
-                    follow_symlinks=False,
-                )
-            )
-            != self._marker_staging_identity
-        ):
+        if not self._publication_is_current():
             raise RuntimeError("campaign publication directories changed")
         marker_name = f"{self.run_id}.parquet"
         if _entry_state(self._runs, marker_name) is not None:
@@ -905,13 +831,15 @@ class ArchiveTransaction:
             ):
                 raise RuntimeError("archives directory changed while publishing")
             if marker_writer is None:
-                _publish_run_marker_no_clobber(
-                    self._marker_staging,
-                    self._runs,
-                    marker_name,
-                    _run_table_with_metadata(record, self.manifest, evidence),
-                )
                 destination = run_path(self.campaign_root, self.run_id)
+                write_parquet_exclusive(
+                    _run_table_with_metadata(record, self.manifest, evidence),
+                    destination,
+                    staging_directory=(
+                        self.campaign_root / ".eqasim-sa" / "transactions"
+                    ),
+                    guard=self._publication_is_current,
+                )
             else:
                 destination = (
                     marker_writer(
@@ -1057,317 +985,21 @@ def write_run(
         if artifact_manifest is None
         else _run_table_with_metadata(record, artifact_manifest, evidence)
     )
-    destination = run_path(campaign_root, record.run_id)
-    absolute_campaign = absolute(campaign_root)
-    if not absolute_campaign.name:
-        raise ValueError("campaign root must have a final path component")
-    campaign_parent = open_directory(absolute_campaign.parent, create=True)
-    campaign = runs = technical = transactions = -1
-    staged_descriptor = previous_descriptor = -1
-    temporary_name = f".{destination.name}.{uuid.uuid4().hex}.tmp"
-    backup_name = f".{destination.name}.{uuid.uuid4().hex}.backup"
-    restore_name = f".{destination.name}.{uuid.uuid4().hex}.restore"
-    backup_created = committed = preserve_backup = False
-    previous_state: tuple[int, int, int, int, int, int] | None = None
-    replacement_state: tuple[int, int, int, int, int, int] | None = None
-    try:
-        campaign = open_child_directory(
-            campaign_parent, absolute_campaign.name, create=True
+    campaign = secure_directory(campaign_root, create=True)
+    runs = secure_directory(campaign / "runs", create=True)
+    technical = secure_directory(campaign / ".eqasim-sa", create=True)
+    transactions = secure_directory(technical / "transactions", create=True)
+    if runs.stat().st_dev != transactions.stat().st_dev:
+        raise ValueError(
+            "completion marker transaction must share the runs filesystem"
         )
-        runs = open_child_directory(campaign, "runs", create=True)
-        technical = open_child_directory(campaign, ".eqasim-sa", create=True)
-        transactions = open_child_directory(technical, "transactions", create=True)
-        campaign_identity = file_identity(os.fstat(campaign))
-        runs_identity = file_identity(os.fstat(runs))
-        technical_identity = file_identity(os.fstat(technical))
-        transactions_identity = file_identity(os.fstat(transactions))
-        if os.fstat(runs).st_dev != os.fstat(transactions).st_dev:
-            raise ValueError(
-                "completion marker transaction must share the runs filesystem"
-            )
-
-        def directories_are_current() -> bool:
-            try:
-                return (
-                    file_identity(
-                        os.stat(
-                            absolute_campaign.name,
-                            dir_fd=campaign_parent,
-                            follow_symlinks=False,
-                        )
-                    )
-                    == campaign_identity
-                    and file_identity(
-                        os.stat("runs", dir_fd=campaign, follow_symlinks=False)
-                    )
-                    == runs_identity
-                    and file_identity(
-                        os.stat(
-                            ".eqasim-sa",
-                            dir_fd=campaign,
-                            follow_symlinks=False,
-                        )
-                    )
-                    == technical_identity
-                    and file_identity(
-                        os.stat(
-                            "transactions",
-                            dir_fd=technical,
-                            follow_symlinks=False,
-                        )
-                    )
-                    == transactions_identity
-                )
-            except OSError:
-                return False
-
-        if not directories_are_current():
-            raise RuntimeError("completion marker directories changed while opening")
-        os.fsync(technical)
-        os.fsync(campaign)
-        staged_descriptor = os.open(
-            temporary_name,
-            os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW,
-            0o600,
-            dir_fd=transactions,
-        )
-        with os.fdopen(os.dup(staged_descriptor), "wb") as stream:
-            pq.write_table(table, stream, compression="zstd")
-            stream.flush()
-        os.fsync(staged_descriptor)
-        staged = os.fstat(staged_descriptor)
-        visible_staged = os.stat(
-            temporary_name, dir_fd=transactions, follow_symlinks=False
-        )
-        if (
-            not stat.S_ISREG(staged.st_mode)
-            or staged.st_nlink != 1
-            or file_state(staged) != file_state(visible_staged)
-        ):
-            raise RuntimeError("staged completion marker changed before publication")
-        replacement_state = file_state(staged)
-
-        def replacement_is(info: os.stat_result) -> bool:
-            assert replacement_state is not None
-            return (
-                file_identity(info) == replacement_state[:3]
-                and info.st_size == replacement_state[3]
-                and info.st_mtime_ns == replacement_state[4]
-            )
-
-        existing = _entry_state(runs, destination.name)
-        if existing is not None:
-            if not stat.S_ISREG(existing.st_mode):
-                raise ValueError("completion marker destination must be a regular file")
-            previous_descriptor = os.open(
-                destination.name, _READ_FLAGS, dir_fd=runs
-            )
-            opened = os.fstat(previous_descriptor)
-            visible = os.stat(
-                destination.name, dir_fd=runs, follow_symlinks=False
-            )
-            if file_state(opened) != file_state(visible):
-                raise RuntimeError("completion marker changed while being pinned")
-            os.link(
-                destination.name,
-                backup_name,
-                src_dir_fd=runs,
-                dst_dir_fd=transactions,
-                follow_symlinks=False,
-            )
-            backup_created = True
-            opened = os.fstat(previous_descriptor)
-            visible = os.stat(
-                destination.name, dir_fd=runs, follow_symlinks=False
-            )
-            backup = os.stat(
-                backup_name, dir_fd=transactions, follow_symlinks=False
-            )
-            previous_state = file_state(opened)
-            if file_state(visible) != previous_state or file_state(backup) != previous_state:
-                raise RuntimeError("completion marker changed before replacement")
-
-        if not directories_are_current():
-            raise RuntimeError("completion marker directories changed before publishing")
-        current = _entry_state(runs, destination.name)
-        if previous_state is None:
-            if current is not None:
-                raise RuntimeError("completion marker appeared before replacement")
-        elif (
-            current is None
-            or file_state(current) != previous_state
-            or file_state(os.fstat(previous_descriptor)) != previous_state
-        ):
-            raise RuntimeError("completion marker changed before replacement")
-        current_staged = os.stat(
-            temporary_name, dir_fd=transactions, follow_symlinks=False
-        )
-        if file_state(current_staged) != replacement_state:
-            raise RuntimeError("staged completion marker changed before replacement")
-        replace_error: BaseException | None = None
-        try:
-            os.replace(
-                temporary_name,
-                destination.name,
-                src_dir_fd=transactions,
-                dst_dir_fd=runs,
-            )
-        except BaseException as error:
-            visible = _entry_state(runs, destination.name)
-            if visible is not None and replacement_is(visible):
-                replace_error = error
-            elif (
-                previous_state is None
-                and visible is None
-                or previous_state is not None
-                and visible is not None
-                and file_state(visible) == previous_state
-            ):
-                raise
-            else:
-                preserve_backup = backup_created
-                raise PublicationOutcomeUnknown(
-                    "completion marker replacement outcome could not be established"
-                ) from error
-        try:
-            staged_after_replace = os.fstat(staged_descriptor)
-            visible_after_replace = os.stat(
-                destination.name, dir_fd=runs, follow_symlinks=False
-            )
-            replacement_state = file_state(staged_after_replace)
-            if file_state(visible_after_replace) != replacement_state:
-                raise RuntimeError(
-                    "completion marker replacement identity changed"
-                )
-            if previous_state is not None:
-                pinned_after_replace = os.fstat(previous_descriptor)
-                held_backup = os.stat(
-                    backup_name, dir_fd=transactions, follow_symlinks=False
-                )
-                previous_state = file_state(pinned_after_replace)
-                if file_state(held_backup) != previous_state:
-                    raise RuntimeError(
-                        "completion marker predecessor changed during replacement"
-                    )
-            if replace_error is not None:
-                raise replace_error
-            visible = os.stat(
-                destination.name, dir_fd=runs, follow_symlinks=False
-            )
-            if file_state(visible) != replacement_state:
-                raise RuntimeError("completion marker changed while publishing")
-            os.fsync(runs)
-            os.fsync(transactions)
-            if not directories_are_current():
-                raise RuntimeError("completion marker directories changed while publishing")
-            visible = os.stat(
-                destination.name, dir_fd=runs, follow_symlinks=False
-            )
-            if file_state(visible) != replacement_state:
-                raise RuntimeError("completion marker changed after directory fsync")
-            committed = True
-        except BaseException as commit_error:
-            try:
-                visible = os.stat(
-                    destination.name, dir_fd=runs, follow_symlinks=False
-                )
-                if file_state(visible) != replacement_state:
-                    raise RuntimeError(
-                        "completion marker replacement changed before rollback"
-                    )
-                if previous_state is None:
-                    os.unlink(destination.name, dir_fd=runs)
-                else:
-                    held_backup = os.stat(
-                        backup_name,
-                        dir_fd=transactions,
-                        follow_symlinks=False,
-                    )
-                    if file_state(held_backup) != previous_state:
-                        raise RuntimeError(
-                            "completion marker backup changed before rollback"
-                        )
-                    os.link(
-                        backup_name,
-                        restore_name,
-                        src_dir_fd=transactions,
-                        dst_dir_fd=transactions,
-                        follow_symlinks=False,
-                    )
-                    previous_state = file_state(os.fstat(previous_descriptor))
-                    if (
-                        file_state(
-                            os.stat(
-                                backup_name,
-                                dir_fd=transactions,
-                                follow_symlinks=False,
-                            )
-                        )
-                        != previous_state
-                        or file_state(
-                            os.stat(
-                                restore_name,
-                                dir_fd=transactions,
-                                follow_symlinks=False,
-                            )
-                        )
-                        != previous_state
-                    ):
-                        raise RuntimeError(
-                            "completion marker rollback copy changed"
-                        )
-                    os.replace(
-                        restore_name,
-                        destination.name,
-                        src_dir_fd=transactions,
-                        dst_dir_fd=runs,
-                    )
-                os.fsync(runs)
-                os.fsync(transactions)
-                restored = _entry_state(runs, destination.name)
-                if previous_state is None:
-                    if restored is not None:
-                        raise RuntimeError("new completion marker rollback was not proven")
-                elif restored is None or file_state(restored) != previous_state:
-                    raise RuntimeError("completion marker rollback was not proven")
-                if not directories_are_current():
-                    raise RuntimeError(
-                        "completion marker directories changed during rollback"
-                    )
-            except BaseException as rollback_error:
-                preserve_backup = backup_created
-                raise PublicationOutcomeUnknown(
-                    "completion marker commit failed and rollback could not be established"
-                ) from rollback_error
-            raise commit_error
-        return destination
-    finally:
-        if staged_descriptor >= 0:
-            os.close(staged_descriptor)
-        if previous_descriptor >= 0:
-            os.close(previous_descriptor)
-        if transactions >= 0:
-            try:
-                os.unlink(temporary_name, dir_fd=transactions)
-            except OSError:
-                pass
-            try:
-                os.unlink(restore_name, dir_fd=transactions)
-            except OSError:
-                pass
-            if backup_created and not preserve_backup:
-                try:
-                    os.unlink(backup_name, dir_fd=transactions)
-                    if committed:
-                        try:
-                            os.fsync(transactions)
-                        except BaseException:
-                            pass
-                except OSError:
-                    pass
-        for descriptor in (transactions, technical, runs, campaign, campaign_parent):
-            if descriptor >= 0:
-                os.close(descriptor)
+    fsync_directory(campaign)
+    fsync_directory(technical)
+    return write_parquet_exclusive(
+        table,
+        run_path(campaign, record.run_id),
+        staging_directory=transactions,
+    )
 
 
 def _validated_execution_evidence(

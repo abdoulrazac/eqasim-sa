@@ -21,7 +21,7 @@ class EqasimSettings:
     invocation: tuple[str, ...]
     campaign: str
     scratch: Path
-    context_hash: str | None = None
+    context_hash: str
 
     def __post_init__(self) -> None:
         config = self.config_path.resolve(strict=True)
@@ -38,10 +38,10 @@ class EqasimSettings:
             raise ValueError("invocation must contain non-empty arguments")
         if not CAMPAIGN.fullmatch(self.campaign):
             raise ValueError("campaign must be one safe path segment")
-        if self.context_hash is not None and re.fullmatch(
-            r"[0-9a-f]{64}", self.context_hash
-        ) is None:
-            raise ValueError("context_hash must be 64 lowercase hexadecimal characters")
+        if type(self.context_hash) is not str or not CAMPAIGN.fullmatch(
+            self.context_hash
+        ):
+            raise ValueError("context_hash must be one safe non-empty path segment")
         object.__setattr__(self, "config_path", config)
         object.__setattr__(self, "eqasim_root", root)
         object.__setattr__(self, "scratch", scratch)

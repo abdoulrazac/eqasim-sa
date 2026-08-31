@@ -25,10 +25,10 @@ from eqasim_sa.core.durable_publication import (
     PublicationOutcomeUnknown,
     file_lease,
     fsync_directory,
-    replace_bytes_restorable,
     secure_directory,
     stable_file,
     write_bytes_exclusive,
+    write_bytes_atomic,
     write_parquet_exclusive,
 )
 from eqasim_sa.core.indicators import ArtifactSet
@@ -547,7 +547,7 @@ class AnalysisPublication:
         _validate_existing_generation(final, output_records)
         if indicator_guard is not None:
             indicator_guard()
-        replace_bytes_restorable(
+        write_bytes_atomic(
             encoded_manifest,
             self.campaign_root / "analysis-generation.json",
             staging_directory=self.staging,

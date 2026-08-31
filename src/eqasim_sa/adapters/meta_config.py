@@ -8,13 +8,13 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from eqasim_sa.adapters.eqasim.artifacts import ARTIFACT_STAGE
 from eqasim_sa.adapters.eqasim.config import (
     CAMPAIGN,
     load_yaml_document,
     load_yaml_source,
     validate_eqasim_document,
 )
-from eqasim_sa.adapters.eqasim.artifacts import ARTIFACT_STAGE
 from eqasim_sa.adapters.eqasim.simulator import DEDICATED, validate_transport
 from eqasim_sa.core.charter import (
     AllocationPhase,
@@ -28,6 +28,7 @@ from eqasim_sa.core.charter import (
     parse_distribution,
     validate_scientific_stopping,
 )
+from eqasim_sa.core.durable_publication import FileState, file_state
 from eqasim_sa.core.indicators import (
     ArtifactDeclaration,
     CustomDeclaration,
@@ -119,7 +120,7 @@ class MetaConfig:
     model_bytes: bytes
     execution: Execution | None
     calibration_meta_configs: tuple[Path, ...]
-    control_states: tuple[tuple[Path, tuple[int, int, int, int, int]], ...]
+    control_states: tuple[tuple[Path, FileState], ...]
     artifacts: dict[str, ArtifactDeclaration]
     indicators: tuple[object, ...]
     indicator_requirements: tuple[IndicatorRequirement, ...]
@@ -200,9 +201,8 @@ def _git_stdin(
     return completed.stdout.decode().strip()
 
 
-def _state(path: Path) -> tuple[int, int, int, int, int]:
-    stat = path.stat()
-    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
+def _state(path: Path) -> FileState:
+    return file_state(path.stat())
 
 
 def _digest(path: Path, deadline: float | None = None) -> str:

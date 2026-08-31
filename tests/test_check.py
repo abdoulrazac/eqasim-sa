@@ -494,6 +494,7 @@ def test_smoke_applies_run_overrides_and_computes_every_indicator(
         structured_factors={},
         indicators=indicators,
         software_identity=read_software_identity(),
+        context_hash="c" * 64,
     )
     (tmp_path / "config.yml").write_text("config: {}")
     seen, simulators = [], []

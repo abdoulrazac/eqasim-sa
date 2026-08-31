@@ -12,7 +12,6 @@ import fcntl
 import os
 import shutil
 import stat
-import tempfile
 import time
 import uuid
 from collections.abc import Callable
@@ -34,28 +33,45 @@ class PublicationOutcomeUnknown(RuntimeError):
 
 
 @dataclass(frozen=True)
+class FileIdentity:
+    """Stable identity of one filesystem object."""
+
+    device: int
+    inode: int
+    kind: int
+
+
+@dataclass(frozen=True)
+class FileState:
+    """Mutation-sensitive state of one filesystem object."""
+
+    identity: FileIdentity
+    size: int
+    mtime_ns: int
+    ctime_ns: int
+
+
+@dataclass(frozen=True)
 class StableFile:
     """Identity and content captured during one stable read of a regular file."""
 
     path: Path
-    state: tuple[int, int, int, int, int, int]
+    state: FileState
     size: int
     sha256: str
 
 
-def file_state(info: os.stat_result) -> tuple[int, int, int, int, int, int]:
-    return (
-        info.st_dev,
-        info.st_ino,
-        stat.S_IFMT(info.st_mode),
+def file_state(info: os.stat_result) -> FileState:
+    return FileState(
+        file_identity(info),
         info.st_size,
         info.st_mtime_ns,
         info.st_ctime_ns,
     )
 
 
-def file_identity(info: os.stat_result) -> tuple[int, int, int]:
-    return info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode)
+def file_identity(info: os.stat_result) -> FileIdentity:
+    return FileIdentity(info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode))
 
 
 def absolute(path: Path) -> Path:
@@ -171,7 +187,9 @@ def stable_file(path: Path) -> StableFile:
             digest.update(chunk)
         final = os.fstat(descriptor)
         visible = os.stat(name, dir_fd=parent, follow_symlinks=False)
-        if file_state(final) != file_state(initial) or file_state(visible) != file_state(initial):
+        if file_state(final) != file_state(initial) or file_state(
+            visible
+        ) != file_state(initial):
             raise RuntimeError(f"source changed while being hashed: {path}")
         return StableFile(path, file_state(initial), initial.st_size, digest.hexdigest())
     finally:
@@ -308,55 +326,163 @@ def write_exclusive(
     writer: Callable[[Path], None],
     *,
     staging_directory: Path | None = None,
+    guard: Callable[[], bool] | None = None,
 ) -> Path:
-    """Publish a new durable file without ever replacing an existing name."""
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    staging = staging_directory or destination.parent
-    staging.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{destination.name}.", suffix=".tmp", dir=staging
-    )
-    os.close(descriptor)
-    temporary = Path(temporary_name)
+    """Publish a new durable file without replacing an existing name.
+
+    Both directories stay pinned for the whole transaction.  ``guard`` lets a
+    caller bind publication to a wider directory graph without reimplementing
+    link, fsync, rollback, or outcome-unknown handling.
+    """
+    requested_destination = destination
+    destination = absolute(destination)
+    staging = absolute(staging_directory or destination.parent)
+    destination_parent = open_directory(destination.parent, create=True)
+    staging_parent = -1
+    descriptor = -1
+    temporary_name = f".{destination.name}.{uuid.uuid4().hex}.tmp"
+    temporary = staging / temporary_name
+    linked = False
+    temporary_exists = False
     preserve_temporary = False
+    staged_identity: FileIdentity | None = None
+
+    def guarded() -> bool:
+        return guard is None or guard()
+
     try:
+        staging_parent = open_directory(staging, create=True)
+        if os.fstat(destination_parent).st_dev != os.fstat(staging_parent).st_dev:
+            raise ValueError(
+                "exclusive publication staging must share the destination filesystem"
+            )
+        descriptor = os.open(
+            temporary_name,
+            os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=staging_parent,
+        )
+        temporary_exists = True
         writer(temporary)
-        with temporary.open("rb") as stream:
-            os.fsync(stream.fileno())
-        staged = temporary.lstat()
-        if not stat.S_ISREG(staged.st_mode) or temporary.is_symlink():
-            raise ValueError("exclusive publication writer produced an invalid file")
-        os.link(temporary, destination, follow_symlinks=False)
-        try:
-            published = destination.lstat()
-            if file_identity(published) != file_identity(staged):
-                raise RuntimeError("exclusive destination differs from staged content")
-            fsync_directory(destination.parent)
-        except BaseException as commit_error:
+        staged = os.fstat(descriptor)
+        visible = os.stat(
+            temporary_name, dir_fd=staging_parent, follow_symlinks=False
+        )
+        if (
+            not stat.S_ISREG(staged.st_mode)
+            or staged.st_uid != os.getuid()
+            or staged.st_nlink != 1
+            or file_state(staged) != file_state(visible)
+        ):
+            raise ValueError(
+                "exclusive publication writer must leave one private owned regular file"
+            )
+        os.fsync(descriptor)
+        staged = os.fstat(descriptor)
+        visible = os.stat(
+            temporary_name, dir_fd=staging_parent, follow_symlinks=False
+        )
+        if file_state(staged) != file_state(visible):
+            raise RuntimeError("exclusive staged file changed while being fsynced")
+        staged_identity = file_identity(staged)
+        if (
+            not guarded()
+            or not directory_is_current(destination.parent, destination_parent)
+            or not directory_is_current(staging, staging_parent)
+        ):
+            raise RuntimeError("exclusive publication directories changed")
+        os.link(
+            temporary_name,
+            destination.name,
+            src_dir_fd=staging_parent,
+            dst_dir_fd=destination_parent,
+            follow_symlinks=False,
+        )
+        linked = True
+        published = os.stat(
+            destination.name,
+            dir_fd=destination_parent,
+            follow_symlinks=False,
+        )
+        if (
+            not stat.S_ISREG(published.st_mode)
+            or file_identity(published) != staged_identity
+        ):
+            raise RuntimeError("exclusive destination differs from staged content")
+        os.fsync(destination_parent)
+        if (
+            not guarded()
+            or not directory_is_current(destination.parent, destination_parent)
+            or not directory_is_current(staging, staging_parent)
+        ):
+            raise RuntimeError("exclusive publication directories changed")
+        os.unlink(temporary_name, dir_fd=staging_parent)
+        temporary_exists = False
+        os.fsync(descriptor)
+        os.fsync(staging_parent)
+        published = os.stat(
+            destination.name,
+            dir_fd=destination_parent,
+            follow_symlinks=False,
+        )
+        if (
+            published.st_nlink != 1
+            or file_identity(published) != staged_identity
+            or not guarded()
+            or not directory_is_current(destination.parent, destination_parent)
+            or not directory_is_current(staging, staging_parent)
+        ):
+            raise RuntimeError("exclusive publication did not reach a stable commit")
+        linked = False
+        return requested_destination
+    except BaseException as commit_error:
+        if linked:
             try:
-                visible = destination.lstat()
-                if file_identity(visible) != file_identity(staged):
-                    raise RuntimeError("exclusive destination changed before rollback")
-                destination.unlink()
-                fsync_directory(destination.parent)
-                if temporary.exists():
-                    temporary.unlink()
-                fsync_directory(staging)
+                if staged_identity is None:
+                    raise RuntimeError("exclusive staged identity was not captured")
+                current = os.stat(
+                    destination.name,
+                    dir_fd=destination_parent,
+                    follow_symlinks=False,
+                )
+                if file_identity(current) != staged_identity:
+                    raise RuntimeError(
+                        "exclusive destination changed before rollback"
+                    )
+                os.unlink(destination.name, dir_fd=destination_parent)
+                os.fsync(destination_parent)
+                try:
+                    os.stat(
+                        destination.name,
+                        dir_fd=destination_parent,
+                        follow_symlinks=False,
+                    )
+                except FileNotFoundError:
+                    pass
+                else:
+                    raise RuntimeError(
+                        "exclusive destination survived rollback"
+                    )
+                if staging_parent >= 0:
+                    os.fsync(staging_parent)
+                linked = False
             except BaseException as rollback_error:
-                preserve_temporary = temporary.exists()
+                preserve_temporary = temporary_exists
                 raise PublicationOutcomeUnknown(
                     "exclusive commit failed and rollback could not be established"
                 ) from rollback_error
-            raise commit_error
-        temporary.unlink(missing_ok=True)
-        try:
-            fsync_directory(staging)
-        except OSError:
-            pass
-        return destination
+        raise commit_error
     finally:
-        if temporary.exists() and not preserve_temporary:
-            temporary.unlink()
+        if descriptor >= 0:
+            os.close(descriptor)
+        if staging_parent >= 0:
+            if temporary_exists and not preserve_temporary:
+                try:
+                    os.unlink(temporary_name, dir_fd=staging_parent)
+                except OSError:
+                    pass
+            os.close(staging_parent)
+        os.close(destination_parent)
 
 
 def write_atomic(
@@ -387,8 +513,8 @@ def write_atomic(
     preserve_backup = False
     replaced = False
     committed = False
-    previous_identity: tuple[int, int, int] | None = None
-    replacement_identity: tuple[int, int, int] | None = None
+    previous_identity: FileIdentity | None = None
+    replacement_identity: FileIdentity | None = None
     try:
         staging_parent = open_directory(staging, create=True)
         descriptor = os.open(
@@ -633,11 +759,13 @@ def write_parquet_exclusive(
     destination: Path,
     *,
     staging_directory: Path | None = None,
+    guard: Callable[[], bool] | None = None,
 ) -> Path:
     return write_exclusive(
         destination,
         lambda path: pq.write_table(table, path, compression="zstd"),
         staging_directory=staging_directory,
+        guard=guard,
     )
 
 
@@ -659,11 +787,13 @@ def write_bytes_exclusive(
     destination: Path,
     *,
     staging_directory: Path | None = None,
+    guard: Callable[[], bool] | None = None,
 ) -> Path:
     return write_exclusive(
         destination,
         lambda path: path.write_bytes(content),
         staging_directory=staging_directory,
+        guard=guard,
     )
 
 
@@ -678,96 +808,3 @@ def copy_file_atomic(
             shutil.copyfileobj(input_stream, output_stream)
 
     return write_atomic(destination, copy, staging_directory=staging_directory)
-
-
-def replace_bytes_restorable(
-    content: bytes,
-    destination: Path,
-    *,
-    staging_directory: Path,
-) -> Path:
-    """Durably replace bytes and restore the exact predecessor on failure."""
-    staging_directory.mkdir(parents=True, exist_ok=True)
-    temporary = staging_directory / f".{destination.name}.{uuid.uuid4().hex}.tmp"
-    backup = staging_directory / f".{destination.name}.{uuid.uuid4().hex}.backup"
-    descriptor = os.open(
-        temporary,
-        os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW,
-        0o600,
-    )
-    try:
-        write_all(descriptor, content)
-        os.fsync(descriptor)
-    except BaseException:
-        try:
-            temporary.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise
-    finally:
-        os.close(descriptor)
-    previous: os.stat_result | None = None
-    replacement: os.stat_result | None = None
-    backup_created = False
-    committed = False
-    preserve_backup = False
-    try:
-        if destination.exists() or destination.is_symlink():
-            previous = destination.lstat()
-            if not stat.S_ISREG(previous.st_mode) or destination.is_symlink():
-                raise ValueError(
-                    f"destination must be a regular non-symlink file: {destination}"
-                )
-            os.link(destination, backup, follow_symlinks=False)
-            backup_created = True
-            held = backup.lstat()
-            if (held.st_dev, held.st_ino) != (previous.st_dev, previous.st_ino):
-                raise RuntimeError("durable publication backup changed while creating it")
-        os.replace(temporary, destination)
-        replacement = destination.lstat()
-        if not stat.S_ISREG(replacement.st_mode) or destination.is_symlink():
-            raise RuntimeError("durable replacement is not a regular file")
-        try:
-            fsync_directory(staging_directory)
-            fsync_directory(destination.parent)
-        except BaseException as commit_error:
-            try:
-                current = destination.lstat()
-                if (current.st_dev, current.st_ino) != (
-                    replacement.st_dev,
-                    replacement.st_ino,
-                ):
-                    raise RuntimeError("durable destination changed before rollback")
-                if previous is None:
-                    destination.unlink()
-                    if destination.exists() or destination.is_symlink():
-                        raise RuntimeError("new durable destination survived rollback")
-                else:
-                    os.replace(backup, destination)
-                    backup_created = False
-                    restored = destination.lstat()
-                    if (restored.st_dev, restored.st_ino) != (
-                        previous.st_dev,
-                        previous.st_ino,
-                    ):
-                        raise RuntimeError("previous durable destination was not restored")
-                fsync_directory(destination.parent)
-                fsync_directory(staging_directory)
-            except BaseException as rollback_error:
-                preserve_backup = backup_created
-                raise PublicationOutcomeUnknown(
-                    "durable commit failed and rollback could not be established"
-                ) from rollback_error
-            raise commit_error
-        committed = True
-        return destination
-    finally:
-        temporary.unlink(missing_ok=True)
-        if backup_created and not preserve_backup:
-            try:
-                backup.unlink()
-                if committed:
-                    fsync_directory(staging_directory)
-            except OSError:
-                if not committed:
-                    raise

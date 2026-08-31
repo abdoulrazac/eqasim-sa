@@ -668,6 +668,7 @@ def _simulator(tmp_path: Path) -> tuple[EqasimSimulator, dict]:
         ("ignored",),
         "test",
         scratch,
+        "c" * 64,
     )
     base = load_config(config, 42)
     simulator = EqasimSimulator(
@@ -853,6 +854,7 @@ def test_public_smoke_check_preserves_structured_snapshot_without_list_cli(
         model_bytes=(tmp_path / "model" / "config.yml").read_bytes(),
         structured_factors=mapping,
         software_identity=software_identity,
+        context_hash="c" * 64,
     )
     resolved = copy.deepcopy(base)
     resolved["run"] = ["synthesis.output"]

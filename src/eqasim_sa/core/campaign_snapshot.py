@@ -15,6 +15,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from eqasim_sa.core.durable_publication import (
+    FileState,
     StableFile,
     capture_stable_file,
     file_state,
@@ -44,7 +45,7 @@ class RunSnapshot:
     completion: CompletionState
     marker: StableFile
     archive: Path
-    archive_state: tuple[int, int, int, int, int, int]
+    archive_state: FileState
     artifacts: tuple[StableFile, ...]
     descriptor: Mapping[str, object]
 
@@ -261,6 +262,26 @@ class CampaignSnapshot:
             for selected in self.runs.values()
         )
 
+    @property
+    def durable_bytes(self) -> int:
+        return sum(selected.durable_bytes for selected in self.runs.values())
+
+    @property
+    def tracked_states(self) -> tuple[tuple[Path, FileState], ...]:
+        states = [(self.plan_source.path, self.plan_source.state)]
+        for selected in self.runs.values():
+            states.extend(
+                (
+                    (selected.archive, selected.archive_state),
+                    (selected.marker.path, selected.marker.state),
+                    *(
+                        (artifact.path, artifact.state)
+                        for artifact in selected.artifacts
+                    ),
+                )
+            )
+        return tuple(states)
+
     def materialize(self, destination: Path) -> MaterializedCampaign:
         destination.mkdir(mode=0o700, parents=True, exist_ok=False)
         plan_path = destination / "plan.parquet"
@@ -414,7 +435,7 @@ def completion_descriptor(run_id: str, completion: CompletionState) -> dict:
     }
 
 
-def directory_state(path: Path) -> tuple[int, int, int, int, int, int]:
+def directory_state(path: Path) -> FileState:
     try:
         info = path.lstat()
     except OSError as error:

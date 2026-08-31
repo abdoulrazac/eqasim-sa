@@ -351,7 +351,11 @@ def test_application_estimate_rejects_archive_mutation(
     def mutate_after_open(path: Path):  # type: ignore[no-untyped-def]
         nonlocal mutated
         result = original(path)
-        if Path(path).parent.parent.name == "archives" and not mutated:
+        if (
+            isinstance(path, (str, Path))
+            and Path(path).parent.parent.name == "archives"
+            and not mutated
+        ):
             mutated = True
             pq.write_table(
                 pa.table({"value": [2]}), Path(path).with_name("added.parquet")
@@ -381,9 +385,9 @@ def test_application_estimate_rejects_target_plan_mutation(
     def replace_after_validation(path: Path):  # type: ignore[no-untyped-def]
         nonlocal plan_reads
         result = original(path)
-        if Path(path).name == "plan.parquet":
+        if isinstance(path, (str, Path)) and Path(path).name == "plan.parquet":
             plan_reads += 1
-            if plan_reads == 2:
+            if plan_reads == 1:
                 replacement = Path(path).with_suffix(".replacement")
                 replacement.write_bytes(Path(path).read_bytes())
                 replacement.replace(path)

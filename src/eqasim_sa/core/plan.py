@@ -1494,7 +1494,14 @@ def load_run_specs(
     if path.is_symlink() or not path.is_file():
         raise ValueError("plan.parquet must be a regular non-symlink file")
     names = _validate(design)
-    expected, actual = _table(design, names), pq.ParquetFile(path).read()
+    transactions = path.parent / ".eqasim-sa" / "transactions"
+    existing_transactions = None
+    if transactions.exists() or transactions.is_symlink():
+        existing_transactions = secure_directory(transactions)
+    actual = _read_committed_plan(path, existing_transactions)
+    if actual is None:
+        raise ValueError("plan.parquet disappeared before its commit was proven")
+    expected = _table(design, names)
     same = expected.equals(actual)
     if design.method in {"sobol", "multiscramble_sobol"} and expected.schema.equals(
         actual.schema, check_metadata=True

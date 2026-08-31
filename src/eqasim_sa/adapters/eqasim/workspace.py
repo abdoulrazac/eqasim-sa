@@ -19,7 +19,7 @@ from eqasim_sa.core.durable_publication import fsync_directory
 
 
 _CAMPAIGN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-_CONTEXT_HASH = re.compile(r"^[0-9a-f]{64}$")
+_CONTEXT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _SLOT = re.compile(r"^(0|[1-9][0-9]*)$")
 _ATTEMPT = re.compile(r"^attempt-[0-9a-f]{32}$")
 _STATE_TEMP = re.compile(r"^\.state-[0-9a-f]{32}\.tmp$")
@@ -34,25 +34,25 @@ class WorkerWorkspace:
         scratch: Path,
         campaign: str,
         slot: int,
-        context_hash: str | None,
+        context_hash: str,
         interrupted: Callable[[], bool],
     ) -> None:
         if type(slot) is not int or slot < 0:
             raise ValueError("worker slot must be a non-negative integer")
         if type(campaign) is not str or _CAMPAIGN.fullmatch(campaign) is None:
             raise ValueError("campaign must be one safe path segment")
-        if context_hash is not None and _CONTEXT_HASH.fullmatch(context_hash) is None:
-            raise ValueError("context_hash must be 64 lowercase hexadecimal characters")
+        if (
+            type(context_hash) is not str
+            or _CONTEXT.fullmatch(context_hash) is None
+        ):
+            raise ValueError("context_hash must be one safe non-empty path segment")
         self.scratch = scratch.resolve(strict=True)
         self.campaign = campaign
         self.slot = slot
         self.context_hash = context_hash
         self.root = self.scratch / "eqasim-sa" / campaign / "workers" / str(slot)
-        self.cache = self.root / "cache"
-        self._state = self.root / "state.json"
-        if context_hash is not None:
-            self.cache /= context_hash
-            self._state = self.root / f"state-{context_hash}.json"
+        self.cache = self.root / "cache" / context_hash
+        self._state = self.root / f"state-{context_hash}.json"
         self._lease = self.root / "lease.lock"
         self._interrupted = interrupted
         self._descriptor: int | None = None

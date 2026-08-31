@@ -40,6 +40,7 @@ def settings(tmp_path: Path) -> EqasimSettings:
         invocation=(sys.executable, str(Path(__file__).with_name("eqasim_spy.py"))),
         campaign="nantes.v1",
         scratch=tmp_path / "scratch",
+        context_hash="c" * 64,
     )
 
 
@@ -55,6 +56,7 @@ def test_workdir_is_derived_only_from_scratch_and_campaign(tmp_path: Path) -> No
         first.invocation,
         first.campaign,
         first.scratch,
+        first.context_hash,
     )
     other_campaign = EqasimSettings(
         first.config_path,
@@ -62,6 +64,7 @@ def test_workdir_is_derived_only_from_scratch_and_campaign(tmp_path: Path) -> No
         first.invocation,
         "nantes-calibration",
         first.scratch,
+        first.context_hash,
     )
 
     assert first.workdir == (
@@ -83,6 +86,7 @@ def test_workdir_is_derived_only_from_scratch_and_campaign(tmp_path: Path) -> No
             first.invocation,
             first.campaign,
             root,
+            first.context_hash,
         ).workdir
         for root in node_roots
     )
@@ -531,6 +535,7 @@ def test_process_launch_failure_has_recoverable_log(tmp_path: Path) -> None:
         (str(tmp_path / "missing-command"),),
         current.campaign,
         current.scratch,
+        current.context_hash,
     )
     from eqasim_sa.ports.simulator import SimulationError
 
@@ -763,6 +768,7 @@ def test_rejects_nul_invocation_and_override(tmp_path: Path) -> None:
             ("bad\0command",),
             current.campaign,
             current.scratch,
+            current.context_hash,
         )
     resolved = load_config(current.config_path, 42)
     resolved["config"]["sampling_rate"] = "bad\0value"

@@ -2,6 +2,7 @@ import copy
 import hashlib
 import json
 import math
+import os
 import subprocess
 import threading
 from pathlib import Path
@@ -1137,7 +1138,7 @@ def test_concurrent_plan_loser_waits_for_failed_winner_rollback(
     current = design(campaign)
     barrier = threading.Barrier(2)
     real_publish = plan_module.write_parquet_exclusive
-    real_fsync = durable_publication.fsync_directory
+    real_fsync = durable_publication.os.fsync
     failed = False
     failure_lock = threading.Lock()
     local = threading.local()
@@ -1150,15 +1151,17 @@ def test_concurrent_plan_loser_waits_for_failed_winner_rollback(
             barrier.wait(5)
         return real_publish(table, path, **options)
 
-    def fail_first_commit(path: Path) -> None:
+    def fail_first_commit(descriptor: int) -> None:
         nonlocal failed
-        if path == campaign:
+        info = os.fstat(descriptor)
+        visible = campaign.stat(follow_symlinks=False)
+        if (info.st_dev, info.st_ino) == (visible.st_dev, visible.st_ino):
             with failure_lock:
                 if not failed:
                     failed = True
                     threading.Event().wait(0.05)
                     raise OSError("injected commit failure")
-        real_fsync(path)
+        real_fsync(descriptor)
 
     def publish() -> None:
         try:
@@ -1167,7 +1170,7 @@ def test_concurrent_plan_loser_waits_for_failed_winner_rollback(
             errors.append(error)
 
     monkeypatch.setattr(plan_module, "write_parquet_exclusive", synchronized_publish)
-    monkeypatch.setattr(durable_publication, "fsync_directory", fail_first_commit)
+    monkeypatch.setattr(durable_publication.os, "fsync", fail_first_commit)
     threads = [threading.Thread(target=publish) for _ in range(2)]
     for thread in threads:
         thread.start()
@@ -1179,6 +1182,38 @@ def test_concurrent_plan_loser_waits_for_failed_winner_rollback(
     assert len(errors) == 1 and isinstance(errors[0], OSError)
     assert (campaign / "plan.parquet").stat().st_nlink == 1
     assert build_plan(current).status == "unchanged"
+
+
+def test_run_specs_wait_until_exclusive_plan_publication_is_finalized(
+    tmp_path: Path,
+) -> None:
+    campaign = tmp_path / "campaign"
+    transactions = campaign / ".eqasim-sa" / "transactions"
+    transactions.mkdir(parents=True)
+    current = design(campaign)
+    candidate = plan_module._table(current, plan_module._validate(current))
+    temporary = transactions / (".plan.parquet." + "a" * 32 + ".tmp")
+    destination = campaign / "plan.parquet"
+    pq.write_table(candidate, temporary, compression="zstd")
+    os.link(temporary, destination)
+    result = []
+    errors = []
+
+    def read() -> None:
+        try:
+            result.append(plan_module.load_run_specs(destination, current, "demo"))
+        except BaseException as error:
+            errors.append(error)
+
+    reader = threading.Thread(target=read)
+    reader.start()
+    threading.Event().wait(0.05)
+    assert reader.is_alive()
+    temporary.unlink()
+    reader.join(5)
+
+    assert not reader.is_alive() and not errors
+    assert len(result) == 1 and len(result[0]) == len(set(candidate["runId"].to_pylist()))
 
 
 @pytest.mark.parametrize("kind", ["symlink", "foreign", "transactions-symlink"])

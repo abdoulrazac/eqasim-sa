@@ -2509,7 +2509,7 @@ def test_manifest_failure_keeps_previous_pointer_and_leaves_only_immutable_orpha
     stale.write_bytes(b"stale ranking")
     monkeypatch.setattr(
         publication_module,
-        "replace_bytes_restorable",
+        "write_bytes_atomic",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             OSError("injected manifest failure")
         ),
@@ -2537,17 +2537,23 @@ def test_manifest_post_replace_fsync_failure_restores_previous_pointer(
     _analyze(root, (_custom_indicator(),))
     pointer = root / "analysis-generation.json"
     before = pointer.read_bytes()
-    real_fsync = durable_module.fsync_directory
+    real_fsync = durable_module.os.fsync
     failed = False
 
-    def fail_new_pointer(path: Path) -> None:
+    def fail_new_pointer(descriptor: int) -> None:
         nonlocal failed
-        if path == root and pointer.read_bytes() != before and not failed:
+        info = os.fstat(descriptor)
+        visible = root.stat(follow_symlinks=False)
+        if (
+            (info.st_dev, info.st_ino) == (visible.st_dev, visible.st_ino)
+            and pointer.read_bytes() != before
+            and not failed
+        ):
             failed = True
             raise OSError("injected post-replace fsync failure")
-        real_fsync(path)
+        real_fsync(descriptor)
 
-    monkeypatch.setattr(durable_module, "fsync_directory", fail_new_pointer)
+    monkeypatch.setattr(durable_module.os, "fsync", fail_new_pointer)
 
     with pytest.raises(OSError, match="post-replace"):
         _analyze(
@@ -2567,17 +2573,23 @@ def test_manifest_post_replace_fsync_failure_removes_new_pointer_when_none_exist
 
     root, _ = _campaign(tmp_path)
     pointer = root / "analysis-generation.json"
-    real_fsync = durable_module.fsync_directory
+    real_fsync = durable_module.os.fsync
     failed = False
 
-    def fail_new_pointer(path: Path) -> None:
+    def fail_new_pointer(descriptor: int) -> None:
         nonlocal failed
-        if path == root and pointer.exists() and not failed:
+        info = os.fstat(descriptor)
+        visible = root.stat(follow_symlinks=False)
+        if (
+            (info.st_dev, info.st_ino) == (visible.st_dev, visible.st_ino)
+            and pointer.exists()
+            and not failed
+        ):
             failed = True
             raise OSError("injected post-replace fsync failure")
-        real_fsync(path)
+        real_fsync(descriptor)
 
-    monkeypatch.setattr(durable_module, "fsync_directory", fail_new_pointer)
+    monkeypatch.setattr(durable_module.os, "fsync", fail_new_pointer)
 
     with pytest.raises(OSError, match="post-replace"):
         _analyze(root, (_custom_indicator(),))
@@ -2596,23 +2608,29 @@ def test_manifest_failed_rollback_raises_distinct_outcome_unknown_error(
     _analyze(root, (_custom_indicator(),))
     pointer = root / "analysis-generation.json"
     before = pointer.read_bytes()
-    real_fsync = durable_module.fsync_directory
+    real_fsync = durable_module.os.fsync
     real_replace = durable_module.os.replace
     fsync_failed = False
 
-    def fail_new_pointer(path: Path) -> None:
+    def fail_new_pointer(descriptor: int) -> None:
         nonlocal fsync_failed
-        if path == root and pointer.read_bytes() != before and not fsync_failed:
+        info = os.fstat(descriptor)
+        visible = root.stat(follow_symlinks=False)
+        if (
+            (info.st_dev, info.st_ino) == (visible.st_dev, visible.st_ino)
+            and pointer.read_bytes() != before
+            and not fsync_failed
+        ):
             fsync_failed = True
             raise OSError("injected post-replace fsync failure")
-        real_fsync(path)
+        real_fsync(descriptor)
 
     def fail_rollback(source, destination, **options):  # type: ignore[no-untyped-def]
         if str(source).endswith(".backup"):
             raise OSError("injected rollback failure")
         return real_replace(source, destination, **options)
 
-    monkeypatch.setattr(durable_module, "fsync_directory", fail_new_pointer)
+    monkeypatch.setattr(durable_module.os, "fsync", fail_new_pointer)
     monkeypatch.setattr(durable_module.os, "replace", fail_rollback)
 
     with pytest.raises(publication_module.AnalysisManifestOutcomeUnknown):
@@ -2862,6 +2880,7 @@ def test_analyze_rejects_invalid_completion_marker_without_publication(
 
 def test_analyze_rejects_legacy_unbound_completion_marker(tmp_path: Path) -> None:
     root, run_ids = _campaign(tmp_path)
+    (root / "runs" / f"{run_ids[0]}.parquet").unlink()
     write_run(root, RunRecord(run_ids[0], "test", 1, "hash", "node", 1.0, {}))
 
     with pytest.raises(ValueError, match="verified v2 completion marker"):
@@ -2884,6 +2903,7 @@ def test_analyze_rejects_foreign_and_full_contract_invalid_markers(
     with pytest.raises(ValueError, match="invalid completion marker.*context"):
         _analyze(root, (_custom_indicator(),))
 
+    marker.unlink()
     _write_verified_run(
         root, RunRecord(run_ids[0], "test", 1, "hash", "node", 1.0, {})
     )

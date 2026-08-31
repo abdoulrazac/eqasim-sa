@@ -13,7 +13,7 @@ from eqasim_sa.core.durable_publication import (
     verify_stable_file,
     write_parquet_atomic,
     write_parquet_exclusive,
-    replace_bytes_restorable,
+    write_bytes_atomic,
     write_atomic,
 )
 
@@ -113,18 +113,21 @@ def test_exclusive_publication_never_clobbers_existing_destination(
     assert pq.read_table(destination).to_pylist() == [{"value": 1}]
 
 
-def test_restorable_bytes_remove_temporary_after_staging_failure(
+def test_atomic_bytes_remove_temporary_after_staging_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     destination = tmp_path / "pointer.json"
+    real_write = Path.write_bytes
 
-    def fail_write(descriptor: int, content: bytes) -> None:
-        os.write(descriptor, content[:1])
-        raise OSError("injected staging failure")
+    def fail_write(path: Path, content: bytes) -> int:
+        if path.name.endswith(".tmp"):
+            real_write(path, content[:1])
+            raise OSError("injected staging failure")
+        return real_write(path, content)
 
-    monkeypatch.setattr(durable_publication, "write_all", fail_write)
+    monkeypatch.setattr(Path, "write_bytes", fail_write)
     with pytest.raises(OSError, match="staging failure"):
-        replace_bytes_restorable(
+        write_bytes_atomic(
             b"new", destination, staging_directory=tmp_path
         )
 
@@ -259,7 +262,7 @@ def test_exclusive_publication_reports_unknown_when_absence_cannot_be_restored(
 ) -> None:
     destination = tmp_path / "value.parquet"
     real_fsync = durable_publication.os.fsync
-    real_unlink = Path.unlink
+    real_unlink = durable_publication.os.unlink
     fsync_calls = 0
 
     def fail_commit(descriptor: int) -> None:
@@ -269,13 +272,13 @@ def test_exclusive_publication_reports_unknown_when_absence_cannot_be_restored(
             raise OSError("injected directory fsync failure")
         real_fsync(descriptor)
 
-    def fail_rollback(path: Path, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
-        if path == destination:
+    def fail_rollback(path, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        if path == destination.name:
             raise OSError("injected rollback failure")
         real_unlink(path, *args, **kwargs)
 
     monkeypatch.setattr(durable_publication.os, "fsync", fail_commit)
-    monkeypatch.setattr(Path, "unlink", fail_rollback)
+    monkeypatch.setattr(durable_publication.os, "unlink", fail_rollback)
 
     with pytest.raises(PublicationOutcomeUnknown, match="rollback"):
         write_parquet_exclusive(pa.table({"value": [1]}), destination)

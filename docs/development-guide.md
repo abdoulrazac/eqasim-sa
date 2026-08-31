@@ -19,6 +19,9 @@ eqasim-sa/
 │   │   ├── plan.py
 │   │   ├── run.py
 │   │   ├── ledger.py
+│   │   ├── campaign_snapshot.py
+│   │   ├── durable_publication.py
+│   │   ├── analysis_publication.py
 │   │   ├── analyze.py
 │   │   └── indicators/
 │   ├── adapters/
@@ -27,7 +30,7 @@ eqasim-sa/
 │   │   ├── data_manifest.py
 │   │   ├── worker.py
 │   │   ├── backends/
-│   │   ├── eqasim/
+│   │   ├── eqasim/       # adapter and worker workspace lifecycle
 │   │   └── fake/
 │   └── templates/
 └── tests/
@@ -38,6 +41,14 @@ designs, the ledger, and analyses without knowing about the CLI. `adapters/`
 loads YAML, invokes synpp, normalizes artifacts, manages local/SLURM execution,
 and wires the application together. `cli.py` is limited to parsing and JSON
 envelopes.
+
+Filesystem responsibilities are deliberately deep: `durable_publication.py`
+owns stable capture and crash-conscious file commits;
+`campaign_snapshot.py` owns coherent plan/run/archive cuts;
+`analysis_publication.py` owns immutable analysis generations; and
+`adapters/eqasim/workspace.py` owns disposable worker slots and contextual
+caches. Callers do not reproduce temporary-name, descriptor, rollback, or
+workspace-inventory logic.
 
 ```mermaid
 flowchart TD
@@ -130,7 +141,10 @@ environment.
 - The model YAML must remain a clean, tracked Git blob.
 - The plan is reproducible and immutable under a given root.
 - The run marker is published after the archives and is the sole proof of completion.
+- Plans and run markers are no-clobber publications; an existing marker is never replaced.
 - Durable writes are atomic, and symbolic links are broadly rejected.
+- Durable campaign coordination is confined to `.eqasim-sa/`; disposable attempts
+  and contextual caches are confined to scratch.
 - Infrastructure overrides do not modify `runId`.
 - Named structured factors remain a separate label-to-list mapping across the
   adapter/core boundary: plans expose labels, resolution and `runId` use lists,

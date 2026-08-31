@@ -7,11 +7,12 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
+from eqasim_sa.core.durable_publication import FileState, file_state
+
 
 SOFTWARE_IDENTITY_DOMAIN = b"eqasim-sa:software-identity:v1\0"
 SOURCE_SUFFIXES = frozenset({".py"})
 TEMPLATE_SUFFIXES = frozenset({".md", ".yaml", ".yml"})
-FileState = tuple[int, int, int, int, int]
 
 
 @dataclass(frozen=True)
@@ -32,7 +33,7 @@ class SoftwareIdentity:
 
 
 def _state(info: os.stat_result) -> FileState:
-    return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
+    return file_state(info)
 
 
 def _included(relative: Path) -> bool:
