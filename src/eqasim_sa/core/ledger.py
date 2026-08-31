@@ -15,11 +15,13 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from eqasim_sa.core.durable_publication import (
+    StableFile,
     absolute,
     copy_file_atomic,
     directory_is_current,
     file_lease,
     file_identity,
+    file_state,
     fsync_directory,
     open_child_directory,
     open_directory,
@@ -83,6 +85,10 @@ class CompletionState:
     archive_integrity: str
     artifacts: tuple[ArtifactManifestEntry, ...]
     execution_evidence: ExecutionEvidence | None
+    marker: StableFile
+    archive: Path | None
+    archive_state: tuple[int, int, int, int, int, int] | None
+    captured_artifacts: tuple[StableFile, ...]
 
 
 def run_path(campaign_root: Path, run_id: str) -> Path:
@@ -135,7 +141,7 @@ def _regular_path_is_current(path: Path, expected: _STATE) -> bool:
         os.close(parent)
 
 
-def _hash_descriptor(
+def _descriptor_digest(
     descriptor: int, interrupted: Callable[[], bool] | None = None
 ) -> str:
     digest = hashlib.sha256()
@@ -147,6 +153,12 @@ def _hash_descriptor(
         if not chunk:
             return digest.hexdigest()
         digest.update(chunk)
+
+
+def _hash_descriptor(
+    descriptor: int, interrupted: Callable[[], bool] | None = None
+) -> str:
+    return _descriptor_digest(descriptor, interrupted)
 
 
 def _manifest_bytes(entries: Sequence[ArtifactManifestEntry]) -> bytes:
@@ -215,8 +227,11 @@ def _entry_state(parent: int, name: str) -> os.stat_result | None:
 
 
 def _verify_archive(
-    campaign: int, run_id: str, artifacts: tuple[ArtifactManifestEntry, ...]
-) -> None:
+    campaign_root: Path,
+    campaign: int,
+    run_id: str,
+    artifacts: tuple[ArtifactManifestEntry, ...],
+) -> tuple[Path, tuple[int, int, int, int, int, int], tuple[StableFile, ...]]:
     archives = open_child_directory(campaign, "archives")
     try:
         archives_identity = file_identity(os.fstat(archives))
@@ -234,6 +249,7 @@ def _verify_archive(
             names = os.listdir(archive)
             if sorted(names, key=lambda name: os.fsencode(name)) != expected_names:
                 raise ValueError("archive inventory does not match artifact manifest")
+            captured = []
             for entry in artifacts:
                 visible = os.stat(
                     entry.name, dir_fd=archive, follow_symlinks=False
@@ -260,6 +276,8 @@ def _verify_archive(
                         raise ValueError(
                             f"archive artifact {entry.name!r} size does not match manifest"
                         )
+                    with os.fdopen(os.dup(descriptor), "rb") as stream:
+                        pq.ParquetFile(stream).metadata
                     digest = _hash_descriptor(descriptor)
                     final = os.fstat(descriptor)
                     visible = os.stat(
@@ -275,6 +293,14 @@ def _verify_archive(
                         raise ValueError(
                             f"archive artifact {entry.name!r} hash does not match manifest"
                         )
+                    captured.append(
+                        StableFile(
+                            campaign_root / "archives" / run_id / entry.name,
+                            file_state(initial),
+                            initial.st_size,
+                            digest,
+                        )
+                    )
                 finally:
                     os.close(descriptor)
             if (
@@ -285,12 +311,18 @@ def _verify_archive(
                 != _state(initial_directory)
             ):
                 raise RuntimeError("archive changed while verifying")
+            archive_state = file_state(initial_directory)
         finally:
             os.close(archive)
         if file_identity(
             os.stat("archives", dir_fd=campaign, follow_symlinks=False)
         ) != archives_identity:
             raise RuntimeError("archives directory changed while verifying")
+        return (
+            campaign_root / "archives" / run_id,
+            archive_state,
+            tuple(captured),
+        )
     finally:
         os.close(archives)
 
@@ -429,7 +461,14 @@ def completion_state(
                 if codecs != {"ZSTD"}:
                     raise ValueError("compression must be zstd")
                 if integrity == VERIFIED:
-                    _verify_archive(campaign, expected.run_id, artifacts)
+                    archive, archive_state, captured_artifacts = _verify_archive(
+                        campaign_root, campaign, expected.run_id, artifacts
+                    )
+                else:
+                    archive = None
+                    archive_state = None
+                    captured_artifacts = ()
+                marker_sha256 = _descriptor_digest(descriptor)
                 final = os.fstat(descriptor)
                 visible = os.stat(path.name, dir_fd=runs, follow_symlinks=False)
                 if _state(final) != _state(initial) or _state(visible) != _state(
@@ -443,7 +482,15 @@ def completion_state(
                 if not directory_is_current(campaign_root, campaign):
                     raise RuntimeError("campaign root changed while verifying marker")
                 return CompletionState(
-                    duration, scratch_bytes, integrity, artifacts, evidence
+                    duration,
+                    scratch_bytes,
+                    integrity,
+                    artifacts,
+                    evidence,
+                    StableFile(path, file_state(initial), initial.st_size, marker_sha256),
+                    archive,
+                    archive_state,
+                    captured_artifacts,
                 )
             finally:
                 os.close(descriptor)

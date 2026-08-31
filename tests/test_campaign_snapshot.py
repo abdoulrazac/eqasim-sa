@@ -4,6 +4,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+import eqasim_sa.core.ledger as ledger_module
 from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
 from eqasim_sa.core.ledger import RunRecord, archive_transaction
 from eqasim_sa.core.run import RunSpec, compute_run_id
@@ -109,3 +110,26 @@ def test_completed_specs_uses_the_same_stable_cut(tmp_path: Path) -> None:
     assert CampaignSnapshot.completed_specs(root, specs) == {
         compute_run_id(specs[1].resolved_config, specs[1].seed)
     }
+
+
+def test_snapshot_hashes_each_selected_marker_and_artifact_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    specs = (spec(1),)
+    root = tmp_path / "campaign"
+    plan_path = plan(root, specs)
+    complete(root, specs[0], 10)
+    real_hash = ledger_module._descriptor_digest
+    calls = 0
+
+    def counted_hash(descriptor: int, interrupted=None):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+        return real_hash(descriptor, interrupted)
+
+    monkeypatch.setattr(ledger_module, "_descriptor_digest", counted_hash)
+
+    snapshot = CampaignSnapshot.capture(root, plan_path, "demo")
+
+    assert len(snapshot.runs[next(iter(snapshot.completed_ids))].artifacts) == 1
+    assert calls == 2

@@ -90,7 +90,7 @@ class CampaignSnapshot:
         if rows > MAX_PLAN_POSITIONS or rows * columns > MAX_PLAN_CELLS:
             raise ValueError("plan exceeds the operational allocation cap")
         table = parquet.read()
-        verify_stable_file(source)
+        _verify_stable_state(source)
         return PlanSnapshot(source, table, context_descriptor(table))
 
     @classmethod
@@ -106,7 +106,7 @@ class CampaignSnapshot:
         inspected = inspected_plan or cls.inspect_plan(plan)
         if inspected.source.path != plan:
             raise ValueError("inspected plan belongs to another path")
-        verify_stable_file(inspected.source)
+        _verify_stable_state(inspected.source)
         source = inspected.source
         table = inspected.table
         expected = expected_records(table, campaign)
@@ -133,40 +133,37 @@ class CampaignSnapshot:
                 raise ValueError(
                     f"run {run_id} requires a verified v2 completion marker for analysis"
                 )
-            marker = stable_file(campaign_root / "runs" / marker_name)
-            archive = campaign_root / "archives" / run_id
-            archive_state = directory_state(archive)
-            artifact_sources = _artifact_sources(archive, completion)
-            artifacts_list = []
-            for path, _, _ in artifact_sources:
-                try:
-                    captured = stable_file(path)
-                    pq.ParquetFile(path).metadata
-                    verify_stable_file(captured)
-                except Exception as error:
-                    raise ValueError(f"invalid archive for {run_id}: {error}") from error
-                artifacts_list.append(captured)
-            artifacts = tuple(artifacts_list)
-            for snapshot, (_, expected_size, expected_sha256) in zip(
-                artifacts, artifact_sources, strict=True
-            ):
-                if expected_size is not None and snapshot.size != expected_size:
-                    raise ValueError(
-                        f"analysis source size does not match its v2 marker: {snapshot.path}"
-                    )
-                if expected_sha256 is not None and snapshot.sha256 != expected_sha256:
-                    raise ValueError(
-                        f"analysis source hash does not match its v2 marker: {snapshot.path}"
-                    )
+            marker = completion.marker
+            if completion.archive_integrity == VERIFIED:
+                if completion.archive is None or completion.archive_state is None:
+                    raise RuntimeError("verified completion did not capture its archive")
+                archive = completion.archive
+                archive_state = completion.archive_state
+                artifacts = completion.captured_artifacts
+            else:
+                archive = campaign_root / "archives" / run_id
+                archive_state = directory_state(archive)
+                artifacts_list = []
+                for path, _, _ in _artifact_sources(archive, completion):
+                    try:
+                        captured = stable_file(path)
+                        pq.ParquetFile(path).metadata
+                        _verify_stable_state(captured)
+                    except Exception as error:
+                        raise ValueError(
+                            f"invalid archive for {run_id}: {error}"
+                        ) from error
+                    artifacts_list.append(captured)
+                artifacts = tuple(artifacts_list)
             descriptor = completion_descriptor(run_id, completion)
-            current = completion_state(campaign_root, record)
             if (
-                current is None
-                or completion_descriptor(run_id, current) != descriptor
-                or directory_state(archive) != archive_state
+                directory_state(archive) != archive_state
+                or not _stable_state_is_current(marker)
+                or any(
+                    not _stable_state_is_current(artifact) for artifact in artifacts
+                )
             ):
                 raise RuntimeError(f"selected run {run_id} changed while being captured")
-            verify_stable_file(marker)
             selected[run_id] = RunSnapshot(
                 record,
                 completion,
@@ -176,7 +173,7 @@ class CampaignSnapshot:
                 artifacts,
                 MappingProxyType(descriptor),
             )
-        verify_stable_file(source)
+        _verify_stable_state(source)
         return cls(
             campaign_root,
             campaign,
@@ -315,7 +312,14 @@ class CampaignSnapshot:
                     "executionEvidence": descriptor["executionEvidence"],
                 }
             )
-        self.verify()
+        for selected in self.runs.values():
+            verify_stable_file(selected.marker)
+            if directory_state(selected.archive) != selected.archive_state:
+                raise RuntimeError(
+                    f"selected analysis archive changed: {selected.archive}"
+                )
+            for artifact in selected.artifacts:
+                _verify_stable_state(artifact)
         run_set_descriptor = {"schemaVersion": 1, "runs": descriptors}
         run_set_sha256 = _domain_digest(RUN_SET_DOMAIN, run_set_descriptor)
         run_set_document = {
@@ -332,7 +336,7 @@ class CampaignSnapshot:
     def verify(self) -> None:
         try:
             verify_stable_file(self.plan_source)
-            for run_id, selected in self.runs.items():
+            for selected in self.runs.values():
                 verify_stable_file(selected.marker)
                 if directory_state(selected.archive) != selected.archive_state:
                     raise RuntimeError(
@@ -340,12 +344,6 @@ class CampaignSnapshot:
                     )
                 for artifact in selected.artifacts:
                     verify_stable_file(artifact)
-                current = completion_state(self.campaign_root, selected.expected)
-                if (
-                    current is None
-                    or completion_descriptor(run_id, current) != selected.descriptor
-                ):
-                    raise RuntimeError(f"selected run {run_id} changed")
         except RuntimeError:
             raise
         except Exception as error:
@@ -424,6 +422,19 @@ def directory_state(path: Path) -> tuple[int, int, int, int, int, int]:
     if not stat.S_ISDIR(info.st_mode) or path.is_symlink():
         raise ValueError(f"analysis archive is not a regular directory: {path}")
     return file_state(info)
+
+
+def _stable_state_is_current(snapshot: StableFile) -> bool:
+    try:
+        current = snapshot.path.lstat()
+    except OSError:
+        return False
+    return stat.S_ISREG(current.st_mode) and file_state(current) == snapshot.state
+
+
+def _verify_stable_state(snapshot: StableFile) -> None:
+    if not _stable_state_is_current(snapshot):
+        raise RuntimeError(f"selected analysis source changed: {snapshot.path}")
 
 
 def _stable_marker_names(campaign_root: Path) -> tuple[str, ...]:

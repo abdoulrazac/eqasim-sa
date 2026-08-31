@@ -2535,10 +2535,10 @@ def test_manifest_failed_rollback_raises_distinct_outcome_unknown_error(
             raise OSError("injected post-replace fsync failure")
         real_fsync(path)
 
-    def fail_rollback(source, destination):  # type: ignore[no-untyped-def]
+    def fail_rollback(source, destination, **options):  # type: ignore[no-untyped-def]
         if str(source).endswith(".backup"):
             raise OSError("injected rollback failure")
-        return real_replace(source, destination)
+        return real_replace(source, destination, **options)
 
     monkeypatch.setattr(durable_module, "fsync_directory", fail_new_pointer)
     monkeypatch.setattr(durable_module.os, "replace", fail_rollback)
