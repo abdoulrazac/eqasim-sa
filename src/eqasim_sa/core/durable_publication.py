@@ -284,8 +284,7 @@ def file_lease(
             if interrupted is not None and interrupted():
                 raise KeyboardInterrupt
             try:
-                operation = fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB)
-                fcntl.flock(descriptor, operation)
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
             except BlockingIOError:
                 if not blocking:

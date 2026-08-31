@@ -1,5 +1,6 @@
-import json
 import copy
+import hashlib
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -501,9 +502,16 @@ def test_invalid_ff_bound_remains_reportable_as_fail_closed_evidence(
         completed=1,
         missing=0,
         failed=0,
-        output_summary_path=summary,
-        convergence_evidence_path=None,
-        sensitivity_path=sensitivity,
+        output_records={
+            "outputSummary": {
+                "name": summary.name,
+                "sha256": hashlib.sha256(summary.read_bytes()).hexdigest(),
+            },
+            "sensitivity": {
+                "name": sensitivity.name,
+                "sha256": hashlib.sha256(sensitivity.read_bytes()).hexdigest(),
+            },
+        },
         scientific_contract=contract,
         sensitivity_table=table,
         converged=False,
@@ -518,7 +526,7 @@ def test_invalid_ff_bound_remains_reportable_as_fail_closed_evidence(
 def test_governed_publication_failure_restores_all_reporting_outputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import eqasim_sa.core.analyze as analyze_module
+    import eqasim_sa.core.analysis_publication as publication_module
 
     root = _grid_with_duplicate_positions(tmp_path)
     previous = {
@@ -533,14 +541,16 @@ def test_governed_publication_failure_restores_all_reporting_outputs(
     }
     for path, content in previous.items():
         path.write_bytes(content)
-    real_write = analyze_module.write_atomic
+    real_write = publication_module.write_bytes_atomic
 
-    def fail(destination: Path, writer) -> None:  # type: ignore[no-untyped-def]
+    def fail(
+        content: bytes, destination: Path, *, staging_directory: Path | None = None
+    ) -> Path:
         if destination.name == "governed-report.json":
             raise OSError("injected governed report failure")
-        real_write(destination, writer)
+        return real_write(content, destination, staging_directory=staging_directory)
 
-    monkeypatch.setattr(analyze_module, "write_atomic", fail)
+    monkeypatch.setattr(publication_module, "write_bytes_atomic", fail)
     with pytest.raises(OSError, match="governed report"):
         analyze(
             root,
