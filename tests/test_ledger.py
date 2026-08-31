@@ -123,7 +123,9 @@ def test_atomic_failure_cleans_temporary_and_preserves_destination(
 
     monkeypatch.setattr(ledger.os, "replace", fail_replace)
     with pytest.raises(OSError, match="injected"):
-        ledger.write_parquet_atomic(pa.table({"value": [2]}), destination)
+        durable_publication.write_parquet_atomic(
+            pa.table({"value": [2]}), destination
+        )
     assert destination.read_bytes() == original
     assert list(tmp_path.glob(".*.tmp")) == []
 
@@ -145,7 +147,9 @@ def test_directory_fsync_failure_rolls_back_new_destination(
 
     monkeypatch.setattr(ledger.os, "fsync", fail_second_fsync)
     with pytest.raises(OSError, match="directory fsync failure"):
-        ledger.write_parquet_atomic(pa.table({"value": [2]}), destination)
+        durable_publication.write_parquet_atomic(
+            pa.table({"value": [2]}), destination
+        )
     assert not destination.exists()
 
 
@@ -167,7 +171,9 @@ def test_directory_fsync_failure_restores_existing_destination(
 
     monkeypatch.setattr(ledger.os, "fsync", fail_second_fsync)
     with pytest.raises(OSError, match="directory fsync failure"):
-        ledger.write_parquet_atomic(pa.table({"value": [2]}), destination)
+        durable_publication.write_parquet_atomic(
+            pa.table({"value": [2]}), destination
+        )
     assert pq.read_table(destination).to_pylist() == [{"value": 1}]
 
 
@@ -201,7 +207,9 @@ def test_failed_rollback_preserves_backup(
     with pytest.raises(
         durable_publication.PublicationOutcomeUnknown, match="rollback"
     ):
-        ledger.write_parquet_atomic(pa.table({"value": [2]}), destination)
+        durable_publication.write_parquet_atomic(
+            pa.table({"value": [2]}), destination
+        )
     backups = list(tmp_path.glob(".*.backup"))
     assert len(backups) == 1
     assert pq.read_table(backups[0]).to_pylist() == [{"value": 1}]
@@ -218,6 +226,142 @@ def test_run_marker_temporary_is_staged_outside_runs(tmp_path: Path) -> None:
     with pytest.raises(KeyboardInterrupt):
         durable_publication.write_atomic(destination, fail_writer)
     assert not tuple((tmp_path / "campaign" / "runs").iterdir())
+
+
+@pytest.mark.parametrize(
+    "directory",
+    ["campaign", "runs", "technical", "transactions"],
+)
+def test_write_run_rechecks_every_pinned_publication_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    directory: str,
+) -> None:
+    record = RunRecord("a" * 32, "demo", 1, "ctx", "node", 1.0, {})
+    real_write = ledger.pq.write_table
+    moved = False
+
+    def replace_directory_after_staging(*arguments, **options):  # type: ignore[no-untyped-def]
+        nonlocal moved
+        result = real_write(*arguments, **options)
+        if moved:
+            return result
+        moved = True
+        target = {
+            "campaign": tmp_path,
+            "runs": tmp_path / "runs",
+            "technical": tmp_path / ".eqasim-sa",
+            "transactions": tmp_path / ".eqasim-sa/transactions",
+        }[directory]
+        detached = tmp_path.parent / f"detached-{directory}"
+        target.rename(detached)
+        target.mkdir(parents=True)
+        return result
+
+    monkeypatch.setattr(ledger.pq, "write_table", replace_directory_after_staging)
+
+    with pytest.raises(RuntimeError, match="directories changed"):
+        write_run(tmp_path, record)
+
+    assert not (tmp_path / "runs" / f"{record.run_id}.parquet").exists()
+
+
+def test_write_run_pins_exact_predecessor_before_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    record = RunRecord("a" * 32, "demo", 1, "ctx", "node", 1.0, {})
+    destination = write_run(tmp_path, record)
+    competitor = tmp_path / "competitor.parquet"
+    competitor.write_bytes(b"competing marker")
+    real_link = ledger.os.link
+
+    def replace_predecessor_after_backup(source, target, **options):  # type: ignore[no-untyped-def]
+        result = real_link(source, target, **options)
+        if str(target).endswith(".backup"):
+            os.replace(competitor, destination)
+        return result
+
+    monkeypatch.setattr(ledger.os, "link", replace_predecessor_after_backup)
+
+    with pytest.raises(RuntimeError, match="changed before replacement"):
+        write_run(tmp_path, replace(record, duration=2.0))
+
+    assert destination.read_bytes() == b"competing marker"
+    assert not tuple((tmp_path / ".eqasim-sa/transactions").glob("*.backup"))
+
+
+def test_write_run_rolls_back_keyboard_interrupt_after_replace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    record = RunRecord("a" * 32, "demo", 1, "ctx", "node", 1.0, {})
+    destination = write_run(tmp_path, record)
+    before = destination.read_bytes()
+    real_fsync = ledger.os.fsync
+    calls = 0
+
+    def interrupt_commit(descriptor: int) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 4:
+            raise KeyboardInterrupt
+        real_fsync(descriptor)
+
+    monkeypatch.setattr(ledger.os, "fsync", interrupt_commit)
+
+    with pytest.raises(KeyboardInterrupt):
+        write_run(tmp_path, replace(record, duration=2.0))
+
+    assert destination.read_bytes() == before
+    assert not tuple((tmp_path / ".eqasim-sa/transactions").iterdir())
+
+
+def test_write_run_preserves_recovery_backup_when_rollback_is_unprovable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    record = RunRecord("a" * 32, "demo", 1, "ctx", "node", 1.0, {})
+    destination = write_run(tmp_path, record)
+    before = destination.read_bytes()
+    real_fsync = ledger.os.fsync
+    real_replace = ledger.os.replace
+    fsync_calls = replace_calls = 0
+
+    def fail_commit(descriptor: int) -> None:
+        nonlocal fsync_calls
+        fsync_calls += 1
+        if fsync_calls == 4:
+            raise OSError("commit fsync failed")
+        real_fsync(descriptor)
+
+    def fail_rollback(source, target, **options):  # type: ignore[no-untyped-def]
+        nonlocal replace_calls
+        replace_calls += 1
+        if replace_calls == 2:
+            raise OSError("rollback failed")
+        return real_replace(source, target, **options)
+
+    monkeypatch.setattr(ledger.os, "fsync", fail_commit)
+    monkeypatch.setattr(ledger.os, "replace", fail_rollback)
+
+    with pytest.raises(durable_publication.PublicationOutcomeUnknown):
+        write_run(tmp_path, replace(record, duration=2.0))
+
+    backups = tuple((tmp_path / ".eqasim-sa/transactions").glob("*.backup"))
+    assert len(backups) == 1 and backups[0].read_bytes() == before
+
+
+def test_write_run_does_not_delegate_ledger_proof_to_generic_path_writer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        durable_publication,
+        "write_atomic",
+        lambda *args, **options: (_ for _ in ()).throw(
+            AssertionError("generic path writer used")
+        ),
+    )
+    record = RunRecord("a" * 32, "demo", 1, "ctx", "node", 1.0, {})
+
+    assert write_run(tmp_path, record).is_file()
 
 
 def run_spec(seed: int = 42, **parameters: object) -> RunSpec:

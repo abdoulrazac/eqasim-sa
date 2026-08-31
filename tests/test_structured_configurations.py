@@ -20,7 +20,8 @@ from eqasim_sa.adapters.backends import slurm
 from eqasim_sa.adapters.worker import Indexed, WorkerBatch
 from eqasim_sa.core.analyze import _multiscramble_sobol_tables, analyze
 from eqasim_sa.core.indicators import ArtifactSet, RegisteredIndicator
-from eqasim_sa.core.ledger import RunRecord, write_parquet_atomic, write_run
+from eqasim_sa.core.durable_publication import write_parquet_atomic
+from eqasim_sa.core.ledger import RunRecord, write_run
 from eqasim_sa.core.plan import GridDesign, MorrisDesign, SobolDesign, build_plan, load_run_specs
 from eqasim_sa.core.run import RunResult, RunSpec, compute_run_id
 from eqasim_sa.core.software_identity import read_software_identity

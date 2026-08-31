@@ -21,7 +21,8 @@ from eqasim_sa.core.analyze import (
     analyze,
 )
 from eqasim_sa.core.indicators import ArtifactSet, RegisteredIndicator
-from eqasim_sa.core.ledger import RunRecord, write_parquet_atomic
+from eqasim_sa.core.durable_publication import write_parquet_atomic
+from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.plan import build_plan
 from eqasim_sa.core.sensitivity import morris_statistics
 from tests.test_analyze import (

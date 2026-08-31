@@ -15,9 +15,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from eqasim_sa.core.durable_publication import (
+    PublicationOutcomeUnknown,
     StableFile,
     absolute,
-    copy_file_atomic,
     directory_is_current,
     file_lease,
     file_identity,
@@ -27,8 +27,6 @@ from eqasim_sa.core.durable_publication import (
     open_directory,
     open_regular,
     secure_directory,
-    write_atomic,
-    write_parquet_atomic,
 )
 from eqasim_sa.ports.simulator import ExecutionEvidence
 
@@ -1059,11 +1057,317 @@ def write_run(
         if artifact_manifest is None
         else _run_table_with_metadata(record, artifact_manifest, evidence)
     )
-    return write_parquet_atomic(
-        table,
-        run_path(campaign_root, record.run_id),
-        staging_directory=campaign_root / ".eqasim-sa" / "transactions",
-    )
+    destination = run_path(campaign_root, record.run_id)
+    absolute_campaign = absolute(campaign_root)
+    if not absolute_campaign.name:
+        raise ValueError("campaign root must have a final path component")
+    campaign_parent = open_directory(absolute_campaign.parent, create=True)
+    campaign = runs = technical = transactions = -1
+    staged_descriptor = previous_descriptor = -1
+    temporary_name = f".{destination.name}.{uuid.uuid4().hex}.tmp"
+    backup_name = f".{destination.name}.{uuid.uuid4().hex}.backup"
+    restore_name = f".{destination.name}.{uuid.uuid4().hex}.restore"
+    backup_created = committed = preserve_backup = False
+    previous_state: tuple[int, int, int, int, int, int] | None = None
+    replacement_state: tuple[int, int, int, int, int, int] | None = None
+    try:
+        campaign = open_child_directory(
+            campaign_parent, absolute_campaign.name, create=True
+        )
+        runs = open_child_directory(campaign, "runs", create=True)
+        technical = open_child_directory(campaign, ".eqasim-sa", create=True)
+        transactions = open_child_directory(technical, "transactions", create=True)
+        campaign_identity = file_identity(os.fstat(campaign))
+        runs_identity = file_identity(os.fstat(runs))
+        technical_identity = file_identity(os.fstat(technical))
+        transactions_identity = file_identity(os.fstat(transactions))
+        if os.fstat(runs).st_dev != os.fstat(transactions).st_dev:
+            raise ValueError(
+                "completion marker transaction must share the runs filesystem"
+            )
+
+        def directories_are_current() -> bool:
+            try:
+                return (
+                    file_identity(
+                        os.stat(
+                            absolute_campaign.name,
+                            dir_fd=campaign_parent,
+                            follow_symlinks=False,
+                        )
+                    )
+                    == campaign_identity
+                    and file_identity(
+                        os.stat("runs", dir_fd=campaign, follow_symlinks=False)
+                    )
+                    == runs_identity
+                    and file_identity(
+                        os.stat(
+                            ".eqasim-sa",
+                            dir_fd=campaign,
+                            follow_symlinks=False,
+                        )
+                    )
+                    == technical_identity
+                    and file_identity(
+                        os.stat(
+                            "transactions",
+                            dir_fd=technical,
+                            follow_symlinks=False,
+                        )
+                    )
+                    == transactions_identity
+                )
+            except OSError:
+                return False
+
+        if not directories_are_current():
+            raise RuntimeError("completion marker directories changed while opening")
+        os.fsync(technical)
+        os.fsync(campaign)
+        staged_descriptor = os.open(
+            temporary_name,
+            os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=transactions,
+        )
+        with os.fdopen(os.dup(staged_descriptor), "wb") as stream:
+            pq.write_table(table, stream, compression="zstd")
+            stream.flush()
+        os.fsync(staged_descriptor)
+        staged = os.fstat(staged_descriptor)
+        visible_staged = os.stat(
+            temporary_name, dir_fd=transactions, follow_symlinks=False
+        )
+        if (
+            not stat.S_ISREG(staged.st_mode)
+            or staged.st_nlink != 1
+            or file_state(staged) != file_state(visible_staged)
+        ):
+            raise RuntimeError("staged completion marker changed before publication")
+        replacement_state = file_state(staged)
+
+        def replacement_is(info: os.stat_result) -> bool:
+            assert replacement_state is not None
+            return (
+                file_identity(info) == replacement_state[:3]
+                and info.st_size == replacement_state[3]
+                and info.st_mtime_ns == replacement_state[4]
+            )
+
+        existing = _entry_state(runs, destination.name)
+        if existing is not None:
+            if not stat.S_ISREG(existing.st_mode):
+                raise ValueError("completion marker destination must be a regular file")
+            previous_descriptor = os.open(
+                destination.name, _READ_FLAGS, dir_fd=runs
+            )
+            opened = os.fstat(previous_descriptor)
+            visible = os.stat(
+                destination.name, dir_fd=runs, follow_symlinks=False
+            )
+            if file_state(opened) != file_state(visible):
+                raise RuntimeError("completion marker changed while being pinned")
+            os.link(
+                destination.name,
+                backup_name,
+                src_dir_fd=runs,
+                dst_dir_fd=transactions,
+                follow_symlinks=False,
+            )
+            backup_created = True
+            opened = os.fstat(previous_descriptor)
+            visible = os.stat(
+                destination.name, dir_fd=runs, follow_symlinks=False
+            )
+            backup = os.stat(
+                backup_name, dir_fd=transactions, follow_symlinks=False
+            )
+            previous_state = file_state(opened)
+            if file_state(visible) != previous_state or file_state(backup) != previous_state:
+                raise RuntimeError("completion marker changed before replacement")
+
+        if not directories_are_current():
+            raise RuntimeError("completion marker directories changed before publishing")
+        current = _entry_state(runs, destination.name)
+        if previous_state is None:
+            if current is not None:
+                raise RuntimeError("completion marker appeared before replacement")
+        elif (
+            current is None
+            or file_state(current) != previous_state
+            or file_state(os.fstat(previous_descriptor)) != previous_state
+        ):
+            raise RuntimeError("completion marker changed before replacement")
+        current_staged = os.stat(
+            temporary_name, dir_fd=transactions, follow_symlinks=False
+        )
+        if file_state(current_staged) != replacement_state:
+            raise RuntimeError("staged completion marker changed before replacement")
+        replace_error: BaseException | None = None
+        try:
+            os.replace(
+                temporary_name,
+                destination.name,
+                src_dir_fd=transactions,
+                dst_dir_fd=runs,
+            )
+        except BaseException as error:
+            visible = _entry_state(runs, destination.name)
+            if visible is not None and replacement_is(visible):
+                replace_error = error
+            elif (
+                previous_state is None
+                and visible is None
+                or previous_state is not None
+                and visible is not None
+                and file_state(visible) == previous_state
+            ):
+                raise
+            else:
+                preserve_backup = backup_created
+                raise PublicationOutcomeUnknown(
+                    "completion marker replacement outcome could not be established"
+                ) from error
+        try:
+            staged_after_replace = os.fstat(staged_descriptor)
+            visible_after_replace = os.stat(
+                destination.name, dir_fd=runs, follow_symlinks=False
+            )
+            replacement_state = file_state(staged_after_replace)
+            if file_state(visible_after_replace) != replacement_state:
+                raise RuntimeError(
+                    "completion marker replacement identity changed"
+                )
+            if previous_state is not None:
+                pinned_after_replace = os.fstat(previous_descriptor)
+                held_backup = os.stat(
+                    backup_name, dir_fd=transactions, follow_symlinks=False
+                )
+                previous_state = file_state(pinned_after_replace)
+                if file_state(held_backup) != previous_state:
+                    raise RuntimeError(
+                        "completion marker predecessor changed during replacement"
+                    )
+            if replace_error is not None:
+                raise replace_error
+            visible = os.stat(
+                destination.name, dir_fd=runs, follow_symlinks=False
+            )
+            if file_state(visible) != replacement_state:
+                raise RuntimeError("completion marker changed while publishing")
+            os.fsync(runs)
+            os.fsync(transactions)
+            if not directories_are_current():
+                raise RuntimeError("completion marker directories changed while publishing")
+            visible = os.stat(
+                destination.name, dir_fd=runs, follow_symlinks=False
+            )
+            if file_state(visible) != replacement_state:
+                raise RuntimeError("completion marker changed after directory fsync")
+            committed = True
+        except BaseException as commit_error:
+            try:
+                visible = os.stat(
+                    destination.name, dir_fd=runs, follow_symlinks=False
+                )
+                if file_state(visible) != replacement_state:
+                    raise RuntimeError(
+                        "completion marker replacement changed before rollback"
+                    )
+                if previous_state is None:
+                    os.unlink(destination.name, dir_fd=runs)
+                else:
+                    held_backup = os.stat(
+                        backup_name,
+                        dir_fd=transactions,
+                        follow_symlinks=False,
+                    )
+                    if file_state(held_backup) != previous_state:
+                        raise RuntimeError(
+                            "completion marker backup changed before rollback"
+                        )
+                    os.link(
+                        backup_name,
+                        restore_name,
+                        src_dir_fd=transactions,
+                        dst_dir_fd=transactions,
+                        follow_symlinks=False,
+                    )
+                    previous_state = file_state(os.fstat(previous_descriptor))
+                    if (
+                        file_state(
+                            os.stat(
+                                backup_name,
+                                dir_fd=transactions,
+                                follow_symlinks=False,
+                            )
+                        )
+                        != previous_state
+                        or file_state(
+                            os.stat(
+                                restore_name,
+                                dir_fd=transactions,
+                                follow_symlinks=False,
+                            )
+                        )
+                        != previous_state
+                    ):
+                        raise RuntimeError(
+                            "completion marker rollback copy changed"
+                        )
+                    os.replace(
+                        restore_name,
+                        destination.name,
+                        src_dir_fd=transactions,
+                        dst_dir_fd=runs,
+                    )
+                os.fsync(runs)
+                os.fsync(transactions)
+                restored = _entry_state(runs, destination.name)
+                if previous_state is None:
+                    if restored is not None:
+                        raise RuntimeError("new completion marker rollback was not proven")
+                elif restored is None or file_state(restored) != previous_state:
+                    raise RuntimeError("completion marker rollback was not proven")
+                if not directories_are_current():
+                    raise RuntimeError(
+                        "completion marker directories changed during rollback"
+                    )
+            except BaseException as rollback_error:
+                preserve_backup = backup_created
+                raise PublicationOutcomeUnknown(
+                    "completion marker commit failed and rollback could not be established"
+                ) from rollback_error
+            raise commit_error
+        return destination
+    finally:
+        if staged_descriptor >= 0:
+            os.close(staged_descriptor)
+        if previous_descriptor >= 0:
+            os.close(previous_descriptor)
+        if transactions >= 0:
+            try:
+                os.unlink(temporary_name, dir_fd=transactions)
+            except OSError:
+                pass
+            try:
+                os.unlink(restore_name, dir_fd=transactions)
+            except OSError:
+                pass
+            if backup_created and not preserve_backup:
+                try:
+                    os.unlink(backup_name, dir_fd=transactions)
+                    if committed:
+                        try:
+                            os.fsync(transactions)
+                        except BaseException:
+                            pass
+                except OSError:
+                    pass
+        for descriptor in (transactions, technical, runs, campaign, campaign_parent):
+            if descriptor >= 0:
+                os.close(descriptor)
 
 
 def _validated_execution_evidence(

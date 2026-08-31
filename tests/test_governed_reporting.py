@@ -13,7 +13,8 @@ from eqasim_sa.core.analyze import (
     _governed_report,
     _output_summary_table,
 )
-from eqasim_sa.core.ledger import write_parquet_atomic, RunRecord
+from eqasim_sa.core.durable_publication import write_parquet_atomic
+from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.analyze import analyze
 from tests.test_analyze import _custom_indicator, _write_verified_run, root_relative
 from tests.test_canonical_morris_analyze import _completed_campaign, _design
@@ -541,7 +542,7 @@ def test_governed_publication_failure_restores_all_reporting_outputs(
     }
     for path, content in previous.items():
         path.write_bytes(content)
-    real_write = publication_module.write_bytes_atomic
+    real_write = publication_module.write_bytes_exclusive
 
     def fail(
         content: bytes, destination: Path, *, staging_directory: Path | None = None
@@ -550,7 +551,7 @@ def test_governed_publication_failure_restores_all_reporting_outputs(
             raise OSError("injected governed report failure")
         return real_write(content, destination, staging_directory=staging_directory)
 
-    monkeypatch.setattr(publication_module, "write_bytes_atomic", fail)
+    monkeypatch.setattr(publication_module, "write_bytes_exclusive", fail)
     with pytest.raises(OSError, match="governed report"):
         analyze(
             root,

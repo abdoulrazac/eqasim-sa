@@ -35,10 +35,10 @@ from eqasim_sa.core.analyze import (
     analyze,
 )
 from eqasim_sa.core.indicators import ArtifactSet, PluginIdentity, RegisteredIndicator
+from eqasim_sa.core.durable_publication import write_parquet_atomic
 from eqasim_sa.core.ledger import (
     ArtifactManifestEntry,
     RunRecord,
-    write_parquet_atomic,
     write_run,
 )
 from eqasim_sa.core.plan import (
