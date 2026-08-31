@@ -1044,8 +1044,8 @@ def test_legacy_scientific_refuses_inference_before_runs_or_indicator_runtime(
         tmp_path / f"{method}-v{version}", method, version
     )
     monkeypatch.setattr(
-        analyze_module,
-        "inspect_runs",
+        analyze_module.CampaignSnapshot,
+        "capture",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("runs inspected")),
     )
     monkeypatch.setattr(

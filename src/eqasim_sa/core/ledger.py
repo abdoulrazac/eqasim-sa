@@ -77,7 +77,7 @@ class ArtifactManifestEntry:
 
 
 @dataclass(frozen=True)
-class _CompletionState:
+class CompletionState:
     duration: float
     scratch_bytes: int
     archive_integrity: str
@@ -404,9 +404,9 @@ def _verify_archive(
         os.close(archives)
 
 
-def _completion_state(
+def completion_state(
     campaign_root: Path, expected: RunRecord
-) -> _CompletionState | None:
+) -> CompletionState | None:
     path = run_path(campaign_root, expected.run_id)
     try:
         campaign = open_directory(campaign_root)
@@ -551,7 +551,7 @@ def _completion_state(
                     raise RuntimeError("runs directory changed while verifying marker")
                 if not directory_is_current(campaign_root, campaign):
                     raise RuntimeError("campaign root changed while verifying marker")
-                return _CompletionState(
+                return CompletionState(
                     duration, scratch_bytes, integrity, artifacts, evidence
                 )
             finally:
@@ -564,48 +564,7 @@ def _completion_state(
         os.close(campaign)
 
 
-def _completion_duration(campaign_root: Path, expected: RunRecord) -> float | None:
-    completion = _completion_state(campaign_root, expected)
-    return None if completion is None else completion.duration
-
-
-def completion_duration(campaign_root: Path, spec) -> float | None:  # type: ignore[no-untyped-def]
-    from eqasim_sa.core.run import compute_run_id
-
-    run_id = compute_run_id(spec.resolved_config, spec.seed)
-    return _completion_duration(
-        campaign_root,
-        RunRecord(
-            run_id,
-            spec.campaign,
-            spec.seed,
-            spec.expected_context_hash,
-            "",
-            0.0,
-            spec.parameters,
-        ),
-    )
-
-
-def completion_scratch_bytes(campaign_root: Path, spec) -> int | None:  # type: ignore[no-untyped-def]
-    from eqasim_sa.core.run import compute_run_id
-
-    completion = _completion_state(
-        campaign_root,
-        RunRecord(
-            compute_run_id(spec.resolved_config, spec.seed),
-            spec.campaign,
-            spec.seed,
-            spec.expected_context_hash,
-            "",
-            0.0,
-            spec.parameters,
-        ),
-    )
-    return None if completion is None else completion.scratch_bytes
-
-
-def _run_marker_names(campaign_root: Path) -> tuple[str, ...]:
+def completion_marker_names(campaign_root: Path) -> tuple[str, ...]:
     try:
         campaign = open_directory(campaign_root)
     except FileNotFoundError:
@@ -637,90 +596,6 @@ def _run_marker_names(campaign_root: Path) -> tuple[str, ...]:
         raise ValueError(f"invalid completion marker directory: {error}") from error
     finally:
         os.close(campaign)
-
-
-def completion_ids(campaign_root: Path, specs) -> set[str]:  # type: ignore[no-untyped-def]
-    from eqasim_sa.core.run import compute_run_id
-
-    expected = {compute_run_id(spec.resolved_config, spec.seed): spec for spec in specs}
-    entries = _run_marker_names(campaign_root)
-    foreign = [
-        name
-        for name in entries
-        if name.removesuffix(".parquet") not in expected
-        or not name.endswith(".parquet")
-    ]
-    if foreign:
-        raise ValueError(f"invalid completion marker names: {sorted(foreign)}")
-    return {
-        name.removesuffix(".parquet")
-        for name in entries
-        if completion_duration(
-            campaign_root, expected[name.removesuffix(".parquet")]
-        )
-        is not None
-    }
-
-
-def plan_run_ids(
-    campaign_root: Path, plan: Path, campaign: str
-) -> tuple[set[str], set[str]]:
-    if type(campaign) is not str or not campaign:
-        raise ValueError("campaign must be a non-empty string")
-    try:
-        parquet = pq.ParquetFile(plan)
-        table = parquet.read()
-    except Exception as error:
-        raise ValueError(f"cannot read plan: {error}") from error
-    required = {"designId", "method", "role", "runId", "seed", "contextHash"}
-    if not required <= set(table.column_names) or any(
-        column.null_count for column in table.columns
-    ):
-        raise ValueError("plan schema or null values are invalid")
-    parameters = tuple(name for name in table.column_names if name not in required)
-    expected: dict[str, RunRecord] = {}
-    for row in table.to_pylist():
-        run_id = row["runId"]
-        if type(run_id) is not str or not RUN_ID.fullmatch(run_id):
-            raise ValueError("plan contains an invalid runId")
-        record = RunRecord(
-            run_id,
-            campaign,
-            row["seed"],
-            row["contextHash"],
-            "",
-            0.0,
-            {name: row[name] for name in parameters},
-        )
-        previous = expected.setdefault(run_id, record)
-        if previous != record:
-            raise ValueError(f"plan has inconsistent duplicate runId {run_id}")
-    entries = _run_marker_names(campaign_root)
-    foreign = [
-        name
-        for name in entries
-        if name.removesuffix(".parquet") not in expected
-        or not name.endswith(".parquet")
-    ]
-    if foreign:
-        raise ValueError(f"invalid completion marker names: {sorted(foreign)}")
-    completed = {
-        name.removesuffix(".parquet")
-        for name in entries
-        if _completion_duration(
-            campaign_root, expected[name.removesuffix(".parquet")]
-        )
-        is not None
-    }
-    return set(expected), completed
-
-
-def plan_completion_ids(campaign_root: Path, plan: Path, campaign: str) -> set[str]:
-    return plan_run_ids(campaign_root, plan, campaign)[1]
-
-
-def is_complete(campaign_root: Path, spec) -> bool:  # type: ignore[no-untyped-def]
-    return completion_duration(campaign_root, spec) is not None
 
 
 def _write_all(descriptor: int, data: bytes) -> None:

@@ -555,10 +555,12 @@ def test_execute_run_converts_completion_check_failure(
     import eqasim_sa.core.run as run_module
 
     monkeypatch.setattr(
-        run_module,
-        "is_complete",
-        lambda campaign_root, run_id: (_ for _ in ()).throw(
-            OSError("ledger unavailable")
+        run_module.CampaignSnapshot,
+        "run_completed",
+        classmethod(
+            lambda cls, campaign_root, run_id: (_ for _ in ()).throw(
+                OSError("ledger unavailable")
+            )
         ),
     )
     result = run_module.execute_run(

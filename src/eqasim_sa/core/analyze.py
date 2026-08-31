@@ -19,11 +19,10 @@ from scipy.stats import qmc, t as student_t
 
 from eqasim_sa.core.analysis_publication import (
     AnalysisPublication,
-    inspect_plan,
-    inspect_runs,
     validate_descriptive_execution_evidence,
     validate_scientific_execution_evidence,
 )
+from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
 from eqasim_sa.core.durable_publication import write_atomic, write_parquet_atomic
 from eqasim_sa.core.charter import (
     parse_stochastic,
@@ -219,8 +218,8 @@ def _analyze_locked(
     plan = campaign_root / "plan.parquet"
     if plan.is_symlink() or not plan.is_file():
         raise ValueError("plan.parquet must be a regular non-symlink file")
-    plan_inspection = inspect_plan(plan)
-    plan_table = plan_inspection.table
+    plan_snapshot = CampaignSnapshot.inspect_plan(plan)
+    plan_table = plan_snapshot.table
     structured_factors = validate_structured_plan_metadata(
         dict(plan_table.schema.metadata or {})
     )
@@ -281,14 +280,15 @@ def _analyze_locked(
         _validate_scientific_indicator_definitions(
             indicator_identities, sealed_scientific_contract
         )
-    run_inspection = inspect_runs(
+    snapshot = CampaignSnapshot.capture(
         campaign_root,
-        plan_inspection,
+        plan,
         campaign,
         allow_legacy_unbound=descriptive_only,
+        inspected_plan=plan_snapshot,
     )
-    inspected_expected = set(run_inspection.expected_ids)
-    inspected_completed = set(run_inspection.completed_ids)
+    inspected_expected = set(snapshot.expected_ids)
+    inspected_completed = set(snapshot.completed_ids)
     inspected_failed = _failure_ids(
         campaign_root, inspected_expected - inspected_completed
     )
@@ -304,20 +304,17 @@ def _analyze_locked(
         validate_scientific_execution_evidence(
             plan_table,
             campaign,
-            run_inspection.execution_evidence,
+            snapshot.execution_evidence,
             sealed_scientific_contract,
             allow_empty=descriptive_only,
         )
     elif descriptive_only:
-        validate_descriptive_execution_evidence(run_inspection.execution_evidence)
+        validate_descriptive_execution_evidence(snapshot.execution_evidence)
     with AnalysisPublication(campaign_root) as publication:
-        plan_capture = publication.capture_plan(plan, plan_inspection)
-        run_capture = publication.capture_runs(
-            plan_table,
-            campaign,
+        plan_capture, run_capture = publication.capture(
+            snapshot,
             sealed_scientific_contract,
             allow_empty_scientific_evidence=descriptive_only,
-            allow_legacy_unbound=descriptive_only,
         )
         expected_ids = set(run_capture.expected_ids)
         completed_ids = set(run_capture.completed_ids)

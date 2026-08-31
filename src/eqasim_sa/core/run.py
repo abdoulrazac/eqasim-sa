@@ -9,6 +9,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
 from eqasim_sa.core.durable_publication import (
     copy_file_atomic,
     fsync_directory,
@@ -19,8 +20,6 @@ from eqasim_sa.core.durable_publication import (
 from eqasim_sa.core.ledger import (
     RunRecord,
     archive_transaction,
-    completion_ids,
-    is_complete,
     run_lease,
     validate_parameters,
 )
@@ -179,7 +178,7 @@ def execute_run(
         with run_lease(campaign_root, run_id, interrupted):
             publishing = False
             try:
-                if is_complete(campaign_root, spec):
+                if CampaignSnapshot.run_completed(campaign_root, spec):
                     _remove_failure_log(campaign_root, run_id)
                     return RunResult(run_id, "skipped")
                 start = time.monotonic()
@@ -264,7 +263,7 @@ def execute_run(
 def pending_run_specs(
     campaign_root: Path, specs: tuple[RunSpec, ...]
 ) -> tuple[RunSpec, ...]:
-    completed = completion_ids(campaign_root, specs)
+    completed = CampaignSnapshot.completed_specs(campaign_root, specs)
     return tuple(
         spec
         for spec in specs

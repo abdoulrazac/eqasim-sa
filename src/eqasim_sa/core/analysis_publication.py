@@ -15,22 +15,20 @@ from typing import Callable, Mapping, Sequence
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from eqasim_sa.core import ledger
+from eqasim_sa.core.campaign_snapshot import (
+    CampaignSnapshot,
+    context_descriptor,
+    expected_records,
+)
 from eqasim_sa.core.durable_publication import (
     PublicationOutcomeUnknown,
-    StableFile,
-    capture_stable_file,
-    file_state,
     fsync_directory,
     replace_bytes_restorable,
     secure_directory,
     stable_file,
-    verify_stable_file,
     write_all,
 )
 from eqasim_sa.core.indicators import ArtifactSet
-from eqasim_sa.core.ledger import RunRecord
-from eqasim_sa.core.plan import MAX_PLAN_CELLS, MAX_PLAN_POSITIONS
 from eqasim_sa.core.software_identity import (
     SoftwareIdentity,
     verify_software_source_states,
@@ -43,7 +41,6 @@ ANALYSIS_STATE_DIRECTORY = "analysis"
 LEGACY_ANALYSIS_STATE_DIRECTORY = ".eqasim-sa-analysis"
 GENERATION_DOMAIN = b"eqasim-sa:analysis-generation:immutable-v1\0"
 PROVENANCE_DOMAIN = b"eqasim-sa:analysis-provenance:v1\0"
-RUN_SET_DOMAIN = b"eqasim-sa:analysis-run-set:v1\0"
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 OUTPUT_FILENAMES = frozenset(
@@ -100,33 +97,6 @@ class PublishedGeneration:
     manifest: Mapping[str, object]
 
 
-@dataclass(frozen=True)
-class PlanInspection:
-    path: Path
-    table: pa.Table
-    sha256: str
-    context_descriptor: dict | None
-    _source: StableFile
-
-
-@dataclass(frozen=True)
-class RunInspection:
-    expected_ids: frozenset[str]
-    completed_ids: frozenset[str]
-    execution_evidence: Mapping[str, ExecutionEvidence | None]
-
-
-@dataclass(frozen=True)
-class _SelectedRun:
-    expected: RunRecord
-    marker: StableFile
-    archive: Path
-    archive_state: tuple[int, int, int, int, int, int]
-    artifacts: tuple[StableFile, ...]
-    descriptor: dict
-    execution_evidence: ExecutionEvidence | None
-
-
 def _canonical(value: object) -> bytes:
     return json.dumps(
         value,
@@ -170,75 +140,6 @@ def _validate_generation_inventory(generations: Path) -> None:
                 )
 
 
-def _directory_state(path: Path) -> tuple[int, int, int, int, int, int]:
-    info = path.lstat()
-    if not stat.S_ISDIR(info.st_mode) or path.is_symlink():
-        raise ValueError(f"analysis archive is not a regular directory: {path}")
-    return file_state(info)
-
-
-def _context_descriptor(table: pa.Table) -> dict | None:
-    payload = (table.schema.metadata or {}).get(b"contextDescriptor")
-    if payload is None:
-        return None
-    try:
-        value = json.loads(payload)
-        if not isinstance(value, dict):
-            raise ValueError
-        _canonical(value)
-        return value
-    except (TypeError, UnicodeError, json.JSONDecodeError, ValueError) as error:
-        raise ValueError("plan contextDescriptor is invalid") from error
-
-
-def _expected_records(table: pa.Table, campaign: str) -> dict[str, RunRecord]:
-    if type(campaign) is not str or not campaign:
-        raise ValueError("campaign must be a non-empty string")
-    required = {"designId", "method", "role", "runId", "seed", "contextHash"}
-    if not required <= set(table.column_names) or any(
-        column.null_count for column in table.columns
-    ):
-        raise ValueError("plan schema or null values are invalid")
-    parameters = tuple(name for name in table.column_names if name not in required)
-    expected: dict[str, RunRecord] = {}
-    for row in table.to_pylist():
-        run_id = row["runId"]
-        if type(run_id) is not str or ledger.RUN_ID.fullmatch(run_id) is None:
-            raise ValueError("plan contains an invalid runId")
-        record = RunRecord(
-            run_id,
-            campaign,
-            row["seed"],
-            row["contextHash"],
-            "",
-            0.0,
-            {name: row[name] for name in parameters},
-        )
-        previous = expected.setdefault(run_id, record)
-        if previous != record:
-            raise ValueError(f"plan has inconsistent duplicate runId {run_id}")
-    return expected
-
-
-def _completion_descriptor(run_id: str, completion) -> dict:  # type: ignore[no-untyped-def]
-    evidence = completion.execution_evidence
-    evidence_bytes = evidence.canonical_bytes() if evidence is not None else None
-    return {
-        "runId": run_id,
-        "archiveIntegrity": completion.archive_integrity,
-        "artifacts": [
-            {"name": item.name, "size": item.size, "sha256": item.sha256}
-            for item in completion.artifacts
-        ],
-        "executionEvidenceSha256": (
-            hashlib.sha256(evidence_bytes).hexdigest() if evidence_bytes is not None else None
-        ),
-        "executionEvidence": (
-            json.loads(evidence_bytes) if evidence_bytes is not None else None
-        ),
-    }
-
-
 def validate_scientific_execution_evidence(
     table: pa.Table,
     campaign: str,
@@ -247,7 +148,7 @@ def validate_scientific_execution_evidence(
     *,
     allow_empty: bool = False,
 ) -> str | None:
-    expected = _expected_records(table, campaign)
+    expected = expected_records(table, campaign)
     if set(evidence_by_run) - set(expected):
         raise ValueError("scientific execution evidence names an unexpected run")
     if not evidence_by_run or all(
@@ -258,7 +159,7 @@ def validate_scientific_execution_evidence(
         raise ValueError("scientific analysis requires selected runs with execution evidence")
     try:
         software_sha256 = scientific_contract["software"]["eqasimSaSha256"]
-        descriptor = _context_descriptor(table)
+        descriptor = context_descriptor(table)
         model_commit = descriptor["eqasimCommit"]
     except (KeyError, TypeError) as error:
         raise ValueError("scientific contract or plan context is incomplete") from error
@@ -324,87 +225,6 @@ def dependency_versions(software_identity: SoftwareIdentity) -> dict[str, str]:
     return {name: versions[name] for name in sorted(versions)}
 
 
-def _capture_marker_names(campaign_root: Path) -> tuple[str, ...]:
-    for _ in range(32):
-        try:
-            return ledger._run_marker_names(campaign_root)
-        except ValueError as error:
-            cause = error.__cause__
-            if not (
-                isinstance(cause, RuntimeError)
-                and "changed while listing markers" in str(cause)
-            ):
-                raise
-    raise RuntimeError("could not capture a stable completion marker set")
-
-
-def inspect_plan(plan: Path) -> PlanInspection:
-    """Read and verify a plan without creating analysis publication state."""
-    source = stable_file(plan)
-    parquet = pq.ParquetFile(plan)
-    rows = parquet.metadata.num_rows
-    columns = len(parquet.schema_arrow)
-    if rows > MAX_PLAN_POSITIONS or rows * columns > MAX_PLAN_CELLS:
-        raise ValueError("plan exceeds the operational allocation cap")
-    table = parquet.read()
-    verify_stable_file(source)
-    return PlanInspection(
-        plan,
-        table,
-        source.sha256,
-        _context_descriptor(table),
-        source,
-    )
-
-
-def inspect_runs(
-    campaign_root: Path,
-    plan: PlanInspection,
-    campaign: str,
-    *,
-    allow_legacy_unbound: bool = False,
-) -> RunInspection:
-    """Inspect one stable completion-marker cut without copying its archives."""
-    expected = _expected_records(plan.table, campaign)
-    for _ in range(32):
-        entries = _capture_marker_names(campaign_root)
-        foreign = [
-            name
-            for name in entries
-            if not name.endswith(".parquet")
-            or name.removesuffix(".parquet") not in expected
-        ]
-        if foreign:
-            raise ValueError(f"invalid completion marker names: {sorted(foreign)}")
-        completed = []
-        evidence_by_run = {}
-        unstable = False
-        for marker_name in sorted(entries, key=os.fsencode):
-            run_id = marker_name.removesuffix(".parquet")
-            completion = ledger._completion_state(campaign_root, expected[run_id])
-            if completion is None:
-                unstable = True
-                break
-            if completion.archive_integrity != ledger.VERIFIED and not (
-                allow_legacy_unbound
-                and completion.archive_integrity == ledger.LEGACY_UNBOUND
-            ):
-                raise ValueError(
-                    f"run {run_id} requires a verified v2 completion marker for analysis"
-                )
-            completed.append(run_id)
-            evidence_by_run[run_id] = completion.execution_evidence
-        if unstable or _capture_marker_names(campaign_root) != entries:
-            continue
-        verify_stable_file(plan._source)
-        return RunInspection(
-            frozenset(expected),
-            frozenset(completed),
-            MappingProxyType(evidence_by_run),
-        )
-    raise RuntimeError("could not inspect a stable completion marker set")
-
-
 class AnalysisPublication:
     def __init__(self, campaign_root: Path) -> None:
         self.campaign_root = campaign_root
@@ -438,8 +258,7 @@ class AnalysisPublication:
         self.capture_directory.mkdir(mode=0o700)
         self.generation_staging.mkdir(mode=0o700)
         fsync_directory(self.staging)
-        self._plan_source: StableFile | None = None
-        self._selected: tuple[_SelectedRun, ...] = ()
+        self._snapshot: CampaignSnapshot | None = None
         self._published = False
 
     def __enter__(self) -> "AnalysisPublication":
@@ -450,184 +269,45 @@ class AnalysisPublication:
             shutil.rmtree(self.work)
             fsync_directory(self.staging)
 
-    def capture_plan(
-        self, plan: Path, expected: PlanInspection | None = None
-    ) -> PlanCapture:
-        destination = self.capture_directory / "plan.parquet"
-        if expected is not None:
-            verify_stable_file(expected._source)
-        self._plan_source = capture_stable_file(
-            plan,
-            destination,
-            expected_size=expected._source.size if expected is not None else None,
-            expected_sha256=expected.sha256 if expected is not None else None,
-        )
-        table = pq.read_table(destination)
-        return PlanCapture(
-            destination,
-            table,
-            self._plan_source.sha256,
-            _context_descriptor(table),
-        )
-
-    def capture_runs(
+    def capture(
         self,
-        table: pa.Table,
-        campaign: str,
+        snapshot: CampaignSnapshot,
         scientific_contract: dict | None = None,
         *,
         allow_empty_scientific_evidence: bool = False,
-        allow_legacy_unbound: bool = False,
-    ) -> RunCapture:
-        expected = _expected_records(table, campaign)
-        entries = _capture_marker_names(self.campaign_root)
-        foreign = [
-            name
-            for name in entries
-            if not name.endswith(".parquet")
-            or name.removesuffix(".parquet") not in expected
-        ]
-        if foreign:
-            raise ValueError(f"invalid completion marker names: {sorted(foreign)}")
-        artifacts_by_run: dict[str, ArtifactSet] = {}
-        selected = []
-        descriptors = []
-        for marker_name in sorted(entries, key=os.fsencode):
-            run_id = marker_name.removesuffix(".parquet")
-            record = expected[run_id]
-            completion = ledger._completion_state(self.campaign_root, record)
-            if completion is None:
-                raise RuntimeError("captured completion marker disappeared")
-            if completion.archive_integrity != ledger.VERIFIED and not (
-                allow_legacy_unbound
-                and completion.archive_integrity == ledger.LEGACY_UNBOUND
-            ):
-                raise ValueError(
-                    f"run {run_id} requires a verified v2 completion marker for analysis"
-                )
-            descriptor = _completion_descriptor(run_id, completion)
-            marker = stable_file(
-                self.campaign_root / "runs" / f"{run_id}.parquet"
-            )
-            archive = self.campaign_root / "archives" / run_id
-            archive_state = _directory_state(archive)
-            destination = self.capture_directory / "artifacts" / run_id
-            destination.mkdir(parents=True, mode=0o700)
-            copied_paths = {}
-            source_snapshots = []
-            if completion.archive_integrity == ledger.VERIFIED:
-                artifact_sources = tuple(
-                    (archive / item.name, item.size, item.sha256)
-                    for item in completion.artifacts
-                )
-            else:
-                entries = tuple(
-                    sorted(archive.iterdir(), key=lambda path: os.fsencode(path.name))
-                )
-                if not entries or any(
-                    entry.suffix != ".parquet"
-                    or entry.is_symlink()
-                    or not entry.is_file()
-                    for entry in entries
-                ):
-                    raise ValueError(
-                        f"legacy archive for run {run_id} must contain only parquet artifacts"
-                    )
-                if len({entry.stem for entry in entries}) != len(entries):
-                    raise ValueError(
-                        f"legacy archive for run {run_id} has duplicate artifact names"
-                    )
-                artifact_sources = tuple((entry, None, None) for entry in entries)
-            captured_artifacts = []
-            for source, expected_size, expected_sha256 in artifact_sources:
-                target = destination / source.name
-                snapshot = capture_stable_file(
-                    source,
-                    target,
-                    expected_size=expected_size,
-                    expected_sha256=expected_sha256,
-                )
-                source_snapshots.append(snapshot)
-                copied_paths[source.stem] = target
-                captured_artifacts.append(
-                    {
-                        "name": source.name,
-                        "size": snapshot.size,
-                        "sha256": snapshot.sha256,
-                    }
-                )
-            fsync_directory(destination)
-            current = ledger._completion_state(self.campaign_root, record)
-            if (
-                current is None
-                or _completion_descriptor(run_id, current) != descriptor
-                or _directory_state(archive) != archive_state
-            ):
-                raise RuntimeError(f"selected run {run_id} changed while being captured")
-            verify_stable_file(marker)
-            artifacts_by_run[run_id] = ArtifactSet(copied_paths)
-            captured_descriptor = {**descriptor, "artifacts": captured_artifacts}
-            selected.append(
-                _SelectedRun(
-                    record,
-                    marker,
-                    archive,
-                    archive_state,
-                    tuple(source_snapshots),
-                    descriptor,
-                    completion.execution_evidence,
-                )
-            )
-            descriptors.append(
-                {
-                    "runId": run_id,
-                    "campaign": record.campaign,
-                    "seed": record.seed,
-                    "contextHash": record.context_hash,
-                    "parameters": record.parameters,
-                    "markerSha256": marker.sha256,
-                    "archiveIntegrity": captured_descriptor["archiveIntegrity"],
-                    "artifacts": captured_descriptor["artifacts"],
-                    "executionEvidenceSha256": captured_descriptor[
-                        "executionEvidenceSha256"
-                    ],
-                    "executionEvidence": captured_descriptor["executionEvidence"],
-                }
-            )
-        self._selected = tuple(selected)
-        run_set_descriptor = {"schemaVersion": 1, "runs": descriptors}
-        run_set_sha256 = _domain_digest(RUN_SET_DOMAIN, run_set_descriptor)
-        run_set_document = {
-            **run_set_descriptor,
-            "capturedRunSetSha256": run_set_sha256,
-        }
+    ) -> tuple[PlanCapture, RunCapture]:
+        if snapshot.campaign_root != self.campaign_root:
+            raise ValueError("campaign snapshot belongs to another campaign root")
+        materialized = snapshot.materialize(self.capture_directory / "campaign")
+        self._snapshot = snapshot
+        evidence = snapshot.execution_evidence
         if scientific_contract is not None:
             scientific_evidence_sha256 = validate_scientific_execution_evidence(
-                table,
-                campaign,
-                {
-                    item.expected.run_id: item.execution_evidence
-                    for item in selected
-                },
+                snapshot.plan_table,
+                snapshot.campaign,
+                evidence,
                 scientific_contract,
                 allow_empty=allow_empty_scientific_evidence,
             )
         else:
             scientific_evidence_sha256 = None
             if allow_empty_scientific_evidence:
-                validate_descriptive_execution_evidence(
-                    {
-                        item.expected.run_id: item.execution_evidence
-                        for item in selected
-                    }
-                )
-        return RunCapture(
-            frozenset(expected),
-            frozenset(item.expected.run_id for item in selected),
-            MappingProxyType(artifacts_by_run),
-            run_set_sha256,
-            MappingProxyType(run_set_document),
-            scientific_evidence_sha256,
+                validate_descriptive_execution_evidence(evidence)
+        return (
+            PlanCapture(
+                materialized.plan_path,
+                snapshot.plan_table,
+                snapshot.plan_sha256,
+                snapshot.context_descriptor,
+            ),
+            RunCapture(
+                snapshot.expected_ids,
+                snapshot.completed_ids,
+                materialized.artifacts,
+                materialized.run_set_sha256,
+                materialized.run_set_document,
+                scientific_evidence_sha256,
+            ),
         )
 
     def stage_path(self, filename: str) -> Path:
@@ -636,35 +316,9 @@ class AnalysisPublication:
         return self.generation_staging / filename
 
     def verify_sources(self) -> None:
-        try:
-            if self._plan_source is None:
-                raise RuntimeError("analysis plan was not captured")
-            verify_stable_file(self._plan_source)
-            for selected in self._selected:
-                verify_stable_file(selected.marker)
-                if _directory_state(selected.archive) != selected.archive_state:
-                    raise RuntimeError(
-                        f"selected analysis archive changed: {selected.archive}"
-                    )
-                for artifact in selected.artifacts:
-                    verify_stable_file(artifact)
-                completion = ledger._completion_state(
-                    self.campaign_root, selected.expected
-                )
-                if (
-                    completion is None
-                    or completion.archive_integrity
-                    != selected.descriptor["archiveIntegrity"]
-                    or _completion_descriptor(selected.expected.run_id, completion)
-                    != selected.descriptor
-                ):
-                    raise RuntimeError(
-                        f"selected run {selected.expected.run_id} changed"
-                    )
-        except RuntimeError:
-            raise
-        except Exception as error:
-            raise RuntimeError("selected analysis sources changed during analysis") from error
+        if self._snapshot is None:
+            raise RuntimeError("analysis campaign was not captured")
+        self._snapshot.verify()
 
     def publish(
         self,

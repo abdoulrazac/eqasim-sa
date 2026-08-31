@@ -12,9 +12,14 @@ import pytest
 
 from eqasim_sa.core import ledger
 from eqasim_sa.core import durable_publication
-from eqasim_sa.core.ledger import RunRecord, is_complete, run_path, write_run
+from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
+from eqasim_sa.core.ledger import RunRecord, run_path, write_run
 from eqasim_sa.core.run import RunSpec, compute_run_id, pending_run_specs
 from eqasim_sa.ports.simulator import EXECUTION_EVIDENCE_DOMAIN, ExecutionEvidence
+
+
+def is_complete(campaign_root: Path, current: RunSpec) -> bool:
+    return CampaignSnapshot.run_completed(campaign_root, current)
 
 
 def codecs(path: Path) -> set[str]:
@@ -362,7 +367,7 @@ def test_archive_transaction_marker_race_is_no_clobber_and_self_consistent(
     assert all(not thread.is_alive() for thread in threads)
     assert len(committed) == 1, [repr(error) for error in errors]
     assert len(errors) == 1 and isinstance(errors[0], FileExistsError)
-    completion = ledger._completion_state(tmp_path, expected_record(spec))
+    completion = ledger.completion_state(tmp_path, expected_record(spec))
     assert completion is not None and completion.archive_integrity == ledger.VERIFIED
     archive = tmp_path / "archives" / record.run_id / "output.parquet"
     assert pq.read_table(archive).to_pylist() == [{"value": committed[0]}]
@@ -434,7 +439,7 @@ def test_v2_marker_has_canonical_manifest_and_copies_zstd_bytes(
         }
     ]
     assert artifact.read_bytes() == source_bytes
-    state = ledger._completion_state(tmp_path, expected_record(spec))
+    state = ledger.completion_state(tmp_path, expected_record(spec))
     assert state is not None and state.archive_integrity == ledger.VERIFIED
     assert is_complete(tmp_path, spec)
 
@@ -452,7 +457,7 @@ def test_v2_marker_binds_canonical_execution_evidence(tmp_path: Path) -> None:
         document, sort_keys=True, separators=(",", ":")
     ).encode()
     assert digest == hashlib.sha256(EXECUTION_EVIDENCE_DOMAIN + descriptor).hexdigest()
-    state = ledger._completion_state(tmp_path, expected_record(spec))
+    state = ledger.completion_state(tmp_path, expected_record(spec))
     assert state is not None and state.execution_evidence == expected
 
 
@@ -584,7 +589,7 @@ def test_v1_marker_is_read_as_legacy_unbound_without_migration(
         pq.write_table(table, marker, compression="zstd")
     before = marker.read_bytes()
 
-    state = ledger._completion_state(tmp_path, expected_record(spec))
+    state = ledger.completion_state(tmp_path, expected_record(spec))
 
     assert state is not None
     assert state.archive_integrity == ledger.LEGACY_UNBOUND

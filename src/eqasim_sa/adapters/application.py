@@ -46,15 +46,10 @@ from eqasim_sa.core.analysis_publication import (
     OUTPUT_FILENAMES,
 )
 from eqasim_sa.core.analyze import analyze
+from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
 from eqasim_sa.core.charter import serialize_scientific_contract
 from eqasim_sa.core.indicators import ArtifactSet
-from eqasim_sa.core.ledger import (
-    campaign_lock,
-    completion_duration,
-    completion_ids,
-    completion_scratch_bytes,
-    run_path,
-)
+from eqasim_sa.core.ledger import campaign_lock
 from eqasim_sa.core.plan import (
     CanonicalMorrisDesign,
     DiscreteOATDesign,
@@ -634,68 +629,46 @@ def _estimate_state(
             continue
         seen.add(root)
         plan = root / "plan.parquet"
+        plan_snapshot = CampaignSnapshot.inspect_plan(plan)
         plan_state = _file_state(plan)
-        if snapshot is not None:
-            snapshot.append((plan, plan_state))
         specs = load_run_specs(plan, _design(meta), meta.campaign)
         _remaining(deadline)
-        positions = pq.ParquetFile(plan).metadata.num_rows
-        if _file_state(plan) != plan_state:
-            raise RuntimeError(f"calibration plan mutated while reading {plan}")
+        try:
+            campaign_snapshot = CampaignSnapshot.capture(
+                root,
+                plan,
+                meta.campaign,
+                allow_legacy_unbound=True,
+                inspected_plan=plan_snapshot,
+            )
+        except RuntimeError as error:
+            if str(plan) in str(error):
+                raise RuntimeError(f"plan mutated while estimating {plan}") from error
+            raise RuntimeError(
+                f"calibration source mutated while reading {root}"
+            ) from error
+        positions = len(campaign_snapshot.plan_table)
         if root == target_root:
             target_specs, target_plan_state, design_positions = (
                 specs,
                 plan_state,
                 positions,
             )
-        complete = completion_ids(root, specs)
-        for spec in specs:
-            run_id = compute_run_id(spec.resolved_config, spec.seed)
-            if run_id not in complete:
-                continue
-            marker = run_path(root, run_id)
-            archive = root / "archives" / run_id
-            if archive.is_symlink() or not archive.is_dir():
-                raise ValueError(
-                    f"invalid archive for {run_id}: regular directory required"
+        if snapshot is not None:
+            snapshot.append((plan, plan_state))
+            for selected in campaign_snapshot.runs.values():
+                snapshot.append((selected.archive, _file_state(selected.archive)))
+                snapshot.append((selected.marker.path, _file_state(selected.marker.path)))
+                snapshot.extend(
+                    (artifact.path, _file_state(artifact.path))
+                    for artifact in selected.artifacts
                 )
-            entries = tuple(sorted(archive.iterdir(), key=lambda item: item.name))
-            if not entries or any(
-                entry.is_symlink() or not entry.is_file() or entry.suffix != ".parquet"
-                for entry in entries
-            ):
-                raise ValueError(
-                    f"invalid archive for {run_id}: only flat regular Parquet files allowed"
-                )
-            before = tuple((entry, _file_state(entry)) for entry in (marker, *entries))
-            archive_state = _file_state(archive)
-            try:
-                for entry in entries:
-                    pq.ParquetFile(entry).metadata
-            except Exception as error:
-                raise ValueError(f"invalid archive for {run_id}: {error}") from error
-            _remaining(deadline)
-            duration = completion_duration(root, spec)
-            scratch_bytes = completion_scratch_bytes(root, spec)
-            if duration is None:
-                raise RuntimeError(f"completion marker disappeared for {run_id}")
-            if scratch_bytes is None:
-                raise RuntimeError(f"completion marker disappeared for {run_id}")
-            after_entries = tuple(sorted(archive.iterdir(), key=lambda item: item.name))
-            after = tuple(
-                (entry, _file_state(entry)) for entry in (marker, *after_entries)
+        observations.extend(campaign_snapshot.measurements)
+        if root == target_root:
+            target_durable += sum(
+                selected.durable_bytes
+                for selected in campaign_snapshot.runs.values()
             )
-            if before != after:
-                raise RuntimeError(f"calibration source mutated while reading {run_id}")
-            if snapshot is not None:
-                snapshot.extend(((archive, archive_state), *before))
-            observations.append(
-                (duration, sum(state[2] for _, state in before), scratch_bytes)
-            )
-            if root == target_root:
-                target_durable += before[0][1][2] + sum(
-                    state[2] for _, state in before[1:]
-                )
     target_plan = target_root / "plan.parquet"
     if target_plan_state is None or _file_state(target_plan) != target_plan_state:
         raise RuntimeError(f"target plan mutated while estimating {target_plan}")
@@ -985,7 +958,10 @@ def _smoke(meta, specs) -> None:  # type: ignore[no-untyped-def]
                 ]
                 raise RuntimeError("; ".join(details))
             expected_ids = {result.run_id for result in results}
-            if completion_ids(campaign_root, tuple(smoke_specs)) != expected_ids:
+            if (
+                CampaignSnapshot.completed_specs(campaign_root, tuple(smoke_specs))
+                != expected_ids
+            ):
                 details = [
                     f"{run_id}: {_smoke_log(campaign_root, run_id) or 'incomplete marker'}"
                     for run_id in sorted(expected_ids)
