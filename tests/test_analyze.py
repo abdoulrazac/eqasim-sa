@@ -807,7 +807,7 @@ def test_all_scientific_and_oat_plans_are_fully_validated_before_run_state_or_pl
         analyze(root, (indicator,), **options)
 
     assert calls == []
-    assert not (root / ".eqasim-sa-analysis").exists()
+    assert not (root / "analysis").exists()
     assert not (root / "analysis-generation.json").exists()
 
 
@@ -853,7 +853,7 @@ def test_sobol_bootstrap_caps_precede_qmc_artifact_capture_and_plugins(
 
     assert calls == []
     assert _tree_snapshot(root) == before
-    assert not (root / ".eqasim-sa-analysis").exists()
+    assert not (root / "analysis").exists()
 
 
 def test_multiscramble_descriptive_only_publishes_partial_campaign_without_inference(
@@ -889,7 +889,7 @@ def test_multiscramble_descriptive_only_publishes_partial_campaign_without_infer
 
     with pytest.raises(ValueError, match="below threshold"):
         analyze(design.campaign_root, (_scientific_indicator(),), **options)
-    assert not (design.campaign_root / ".eqasim-sa-analysis").exists()
+    assert not (design.campaign_root / "analysis").exists()
 
     result = analyze(
         design.campaign_root,
@@ -1061,7 +1061,7 @@ def test_legacy_scientific_refuses_inference_before_runs_or_indicator_runtime(
     ):
         analyze(root, (_custom_indicator(),), **options)
 
-    assert not (root / ".eqasim-sa-analysis").exists()
+    assert not (root / "analysis").exists()
     assert not (root / "analysis-generation.json").exists()
 
 
@@ -1112,7 +1112,7 @@ def test_legacy_scientific_descriptive_reader_rejects_tampering(
             **options,
         )
 
-    assert not (root / ".eqasim-sa-analysis").exists()
+    assert not (root / "analysis").exists()
 
 
 @pytest.mark.parametrize(
@@ -1791,6 +1791,72 @@ def test_analyze_rebuilds_long_zstd_view_for_complete_runs_only(tmp_path: Path) 
     assert _snapshot(root) == before
 
 
+def test_analyze_rejects_foreign_analysis_directory_without_modification(
+    tmp_path: Path,
+) -> None:
+    root, _ = _campaign(tmp_path)
+    state = root / "analysis"
+    state.mkdir()
+    note = state / "user-notes.txt"
+    note.write_text("do not adopt\n")
+    before = _tree_snapshot(root)
+
+    with pytest.raises(ValueError, match="unexpected root content"):
+        _analyze(root, (_custom_indicator(),))
+
+    assert _tree_snapshot(root) == before
+    assert note.read_text() == "do not adopt\n"
+    assert not (root / "analysis-generation.json").exists()
+
+
+def test_analyze_rejects_nonempty_analysis_staging_before_creating_generations(
+    tmp_path: Path,
+) -> None:
+    root, _ = _campaign(tmp_path)
+    staging = root / "analysis/staging"
+    staging.mkdir(parents=True)
+    (staging / "user-work.txt").write_text("do not adopt\n")
+    before = _tree_snapshot(root)
+
+    with pytest.raises(ValueError, match="staging must be empty"):
+        _analyze(root, (_custom_indicator(),))
+
+    assert _tree_snapshot(root) == before
+    assert not (root / "analysis/generations").exists()
+
+
+def test_analyze_preflights_existing_analysis_children_before_creating_missing_ones(
+    tmp_path: Path,
+) -> None:
+    root, _ = _campaign(tmp_path)
+    state = root / "analysis"
+    state.mkdir()
+    (state / "generations").write_text("not a directory\n")
+    before = _tree_snapshot(root)
+
+    with pytest.raises(ValueError, match="regular non-symlink directory"):
+        _analyze(root, (_custom_indicator(),))
+
+    assert _tree_snapshot(root) == before
+    assert not (state / "staging").exists()
+
+
+def test_analyze_rejects_foreign_generation_inventory_before_creating_staging(
+    tmp_path: Path,
+) -> None:
+    root, _ = _campaign(tmp_path)
+    foreign = root / "analysis/generations/user-data"
+    foreign.mkdir(parents=True)
+    (foreign / "notes.txt").write_text("do not adopt\n")
+    before = _tree_snapshot(root)
+
+    with pytest.raises(ValueError, match="generations contain unexpected content"):
+        _analyze(root, (_custom_indicator(),))
+
+    assert _tree_snapshot(root) == before
+    assert not (root / "analysis/staging").exists()
+
+
 def test_manifest_v7_seals_immutable_outputs_and_complete_provenance(
     tmp_path: Path,
 ) -> None:
@@ -1814,6 +1880,10 @@ def test_manifest_v7_seals_immutable_outputs_and_complete_provenance(
     assert manifest["version"] == 7
     assert manifest["layout"] == "immutable-generation-v1"
     assert re.fullmatch(r"[0-9a-f]{64}", manifest["generationId"])
+    assert manifest["generationPath"] == (
+        f"analysis/generations/{manifest['generationId']}"
+    )
+    assert ".eqasim-sa-analysis/" not in json.dumps(manifest)
     assert result.path.parent == root / manifest["generationPath"]
     assert set(manifest["outputs"]) == {
         "capturedRunSet",
@@ -2378,8 +2448,8 @@ def test_manifest_failure_keeps_previous_pointer_and_leaves_only_immutable_orpha
     assert (root / "analysis-generation.json").read_bytes() == pointer
     assert current.path.is_file()
     assert stale.read_bytes() == b"stale ranking"
-    assert not any((root / ".eqasim-sa-analysis/staging").iterdir())
-    assert len(tuple((root / ".eqasim-sa-analysis/generations").iterdir())) == 2
+    assert not any((root / "analysis/staging").iterdir())
+    assert len(tuple((root / "analysis/generations").iterdir())) == 2
 
 
 def test_manifest_post_replace_fsync_failure_restores_previous_pointer(
@@ -2476,7 +2546,7 @@ def test_manifest_failed_rollback_raises_distinct_outcome_unknown_error(
         )
 
     assert fsync_failed
-    assert tuple((root / ".eqasim-sa-analysis/staging").glob("*.backup"))
+    assert tuple((root / "analysis/staging").glob("*.backup"))
 
 
 def test_legacy_cleanup_failure_does_not_fail_committed_analysis(
@@ -2521,8 +2591,8 @@ def test_generation_rename_failure_keeps_previous_pointer_and_generation(
 
     assert (root / "analysis-generation.json").read_bytes() == pointer
     assert current.path.is_file()
-    assert not any((root / ".eqasim-sa-analysis/staging").iterdir())
-    assert tuple((root / ".eqasim-sa-analysis/generations").iterdir()) == (
+    assert not any((root / "analysis/staging").iterdir())
+    assert tuple((root / "analysis/generations").iterdir()) == (
         current.path.parent,
     )
 
@@ -2685,7 +2755,7 @@ def test_adapter_preflights_current_plan_and_uses_committed_generation_paths(
     payload = analyze_from_meta_config(tmp_path / "changed-meta.yml")
     assert payload["values"] == 2
     assert payload["dispersionPath"].endswith("/replication-dispersion.parquet")
-    assert "/.eqasim-sa-analysis/generations/" in payload["dispersionPath"]
+    assert "/analysis/generations/" in payload["dispersionPath"]
     assert payload["sensitivityMethod"] is None and payload["sensitivityPath"] is None
     assert payload | {} == {
         **payload,
@@ -2848,7 +2918,7 @@ def test_completeness_refusal_calls_no_plugin_and_preserves_outputs(
             completeness_threshold=0.5,
         )
     assert _tree_snapshot(root) == before
-    assert not (root / ".eqasim-sa-analysis").exists()
+    assert not (root / "analysis").exists()
     assert {path: path.read_bytes() for path in outputs} == outputs
 
 

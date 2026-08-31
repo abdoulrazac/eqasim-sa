@@ -41,6 +41,7 @@ from eqasim_sa.adapters.worker import execute_batch, ordered_results, worker_bat
 from eqasim_sa.cli import dispatch
 from eqasim_sa.core.analysis_publication import (
     ANALYSIS_STATE_DIRECTORY,
+    LEGACY_ANALYSIS_STATE_DIRECTORY,
     OUTPUT_FILENAMES,
 )
 from eqasim_sa.core.analyze import analyze
@@ -1222,14 +1223,18 @@ def _init_campaign_allowed(
     derived = INIT_DERIVED["grid" if method == "calibration" else method]
     allowed = {
         "plan.parquet", "runs", "archives", "logs", ".eqasim-sa-tmp",
-        ".eqasim-sa-run-locks", ANALYSIS_STATE_DIRECTORY, *derived,
+        ".eqasim-sa-run-locks", ANALYSIS_STATE_DIRECTORY,
+        LEGACY_ANALYSIS_STATE_DIRECTORY, *derived,
     }
     temporary = re.compile(r"\.([0-9a-f]{32})\.parquet\.([A-Za-z0-9_-]+)\.tmp")
     backup = re.compile(r"\.([0-9a-f]{32})\.parquet\.([A-Za-z0-9_-]+)\.backup")
     for entry in root.iterdir():
         if entry.is_symlink() or entry.name not in allowed:
             raise FileExistsError(f"foreign content in init campaign: {entry.name}")
-        if entry.name == ANALYSIS_STATE_DIRECTORY:
+        if entry.name in {
+            ANALYSIS_STATE_DIRECTORY,
+            LEGACY_ANALYSIS_STATE_DIRECTORY,
+        }:
             _analysis_state_allowed(entry, method)
             continue
         if entry.name == "plan.parquet" or entry.name in derived:
@@ -1331,6 +1336,7 @@ def _init_campaign_allowed(
 
 
 def _analysis_state_allowed(path: Path, method: str) -> None:
+    state_name = path.name
     info = path.lstat()
     if (
         not stat.S_ISDIR(info.st_mode)
@@ -1338,25 +1344,25 @@ def _analysis_state_allowed(path: Path, method: str) -> None:
         or path.is_symlink()
     ):
         raise FileExistsError(
-            f"foreign content in init campaign: {ANALYSIS_STATE_DIRECTORY}"
+            f"foreign content in init campaign: {state_name}"
         )
     children = {entry.name: entry for entry in path.iterdir()}
     if set(children) - {"staging", "generations"}:
         raise FileExistsError(
-            f"foreign content in init campaign: {ANALYSIS_STATE_DIRECTORY}"
+            f"foreign content in init campaign: {state_name}"
         )
     staging = children.get("staging")
     if staging is not None:
         if staging.is_symlink() or not staging.is_dir() or any(staging.iterdir()):
             raise FileExistsError(
-                f"foreign content in init campaign: {ANALYSIS_STATE_DIRECTORY}/staging"
+                f"foreign content in init campaign: {state_name}/staging"
             )
     generations = children.get("generations")
     if generations is None:
         return
     if generations.is_symlink() or not generations.is_dir():
         raise FileExistsError(
-            f"foreign content in init campaign: {ANALYSIS_STATE_DIRECTORY}/generations"
+            f"foreign content in init campaign: {state_name}/generations"
         )
     for generation in generations.iterdir():
         if (
@@ -1365,17 +1371,18 @@ def _analysis_state_allowed(path: Path, method: str) -> None:
             or re.fullmatch(r"[0-9a-f]{64}", generation.name) is None
         ):
             raise FileExistsError(
-                f"foreign content in init campaign: {ANALYSIS_STATE_DIRECTORY}/generations"
+                f"foreign content in init campaign: {state_name}/generations"
             )
         outputs = tuple(generation.iterdir())
         if not outputs or any(output.name not in OUTPUT_FILENAMES for output in outputs):
             raise FileExistsError(
-                f"foreign content in init campaign: {ANALYSIS_STATE_DIRECTORY}/generations/{generation.name}"
+                f"foreign content in init campaign: {state_name}/generations/"
+                f"{generation.name}"
             )
         for output in outputs:
             _regular(
                 output,
-                f"campaigns/{method}/{ANALYSIS_STATE_DIRECTORY}/generations/"
+                f"campaigns/{method}/{state_name}/generations/"
                 f"{generation.name}/{output.name}",
             )
 

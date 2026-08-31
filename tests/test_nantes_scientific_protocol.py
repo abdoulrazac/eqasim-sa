@@ -140,6 +140,7 @@ def _promote_evidence_to_v7(
     logical_name: str,
     path_field: str,
     digest_field: str,
+    state_directory: str = "analysis",
 ) -> Path:
     manifest_path = root / "analysis-generation.json"
     manifest = json.loads(manifest_path.read_text())
@@ -147,7 +148,7 @@ def _promote_evidence_to_v7(
     generation_id = hashlib.sha256(
         f"test-generation:{filename}".encode()
     ).hexdigest()
-    generation = root / ".eqasim-sa-analysis/generations" / generation_id
+    generation = root / state_directory / "generations" / generation_id
     generation.mkdir(parents=True)
     destination = generation / filename
     source.rename(destination)
@@ -355,8 +356,9 @@ def test_renderer_outputs_loadable_buildable_protocols_with_exact_contract(
     assert screening_digest in (rendered / TEMPLATES[3]).read_text()
 
 
+@pytest.mark.parametrize("state_directory", ["analysis", ".eqasim-sa-analysis"])
 def test_renderer_accepts_v6_and_v7_immutable_generation_evidence(
-    tmp_path: Path,
+    tmp_path: Path, state_directory: str,
 ) -> None:
     paths = _fixture_paths(tmp_path)
 
@@ -375,6 +377,7 @@ def test_renderer_accepts_v6_and_v7_immutable_generation_evidence(
         "replicationAllocation",
         "replicationAllocationPath",
         "replicationAllocationSha256",
+        state_directory,
     )
     report = _promote_evidence_to_v7(
         paths["screening"],
@@ -382,6 +385,7 @@ def test_renderer_accepts_v6_and_v7_immutable_generation_evidence(
         "governedReport",
         "governedReportPath",
         "governedReportSha256",
+        state_directory,
     )
     production = _render(
         TEMPLATES[1],
@@ -397,6 +401,37 @@ def test_renderer_accepts_v6_and_v7_immutable_generation_evidence(
     )
     assert _digest(allocation) in production.read_text()
     assert _digest(report) in prioritization.read_text()
+
+
+def test_renderer_rejects_unrecognized_v7_generation_parent(tmp_path: Path) -> None:
+    paths = _fixture_paths(tmp_path)
+    _promote_evidence_to_v7(
+        paths["pilot"],
+        "replication-allocation.json",
+        "replicationAllocation",
+        "replicationAllocationPath",
+        "replicationAllocationSha256",
+    )
+    manifest_path = paths["pilot"] / "analysis-generation.json"
+    manifest = json.loads(manifest_path.read_text())
+    generation_id = manifest["generationId"]
+    unsupported_parent = f"results/generations/{generation_id}"
+    unsupported_path = f"{unsupported_parent}/replication-allocation.json"
+    manifest["generationPath"] = unsupported_parent
+    manifest["replicationAllocationPath"] = unsupported_path
+    manifest["outputs"]["replicationAllocation"]["path"] = unsupported_path
+    _write_json(manifest_path, manifest)
+
+    output = tmp_path / "unsupported-parent.yml"
+    result = subprocess.run(
+        _render_command(TEMPLATES[1], output, paths, tmp_path / "campaign"),
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "explicitly supported immutable generation" in result.stderr
+    assert not output.exists()
 
 
 @pytest.mark.parametrize("unsafe", ["/absolute.json", "../escape.json"])

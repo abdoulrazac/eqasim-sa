@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import shlex
 import subprocess
@@ -243,7 +244,10 @@ def test_init_rejects_malformed_or_inconsistent_project_manifest(tmp_path: Path)
         init_from_inputs("my-study", root, model, data, None, invocation())
 
 
-def test_init_rerun_accepts_user_created_campaign_state(tmp_path: Path) -> None:
+@pytest.mark.parametrize("analysis_state_name", ["analysis", ".eqasim-sa-analysis"])
+def test_init_rerun_accepts_user_created_campaign_state(
+    tmp_path: Path, analysis_state_name: str,
+) -> None:
     _, root, model, data = initialize(tmp_path, "project")
     campaign = root / "campaigns/grid"
     campaign.mkdir()
@@ -263,7 +267,7 @@ def test_init_rerun_accepts_user_created_campaign_state(tmp_path: Path) -> None:
         (archive / f"{name}.parquet").write_bytes(b"owned")
     pq.write_table(pa.table({"value": [1.0]}), campaign / "indicators.parquet")
     (campaign / "analysis-generation.json").write_text("{}\n")
-    analysis_state = campaign / ".eqasim-sa-analysis"
+    analysis_state = campaign / analysis_state_name
     (analysis_state / "staging").mkdir(parents=True)
     generation = analysis_state / "generations" / ("b" * 64)
     generation.mkdir(parents=True)
@@ -288,6 +292,30 @@ def test_init_rerun_accepts_user_created_campaign_state(tmp_path: Path) -> None:
         path: (path.read_bytes(), path.stat().st_mtime_ns, path.stat().st_nlink)
         for path in protected
     } == protected
+
+
+@pytest.mark.parametrize("analysis_state_name", ["analysis", ".eqasim-sa-analysis"])
+def test_init_reports_the_inspected_analysis_state_name(
+    tmp_path: Path, analysis_state_name: str,
+) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    campaign = root / "campaigns/grid"
+    campaign.mkdir()
+    pq.write_table(
+        pa.table({"runId": ["a" * 32]}),
+        campaign / "plan.parquet",
+    )
+    state = campaign / analysis_state_name
+    state.mkdir()
+    (state / "foreign.txt").write_text("not owned\n")
+
+    with pytest.raises(
+        FileExistsError,
+        match=rf"init campaign: {re.escape(analysis_state_name)}",
+    ):
+        init_from_inputs("project", root, model, data, None, invocation())
+
+    assert (state / "foreign.txt").read_text() == "not owned\n"
 
 
 def test_init_rejects_unsafe_or_foreign_state_without_publication(tmp_path: Path) -> None:

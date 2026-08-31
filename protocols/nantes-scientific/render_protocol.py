@@ -478,14 +478,22 @@ def _manifest_evidence(
             raise ValueError("manifest.generationId must be a lowercase SHA-256 digest")
         if type(selected_path) is not str:
             raise ValueError(f"manifest.{path_field} must be a relative path")
-        expected_parent = PurePosixPath(
-            ".eqasim-sa-analysis", "generations", generation_id
-        )
-        _exact(
-            manifest.get("generationPath"),
-            expected_parent.as_posix(),
-            "manifest.generationPath",
-        )
+        allowed_parents = {
+            PurePosixPath(
+                state, "generations", generation_id
+            ).as_posix(): PurePosixPath(state, "generations", generation_id)
+            for state in ("analysis", ".eqasim-sa-analysis")
+        }
+        generation_path = manifest.get("generationPath")
+        if (
+            type(generation_path) is not str
+            or generation_path not in allowed_parents
+        ):
+            raise ValueError(
+                "manifest.generationPath must select an explicitly supported "
+                "immutable generation"
+            )
+        expected_parent = allowed_parents[generation_path]
         selected = PurePosixPath(selected_path)
         if selected.parent != expected_parent or selected.name != evidence_name:
             raise ValueError(

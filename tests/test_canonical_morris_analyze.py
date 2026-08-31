@@ -472,7 +472,7 @@ def test_canonical_descriptive_only_publishes_partial_or_empty_outputs_without_i
 
     with pytest.raises(ValueError, match="below threshold"):
         analyze(design.campaign_root, (indicator,), **options)
-    assert not (design.campaign_root / ".eqasim-sa-analysis").exists()
+    assert not (design.campaign_root / "analysis").exists()
 
     result = analyze(
         design.campaign_root,

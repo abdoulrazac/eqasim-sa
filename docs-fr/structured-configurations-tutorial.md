@@ -167,18 +167,23 @@ attribut. Réordonner une charge modifie donc le comportement et le `runId`.
 
 ## 6. Joindre les indicateurs aux alias lisibles
 
-`indicators.parquet` contient le `runId`, le nom d'indicateur et sa valeur. Faites
-la jointure sans pandas :
+La génération désignée par `analysis-generation.json` contient
+`indicators.parquet`, avec le `runId`, le nom d'indicateur et sa valeur. Résolvez
+son chemin publié et faites la jointure sans pandas :
 
 ```bash
 "${PY[@]}" - <<'PY'
+import json
+from pathlib import Path
+
 import pyarrow.parquet as pq
 
-root = "campaigns/grid-structured"
-plan = pq.read_table(f"{root}/plan.parquet").select(
+root = Path("campaigns/grid-structured")
+manifest = json.loads((root / "analysis-generation.json").read_text())
+plan = pq.read_table(root / "plan.parquet").select(
     ["runId", "seed", "matching_attributes"]
 )
-indicators = pq.read_table(f"{root}/indicators.parquet")
+indicators = pq.read_table(root / manifest["outputs"]["indicators"]["path"])
 joined = indicators.join(plan, keys="runId", join_type="left outer")
 order = [
     ("matching_attributes", "ascending"),

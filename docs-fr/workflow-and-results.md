@@ -116,11 +116,16 @@ campaigns/grid/
 │       └── travel.parquet
 ├── logs/
 │   └── <runId>.log
-├── indicators.parquet
-├── replication-dispersion.parquet
-├── output-summary.parquet
-├── convergence-evidence.parquet  # méthodes scientifiques uniquement
-├── governed-report.json
+├── analysis/
+│   ├── staging/
+│   └── generations/
+│       └── <generationId>/
+│           ├── captured-run-set.json
+│           ├── indicators.parquet
+│           ├── replication-dispersion.parquet
+│           ├── output-summary.parquet
+│           ├── convergence-evidence.parquet  # méthodes scientifiques uniquement
+│           └── governed-report.json
 └── analysis-generation.json
 ```
 
@@ -128,6 +133,9 @@ Les logs n'existent que pour les échecs publiés. L'arbre montre les six artefa
 de `synthesis.output` et les six artefacts supplémentaires lorsque
 `analysis.synthesis.population` est demandée. Seules les étapes requises par les
 indicateurs sont exécutées, avec `synthesis.output` toujours présente.
+Les sorties d'analyse finales résident dans un unique répertoire immuable
+`analysis/generations/<generationId>/`. `analysis/staging/` ne contient que le
+travail transactionnel et reste vide après la fin normale d'une commande.
 
 ```text
 scratch/eqasim-sa/<campaign>/workers/<slot>/
@@ -331,11 +339,15 @@ utilisent les bornes supérieures d'ordre total.
 
 ### `analysis-generation.json`
 
-Le manifeste version 6 contient la complétude, les sorties de sensibilité, et les
-chemins et SHA-256 de `output-summary.parquet`, de
-`convergence-evidence.parquet` lorsqu'il existe, et de `governed-report.json`.
-Les artefacts propres aux méthodes conservent aussi leurs chemins et hachages.
-La publication est transactionnelle.
+Le manifeste version 7 est le pointeur remplacé atomiquement vers la génération
+immuable courante. Son `layout` reste `immutable-generation-v1` ;
+`generationPath` désigne `analysis/generations/<generationId>` et chaque sortie
+porte son chemin relatif, sa taille et son SHA-256. Les artefacts propres aux
+méthodes restent dans cette génération avec leurs hachages. Les manifestes
+version 7 historiques qui pointent vers
+`.eqasim-sa-analysis/generations/<generationId>` restent lisibles par le
+renderer Nantes ; ils ne sont ni migrés ni supprimés automatiquement. La
+publication reste transactionnelle.
 
 Pour les méthodes scientifiques, l'adaptateur applicatif reconstruit le design
 depuis la méta-configuration courante et valide chaque identité de run avant

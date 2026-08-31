@@ -163,18 +163,23 @@ first. Reordering one payload therefore changes both behavior and `runId`.
 
 ## 6. Join indicators to readable aliases
 
-`indicators.parquet` contains `runId`, indicator name, and value. Join the
-aliases from the plan without pandas:
+The generation selected by `analysis-generation.json` contains
+`indicators.parquet`, with `runId`, indicator name, and value. Resolve its
+published path and join the aliases from the plan without pandas:
 
 ```bash
 "${PY[@]}" - <<'PY'
+import json
+from pathlib import Path
+
 import pyarrow.parquet as pq
 
-root = "campaigns/grid-structured"
-plan = pq.read_table(f"{root}/plan.parquet").select(
+root = Path("campaigns/grid-structured")
+manifest = json.loads((root / "analysis-generation.json").read_text())
+plan = pq.read_table(root / "plan.parquet").select(
     ["runId", "seed", "matching_attributes"]
 )
-indicators = pq.read_table(f"{root}/indicators.parquet")
+indicators = pq.read_table(root / manifest["outputs"]["indicators"]["path"])
 joined = indicators.join(plan, keys="runId", join_type="left outer")
 order = [
     ("matching_attributes", "ascending"),

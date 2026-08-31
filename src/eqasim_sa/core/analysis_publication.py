@@ -27,7 +27,8 @@ from eqasim_sa.ports.simulator import ExecutionEvidence
 
 
 ANALYSIS_LAYOUT = "immutable-generation-v1"
-ANALYSIS_STATE_DIRECTORY = ".eqasim-sa-analysis"
+ANALYSIS_STATE_DIRECTORY = "analysis"
+LEGACY_ANALYSIS_STATE_DIRECTORY = ".eqasim-sa-analysis"
 GENERATION_DOMAIN = b"eqasim-sa:analysis-generation:immutable-v1\0"
 PROVENANCE_DOMAIN = b"eqasim-sa:analysis-provenance:v1\0"
 RUN_SET_DOMAIN = b"eqasim-sa:analysis-run-set:v1\0"
@@ -166,7 +167,38 @@ def _secure_directory(path: Path, *, create: bool) -> Path:
     info = path.lstat()
     if not stat.S_ISDIR(info.st_mode) or path.is_symlink():
         raise ValueError(f"analysis state must use a regular non-symlink directory: {path}")
+    if info.st_uid != os.getuid():
+        raise ValueError(f"analysis state must be owned by the current user: {path}")
     return path
+
+
+def _validate_generation_inventory(generations: Path) -> None:
+    for generation in generations.iterdir():
+        info = generation.lstat()
+        if (
+            not stat.S_ISDIR(info.st_mode)
+            or generation.is_symlink()
+            or SHA256.fullmatch(generation.name) is None
+        ):
+            raise ValueError(
+                f"analysis generations contain unexpected content: {generation}"
+            )
+        outputs = tuple(generation.iterdir())
+        if not outputs or any(output.name not in OUTPUT_FILENAMES for output in outputs):
+            raise ValueError(
+                f"analysis generation has an invalid inventory: {generation}"
+            )
+        for output in outputs:
+            output_info = output.lstat()
+            if (
+                not stat.S_ISREG(output_info.st_mode)
+                or output.is_symlink()
+                or output_info.st_uid != os.getuid()
+                or output_info.st_nlink != 1
+            ):
+                raise ValueError(
+                    f"analysis generation contains an invalid output: {output}"
+                )
 
 
 def _copy_stable_file(
@@ -495,6 +527,22 @@ class AnalysisPublication:
         self.state = _secure_directory(
             campaign_root / ANALYSIS_STATE_DIRECTORY, create=True
         )
+        children = {entry.name: entry for entry in self.state.iterdir()}
+        foreign = set(children) - {"staging", "generations"}
+        if foreign:
+            raise ValueError(
+                "analysis state contains unexpected root content: "
+                f"{sorted(foreign)}"
+            )
+        existing_staging = children.get("staging")
+        if existing_staging is not None:
+            _secure_directory(existing_staging, create=False)
+            if any(existing_staging.iterdir()):
+                raise ValueError("analysis staging must be empty before publication")
+        existing_generations = children.get("generations")
+        if existing_generations is not None:
+            _secure_directory(existing_generations, create=False)
+            _validate_generation_inventory(existing_generations)
         fsync_directory(campaign_root)
         self.staging = _secure_directory(self.state / "staging", create=True)
         self.generations = _secure_directory(self.state / "generations", create=True)

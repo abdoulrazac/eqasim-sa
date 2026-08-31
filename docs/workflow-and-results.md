@@ -114,11 +114,16 @@ campaigns/grid/
 │       └── travel.parquet
 ├── logs/
 │   └── <runId>.log
-├── indicators.parquet
-├── replication-dispersion.parquet
-├── output-summary.parquet
-├── convergence-evidence.parquet  # scientific methods only
-├── governed-report.json
+├── analysis/
+│   ├── staging/
+│   └── generations/
+│       └── <generationId>/
+│           ├── captured-run-set.json
+│           ├── indicators.parquet
+│           ├── replication-dispersion.parquet
+│           ├── output-summary.parquet
+│           ├── convergence-evidence.parquet  # scientific methods only
+│           └── governed-report.json
 └── analysis-generation.json
 ```
 
@@ -126,6 +131,9 @@ Logs exist only for published failures. The tree shows the six artifacts from
 `synthesis.output` and the six additional artifacts when
 `analysis.synthesis.population` is requested. Only the stages required by the
 indicators are executed, with `synthesis.output` always present.
+Final analysis outputs live in one immutable
+`analysis/generations/<generationId>/` directory. `analysis/staging/` contains
+only transactional work and is empty after a normal command completes.
 
 ```text
 scratch/eqasim-sa/<campaign>/workers/<slot>/
@@ -333,10 +341,14 @@ to the sealed primary indicator and uses total-order upper bounds.
 
 ### `analysis-generation.json`
 
-The version 6 manifest contains completion values, sensitivity outputs, and the
-paths and SHA-256 values of `output-summary.parquet`, optional
-`convergence-evidence.parquet`, and `governed-report.json`. Method-specific
-artifacts remain present with their hashes. Publication is transactional.
+The version 7 manifest is the atomically replaced pointer to the current
+immutable generation. Its `layout` remains `immutable-generation-v1`;
+`generationPath` selects `analysis/generations/<generationId>` and every output
+record carries its relative path, size, and SHA-256. Method-specific artifacts
+remain in that generation with their hashes. Historical version 7 manifests
+that point to `.eqasim-sa-analysis/generations/<generationId>` remain readable
+by the Nantes renderer; they are neither migrated nor deleted automatically.
+Publication remains transactional.
 
 For scientific methods, the application adapter recomputes the design from the
 current meta-configuration and validates every run identity before invoking core

@@ -180,28 +180,35 @@ temporaires de validation.
 
 ### 6. Lire les résultats
 
-Les fichiers se trouvent sous `campaigns/grid-sampling-rate/` :
+L'état de campagne se trouve sous `campaigns/grid-sampling-rate/` :
 
 - `plan.parquet` relie chaque `runId` à son taux et à sa seed ;
-- `indicators.parquet` contient les trois valeurs TV de chaque run ;
-- `replication-dispersion.parquet` résume la variation entre seeds pour chaque taux ;
-- `output-summary.parquet` résume l'ensemble du design ;
-- `governed-report.json` confirme `demonstration_noninferential` et `claimAuthorized: false`.
+- `analysis-generation.json` désigne la génération immuable courante sous
+  `analysis/generations/<generationId>/` ;
+- le fichier `indicators.parquet` de cette génération contient les trois valeurs TV de chaque run ;
+- son `replication-dispersion.parquet` résume la variation entre seeds pour chaque taux ;
+- son `output-summary.parquet` résume l'ensemble du design ;
+- son `governed-report.json` confirme `demonstration_noninferential` et
+  `claimAuthorized: false`.
 
 Le script suivant affiche la moyenne observée par taux et par indicateur :
 
 ```bash
 uv run --project "$ROOT/eqasim-sa" --locked python - <<'PY'
 from collections import defaultdict
+import json
+from pathlib import Path
 from statistics import fmean
 
 import pyarrow.parquet as pq
 
-root = "campaigns/grid-sampling-rate"
-plan = {row["runId"]: row for row in pq.read_table(f"{root}/plan.parquet").to_pylist()}
+root = Path("campaigns/grid-sampling-rate")
+manifest = json.loads((root / "analysis-generation.json").read_text())
+plan = {row["runId"]: row for row in pq.read_table(root / "plan.parquet").to_pylist()}
 groups = defaultdict(list)
 
-for row in pq.read_table(f"{root}/indicators.parquet").to_pylist():
+indicators = root / manifest["outputs"]["indicators"]["path"]
+for row in pq.read_table(indicators).to_pylist():
     rate = plan[row["runId"]]["sampling_rate"]
     groups[(rate, row["indicator"])].append(row["value"])
 
