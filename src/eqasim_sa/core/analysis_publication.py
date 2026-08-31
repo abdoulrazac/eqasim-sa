@@ -26,7 +26,8 @@ from eqasim_sa.core.durable_publication import (
     replace_bytes_restorable,
     secure_directory,
     stable_file,
-    write_all,
+    write_bytes_atomic,
+    write_parquet_atomic,
 )
 from eqasim_sa.core.indicators import ArtifactSet
 from eqasim_sa.core.software_identity import (
@@ -95,6 +96,12 @@ class PublishedGeneration:
     path: Path
     paths: Mapping[str, Path]
     manifest: Mapping[str, object]
+
+
+@dataclass(frozen=True)
+class AnalysisArtifact:
+    filename: str
+    content: pa.Table | bytes
 
 
 def _canonical(value: object) -> bytes:
@@ -310,11 +317,6 @@ class AnalysisPublication:
             ),
         )
 
-    def stage_path(self, filename: str) -> Path:
-        if filename not in OUTPUT_FILENAMES:
-            raise ValueError(f"unknown analysis output filename: {filename}")
-        return self.generation_staging / filename
-
     def verify_sources(self) -> None:
         if self._snapshot is None:
             raise RuntimeError("analysis campaign was not captured")
@@ -322,9 +324,12 @@ class AnalysisPublication:
 
     def publish(
         self,
-        outputs: Mapping[str, Path],
+        outputs: Mapping[str, AnalysisArtifact],
         summary: Mapping[str, object],
         *,
+        governed_report: Callable[
+            [Mapping[str, Mapping[str, object]]], Mapping[str, object]
+        ],
         meta_config_sha256: str | None,
         analysis_options: Mapping[str, object],
         numerical_engine: Mapping[str, object] | None,
@@ -344,24 +349,33 @@ class AnalysisPublication:
         if not outputs or "indicators" not in outputs:
             raise ValueError("analysis publication requires indicators output")
         verify_software_source_states(software_identity)
-        captured_run_set = self.generation_staging / "captured-run-set.json"
-        descriptor = os.open(
-            captured_run_set,
-            os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0),
-            0o400,
-        )
-        try:
-            write_all(descriptor, _canonical(dict(runs.run_set_document)))
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
-        publication_outputs = {**outputs, "capturedRunSet": captured_run_set}
-        if len(set(publication_outputs.values())) != len(publication_outputs):
-            raise ValueError("analysis output paths must be unique")
-        staged_records = {}
-        for name, path in publication_outputs.items():
-            if path.parent != self.generation_staging or path.name not in OUTPUT_FILENAMES:
-                raise ValueError(f"analysis output escaped generation staging: {path}")
+        if set(outputs) & {"governedReport", "capturedRunSet"}:
+            raise ValueError("analysis publication owns governed and capture documents")
+        filenames = [artifact.filename for artifact in outputs.values()]
+        if len(set(filenames)) != len(filenames):
+            raise ValueError("analysis output filenames must be unique")
+        staged_records: dict[str, dict[str, object]] = {}
+
+        def serialize(name: str, artifact: AnalysisArtifact) -> None:
+            path = self.generation_staging / artifact.filename
+            if artifact.filename not in OUTPUT_FILENAMES:
+                raise ValueError(
+                    f"unknown analysis output filename: {artifact.filename}"
+                )
+            if isinstance(artifact.content, pa.Table):
+                write_parquet_atomic(
+                    artifact.content,
+                    path,
+                    staging_directory=self.generation_staging,
+                )
+            elif type(artifact.content) is bytes:
+                write_bytes_atomic(
+                    artifact.content,
+                    path,
+                    staging_directory=self.generation_staging,
+                )
+            else:
+                raise TypeError("analysis artifact content must be a table or bytes")
             snapshot = stable_file(path)
             if path.lstat().st_nlink != 1:
                 raise ValueError(f"analysis output must not be hard-linked: {path}")
@@ -375,6 +389,22 @@ class AnalysisPublication:
                 "size": snapshot.size,
                 "sha256": snapshot.sha256,
             }
+
+        for name, artifact in outputs.items():
+            serialize(name, artifact)
+        report_document = governed_report(MappingProxyType(staged_records.copy()))
+        if not isinstance(report_document, Mapping):
+            raise TypeError("governed report builder must return a mapping")
+        serialize(
+            "governedReport",
+            AnalysisArtifact("governed-report.json", _canonical(dict(report_document))),
+        )
+        serialize(
+            "capturedRunSet",
+            AnalysisArtifact(
+                "captured-run-set.json", _canonical(dict(runs.run_set_document))
+            ),
+        )
         inventory = {entry.name for entry in self.generation_staging.iterdir()}
         expected_inventory = {record["name"] for record in staged_records.values()}
         if inventory != expected_inventory:

@@ -10,7 +10,7 @@ from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 
 import numpy as np
 import pyarrow as pa
@@ -18,12 +18,12 @@ import pyarrow.parquet as pq
 from scipy.stats import qmc, t as student_t
 
 from eqasim_sa.core.analysis_publication import (
+    AnalysisArtifact,
     AnalysisPublication,
     validate_descriptive_execution_evidence,
     validate_scientific_execution_evidence,
 )
 from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
-from eqasim_sa.core.durable_publication import write_atomic, write_parquet_atomic
 from eqasim_sa.core.charter import (
     parse_stochastic,
     validate_scientific_contract,
@@ -329,37 +329,6 @@ def _analyze_locked(
                 f"{completion_rate:.17g} is below threshold {completeness_threshold:.17g}: "
                 f"missing={len(missing_ids)}, failed={len(failed_ids)}"
             )
-        output = publication.stage_path("indicators.parquet")
-        dispersion = publication.stage_path("replication-dispersion.parquet")
-        morris_sensitivity = publication.stage_path("morris-ranking.parquet")
-        discrete_oat_sensitivity = publication.stage_path("discrete-oat-effects.parquet")
-        canonical_morris_sensitivity = publication.stage_path(
-            "canonical-morris-ranking.parquet"
-        )
-        canonical_morris_convergence = publication.stage_path(
-            "canonical-morris-convergence.parquet"
-        )
-        canonical_morris_reversals = publication.stage_path(
-            "canonical-morris-rank-reversals.parquet"
-        )
-        noise_floor = publication.stage_path("noise-floor.parquet")
-        replication_allocation = publication.stage_path("replication-allocation.json")
-        sobol_sensitivity = publication.stage_path("sobol-indices.parquet")
-        multiscramble_sensitivity = publication.stage_path(
-            "multiscramble-sobol-indices.parquet"
-        )
-        multiscramble_by_scramble = publication.stage_path(
-            "multiscramble-sobol-by-scramble.parquet"
-        )
-        multiscramble_convergence = publication.stage_path(
-            "multiscramble-sobol-convergence.parquet"
-        )
-        multiscramble_diagnostics = publication.stage_path(
-            "multiscramble-sobol-diagnostics.parquet"
-        )
-        output_summary = publication.stage_path("output-summary.parquet")
-        convergence_evidence = publication.stage_path("convergence-evidence.parquet")
-        governed_report = publication.stage_path("governed-report.json")
         try:
             rows = []
             for run_id in sorted(completed_ids):
@@ -390,37 +359,35 @@ def _analyze_locked(
                 ],
                 schema=schema,
             )
-            destination = write_parquet_atomic(table, output)
-            output_summary_path = write_parquet_atomic(
-                _output_summary_table(
-                    plan_table, rows, tuple(indicator.name for indicator in indicators)
+            outputs = {
+                "indicators": AnalysisArtifact("indicators.parquet", table),
+                "outputSummary": AnalysisArtifact(
+                    "output-summary.parquet",
+                    _output_summary_table(
+                        plan_table,
+                        rows,
+                        tuple(indicator.name for indicator in indicators),
+                    ),
                 ),
-                output_summary,
-            )
-            dispersion_path = None
+            }
             if seed_role == "replication":
-                dispersion_table = _dispersion_table(plan_capture.path, rows)
-                dispersion_path = write_parquet_atomic(dispersion_table, dispersion)
-            sensitivity_path = None
-            convergence_path = None
-            rank_reversals_path = None
-            by_scramble_path = None
-            diagnostics_path = None
-            noise_floor_path = None
-            replication_allocation_path = None
+                outputs["dispersion"] = AnalysisArtifact(
+                    "replication-dispersion.parquet",
+                    _dispersion_table(plan_capture.path, rows),
+                )
             inference_status = None
             scientific_contract = sealed_scientific_contract
             sensitivity_table = None
             convergence_table = None
             if not descriptive_only:
                 if method == "morris":
-                    sensitivity_path = write_parquet_atomic(
-                        _morris_ranking(plan_table, rows), morris_sensitivity
+                    outputs["sensitivity"] = AnalysisArtifact(
+                        "morris-ranking.parquet", _morris_ranking(plan_table, rows)
                     )
                 elif method == "discrete_oat":
-                    sensitivity_path = write_parquet_atomic(
+                    outputs["sensitivity"] = AnalysisArtifact(
+                        "discrete-oat-effects.parquet",
                         _discrete_oat_effects(plan_table, rows),
-                        discrete_oat_sensitivity,
                     )
                 elif method == "canonical_morris":
                     (
@@ -438,16 +405,18 @@ def _analyze_locked(
                         include_noise_floor=True,
                     )
                     sensitivity_table = ranking_table
-                    sensitivity_path = write_parquet_atomic(
-                        ranking_table, canonical_morris_sensitivity
+                    outputs["sensitivity"] = AnalysisArtifact(
+                        "canonical-morris-ranking.parquet", ranking_table
                     )
-                    convergence_path = write_parquet_atomic(
-                        convergence_table, canonical_morris_convergence
+                    outputs["convergence"] = AnalysisArtifact(
+                        "canonical-morris-convergence.parquet", convergence_table
                     )
-                    rank_reversals_path = write_parquet_atomic(
-                        reversal_table, canonical_morris_reversals
+                    outputs["rankReversals"] = AnalysisArtifact(
+                        "canonical-morris-rank-reversals.parquet", reversal_table
                     )
-                    noise_floor_path = write_parquet_atomic(noise_table, noise_floor)
+                    outputs["noiseFloor"] = AnalysisArtifact(
+                        "noise-floor.parquet", noise_table
+                    )
                     sealed = json.loads(
                         (plan_table.schema.metadata or {})[b"canonicalMorrisDesign"]
                     )
@@ -465,13 +434,12 @@ def _analyze_locked(
                             separators=(",", ":"),
                             allow_nan=False,
                         ).encode()
-                        write_atomic(
-                            replication_allocation,
-                            lambda path: path.write_bytes(encoded_recommendation),
+                        outputs["replicationAllocation"] = AnalysisArtifact(
+                            "replication-allocation.json", encoded_recommendation
                         )
-                        replication_allocation_path = replication_allocation
                 elif method == "sobol":
-                    sensitivity_path = write_parquet_atomic(
+                    outputs["sensitivity"] = AnalysisArtifact(
+                        "sobol-indices.parquet",
                         _sobol_ranking(
                             plan_table,
                             rows,
@@ -479,7 +447,6 @@ def _analyze_locked(
                             confidence_level,
                             structured_factors,
                         ),
-                        sobol_sensitivity,
                     )
                 elif method == "multiscramble_sobol":
                     (
@@ -491,17 +458,17 @@ def _analyze_locked(
                         plan_table, rows, confidence_level, structured_factors
                     )
                     sensitivity_table = indices_table
-                    sensitivity_path = write_parquet_atomic(
-                        indices_table, multiscramble_sensitivity
+                    outputs["sensitivity"] = AnalysisArtifact(
+                        "multiscramble-sobol-indices.parquet", indices_table
                     )
-                    by_scramble_path = write_parquet_atomic(
-                        by_scramble_table, multiscramble_by_scramble
+                    outputs["byScramble"] = AnalysisArtifact(
+                        "multiscramble-sobol-by-scramble.parquet", by_scramble_table
                     )
-                    convergence_path = write_parquet_atomic(
-                        convergence_table, multiscramble_convergence
+                    outputs["convergence"] = AnalysisArtifact(
+                        "multiscramble-sobol-convergence.parquet", convergence_table
                     )
-                    diagnostics_path = write_parquet_atomic(
-                        diagnostics_table, multiscramble_diagnostics
+                    outputs["diagnostics"] = AnalysisArtifact(
+                        "multiscramble-sobol-diagnostics.parquet", diagnostics_table
                     )
             complete = (
                 len(completed_ids) == len(expected_ids)
@@ -516,7 +483,6 @@ def _analyze_locked(
                 inference_status = "legacy_noninferential"
             elif method not in {"canonical_morris", "multiscramble_sobol"}:
                 inference_status = "demonstration_noninferential"
-            convergence_evidence_path = None
             criterion_reports = []
             converged = False
             if scientific_contract is not None and not descriptive_only:
@@ -532,55 +498,29 @@ def _analyze_locked(
                         != "finite_seed_factor"
                     },
                 )
-                convergence_evidence_path = write_parquet_atomic(
-                    evidence_table, convergence_evidence
+                outputs["convergenceEvidence"] = AnalysisArtifact(
+                    "convergence-evidence.parquet", evidence_table
                 )
                 if inference_status != "pilot_only":
                     inference_status = "conditional" if converged else "unstable"
-            report = _governed_report(
-                method=method,
-                inference_status=inference_status,
-                completion_rate=completion_rate,
-                expected=len(expected_ids),
-                completed=len(completed_ids),
-                missing=len(missing_ids),
-                failed=len(failed_ids),
-                output_summary_path=output_summary_path,
-                convergence_evidence_path=convergence_evidence_path,
-                sensitivity_path=sensitivity_path,
-                scientific_contract=scientific_contract,
-                sensitivity_table=sensitivity_table,
-                converged=converged,
-                criterion_reports=criterion_reports,
-            )
-            encoded_report = json.dumps(
-                report, sort_keys=True, separators=(",", ":"), allow_nan=False
-            ).encode()
-            write_atomic(governed_report, lambda path: path.write_bytes(encoded_report))
-            governed_report_path = governed_report
-            outputs = {
-                "indicators": destination,
-                "outputSummary": output_summary_path,
-                "governedReport": governed_report_path,
-            }
-            optional_outputs = {
-                "dispersion": dispersion_path,
-                "sensitivity": sensitivity_path,
-                "convergence": convergence_path,
-                "rankReversals": rank_reversals_path,
-                "byScramble": by_scramble_path,
-                "diagnostics": diagnostics_path,
-                "noiseFloor": noise_floor_path,
-                "replicationAllocation": replication_allocation_path,
-                "convergenceEvidence": convergence_evidence_path,
-            }
-            outputs.update(
-                {
-                    name: path
-                    for name, path in optional_outputs.items()
-                    if path is not None
-                }
-            )
+            def build_governed_report(
+                records: Mapping[str, Mapping[str, object]],
+            ) -> Mapping[str, object]:
+                return _governed_report(
+                    method=method,
+                    inference_status=inference_status,
+                    completion_rate=completion_rate,
+                    expected=len(expected_ids),
+                    completed=len(completed_ids),
+                    missing=len(missing_ids),
+                    failed=len(failed_ids),
+                    output_records=records,
+                    scientific_contract=scientific_contract,
+                    sensitivity_table=sensitivity_table,
+                    converged=converged,
+                    criterion_reports=criterion_reports,
+                )
+
             def guard_indicators() -> None:
                 if tuple(_current_indicator_identities(indicators)) != indicator_identities:
                     raise RuntimeError("indicator implementation changed during analysis")
@@ -589,7 +529,7 @@ def _analyze_locked(
             published = publication.publish(
                 outputs,
                 {
-                "sensitivityMethod": method if sensitivity_path else None,
+                "sensitivityMethod": method if "sensitivity" in outputs else None,
                 "completionRate": completion_rate,
                 "expected": len(expected_ids),
                 "completed": len(completed_ids),
@@ -597,6 +537,7 @@ def _analyze_locked(
                 "failed": len(failed_ids),
                 "inferenceStatus": inference_status,
                 },
+                governed_report=build_governed_report,
                 meta_config_sha256=meta_config_sha256,
                 analysis_options={
                     "campaign": campaign,
@@ -624,7 +565,7 @@ def _analyze_locked(
             return AnalyzeResult(
                 path=committed["indicators"],
                 dispersion_path=committed.get("dispersion"),
-                sensitivity_method=method if sensitivity_path else None,
+                sensitivity_method=method if "sensitivity" in outputs else None,
                 sensitivity_path=committed.get("sensitivity"),
                 runs=len(completed_ids),
                 indicators=len(indicators),
@@ -2143,9 +2084,7 @@ def _governed_report(
     completed: int,
     missing: int,
     failed: int,
-    output_summary_path: Path,
-    convergence_evidence_path: Path | None,
-    sensitivity_path: Path | None,
+    output_records: Mapping[str, Mapping[str, object]],
     scientific_contract: dict | None,
     sensitivity_table: pa.Table | None,
     converged: bool,
@@ -2216,6 +2155,9 @@ def _governed_report(
         reasons.append("stopping_not_met")
     if robustness_checks:
         reasons.append("robustness_pending")
+    output_summary = output_records["outputSummary"]
+    convergence_evidence = output_records.get("convergenceEvidence")
+    sensitivity = output_records.get("sensitivity")
     return {
         "version": 1,
         "method": method,
@@ -2230,20 +2172,20 @@ def _governed_report(
         },
         "evidence": {
             "outputSummary": {
-                "path": output_summary_path.name,
-                "sha256": _digest(output_summary_path),
+                "path": output_summary["name"],
+                "sha256": output_summary["sha256"],
             },
             "convergence": (
                 {
-                    "path": convergence_evidence_path.name,
-                    "sha256": _digest(convergence_evidence_path),
+                    "path": convergence_evidence["name"],
+                    "sha256": convergence_evidence["sha256"],
                 }
-                if convergence_evidence_path
+                if convergence_evidence
                 else None
             ),
             "sensitivity": (
-                {"path": sensitivity_path.name, "sha256": _digest(sensitivity_path)}
-                if sensitivity_path
+                {"path": sensitivity["name"], "sha256": sensitivity["sha256"]}
+                if sensitivity
                 else None
             ),
         },
@@ -4462,10 +4404,6 @@ def _dispersion_table(plan: Path, rows: list[tuple[str, str, float]]) -> pa.Tabl
         ],
         schema=schema,
     )
-
-
-def _digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _validate_indicators(indicators: Sequence[Indicator]) -> None:

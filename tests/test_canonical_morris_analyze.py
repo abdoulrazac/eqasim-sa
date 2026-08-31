@@ -785,7 +785,7 @@ def test_canonical_production_publishes_noise_without_allocation(tmp_path: Path)
 def test_canonical_publication_failure_restores_all_outputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import eqasim_sa.core.analyze as analyze_module
+    import eqasim_sa.core.analysis_publication as publication_module
 
     design, indicator = _completed_campaign(tmp_path)
     names = (
@@ -801,14 +801,16 @@ def test_canonical_publication_failure_restores_all_outputs(
     previous = {design.campaign_root / name: name.encode() for name in names}
     for path, content in previous.items():
         path.write_bytes(content)
-    real_write = analyze_module.write_parquet_atomic
+    real_write = publication_module.write_parquet_atomic
 
-    def fail(table: pa.Table, destination: Path) -> Path:
+    def fail(
+        table: pa.Table, destination: Path, *, staging_directory: Path | None = None
+    ) -> Path:
         if destination.name == "canonical-morris-convergence.parquet":
             raise OSError("injected canonical convergence failure")
-        return real_write(table, destination)
+        return real_write(table, destination, staging_directory=staging_directory)
 
-    monkeypatch.setattr(analyze_module, "write_parquet_atomic", fail)
+    monkeypatch.setattr(publication_module, "write_parquet_atomic", fail)
     with pytest.raises(OSError, match="canonical convergence"):
         analyze(
             design.campaign_root,
@@ -827,21 +829,23 @@ def test_canonical_publication_failure_restores_all_outputs(
 def test_canonical_allocation_failure_rolls_back_new_outputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import eqasim_sa.core.analyze as analyze_module
+    import eqasim_sa.core.analysis_publication as publication_module
 
     design, indicator = _completed_campaign(tmp_path)
     noise = design.campaign_root / "noise-floor.parquet"
     allocation = design.campaign_root / "replication-allocation.json"
     noise.write_bytes(b"old-noise")
     allocation.write_bytes(b"old-allocation")
-    real_write = analyze_module.write_atomic
+    real_write = publication_module.write_bytes_atomic
 
-    def fail(destination: Path, writer) -> None:  # type: ignore[no-untyped-def]
+    def fail(
+        content: bytes, destination: Path, *, staging_directory: Path | None = None
+    ) -> Path:
         if destination.name == "replication-allocation.json":
             raise OSError("injected allocation failure")
-        real_write(destination, writer)
+        return real_write(content, destination, staging_directory=staging_directory)
 
-    monkeypatch.setattr(analyze_module, "write_atomic", fail)
+    monkeypatch.setattr(publication_module, "write_bytes_atomic", fail)
     with pytest.raises(OSError, match="allocation failure"):
         analyze(
             design.campaign_root,

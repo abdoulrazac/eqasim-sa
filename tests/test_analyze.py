@@ -2376,7 +2376,7 @@ def test_morris_restores_all_views_if_ranking_publication_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import eqasim_sa.core.analyze as analyze_module
+    import eqasim_sa.core.analysis_publication as publication_module
 
     root = _morris_campaign(tmp_path)
     outputs = {
@@ -2387,14 +2387,16 @@ def test_morris_restores_all_views_if_ranking_publication_fails(
     }
     for path, content in outputs.items():
         path.write_bytes(content)
-    real_write = analyze_module.write_parquet_atomic
+    real_write = publication_module.write_parquet_atomic
 
-    def fail_ranking(table: pa.Table, destination: Path) -> Path:
+    def fail_ranking(
+        table: pa.Table, destination: Path, *, staging_directory: Path | None = None
+    ) -> Path:
         if destination.name == "morris-ranking.parquet":
             raise OSError("injected ranking publication failure")
-        return real_write(table, destination)
+        return real_write(table, destination, staging_directory=staging_directory)
 
-    monkeypatch.setattr(analyze_module, "write_parquet_atomic", fail_ranking)
+    monkeypatch.setattr(publication_module, "write_parquet_atomic", fail_ranking)
     with pytest.raises(OSError, match="injected ranking"):
         _analyze(
             root, (_custom_indicator(),), completeness_threshold=1.0, method="morris"
@@ -2647,21 +2649,23 @@ def test_morris_fake_pipeline_end_to_end_deduplicates_runs_and_ranks(
 def test_analyze_keeps_previous_commit_if_dispersion_writer_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import eqasim_sa.core.analyze as analyze_module
+    import eqasim_sa.core.analysis_publication as publication_module
 
     root, _ = _campaign(tmp_path)
     indicators = root / "indicators.parquet"
     dispersion = root / "replication-dispersion.parquet"
     indicators.write_bytes(b"old indicators")
     dispersion.write_bytes(b"old dispersion")
-    real_write = analyze_module.write_parquet_atomic
+    real_write = publication_module.write_parquet_atomic
 
-    def fail_second(table: pa.Table, destination: Path) -> Path:
+    def fail_second(
+        table: pa.Table, destination: Path, *, staging_directory: Path | None = None
+    ) -> Path:
         if destination.name == dispersion.name:
             raise OSError("injected dispersion publication failure")
-        return real_write(table, destination)
+        return real_write(table, destination, staging_directory=staging_directory)
 
-    monkeypatch.setattr(analyze_module, "write_parquet_atomic", fail_second)
+    monkeypatch.setattr(publication_module, "write_parquet_atomic", fail_second)
     with pytest.raises(OSError, match="injected dispersion"):
         _analyze(root, (_custom_indicator(),))
     assert indicators.read_bytes() == b"old indicators"
