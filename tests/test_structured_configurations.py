@@ -12,15 +12,18 @@ import pytest
 import yaml
 
 from eqasim_sa.adapters.eqasim.config import EqasimSettings, load_config, load_yaml_document
+from eqasim_sa.adapters.eqasim import execution as eqasim_execution
 from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator
+from eqasim_sa.adapters import checks as check_service
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.adapters import application
 from eqasim_sa.adapters.application import analyze_from_meta_config, plan_from_meta_config
 from eqasim_sa.adapters.backends import slurm
 from eqasim_sa.adapters.worker import Indexed, WorkerBatch
-from eqasim_sa.core.analyze import _multiscramble_sobol_tables, analyze
+from eqasim_sa.core.analyze import analyze
+from eqasim_sa.core.methods.multiscramble_sobol import _multiscramble_sobol_tables
 from eqasim_sa.core.indicators import ArtifactSet, RegisteredIndicator
-from eqasim_sa.core.durable_publication import write_parquet_atomic
+from eqasim_sa.utils.filesystem import write_parquet_atomic
 from eqasim_sa.core.ledger import RunRecord, write_run
 from eqasim_sa.core.plan import GridDesign, MorrisDesign, SobolDesign, build_plan, load_run_specs
 from eqasim_sa.core.run import RunResult, RunSpec, compute_run_id
@@ -736,7 +739,7 @@ def test_simulator_keeps_scalar_cli_behavior(
 
 
 def _failed_execution_spy(observed: list[tuple[list[str], dict]]):  # type: ignore[no-untyped-def]
-    def execute(spec, simulator, campaign_root, workdir):  # type: ignore[no-untyped-def]
+    def execute(spec, simulator, campaign_root, workdir, interrupted):  # type: ignore[no-untyped-def]
         try:
             simulator.simulate(spec.resolved_config, spec.seed, workdir)
         except SimulationError as error:
@@ -809,8 +812,10 @@ def test_slurm_callable_preserves_structured_snapshot_without_list_cli(
         simulator._run_owned = launch
         return simulator
 
-    monkeypatch.setattr(slurm, "EqasimSimulator", construct)
-    monkeypatch.setattr(slurm, "execute_run", _failed_execution_spy(observed))
+    monkeypatch.setattr(eqasim_execution, "EqasimSimulator", construct)
+    monkeypatch.setattr(
+        eqasim_execution, "execute_run", _failed_execution_spy(observed)
+    )
     resolved = copy.deepcopy(base)
     resolved["run"] = ["synthesis.output"]
     resolved["config"]["matching_attributes"] = ["sex"]
@@ -862,7 +867,9 @@ def test_public_smoke_check_preserves_structured_snapshot_without_list_cli(
     spec = RunSpec("demo", resolved, 41, "c" * 64, {"matching_attributes": "reduced"})
     payload = {"status": "valid", "checks": []}
     monkeypatch.setattr(
-        application, "_static_check", lambda path, calibrations: (payload, meta, (spec,))
+        check_service,
+        "_static_check",
+        lambda path, calibrations: (payload, meta, (spec,)),
     )
     observed: list[tuple[list[str], dict]] = []
 
@@ -876,8 +883,10 @@ def test_public_smoke_check_preserves_structured_snapshot_without_list_cli(
         simulator._run_owned = launch
         return simulator
 
-    monkeypatch.setattr(application, "EqasimSimulator", construct)
-    monkeypatch.setattr(application, "execute_run", _failed_execution_spy(observed))
+    monkeypatch.setattr(eqasim_execution, "EqasimSimulator", construct)
+    monkeypatch.setattr(
+        eqasim_execution, "execute_run", _failed_execution_spy(observed)
+    )
 
     result = application.check_from_meta_config(Path("meta.yml"), (), True)
 

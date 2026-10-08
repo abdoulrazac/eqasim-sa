@@ -21,7 +21,7 @@ from eqasim_sa.core.campaign_snapshot import (
     context_descriptor,
     expected_records,
 )
-from eqasim_sa.core.durable_publication import (
+from eqasim_sa.utils.filesystem import (
     PublicationOutcomeUnknown,
     file_lease,
     fsync_directory,

@@ -1,5 +1,4 @@
 import errno
-import hashlib
 import json
 import math
 import os
@@ -14,11 +13,12 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from eqasim_sa.core.durable_publication import (
+from eqasim_sa.utils.filesystem import (
     FileIdentity,
     FileState,
     StableFile,
     absolute,
+    descriptor_sha256,
     directory_is_current,
     file_lease,
     file_identity,
@@ -98,10 +98,6 @@ def run_path(campaign_root: Path, run_id: str) -> Path:
     return campaign_root / "runs" / f"{run_id}.parquet"
 
 
-def _state(info: os.stat_result) -> FileState:
-    return file_state(info)
-
-
 @contextmanager
 def run_lease(
     campaign_root: Path,
@@ -128,30 +124,10 @@ def _regular_path_is_current(path: Path, expected: FileState) -> bool:
     except (OSError, ValueError):
         return False
     try:
-        return _state(os.fstat(descriptor)) == expected
+        return file_state(os.fstat(descriptor)) == expected
     finally:
         os.close(descriptor)
         os.close(parent)
-
-
-def _descriptor_digest(
-    descriptor: int, interrupted: Callable[[], bool] | None = None
-) -> str:
-    digest = hashlib.sha256()
-    os.lseek(descriptor, 0, os.SEEK_SET)
-    while True:
-        if interrupted is not None and interrupted():
-            raise KeyboardInterrupt
-        chunk = os.read(descriptor, 1024 * 1024)
-        if not chunk:
-            return digest.hexdigest()
-        digest.update(chunk)
-
-
-def _hash_descriptor(
-    descriptor: int, interrupted: Callable[[], bool] | None = None
-) -> str:
-    return _descriptor_digest(descriptor, interrupted)
 
 
 def _manifest_bytes(entries: Sequence[ArtifactManifestEntry]) -> bytes:
@@ -236,7 +212,7 @@ def _verify_archive(
         try:
             initial_directory = os.fstat(archive)
             visible_directory = os.stat(run_id, dir_fd=archives, follow_symlinks=False)
-            if _state(initial_directory) != _state(visible_directory):
+            if file_state(initial_directory) != file_state(visible_directory):
                 raise RuntimeError("archive changed while opening")
             expected_names = [entry.name for entry in artifacts]
             names = os.listdir(archive)
@@ -260,7 +236,7 @@ def _verify_archive(
                     if (
                         not stat.S_ISREG(initial.st_mode)
                         or not stat.S_ISREG(visible.st_mode)
-                        or _state(initial) != _state(visible)
+                        or file_state(initial) != file_state(visible)
                     ):
                         raise ValueError(
                             f"archive artifact {entry.name!r} is not a stable regular file"
@@ -271,12 +247,12 @@ def _verify_archive(
                         )
                     with os.fdopen(os.dup(descriptor), "rb") as stream:
                         pq.ParquetFile(stream).metadata
-                    digest = _hash_descriptor(descriptor)
+                    digest = descriptor_sha256(descriptor)
                     final = os.fstat(descriptor)
                     visible = os.stat(
                         entry.name, dir_fd=archive, follow_symlinks=False
                     )
-                    if _state(final) != _state(initial) or _state(visible) != _state(
+                    if file_state(final) != file_state(initial) or file_state(visible) != file_state(
                         initial
                     ):
                         raise RuntimeError(
@@ -299,9 +275,9 @@ def _verify_archive(
             if (
                 sorted(os.listdir(archive), key=lambda name: os.fsencode(name))
                 != sorted(names, key=lambda name: os.fsencode(name))
-                or _state(os.fstat(archive)) != _state(initial_directory)
-                or _state(os.stat(run_id, dir_fd=archives, follow_symlinks=False))
-                != _state(initial_directory)
+                or file_state(os.fstat(archive)) != file_state(initial_directory)
+                or file_state(os.stat(run_id, dir_fd=archives, follow_symlinks=False))
+                != file_state(initial_directory)
             ):
                 raise RuntimeError("archive changed while verifying")
             archive_state = file_state(initial_directory)
@@ -357,7 +333,7 @@ def completion_state(
                 if (
                     not stat.S_ISREG(initial.st_mode)
                     or not stat.S_ISREG(visible.st_mode)
-                    or _state(initial) != _state(visible)
+                    or file_state(initial) != file_state(visible)
                 ):
                     raise ValueError("not a stable regular non-symlink file")
                 with os.fdopen(os.dup(descriptor), "rb") as stream:
@@ -461,10 +437,10 @@ def completion_state(
                     archive = None
                     archive_state = None
                     captured_artifacts = ()
-                marker_sha256 = _descriptor_digest(descriptor)
+                marker_sha256 = descriptor_sha256(descriptor)
                 final = os.fstat(descriptor)
                 visible = os.stat(path.name, dir_fd=runs, follow_symlinks=False)
-                if _state(final) != _state(initial) or _state(visible) != _state(
+                if file_state(final) != file_state(initial) or file_state(visible) != file_state(
                     initial
                 ):
                     raise RuntimeError("completion marker changed while verifying")
@@ -508,11 +484,11 @@ def completion_marker_names(campaign_root: Path) -> tuple[str, ...]:
         except FileNotFoundError:
             return ()
         try:
-            initial = _state(os.fstat(runs))
+            initial = file_state(os.fstat(runs))
             identity = file_identity(os.fstat(runs))
             names = tuple(os.listdir(runs))
             if (
-                _state(os.fstat(runs)) != initial
+                file_state(os.fstat(runs)) != initial
                 or file_identity(
                     os.stat("runs", dir_fd=campaign, follow_symlinks=False)
                 )
@@ -602,19 +578,19 @@ def _copy_parquet_artifact(
             source_name, dir_fd=source_parent, follow_symlinks=False
         )
         if (
-            _state(source_final) != _state(source_initial)
-            or _state(source_visible) != _state(source_initial)
-            or not _regular_path_is_current(source, _state(source_initial))
+            file_state(source_final) != file_state(source_initial)
+            or file_state(source_visible) != file_state(source_initial)
+            or not _regular_path_is_current(source, file_state(source_initial))
         ):
             raise RuntimeError(f"artifact changed while publishing: {source}")
         os.fsync(destination_descriptor)
         _scan_parquet_descriptor(destination_descriptor, interrupted)
-        digest = _hash_descriptor(destination_descriptor, interrupted)
+        digest = descriptor_sha256(destination_descriptor, interrupted)
         final = os.fstat(destination_descriptor)
         visible = os.stat(name, dir_fd=destination_directory, follow_symlinks=False)
         if (
             not stat.S_ISREG(final.st_mode)
-            or _state(final) != _state(visible)
+            or file_state(final) != file_state(visible)
         ):
             raise RuntimeError(f"staged artifact changed while publishing: {name}")
         return ArtifactManifestEntry(name, final.st_size, digest)

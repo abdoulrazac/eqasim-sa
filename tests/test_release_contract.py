@@ -15,7 +15,7 @@ import yaml
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.core.analyze import analyze
 from eqasim_sa.core.indicators import RegisteredIndicator
-from eqasim_sa.core.durable_publication import write_parquet_atomic
+from eqasim_sa.utils.filesystem import write_parquet_atomic
 from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.plan import build_plan
 from tests.test_analyze import (

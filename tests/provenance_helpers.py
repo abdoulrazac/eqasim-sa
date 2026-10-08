@@ -1,8 +1,6 @@
-import hashlib
-import json
-
 import pyarrow.parquet as pq
 
+from eqasim_sa.core.context_identity import ExecutionContextIdentity
 from eqasim_sa.core.indicators import (
     RegisteredIndicator,
     TableArtifact,
@@ -27,10 +25,7 @@ def scientific_context_descriptor() -> dict[str, str]:
 
 
 def context_hash(descriptor: dict[str, str]) -> str:
-    encoded = json.dumps(
-        descriptor, sort_keys=True, separators=(",", ":"), allow_nan=False
-    ).encode()
-    return hashlib.sha256(b"eqasim-sa:context:v1\0" + encoded).hexdigest()
+    return ExecutionContextIdentity.from_descriptor(descriptor).sha256
 
 
 def _test_indicator_compute(artifacts) -> float:  # type: ignore[no-untyped-def]

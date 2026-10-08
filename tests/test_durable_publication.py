@@ -5,8 +5,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from eqasim_sa.core import durable_publication
-from eqasim_sa.core.durable_publication import (
+import eqasim_sa.utils.filesystem as durable_publication
+from eqasim_sa.utils.filesystem import (
     PublicationOutcomeUnknown,
     capture_stable_file,
     stable_file,

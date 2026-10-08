@@ -119,7 +119,7 @@ def test_snapshot_hashes_each_selected_marker_and_artifact_once(
     root = tmp_path / "campaign"
     plan_path = plan(root, specs)
     complete(root, specs[0], 10)
-    real_hash = ledger_module._descriptor_digest
+    real_hash = ledger_module.descriptor_sha256
     calls = 0
 
     def counted_hash(descriptor: int, interrupted=None):  # type: ignore[no-untyped-def]
@@ -127,7 +127,7 @@ def test_snapshot_hashes_each_selected_marker_and_artifact_once(
         calls += 1
         return real_hash(descriptor, interrupted)
 
-    monkeypatch.setattr(ledger_module, "_descriptor_digest", counted_hash)
+    monkeypatch.setattr(ledger_module, "descriptor_sha256", counted_hash)
 
     snapshot = CampaignSnapshot.capture(root, plan_path, "demo")
 

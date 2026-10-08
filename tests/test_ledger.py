@@ -609,14 +609,14 @@ def test_v2_reader_rejects_archive_changed_while_hashing(
 ) -> None:
     spec = run_spec(rate=1)
     _, artifact, _ = complete_v2(tmp_path, spec)
-    original_hash = ledger._hash_descriptor
+    original_hash = ledger.descriptor_sha256
 
     def mutate_after_hash(descriptor: int, interrupted=None):  # type: ignore[no-untyped-def]
         digest = original_hash(descriptor, interrupted)
         artifact.write_bytes(b"x" * artifact.stat().st_size)
         return digest
 
-    monkeypatch.setattr(ledger, "_hash_descriptor", mutate_after_hash)
+    monkeypatch.setattr(ledger, "descriptor_sha256", mutate_after_hash)
     with pytest.raises(ValueError, match="changed while hashing"):
         is_complete(tmp_path, spec)
 
@@ -627,15 +627,19 @@ def test_v2_reader_rejects_campaign_root_replacement(
     campaign = tmp_path / "campaign"
     spec = run_spec(rate=1)
     complete_v2(campaign, spec)
-    original_hash = ledger._hash_descriptor
+    original_hash = ledger.descriptor_sha256
+    replaced = False
 
     def replace_root_after_hash(descriptor: int, interrupted=None):  # type: ignore[no-untyped-def]
+        nonlocal replaced
         digest = original_hash(descriptor, interrupted)
-        campaign.rename(tmp_path / "detached")
-        campaign.mkdir()
+        if not replaced:
+            campaign.rename(tmp_path / "detached")
+            campaign.mkdir()
+            replaced = True
         return digest
 
-    monkeypatch.setattr(ledger, "_hash_descriptor", replace_root_after_hash)
+    monkeypatch.setattr(ledger, "descriptor_sha256", replace_root_after_hash)
     with pytest.raises(ValueError, match="campaign root changed"):
         is_complete(campaign, spec)
 

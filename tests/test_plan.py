@@ -12,7 +12,7 @@ import pyarrow.parquet as pq
 import pytest
 
 import eqasim_sa.core.plan as plan_module
-import eqasim_sa.core.durable_publication as durable_publication
+import eqasim_sa.utils.filesystem as durable_publication
 from eqasim_sa.adapters.application import plan_from_meta_config
 from eqasim_sa.adapters.eqasim.config import load_yaml_document
 from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator, eqasim_requirements
@@ -303,7 +303,9 @@ def test_sobol_rejects_int64_cardinality_before_qmc_allocation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        plan_module.qmc,
+        __import__(
+            "eqasim_sa.core.methods.sobol_plan", fromlist=["qmc"]
+        ).qmc,
         "Sobol",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("QMC allocated")),
     )
@@ -440,7 +442,9 @@ def test_sobol_bootstrap_caps_precede_indicator_plugin_resolution(
         lambda *args: (_ for _ in ()).throw(AssertionError("plugins resolved")),
     )
     if limit == "work":
-        monkeypatch.setattr(plan_module, "MAX_BOOTSTRAP_WORK_CELLS", 1)
+        monkeypatch.setattr(
+            "eqasim_sa.core.methods.sobol_plan.MAX_BOOTSTRAP_WORK_CELLS", 1
+        )
 
     with pytest.raises(ValueError, match="operational safe cap"):
         load_meta_config(meta)

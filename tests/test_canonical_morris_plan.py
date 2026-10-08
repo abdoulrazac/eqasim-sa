@@ -511,7 +511,9 @@ def test_canonical_bootstrap_caps_precede_plan_table_allocation(
             )
         )
 
-    monkeypatch.setattr(plan_module, "MAX_BOOTSTRAP_WORK_CELLS", 1)
+    monkeypatch.setattr(
+        "eqasim_sa.core.methods.canonical_morris_plan.MAX_BOOTSTRAP_WORK_CELLS", 1
+    )
     with pytest.raises(ValueError, match="bootstrap work.*work cells"):
         build_plan(canonical_design(tmp_path / "work"))
 

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
-from eqasim_sa.core.durable_publication import (
+from eqasim_sa.utils.filesystem import (
     copy_file_atomic,
     fsync_directory,
     validate_directory,

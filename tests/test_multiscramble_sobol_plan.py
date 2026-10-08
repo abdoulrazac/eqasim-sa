@@ -365,8 +365,7 @@ def test_multiscramble_table_cell_cap_precedes_salib_allocation(
         tmp_path / "campaign", factors=factors, base_sample_sizes=(2,)
     )
     monkeypatch.setattr(
-        plan_module,
-        "sobol_unit_positions",
+        "eqasim_sa.core.methods.multiscramble_sobol_plan.sobol_unit_positions",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("SALib sample allocated")
         ),
@@ -382,8 +381,7 @@ def test_multiscramble_position_cap_precedes_salib_allocation(
 
     monkeypatch.setattr(plan_module, "MAX_PLAN_POSITIONS", 95)
     monkeypatch.setattr(
-        plan_module,
-        "sobol_unit_positions",
+        "eqasim_sa.core.methods.multiscramble_sobol_plan.sobol_unit_positions",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("SALib sample allocated")
         ),
@@ -419,8 +417,7 @@ def test_multiscramble_budget_uses_structural_positions_not_unique_runs(
         tmp_path / "restricted", scientific_contract=contract
     )
     monkeypatch.setattr(
-        plan_module,
-        "sobol_unit_positions",
+        "eqasim_sa.core.methods.multiscramble_sobol_plan.sobol_unit_positions",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("SALib sample allocated")
         ),

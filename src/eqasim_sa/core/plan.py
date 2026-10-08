@@ -13,94 +13,73 @@ from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from scipy.stats import qmc
 
 from eqasim_sa.core.charter import (
     validate_scientific_contract,
     validate_scientific_stopping,
 )
-from eqasim_sa.core.durable_publication import (
+from eqasim_sa.core.context_identity import ExecutionContextIdentity
+from eqasim_sa.core.methods.canonical_morris_plan import (
+    CANONICAL_MORRIS_DOMAIN,
+    CANONICAL_MORRIS_SEED_DOMAIN,
+    MAX_CANONICAL_MORRIS_CANDIDATES,
+    MAX_CANONICAL_MORRIS_DISTANCE_TERMS,
+    _canonical_definition,
+    _canonical_morris_positions,
+    _canonical_replication_seed,
+    _discrete_uniform_generalized_inverse_index,
+    canonical_morris_distance_terms,
+    changed_factor,
+    validate_canonical_morris_bootstrap_work,
+)
+from eqasim_sa.core.methods.common import (
+    MAX_BOOTSTRAP_RESAMPLES,
+    MAX_BOOTSTRAP_WORK_CELLS,
+    MAX_PLAN_CELLS,
+    MAX_PLAN_POSITIONS,
+    _json,
+    validate_bootstrap_resamples,
+)
+from eqasim_sa.core.methods.morris_plan import (
+    DISCRETE_OAT_DOMAIN,
+    MORRIS_DOMAIN,
+    _discrete_oat_positions,
+    _morris_positions,
+    validate_morris_values,
+)
+from eqasim_sa.core.methods.multiscramble_sobol_plan import (
+    MAX_MULTISCRAMBLE_DESIGN_POSITIONS,
+    MAX_MULTISCRAMBLE_TABLE_CELLS,
+    MULTISCRAMBLE_SOBOL_DOMAIN,
+    _multiscramble_definition,
+    _multiscramble_sobol_positions,
+    validate_multiscramble_scientific_contract,
+)
+from eqasim_sa.core.methods.sobol_plan import (
+    SOBOL_DOMAIN,
+    _sobol_positions,
+    validate_sobol_bootstrap_work,
+    validate_sobol_effective_hybrid_contrasts,
+)
+from eqasim_sa.core.methods.structured import (
+    FIXED,
+    NAME,
+    _structured_json,
+    validate_structured_factor_supports,
+    validate_structured_plan_metadata,
+    validate_structured_plan_rows,
+)
+from eqasim_sa.core.ledger import RESERVED_COLUMNS
+from eqasim_sa.core.run import RunSpec, compute_run_id
+from eqasim_sa.utils.filesystem import (
     PublicationOutcomeUnknown,
     file_state,
     secure_directory,
     write_parquet_exclusive,
 )
-from eqasim_sa.core.ledger import RESERVED_COLUMNS
-from eqasim_sa.core.run import RunSpec, compute_run_id
-from eqasim_sa.core.sensitivity import (
-    engine_descriptor,
-    morris_unit_trajectories,
-    sobol_unit_positions,
-)
 
-FIXED = ("designId", "method", "role", "runId", "seed", "contextHash")
-NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 DOMAIN = b"eqasim-sa:design:grid:v1\0"
-MORRIS_DOMAIN = b"eqasim-sa:design:morris:v1\0"
-DISCRETE_OAT_DOMAIN = b"eqasim-sa:design:discrete-oat:v1\0"
-CANONICAL_MORRIS_DOMAIN = b"eqasim-sa:design:canonical-morris:v3\0"
-CANONICAL_MORRIS_SEED_DOMAIN = b"eqasim-sa:canonical-morris-seed:v1\0"
-SOBOL_DOMAIN = b"eqasim-sa:design:sobol:v1\0"
-MULTISCRAMBLE_SOBOL_DOMAIN = b"eqasim-sa:design:multiscramble-sobol:v3\0"
-MAX_CANONICAL_MORRIS_CANDIDATES = 500
-MAX_CANONICAL_MORRIS_DISTANCE_TERMS = 50_000_000
-# The protocol uses at most 1,999 resamples; this leaves operational headroom
-# while preventing hostile declarations from driving unbounded analysis work.
-MAX_BOOTSTRAP_RESAMPLES = 100_000
-MAX_BOOTSTRAP_WORK_CELLS = 50_000_000
-# Keep malformed declarations from committing multi-gigabyte list, QMC, or Arrow allocations.
-MAX_PLAN_POSITIONS = 1_000_000
-MAX_PLAN_CELLS = 20_000_000
-# Retained for readers that still validate the legacy method-specific names.
-MAX_MULTISCRAMBLE_DESIGN_POSITIONS = MAX_PLAN_POSITIONS
-MAX_MULTISCRAMBLE_TABLE_CELLS = MAX_PLAN_CELLS
-
-
-def validate_bootstrap_resamples(
-    value: object, *, method: str, minimum: int
-) -> int:
-    if (
-        type(value) is not int
-        or not minimum <= value <= MAX_BOOTSTRAP_RESAMPLES
-    ):
-        raise ValueError(
-            f"{method} bootstrap_resamples must be a signed-int64 integer "
-            f"between {minimum} and the operational safe cap "
-            f"{MAX_BOOTSTRAP_RESAMPLES}"
-        )
-    return value
-
-
-def validate_sobol_bootstrap_work(
-    bootstrap_resamples: int, base_sample_size: int, dimensions: int
-) -> None:
-    work = bootstrap_resamples * base_sample_size * (2 * dimensions + 2)
-    if work > MAX_BOOTSTRAP_WORK_CELLS:
-        raise ValueError(
-            "Sobol bootstrap B*N*(2D+2) exceeds the operational safe cap of "
-            f"{MAX_BOOTSTRAP_WORK_CELLS} work cells"
-        )
-
-
-def validate_canonical_morris_bootstrap_work(
-    bootstrap_resamples: int,
-    factors: int,
-    trajectories: int,
-    replications: int,
-    checkpoints: tuple[int, ...] | list[int],
-) -> None:
-    pairwise_rankings = factors * (factors - 1) // 2
-    work = bootstrap_resamples * len(checkpoints) * (
-        factors * trajectories * replications
-        + factors * factors
-        + pairwise_rankings
-    )
-    if work > MAX_BOOTSTRAP_WORK_CELLS:
-        raise ValueError(
-            "canonical Morris bootstrap work exceeds the operational safe cap of "
-            f"{MAX_BOOTSTRAP_WORK_CELLS} work cells"
-        )
 
 
 @dataclass(frozen=True)
@@ -316,115 +295,6 @@ def estimate_plan(
     }
 
 
-def _json(value: object) -> bytes:
-    return json.dumps(
-        value,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-        allow_nan=False,
-    ).encode("utf-8")
-
-
-def _structured_json(value: dict[str, dict[str, list[str]]]) -> bytes:
-    ordered = {name: value[name] for name in sorted(value)}
-    return json.dumps(
-        ordered,
-        separators=(",", ":"),
-        ensure_ascii=False,
-        allow_nan=False,
-    ).encode("utf-8")
-
-
-def validate_structured_plan_metadata(
-    metadata: dict[bytes, bytes],
-) -> dict[str, dict[str, list[str]]]:
-    version = metadata.get(b"planSchemaVersion")
-    pair = {b"structuredFactorsVersion", b"structuredFactors"}
-    present = pair & set(metadata)
-    if version is None and not present:
-        return {}
-    if version in {b"1", b"2"}:
-        if present:
-            raise ValueError("structured plan metadata requires plan schema v3")
-        return {}
-    if version != b"3" or present != pair:
-        raise ValueError("structured plan metadata pair is missing or unsupported")
-    if metadata[b"structuredFactorsVersion"] != b"1":
-        raise ValueError("structured plan metadata version is unsupported")
-    try:
-        structured = json.loads(metadata[b"structuredFactors"])
-        canonical = _structured_json(structured)
-    except Exception as error:
-        raise ValueError("structured plan metadata is invalid") from error
-    if (
-        metadata[b"structuredFactors"] != canonical
-        or not isinstance(structured, dict)
-        or not structured
-    ):
-        raise ValueError("structured plan metadata is not canonical")
-    for name, configurations in structured.items():
-        if (
-            not isinstance(name, str)
-            or not NAME.fullmatch(name)
-            or not isinstance(configurations, dict)
-            or not configurations
-        ):
-            raise ValueError("structured plan metadata has invalid factors")
-        payloads = []
-        for label, payload in configurations.items():
-            if (
-                not isinstance(label, str)
-                or not label
-                or "\0" in label
-                or not isinstance(payload, list)
-                or not payload
-                or any(
-                    not isinstance(item, str) or not item or "\0" in item
-                    for item in payload
-                )
-                or len(set(payload)) != len(payload)
-            ):
-                raise ValueError("structured plan metadata has invalid configurations")
-            payloads.append(tuple(payload))
-        if len(set(payloads)) != len(payloads):
-            raise ValueError("structured plan metadata contains payload aliases")
-    return structured
-
-
-def validate_structured_plan_rows(
-    plan: pa.Table, structured: dict[str, dict[str, list[str]]]
-) -> None:
-    if not structured:
-        return
-    factor_columns = set(plan.column_names) - set(FIXED)
-    methods = set(plan["method"].to_pylist()) if "method" in plan.column_names else set()
-    for name, configurations in structured.items():
-        if name not in factor_columns:
-            raise ValueError(
-                f"structured plan factor {name!r} is not a plan factor column"
-            )
-        observed = plan[name].to_pylist()
-        if any(type(label) is not str or label not in configurations for label in observed):
-            raise ValueError(
-                f"structured plan factor {name!r} contains an unknown label"
-            )
-        if methods == {"grid"}:
-            first_occurrence = list(dict.fromkeys(observed))
-            if first_occurrence != list(configurations):
-                raise ValueError(
-                    f"structured Grid factor {name!r} labels do not match plan rows in declaration order"
-                )
-
-
-def validate_structured_factor_supports(
-    structured: dict[str, dict[str, list[str]]], supports: dict[str, list]
-) -> None:
-    for name, configurations in structured.items():
-        if name not in supports or list(configurations) != supports[name]:
-            raise ValueError(
-                f"structured factor {name!r} labels do not exactly match sealed support"
-            )
 
 
 def _scalar(name: str, value: object) -> None:
@@ -440,65 +310,6 @@ def _scalar(name: str, value: object) -> None:
     ):
         raise ValueError(
             f"factor {name!r} values must be finite int64 or non-empty strings without NUL"
-        )
-
-
-def validate_morris_values(name: str, values: list) -> None:
-    if (
-        len(values) < 2
-        or type(values[0]) not in (int, float)
-        or any(type(value) is not type(values[0]) for value in values)
-    ):
-        raise TypeError(
-            f"Morris factor {name!r} needs two or more numeric levels of the same type"
-        )
-    if any(not math.isfinite(value) for value in values):
-        raise ValueError(f"Morris factor {name!r} levels must be finite")
-    if any(left >= right for left, right in zip(values, values[1:])):
-        raise ValueError(
-            f"Morris factor {name!r} levels must be distinct and strictly increasing"
-        )
-    extent = values[-1] - values[0]
-    deltas = tuple((right - left) / extent for left, right in zip(values, values[1:]))
-    if not math.isfinite(extent) or any(
-        not math.isfinite(delta) or delta == 0 for delta in deltas
-    ):
-        raise ValueError(
-            f"Morris factor {name!r} range and normalized deltas must be finite and representable"
-        )
-
-
-def canonical_morris_distance_terms(
-    dimensions: int, candidates: int, trajectories: int
-) -> int:
-    pair_distances = candidates * (candidates - 1) // 2
-    greedy_distances = sum(
-        (candidates - selected) * selected
-        for selected in range(2, trajectories)
-    )
-    return (pair_distances + greedy_distances) * dimensions * (dimensions + 1) ** 2
-
-
-def validate_multiscramble_scientific_contract(
-    contract: dict,
-    factors: dict[str, list],
-    distributions: dict,
-) -> None:
-    validate_scientific_contract(
-        contract,
-        factors,
-        distributions,
-        allowed_objectives=frozenset({"fp", "ff"}),
-    )
-    if contract["charter"]["stochastic"]["target"] != "finite_seed_factor":
-        raise ValueError(
-            "multi-scramble Sobol scientific_contract requires finite_seed_factor"
-        )
-    decision = contract["charter"]["decision"]
-    if decision["objective"] == "ff" and decision["practical_tolerance"] > 1:
-        raise ValueError(
-            "multi-scramble Sobol practical_tolerance must be a dimensionless "
-            "total-order variance-share tolerance in [0,1]"
         )
 
 
@@ -648,23 +459,13 @@ def _validate(design: Design) -> tuple[str, ...]:
         raise ValueError(
             "context_hash must contain 64 lowercase hexadecimal characters"
         )
-    if (
-        not isinstance(design.context_descriptor, dict)
-        or set(design.context_descriptor)
-        != {
-            "eqasimCommit",
-            "dataManifestSha256",
-            "lockfileSha256",
-            "eqasimSaVersion",
-        }
-        or any(type(value) is not str for value in design.context_descriptor.values())
-    ):
+    try:
+        context_identity = ExecutionContextIdentity.from_descriptor(
+            design.context_descriptor
+        )
+    except ValueError as error:
         raise ValueError("context_descriptor must contain exactly four string keys")
-    descriptor_bytes = _json(design.context_descriptor)
-    if (
-        hashlib.sha256(b"eqasim-sa:context:v1\0" + descriptor_bytes).hexdigest()
-        != design.context_hash
-    ):
+    if context_identity.sha256 != design.context_hash:
         raise ValueError("context_hash does not match context_descriptor")
     config = design.requirements.get("config", {})
     if set(design.requirements) - {"run", "config"} or not isinstance(config, dict):
@@ -877,392 +678,13 @@ def _validate(design: Design) -> tuple[str, ...]:
     return names
 
 
-def _morris_positions(design: MorrisDesign, names: tuple[str, ...]):  # type: ignore[no-untyped-def]
-    definition = {
-        "designSeed": design.design_seed,
-        "factors": [{"name": name, "values": design.factors[name]} for name in names],
-    }
-    encoded = _json(definition)
-    count = math.factorial(len(names)) * math.prod(
-        2 * (len(design.factors[name]) - 1) for name in names
-    )
-    offset = (
-        int.from_bytes(
-            hashlib.sha256(MORRIS_DOMAIN + encoded + b"\0offset").digest(), "big"
-        )
-        % count
-    )
-    stride = (
-        int.from_bytes(
-            hashlib.sha256(MORRIS_DOMAIN + encoded + b"\0stride").digest(), "big"
-        )
-        % count
-        or 1
-    )
-    while math.gcd(stride, count) != 1:
-        stride = (stride + 1) % count or 1
-    for trajectory in range(design.trajectories):
-        code = (offset + trajectory * stride) % count
-        choices = []
-        for name in names:
-            code, digit = divmod(code, 2 * (len(design.factors[name]) - 1))
-            choices.append((digit // 2, 1 if digit % 2 == 0 else -1))
-        available, permutation = list(range(len(names))), []
-        for remaining in range(len(names), 0, -1):
-            block = math.factorial(remaining - 1)
-            index, code = divmod(code, block)
-            permutation.append(available.pop(index))
-        point = [edge if direction == 1 else edge + 1 for edge, direction in choices]
-        points = [tuple(point)]
-        for factor in permutation:
-            point = list(point)
-            point[factor] += choices[factor][1]
-            points.append(tuple(point))
-        for replication, seed in enumerate(design.seeds):
-            for rank, indices in enumerate(points):
-                role = (
-                    f"trajectory:{trajectory}:rank:0:start"
-                    if rank == 0
-                    else f"trajectory:{trajectory}:rank:{rank}:factor:{names[permutation[rank - 1]]}"
-                )
-                yield indices, replication, seed, role, definition
-
-
-def _discrete_oat_positions(design: DiscreteOATDesign, names: tuple[str, ...]):  # type: ignore[no-untyped-def]
-    definition = {
-        "designSeed": design.design_seed,
-        "factors": [{"name": name, "values": design.factors[name]} for name in names],
-    }
-    encoded = _json(definition)
-    count = math.factorial(len(names)) * math.prod(
-        2 * (len(design.factors[name]) - 1) for name in names
-    )
-    offset = int.from_bytes(
-        hashlib.sha256(DISCRETE_OAT_DOMAIN + encoded + b"\0offset").digest(), "big"
-    ) % count
-    stride = int.from_bytes(
-        hashlib.sha256(DISCRETE_OAT_DOMAIN + encoded + b"\0stride").digest(), "big"
-    ) % count or 1
-    while math.gcd(stride, count) != 1:
-        stride = (stride + 1) % count or 1
-    for trajectory in range(design.trajectories):
-        code = (offset + trajectory * stride) % count
-        choices = []
-        for name in names:
-            code, digit = divmod(code, 2 * (len(design.factors[name]) - 1))
-            choices.append((digit // 2, 1 if digit % 2 == 0 else -1))
-        available, permutation = list(range(len(names))), []
-        for remaining in range(len(names), 0, -1):
-            block = math.factorial(remaining - 1)
-            index, code = divmod(code, block)
-            permutation.append(available.pop(index))
-        point = [edge if direction == 1 else edge + 1 for edge, direction in choices]
-        points = [tuple(point)]
-        for factor in permutation:
-            point = list(point)
-            point[factor] += choices[factor][1]
-            points.append(tuple(point))
-        for replication, seed in enumerate(design.seeds):
-            for rank, indices in enumerate(points):
-                role = (
-                    f"trajectory:{trajectory}:rank:0:start"
-                    if rank == 0
-                    else f"trajectory:{trajectory}:rank:{rank}:factor:{names[permutation[rank - 1]]}"
-                )
-                yield indices, replication, seed, role, definition
-
-
-def _discrete_uniform_generalized_inverse_index(
-    support_length: int, levels: int, grid_index: int
-) -> int:
-    if grid_index == 0:
-        return 0
-    return min(
-        (support_length * grid_index - 1) // (levels - 1),
-        support_length - 1,
-    )
-
-
-def _canonical_replication_seed(
-    design_seed: int,
-    base_seed: int,
-    trajectory_id: str,
-    replication_index: int,
-) -> int:
-    preimage = {
-        "baseSeed": base_seed,
-        "designSeed": design_seed,
-        "replicationIndex": replication_index,
-        "trajectoryId": trajectory_id,
-        "version": 1,
-    }
-    unsigned = int.from_bytes(
-        hashlib.sha256(CANONICAL_MORRIS_SEED_DOMAIN + _json(preimage)).digest()[:8],
-        "big",
-    )
-    return unsigned if unsigned < 2**63 else unsigned - 2**64
-
-
-def _canonical_definition(
-    design: CanonicalMorrisDesign, names: tuple[str, ...]
-) -> tuple[dict, list[tuple[str, list[list[int]]]]]:
-    candidate_definition = {
-        "designSeed": design.design_seed,
-        "factors": [
-            {
-                "name": name,
-                "support": design.factors[name],
-                "distribution": design.distributions[name],
-            }
-            for name in names
-        ],
-        "levels": design.levels,
-        "candidateTrajectories": design.candidate_trajectories,
-    }
-    matrices = morris_unit_trajectories(
-        names,
-        candidate_trajectories=design.candidate_trajectories,
-        selected_trajectories=design.trajectories,
-        levels=design.levels,
-        seed=design.design_seed,
-    )
-    selected = [
-        (
-            hashlib.sha256(
-                CANONICAL_MORRIS_DOMAIN
-                + _json({"matrix": matrix, "selectedIndex": index})
-            ).hexdigest(),
-            matrix,
-        )
-        for index, matrix in enumerate(matrices)
-    ]
-    definition = {
-        "bootstrapResamples": design.bootstrap_resamples,
-        "candidateDefinition": candidate_definition,
-        "confidenceLevel": design.confidence_level,
-        "convergenceCheckpoints": list(design.convergence_checkpoints),
-        "delta": {"numerator": design.levels // 2, "denominator": design.levels - 1},
-        "distributions": [
-            {"name": name, **design.distributions[name]} for name in names
-        ],
-        "factors": [
-            {"name": name, "support": design.factors[name]} for name in names
-        ],
-        "inverseCdfMap": "discrete-uniform-generalized-inverse-v1",
-        "numericalEngine": engine_descriptor(
-            design.method,
-            sample_size=design.candidate_trajectories,
-            sample_seeds=(design.design_seed,),
-            levels=design.levels,
-            selected_trajectories=design.trajectories,
-        ),
-        "p": design.levels,
-        "replicationBaseSeeds": list(design.seeds),
-        "scientificContract": design.scientific_contract,
-        "screeningTopK": design.screening_top_k,
-        "seedDerivation": {
-            "algorithm": "sha256-first-64-bits-signed",
-            "domain": "eqasim-sa:canonical-morris-seed:v1",
-            "fields": [
-                "version",
-                "designSeed",
-                "baseSeed",
-                "trajectoryId",
-                "replicationIndex",
-            ],
-            "version": 1,
-        },
-        "selectedTrajectories": [
-            {"matrix": matrix, "trajectoryId": identity}
-            for identity, matrix in selected
-        ],
-        "trajectories": design.trajectories,
-    }
-    return definition, selected
-
-
-def _canonical_morris_positions(
-    design: CanonicalMorrisDesign,
-    names: tuple[str, ...],
-    definition: dict,
-    selected: list[tuple[str, list[list[int]]]],
-):  # type: ignore[no-untyped-def]
-    actual_seeds = set()
-    for trajectory, (trajectory_id, matrix) in enumerate(selected):
-        mapped = [
-            tuple(
-                design.factors[name][
-                    _discrete_uniform_generalized_inverse_index(
-                        len(design.factors[name]), design.levels, grid_index
-                    )
-                ]
-                for name, grid_index in zip(names, point)
-            )
-            for point in matrix
-        ]
-        for rank in range(1, len(mapped)):
-            changed = [
-                index
-                for index, (before, after) in enumerate(zip(mapped[rank - 1], mapped[rank]))
-                if before != after
-            ]
-            if len(changed) != 1:
-                raise ValueError(
-                    "canonical Morris mapped step endpoints must differ in exactly one factor"
-                )
-        for replication, base_seed in enumerate(design.seeds):
-            seed = _canonical_replication_seed(
-                design.design_seed, base_seed, trajectory_id, replication
-            )
-            if seed in actual_seeds:
-                raise RuntimeError("canonical Morris derived seed collision between blocks")
-            actual_seeds.add(seed)
-            for rank, values in enumerate(mapped):
-                role = (
-                    f"trajectory:{trajectory}:rank:0:start"
-                    if rank == 0
-                    else f"trajectory:{trajectory}:rank:{rank}:factor:{names[changed_factor(matrix, rank)]}"
-                )
-                yield values, replication, seed, role, definition
-
-
-def changed_factor(matrix: list[list[int]], rank: int) -> int:
-    return next(
-        index
-        for index, (before, after) in enumerate(zip(matrix[rank - 1], matrix[rank]))
-        if before != after
-    )
-
-
-def _sobol_positions(design: SobolDesign, names: tuple[str, ...]):  # type: ignore[no-untyped-def]
-    domains = {**design.factors, "seed": list(design.seeds)}
-    definition = {
-        "baseSampleSize": design.base_sample_size,
-        "designSeed": design.design_seed,
-        "scramble": True,
-        "bits": 64,
-        "mapping": "equal-width-v1",
-        "factors": [{"name": name, "values": domains[name]} for name in names],
-    }
-    sample = qmc.Sobol(
-        d=2 * len(names),
-        scramble=True,
-        bits=64,
-        rng=design.design_seed,
-        optimization=None,
-    ).random_base2(m=design.base_sample_size.bit_length() - 1)
-    indices = [
-        tuple(
-            math.floor(float(value) * len(domains[name]))
-            for name, value in zip(names * 2, row)
-        )
-        for row in sample
-    ]
-    validate_sobol_effective_hybrid_contrasts(indices, names)
-    for row_index, point in enumerate(indices):
-        a, b = point[: len(names)], point[len(names) :]
-        positions = [(f"A:row:{row_index}", a), (f"B:row:{row_index}", b)]
-        for index, name in enumerate(names):
-            ab, ba = list(a), list(b)
-            ab[index], ba[index] = b[index], a[index]
-            positions.extend(
-                (
-                    (f"AB:factor:{name}:row:{row_index}", tuple(ab)),
-                    (f"BA:factor:{name}:row:{row_index}", tuple(ba)),
-                )
-            )
-        for role, selected in positions:
-            values = tuple(domains[name][index] for name, index in zip(names, selected))
-            yield values, role, definition
-
-
-def validate_sobol_effective_hybrid_contrasts(points, names):  # type: ignore[no-untyped-def]
-    dimensions = len(names)
-    for factor, name in enumerate(names):
-        if not any(point[factor] != point[dimensions + factor] for point in points):
-            raise ValueError(
-                f"Sobol factor {name!r} has no effective hybrid contrast after "
-                "discrete projection; increase base_sample_size or change its domain"
-            )
-
-
-def _multiscramble_definition(
-    design: MultiScrambleSobolDesign, names: tuple[str, ...]
-) -> dict:
-    domains = {**design.factors, "seed": list(design.seeds)}
-    definition = {
-        "baseSampleSizes": list(design.base_sample_sizes),
-        "confidenceLevel": design.confidence_level,
-        "factors": [
-            {
-                "name": name,
-                "support": domains[name],
-                "distribution": design.distributions[name],
-            }
-            for name in names
-        ],
-        "mapping": "equal-width-v1",
-        "maximumBaseSampleSize": design.base_sample_sizes[-1],
-        "numericalEngine": engine_descriptor(
-            design.method,
-            sample_size=design.base_sample_sizes[-1],
-            sample_seeds=design.scramble_seeds,
-        ),
-        "saltelliEstimator": "symmetric-forward-reverse-salib-v1",
-        "scientificContract": design.scientific_contract,
-        "scrambleSeeds": list(design.scramble_seeds),
-    }
-    if design.structured_factors:
-        definition["structuredFactors"] = design.structured_factors
-    return definition
-
-
-def _multiscramble_sobol_positions(
-    design: MultiScrambleSobolDesign,
-    names: tuple[str, ...],
-    definition: dict,
-):  # type: ignore[no-untyped-def]
-    domains = {**design.factors, "seed": list(design.seeds)}
-    maximum = design.base_sample_sizes[-1]
-    for scramble, scramble_seed in enumerate(design.scramble_seeds):
-        positions = [
-            (
-                role,
-                tuple(
-                    math.floor(value * len(domains[name]))
-                    for name, value in zip(names, unit_position)
-                ),
-            )
-            for role, unit_position in sobol_unit_positions(
-                names, maximum, scramble_seed
-            )
-        ]
-        by_role = dict(positions)
-        if len(by_role) != len(positions):
-            raise RuntimeError("SALib returned duplicate multi-scramble Sobol roles")
-        for checkpoint in design.base_sample_sizes:
-            pairs = [
-                by_role[f"A:row:{row}"] + by_role[f"B:row:{row}"]
-                for row in range(checkpoint)
-            ]
-            try:
-                validate_sobol_effective_hybrid_contrasts(pairs, names)
-            except ValueError as error:
-                raise ValueError(
-                    f"multi-scramble Sobol scramble {scramble}, checkpoint {checkpoint}: {error}"
-                ) from error
-        for role, selected in positions:
-            values = tuple(
-                domains[name][index] for name, index in zip(names, selected)
-            )
-            yield values, f"scramble:{scramble}:{role}", definition
-
-
 def _table(design: Design, names: tuple[str, ...]) -> pa.Table:
     metadata = {
         b"planSchemaVersion": b"1",
         b"canonicalizationVersion": b"1",
-        b"contextDescriptor": _json(design.context_descriptor),
+        b"contextDescriptor": ExecutionContextIdentity.from_descriptor(
+            design.context_descriptor
+        ).canonical_bytes,
     }
     if design.structured_factors:
         metadata.update(
@@ -1594,6 +1016,18 @@ def _read_committed_plan(
                 if transactions is None or not _pending_plan_link(
                     destination, transactions
                 ):
+                    try:
+                        visible = destination.lstat()
+                    except FileNotFoundError:
+                        continue
+                    publication_finished = (
+                        visible.st_nlink == 1
+                        and visible.st_dev == initial.st_dev
+                        and visible.st_ino == initial.st_ino
+                        and file_state(visible) == file_state(os.fstat(descriptor))
+                    )
+                    if publication_finished:
+                        continue
                     raise ValueError(
                         "plan.parquet must not be a foreign hard-linked file"
                     )

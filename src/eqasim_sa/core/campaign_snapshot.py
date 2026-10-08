@@ -14,7 +14,7 @@ from typing import Mapping, Sequence
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from eqasim_sa.core.durable_publication import (
+from eqasim_sa.utils.filesystem import (
     FileState,
     StableFile,
     capture_stable_file,

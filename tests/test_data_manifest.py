@@ -177,7 +177,7 @@ def test_rejects_tree_changed_after_an_earlier_file_was_hashed(
     first = data / "a"
     first.write_text("before")
     (data / "b").write_text("later")
-    real_hash = data_manifest._hash_descriptor
+    real_hash = data_manifest.descriptor_sha256
     calls = 0
 
     def mutate_after_second_hash(descriptor: int) -> str:
@@ -188,7 +188,7 @@ def test_rejects_tree_changed_after_an_earlier_file_was_hashed(
             first.write_text("after")
         return result
 
-    monkeypatch.setattr(data_manifest, "_hash_descriptor", mutate_after_second_hash)
+    monkeypatch.setattr(data_manifest, "descriptor_sha256", mutate_after_second_hash)
     with pytest.raises(RuntimeError, match="changed"):
         generate_data_manifest(data, tmp_path / "manifest.json")
     assert not (tmp_path / "manifest.json").exists()

@@ -688,7 +688,7 @@ def test_remote_jobs_survive_workdir_loss_and_resume_only_from_runs(
         loaded.eqasim_sa_sha256,
     )
     monkeypatch.setenv("EQASIM_SPY_RECORD", str(tmp_path / "record.json"))
-    real_hash = data_manifest._hash_descriptor
+    real_hash = data_manifest.descriptor_sha256
     hash_calls = 0
 
     def counted_hash(descriptor: int) -> str:
@@ -696,7 +696,7 @@ def test_remote_jobs_survive_workdir_loss_and_resume_only_from_runs(
         hash_calls += 1
         return real_hash(descriptor)
 
-    monkeypatch.setattr(data_manifest, "_hash_descriptor", counted_hash)
+    monkeypatch.setattr(data_manifest, "descriptor_sha256", counted_hash)
 
     first_batch = WorkerBatch(0, (Indexed(0, specs[0]),))
     assert job(first_batch)[0].value.status == "completed"
@@ -1116,13 +1116,6 @@ def test_sobol_capacity_warning_is_exact_and_precedes_backend_submission(
     monkeypatch.setattr(
         application, "pending_run_specs", lambda *args: specs[:pending_count]
     )
-    monkeypatch.setattr(
-        application,
-        "execute_run",
-        lambda spec, *args: RunResult(
-            compute_run_id(spec.resolved_config, spec.seed), "completed"
-        ),
-    )
     seen = []
 
     class Backend:
@@ -1255,7 +1248,7 @@ def test_local_campaign_hashes_data_once_and_persists_execution_evidence(
     )
     monkeypatch.setenv("EQASIM_SPY_RECORD", str(tmp_path / "record.json"))
     monkeypatch.setenv("EQASIM_RUNTIME_SECRET", "must-not-be-persisted")
-    real_hash = data_manifest._hash_descriptor
+    real_hash = data_manifest.descriptor_sha256
     calls = 0
 
     def counted_hash(descriptor: int) -> str:
@@ -1263,7 +1256,7 @@ def test_local_campaign_hashes_data_once_and_persists_execution_evidence(
         calls += 1
         return real_hash(descriptor)
 
-    monkeypatch.setattr(data_manifest, "_hash_descriptor", counted_hash)
+    monkeypatch.setattr(data_manifest, "descriptor_sha256", counted_hash)
 
     payload = run_from_meta_config(meta)
 
@@ -1329,6 +1322,8 @@ def test_campaign_resume_filters_before_simulator_backend_and_preflight(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from eqasim_sa.adapters.eqasim import execution as eqasim_execution
+
     from eqasim_sa.adapters import application
     from eqasim_sa.adapters.application import plan_from_meta_config
     from eqasim_sa.core.ledger import RunRecord, write_run
@@ -1372,7 +1367,7 @@ def test_campaign_resume_filters_before_simulator_backend_and_preflight(
             ),
         )
     monkeypatch.setattr(
-        application,
+        eqasim_execution,
         "EqasimSimulator",
         lambda *args: (_ for _ in ()).throw(AssertionError("simulator instantiated")),
     )
@@ -1382,7 +1377,7 @@ def test_campaign_resume_filters_before_simulator_backend_and_preflight(
         lambda *args: (_ for _ in ()).throw(AssertionError("backend instantiated")),
     )
     monkeypatch.setattr(
-        application,
+        eqasim_execution,
         "create_execution_seal",
         lambda *args: (_ for _ in ()).throw(AssertionError("data tree hashed")),
     )

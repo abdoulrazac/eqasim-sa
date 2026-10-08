@@ -28,7 +28,8 @@ from eqasim_sa.core.charter import (
     parse_distribution,
     validate_scientific_stopping,
 )
-from eqasim_sa.core.durable_publication import FileState, file_state
+from eqasim_sa.core.context_identity import ExecutionContextIdentity
+from eqasim_sa.utils.filesystem import FileState, path_state
 from eqasim_sa.core.indicators import (
     ArtifactDeclaration,
     CustomDeclaration,
@@ -199,10 +200,6 @@ def _git_stdin(
     if completed.returncode:
         raise ValueError(f"Git command failed: {' '.join(arguments)}")
     return completed.stdout.decode().strip()
-
-
-def _state(path: Path) -> FileState:
-    return file_state(path.stat())
 
 
 def _digest(path: Path, deadline: float | None = None) -> str:
@@ -521,7 +518,7 @@ def load_meta_config(
 ) -> MetaConfig:
     software_identity = read_software_identity()
     source = _file(path, "meta-config")
-    source_state = _state(source)
+    source_state = path_state(source)
     source_sha256 = _digest(source, deadline)
     base = source.parent
     document = _mapping(load_yaml_document(source), "meta-config root")
@@ -816,9 +813,9 @@ def load_meta_config(
     lockfile = _file(base / lock_value, "lockfile")
     control_states = (
         (source, source_state),
-        (config, _state(config)),
-        (manifest, _state(manifest)),
-        (lockfile, _state(lockfile)),
+        (config, path_state(config)),
+        (manifest, path_state(manifest)),
+        (lockfile, path_state(lockfile)),
     )
     descriptor = {
         "eqasimCommit": commit,
@@ -830,9 +827,7 @@ def load_meta_config(
         root, "status", "--porcelain=v1", "--untracked-files=all", deadline=deadline
     ):
         raise ValueError("model Git repository changed while sealing context")
-    encoded = json.dumps(
-        descriptor, sort_keys=True, separators=(",", ":"), allow_nan=False
-    ).encode()
+    context_identity = ExecutionContextIdentity.from_descriptor(descriptor)
     factors = {}
     distributions = {}
     structured_factors = {}
@@ -1083,7 +1078,7 @@ def load_meta_config(
             charter.stopping,
             len(base_sample_sizes),
         )
-    if any(_state(item) != state for item, state in control_states):
+    if any(path_state(item) != state for item, state in control_states):
         raise RuntimeError("sealed control input changed while loading")
     verify_software_source_states(software_identity)
     return MetaConfig(
@@ -1110,8 +1105,8 @@ def load_meta_config(
         convergence_checkpoints,
         screening_top_k,
         completeness_threshold,
-        descriptor,
-        hashlib.sha256(b"eqasim-sa:context:v1\0" + encoded).hexdigest(),
+        context_identity.as_dict(),
+        context_identity.sha256,
         source_sha256,
         model_document,
         config_bytes,

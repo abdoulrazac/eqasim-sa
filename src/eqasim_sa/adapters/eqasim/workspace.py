@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from threading import RLock
 
-from eqasim_sa.core.durable_publication import fsync_directory
+from eqasim_sa.utils.filesystem import fsync_directory
 
 
 _CAMPAIGN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")

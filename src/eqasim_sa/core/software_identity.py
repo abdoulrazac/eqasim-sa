@@ -7,7 +7,7 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
-from eqasim_sa.core.durable_publication import FileState, file_state
+from eqasim_sa.utils.filesystem import FileState, file_state, stable_file
 
 
 SOFTWARE_IDENTITY_DOMAIN = b"eqasim-sa:software-identity:v1\0"
@@ -30,10 +30,6 @@ class SoftwareIdentity:
     sha256: str
     package_root: Path
     source_states: tuple[SoftwareSourceState, ...]
-
-
-def _state(info: os.stat_result) -> FileState:
-    return file_state(info)
 
 
 def _included(relative: Path) -> bool:
@@ -86,27 +82,13 @@ def _inventory(root: Path) -> tuple[tuple[str, Path], ...]:
 
 
 def stable_file_identity(path: Path) -> tuple[int, str, FileState]:
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
-    descriptor = os.open(path, flags)
     try:
-        initial = os.fstat(descriptor)
-        visible = path.lstat()
-        if (
-            not stat.S_ISREG(initial.st_mode)
-            or not stat.S_ISREG(visible.st_mode)
-            or _state(initial) != _state(visible)
-        ):
-            raise ValueError(f"software source is not a stable regular file: {path}")
-        digest = hashlib.sha256()
-        while chunk := os.read(descriptor, 1024 * 1024):
-            digest.update(chunk)
-        final = os.fstat(descriptor)
-        visible = path.lstat()
-        if _state(final) != _state(initial) or _state(visible) != _state(initial):
-            raise RuntimeError(f"software source changed while hashing: {path}")
-        return initial.st_size, digest.hexdigest(), _state(initial)
-    finally:
-        os.close(descriptor)
+        snapshot = stable_file(path)
+    except (OSError, ValueError) as error:
+        raise ValueError(f"software source is not a stable regular file: {path}") from error
+    except RuntimeError as error:
+        raise RuntimeError(f"software source changed while hashing: {path}") from error
+    return snapshot.size, snapshot.sha256, snapshot.state
 
 
 def read_software_identity(
@@ -163,7 +145,7 @@ def verify_software_source_states(identity: SoftwareIdentity) -> None:
             raise RuntimeError(
                 f"eqasim_sa source changed after sealing: {source.relative_path}"
             ) from error
-        if not stat.S_ISREG(visible.st_mode) or _state(visible) != source.state:
+        if not stat.S_ISREG(visible.st_mode) or file_state(visible) != source.state:
             raise RuntimeError(
                 f"eqasim_sa source changed after sealing: {source.relative_path}"
             )

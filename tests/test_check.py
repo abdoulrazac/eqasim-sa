@@ -2,6 +2,7 @@ import json
 import subprocess
 import sys
 import time
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,6 +10,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from eqasim_sa.adapters import checks as check_service
 from eqasim_sa.core.indicators import TableArtifact, TotalVariationIndicator
 from eqasim_sa.core.plan import GridDesign, unique_config_seed_pairs
 from eqasim_sa.core.software_identity import read_software_identity
@@ -54,7 +56,6 @@ def test_static_check_accepts_sealed_structural_coincidences_but_grid_still_reje
     method: str,
 ) -> None:
     from eqasim_sa.adapters import application
-
     root = tmp_path / "campaign"
     root.mkdir()
     (root / "plan.parquet").write_bytes(b"plan")
@@ -76,11 +77,11 @@ def test_static_check_accepts_sealed_structural_coincidences_but_grid_still_reje
         indicator_requirements=(),
         software_identity=read_software_identity(),
     )
-    monkeypatch.setattr(application, "load_meta_config", lambda *args, **kwargs: meta)
-    monkeypatch.setattr(application, "load_run_specs", lambda *args: ())
-    monkeypatch.setattr(application, "unique_config_seed_pairs", lambda design: False)
+    monkeypatch.setattr(check_service, "load_meta_config", lambda *args, **kwargs: meta)
+    monkeypatch.setattr(check_service, "load_run_specs", lambda *args: ())
+    monkeypatch.setattr(check_service, "unique_config_seed_pairs", lambda design: False)
     monkeypatch.setattr(
-        application,
+        check_service,
         "_estimate_state",
         lambda *args: ({"estimatedDiskBytes": 0}, meta, (), 0),
     )
@@ -122,9 +123,9 @@ def test_morris_position_check_fails_when_sealed_plan_validation_failed(
         calibration_meta_configs=(),
         indicator_requirements=(),
     )
-    monkeypatch.setattr(application, "load_meta_config", lambda *args, **kwargs: meta)
+    monkeypatch.setattr(check_service, "load_meta_config", lambda *args, **kwargs: meta)
     monkeypatch.setattr(
-        application,
+        check_service,
         "load_run_specs",
         lambda *args: (_ for _ in ()).throw(ValueError("damaged sealed plan")),
     )
@@ -211,14 +212,14 @@ def test_check_aggregates_duplicate_and_disk_errors(
         indicator_requirements=(),
     )
     monkeypatch.setattr(
-        application,
+        check_service,
         "load_meta_config",
         lambda path, validate_factors=True, deadline=None: meta,
     )
-    monkeypatch.setattr(application, "load_run_specs", lambda *args: ())
-    monkeypatch.setattr(application, "unique_config_seed_pairs", lambda value: False)
+    monkeypatch.setattr(check_service, "load_run_specs", lambda *args: ())
+    monkeypatch.setattr(check_service, "unique_config_seed_pairs", lambda value: False)
     monkeypatch.setattr(
-        application,
+        check_service,
         "_estimate_state",
         lambda *args: (_ for _ in ()).throw(ValueError("no calibration")),
     )
@@ -250,7 +251,7 @@ def test_check_captures_unknown_artifact_producer_as_structured_diagnostic(
         context_descriptor={"version": "test"},
         campaign_root=tmp_path / "campaign",
     )
-    monkeypatch.setattr(application, "load_meta_config", lambda *args, **kwargs: meta)
+    monkeypatch.setattr(check_service, "load_meta_config", lambda *args, **kwargs: meta)
 
     payload = application.check_from_meta_config(Path("meta.yml"), (), False)
 
@@ -285,11 +286,11 @@ def test_check_reports_disk_measurements_when_space_is_insufficient(
         calibration_meta_configs=(),
         indicator_requirements=(),
     )
-    monkeypatch.setattr(application, "load_meta_config", lambda *args, **kwargs: meta)
-    monkeypatch.setattr(application, "load_run_specs", lambda *args: ())
-    monkeypatch.setattr(application, "probe_environment", lambda *args: None)
+    monkeypatch.setattr(check_service, "load_meta_config", lambda *args, **kwargs: meta)
+    monkeypatch.setattr(check_service, "load_run_specs", lambda *args: ())
+    monkeypatch.setattr(check_service, "probe_environment", lambda *args: None)
     monkeypatch.setattr(
-        application,
+        check_service,
         "_estimate_state",
         lambda *args: (
             {"estimatedDiskBytes": 100, "estimatedScratchBytes": 20},
@@ -299,7 +300,7 @@ def test_check_reports_disk_measurements_when_space_is_insufficient(
         ),
     )
     monkeypatch.setattr(
-        application.shutil, "disk_usage", lambda path: SimpleNamespace(free=40)
+        check_service.shutil, "disk_usage", lambda path: SimpleNamespace(free=40)
     )
 
     payload = application.check_from_meta_config(Path("meta.yml"), (), False)
@@ -325,9 +326,9 @@ def test_smoke_requires_static_success_and_exactly_two_distinct_seeds(
     from eqasim_sa.adapters import application
 
     invalid = {"status": "invalid", "checks": []}
-    monkeypatch.setattr(application, "_static_check", lambda *args: (invalid, None, ()))
+    monkeypatch.setattr(check_service, "_static_check", lambda *args: (invalid, None, ()))
     monkeypatch.setattr(
-        application, "_smoke", lambda *args: (_ for _ in ()).throw(AssertionError())
+        check_service, "_smoke", lambda *args: (_ for _ in ()).throw(AssertionError())
     )
     assert application.check_from_meta_config(Path("meta.yml"), (), True) is invalid
 
@@ -408,14 +409,14 @@ def test_static_check_never_touches_referenced_data(
         software_identity=read_software_identity(),
     )
     monkeypatch.setattr(
-        application,
+        check_service,
         "load_meta_config",
         lambda path, validate_factors=True, deadline=None: meta,
     )
-    monkeypatch.setattr(application, "load_run_specs", lambda *args: ())
-    monkeypatch.setattr(application, "probe_environment", lambda *args: None)
+    monkeypatch.setattr(check_service, "load_run_specs", lambda *args: ())
+    monkeypatch.setattr(check_service, "probe_environment", lambda *args: None)
     monkeypatch.setattr(
-        application,
+        check_service,
         "_estimate_state",
         lambda *args: (
             {"estimatedDiskBytes": 4, "estimatedScratchBytes": 0},
@@ -452,6 +453,7 @@ def test_smoke_applies_run_overrides_and_computes_every_indicator(
     tmp_path: Path, monkeypatch, indicator_case: str | None
 ) -> None:
     from eqasim_sa.adapters import application
+    from eqasim_sa.adapters.eqasim import execution as eqasim_execution
     from eqasim_sa.core.run import RunSpec
 
     target = tmp_path / "target"
@@ -502,7 +504,10 @@ def test_smoke_applies_run_overrides_and_computes_every_indicator(
     class Simulator:
         def __init__(self, settings, *args, **kwargs):
             self.settings = settings
-            self.workspace = SimpleNamespace(root=settings.workspace(0).root)
+            self.workspace = SimpleNamespace(
+                root=settings.workspace(0).root,
+                session=lambda: nullcontext(self),
+            )
             self.interrupted = False
             simulators.append(self)
 
@@ -551,14 +556,14 @@ def test_smoke_applies_run_overrides_and_computes_every_indicator(
                 artifacts.append(Artifact(artifact.name, artifact))
             return Manifest(tuple(artifacts), attempt)
 
-    monkeypatch.setattr(application, "EqasimSimulator", Simulator)
+    monkeypatch.setattr(eqasim_execution, "EqasimSimulator", Simulator)
 
     if indicator_case is None:
-        application._smoke(meta, (spec,))
+        check_service._smoke(meta, (spec,))
     else:
         message = "missing declared column" if indicator_case == "missing-column" else "duplicate class labels"
         with pytest.raises(ValueError, match=message):
-            application._smoke(meta, (spec,))
+            check_service._smoke(meta, (spec,))
 
     assert [(seed, rate, data) for seed, rate, data, _ in seen] == [
         (1, 0.001, str(override_data)),

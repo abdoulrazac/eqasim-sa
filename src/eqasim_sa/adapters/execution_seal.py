@@ -14,7 +14,12 @@ from eqasim_sa.adapters.data_manifest import (
     verify_data_manifest,
     verify_data_tree_state,
 )
-from eqasim_sa.core.durable_publication import FileState, file_state
+from eqasim_sa.utils.filesystem import (
+    FileState,
+    file_state,
+    stable_file,
+    stable_file_bytes,
+)
 from eqasim_sa.core.software_identity import (
     SoftwareIdentity,
     verify_software_source_states,
@@ -39,10 +44,6 @@ VOLATILE_ENVIRONMENT_NAMES = frozenset(
 VOLATILE_ENVIRONMENT_PREFIXES = ("SLURM_", "SUBMITIT_")
 
 
-def _state(info: os.stat_result) -> FileState:
-    return file_state(info)
-
-
 def normalized_child_environment(
     environment: Mapping[str, str],
 ) -> dict[str, str]:
@@ -61,43 +62,7 @@ def _regular_state(path: Path) -> FileState:
     info = path.stat(follow_symlinks=False)
     if not stat.S_ISREG(info.st_mode):
         raise ValueError(f"sealed file is no longer regular: {path}")
-    return _state(info)
-
-
-def _stable_file_hash(path: Path) -> tuple[str, FileState]:
-    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    try:
-        initial = os.fstat(descriptor)
-        if not stat.S_ISREG(initial.st_mode):
-            raise ValueError(f"executable must be a regular file: {path}")
-        digest = hashlib.sha256()
-        with os.fdopen(os.dup(descriptor), "rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(chunk)
-        final = os.fstat(descriptor)
-        visible = path.stat(follow_symlinks=False)
-        if _state(initial) != _state(final) or _state(initial) != _state(visible):
-            raise RuntimeError(f"file changed while hashing: {path}")
-        return digest.hexdigest(), _state(initial)
-    finally:
-        os.close(descriptor)
-
-
-def _stable_file_bytes(path: Path) -> tuple[bytes, FileState]:
-    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    try:
-        initial = os.fstat(descriptor)
-        if not stat.S_ISREG(initial.st_mode):
-            raise ValueError(f"sealed file must be regular: {path}")
-        with os.fdopen(os.dup(descriptor), "rb") as stream:
-            payload = stream.read()
-        final = os.fstat(descriptor)
-        visible = path.stat(follow_symlinks=False)
-        if _state(initial) != _state(final) or _state(initial) != _state(visible):
-            raise RuntimeError(f"sealed file changed while reading: {path}")
-        return payload, _state(initial)
-    finally:
-        os.close(descriptor)
+    return file_state(info)
 
 
 def _path_executable(command: str, root: Path, environment: Mapping[str, str]) -> Path:
@@ -195,7 +160,9 @@ class ExecutionSeal:
         self.invocation = resolve_invocation(invocation, self.model_root, self.environment)
         self.software_identity = software_identity
         executable = Path(self.invocation[0])
-        executable_sha256, self._executable_state = _stable_file_hash(executable)
+        executable_snapshot = stable_file(executable)
+        executable_sha256 = executable_snapshot.sha256
+        self._executable_state = executable_snapshot.state
         self._executable = executable
         self._data_state: DataTreeState | None = None
         self._failure: str | None = None
@@ -255,13 +222,13 @@ class ExecutionSeal:
             if current != expected:
                 raise RuntimeError(f"sealed control input changed: {path}")
         try:
-            config_bytes, config_state = _stable_file_bytes(self.model_config)
+            config_bytes, config_snapshot = stable_file_bytes(self.model_config)
         except (OSError, ValueError) as error:
             raise RuntimeError("model config changed after context sealing") from error
         expected_config_state = dict(self.control_states).get(self.model_config)
         if (
             config_bytes != self.model_config_bytes
-            or config_state != expected_config_state
+            or config_snapshot.state != expected_config_state
         ):
             raise RuntimeError("model config changed after context sealing")
         try:

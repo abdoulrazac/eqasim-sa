@@ -169,10 +169,12 @@ def test_scientific_run_refuses_no_seal_before_design_or_simulation(
 
 
 def test_scientific_smoke_refuses_no_seal_before_simulation() -> None:
+    from eqasim_sa.adapters.checks import _smoke
+
     meta = SimpleNamespace(
         charter=SimpleNamespace(status="scientific"),
         execution=SimpleNamespace(data_path=None),
     )
 
     with pytest.raises(ValueError, match="effective data_path and execution seal"):
-        application._smoke(meta, ())
+        _smoke(meta, ())

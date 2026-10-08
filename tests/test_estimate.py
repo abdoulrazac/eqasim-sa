@@ -8,6 +8,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from eqasim_sa.adapters import estimate as estimate_service
 from eqasim_sa.core.ledger import RunRecord, write_run
 from eqasim_sa.core.plan import (
     GridDesign,
@@ -105,15 +106,15 @@ def test_application_estimate_passes_morris_formula_inputs(
     from eqasim_sa.adapters import application
 
     target = campaign(tmp_path / "target", morris=True)
-    monkeypatch.setattr(application, "load_meta_config", lambda path: target)
+    monkeypatch.setattr(estimate_service, "load_meta_config", lambda path: target)
     seen = {}
-    original = application.estimate_plan
+    original = estimate_service.estimate_plan
 
     def capture(*args, **kwargs):  # type: ignore[no-untyped-def]
         seen.update(kwargs)
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(application, "estimate_plan", capture)
+    monkeypatch.setattr(estimate_service, "estimate_plan", capture)
     payload = application.estimate_from_meta_config(Path("target.yml"), ())
 
     assert payload["method"] == "morris"
@@ -181,7 +182,7 @@ def test_application_estimate_passes_sobol_formula_inputs_and_unique_runs(
         design_seed=7,
         base_sample_size=8,
     )
-    monkeypatch.setattr(application, "load_meta_config", lambda path: target)
+    monkeypatch.setattr(estimate_service, "load_meta_config", lambda path: target)
 
     payload = application.estimate_from_meta_config(Path("target.yml"), ())
 
@@ -269,7 +270,7 @@ def test_application_estimate_collects_complete_runs_once_and_is_read_only(
         Path("same.yml"): calibration,
     }
     monkeypatch.setattr(
-        "eqasim_sa.adapters.application.load_meta_config", metas.__getitem__
+        "eqasim_sa.adapters.estimate.load_meta_config", metas.__getitem__
     )
     before = {
         path: (path.read_bytes(), path.stat().st_mtime_ns)
@@ -329,7 +330,7 @@ def test_application_estimate_rejects_unsafe_archive(
         parquet.unlink()
         parquet.symlink_to(meta.marker)
     monkeypatch.setattr(
-        "eqasim_sa.adapters.application.load_meta_config", lambda path: meta
+        "eqasim_sa.adapters.estimate.load_meta_config", lambda path: meta
     )
     with pytest.raises(ValueError, match="archive"):
         estimate_from_meta_config(Path("meta.yml"), ())
@@ -343,7 +344,7 @@ def test_application_estimate_rejects_archive_mutation(
 
     meta = campaign(tmp_path / "campaign")
     monkeypatch.setattr(
-        "eqasim_sa.adapters.application.load_meta_config", lambda path: meta
+        "eqasim_sa.adapters.estimate.load_meta_config", lambda path: meta
     )
     original = pq.ParquetFile
     mutated = False
@@ -363,7 +364,7 @@ def test_application_estimate_rejects_archive_mutation(
         return result
 
     monkeypatch.setattr(
-        "eqasim_sa.adapters.application.pq.ParquetFile", mutate_after_open
+        "eqasim_sa.core.campaign_snapshot.pq.ParquetFile", mutate_after_open
     )
     with pytest.raises(RuntimeError, match="mutated"):
         estimate_from_meta_config(Path("meta.yml"), ())
@@ -377,7 +378,7 @@ def test_application_estimate_rejects_target_plan_mutation(
 
     meta = campaign(tmp_path / "campaign")
     monkeypatch.setattr(
-        "eqasim_sa.adapters.application.load_meta_config", lambda path: meta
+        "eqasim_sa.adapters.estimate.load_meta_config", lambda path: meta
     )
     original = pq.ParquetFile
     plan_reads = 0
@@ -394,7 +395,7 @@ def test_application_estimate_rejects_target_plan_mutation(
         return result
 
     monkeypatch.setattr(
-        "eqasim_sa.adapters.application.pq.ParquetFile", replace_after_validation
+        "eqasim_sa.core.campaign_snapshot.pq.ParquetFile", replace_after_validation
     )
     with pytest.raises(RuntimeError, match="plan mutated"):
         estimate_from_meta_config(Path("meta.yml"), ())

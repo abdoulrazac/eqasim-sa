@@ -22,20 +22,26 @@ from eqasim_sa.adapters.application import analyze_from_meta_config
 from eqasim_sa.adapters.fake.simulator import FakeSimulator
 from eqasim_sa.cli import dispatch
 from eqasim_sa.core.analyze import (
-    LEGACY_CANONICAL_MORRIS_DOMAIN,
-    LEGACY_MULTISCRAMBLE_SOBOL_DOMAIN,
-    _finite_population_variance,
-    _legacy_canonical_selection,
-    _morris_ranking,
-    _multiscramble_sobol_tables,
-    _sobol_bootstrap,
-    _sobol_estimates,
-    _sobol_ranking,
     _validate_frozen_plan,
     analyze,
 )
+from eqasim_sa.core.methods.legacy import (
+    LEGACY_CANONICAL_MORRIS_DOMAIN,
+    LEGACY_MULTISCRAMBLE_SOBOL_DOMAIN,
+    _legacy_canonical_selection,
+)
+from eqasim_sa.core.methods.morris import _morris_ranking
+from eqasim_sa.core.methods.multiscramble_sobol import (
+    _finite_population_variance,
+    _multiscramble_sobol_tables,
+)
+from eqasim_sa.core.methods.sobol import (
+    _sobol_bootstrap,
+    _sobol_estimates,
+    _sobol_ranking,
+)
 from eqasim_sa.core.indicators import ArtifactSet, PluginIdentity, RegisteredIndicator
-from eqasim_sa.core.durable_publication import write_parquet_atomic
+from eqasim_sa.utils.filesystem import write_parquet_atomic
 from eqasim_sa.core.ledger import (
     ArtifactManifestEntry,
     RunRecord,
@@ -577,7 +583,7 @@ def test_sobol_bootstrap_matches_paired_seeded_percentile_reference(
             return value
 
     monkeypatch.setattr(
-        "eqasim_sa.core.analyze.np.random.default_rng",
+        "eqasim_sa.core.methods.sobol.np.random.default_rng",
         lambda seed: (
             TrackingRng()
             if seed == expected_seed
@@ -831,9 +837,11 @@ def test_sobol_bootstrap_caps_precede_qmc_artifact_capture_and_plugins(
     if limit == "resamples":
         bootstrap_resamples = plan_module.MAX_BOOTSTRAP_RESAMPLES + 1
     else:
-        monkeypatch.setattr(plan_module, "MAX_BOOTSTRAP_WORK_CELLS", 1)
         monkeypatch.setattr(
-            "eqasim_sa.core.analyze.qmc.Sobol",
+            "eqasim_sa.core.methods.sobol_plan.MAX_BOOTSTRAP_WORK_CELLS", 1
+        )
+        monkeypatch.setattr(
+            "eqasim_sa.core.methods.sobol.qmc.Sobol",
             lambda *args, **kwargs: (_ for _ in ()).throw(
                 AssertionError("QMC allocated")
             ),
@@ -961,13 +969,21 @@ def test_legacy_scientific_is_descriptive_only_without_salib_reinterpretation(
 ) -> None:
     import importlib
 
-    analyze_module = importlib.import_module("eqasim_sa.core.analyze")
+    method_module = importlib.import_module(
+        "eqasim_sa.core.methods."
+        + ("canonical_morris" if method == "canonical_morris" else "multiscramble_sobol")
+    )
     root, options = _legacy_scientific_campaign(
         tmp_path / f"{method}-v{version}", method, version
     )
-    for name in ("engine_descriptor", "morris_unit_trajectories", "sobol_unit_positions"):
+    names = (
+        ("engine_descriptor", "morris_unit_trajectories")
+        if method == "canonical_morris"
+        else ("engine_descriptor", "sobol_unit_positions")
+    )
+    for name in names:
         monkeypatch.setattr(
-            analyze_module,
+            method_module,
             name,
             lambda *args, **kwargs: (_ for _ in ()).throw(
                 AssertionError("legacy validation invoked SALib")
@@ -1266,7 +1282,8 @@ def test_sobol_analysis_rejects_legacy_degenerate_hybrid_contrasts(
         design_seed=20260814,
     )
     monkeypatch.setattr(
-        plan_module, "validate_sobol_effective_hybrid_contrasts", lambda *args: None
+        "eqasim_sa.core.methods.sobol_plan.validate_sobol_effective_hybrid_contrasts",
+        lambda *args: None,
     )
     build_plan(design)
     unique = {}
@@ -1308,7 +1325,7 @@ def test_sobol_sealed_cardinality_is_rejected_before_qmc_allocation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import eqasim_sa.core.analyze as analyze_module
+    import eqasim_sa.core.methods.sobol as sobol_module
 
     root = _sobol_campaign(tmp_path)
     table = pq.read_table(root / "plan.parquet")
@@ -1320,7 +1337,7 @@ def test_sobol_sealed_cardinality_is_rejected_before_qmc_allocation(
     ).encode()
     table = table.replace_schema_metadata(metadata)
     monkeypatch.setattr(
-        analyze_module.qmc,
+        sobol_module.qmc,
         "Sobol",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("QMC allocated")),
     )
@@ -1349,7 +1366,7 @@ def test_sobol_sealed_contract_rejects_schema_domain_name_and_context_damage_bef
     monkeypatch: pytest.MonkeyPatch,
     damage: str,
 ) -> None:
-    import eqasim_sa.core.analyze as analyze_module
+    import eqasim_sa.core.methods.sobol as sobol_module
 
     root = _sobol_campaign(tmp_path)
     table = pq.read_table(root / "plan.parquet")
@@ -1392,7 +1409,7 @@ def test_sobol_sealed_contract_rejects_schema_domain_name_and_context_damage_bef
     ).encode()
     damaged = pa.Table.from_arrays(arrays, schema=pa.schema(fields, metadata=metadata))
     monkeypatch.setattr(
-        analyze_module.qmc,
+        sobol_module.qmc,
         "Sobol",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("QMC allocated")),
     )
@@ -1436,7 +1453,7 @@ def test_multiscramble_uses_independent_estimates_student_t_and_diagnostics(
         for run_id, row in unique.items()
     ]
     monkeypatch.setattr(
-        "eqasim_sa.core.analyze._sobol_bootstrap",
+        "eqasim_sa.core.methods.sobol._sobol_bootstrap",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("bootstrap called")),
     )
     indices, by_scramble, convergence, diagnostics = _multiscramble_sobol_tables(
@@ -1601,8 +1618,7 @@ def test_multiscramble_table_cell_cap_precedes_analyzer_salib_allocation(
     ).encode()
     damaged = plan.replace_schema_metadata(metadata)
     monkeypatch.setattr(
-        analyze_module,
-        "sobol_unit_positions",
+        "eqasim_sa.core.methods.multiscramble_sobol.sobol_unit_positions",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("SALib sample allocated")
         ),
@@ -1732,7 +1748,8 @@ def test_sobol_bootstrap_refuses_excessive_degeneracy(
             return np.zeros(4, dtype=int)
 
     monkeypatch.setattr(
-        "eqasim_sa.core.analyze.np.random.default_rng", lambda seed: DegenerateRng()
+        "eqasim_sa.core.methods.sobol.np.random.default_rng",
+        lambda seed: DegenerateRng(),
     )
     with pytest.raises(ValueError, match="degenerate.*bootstrap"):
         _sobol_bootstrap(
@@ -2531,7 +2548,7 @@ def test_manifest_post_replace_fsync_failure_restores_previous_pointer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import eqasim_sa.core.durable_publication as durable_module
+    import eqasim_sa.utils.filesystem as durable_module
 
     root, _ = _campaign(tmp_path)
     _analyze(root, (_custom_indicator(),))
@@ -2569,7 +2586,7 @@ def test_manifest_post_replace_fsync_failure_removes_new_pointer_when_none_exist
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import eqasim_sa.core.durable_publication as durable_module
+    import eqasim_sa.utils.filesystem as durable_module
 
     root, _ = _campaign(tmp_path)
     pointer = root / "analysis-generation.json"
@@ -2602,7 +2619,7 @@ def test_manifest_failed_rollback_raises_distinct_outcome_unknown_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import eqasim_sa.core.analysis_publication as publication_module
-    import eqasim_sa.core.durable_publication as durable_module
+    import eqasim_sa.utils.filesystem as durable_module
 
     root, _ = _campaign(tmp_path)
     _analyze(root, (_custom_indicator(),))

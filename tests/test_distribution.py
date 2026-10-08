@@ -22,6 +22,7 @@ from eqasim_sa.core.plan import (
     load_run_specs,
 )
 from eqasim_sa.core.run import execute_run
+from tests.provenance_helpers import context_hash
 
 
 def installed_script(name: str) -> Path:
@@ -143,7 +144,22 @@ def test_installed_metadata_and_commands(tmp_path: Path) -> None:
         "sampling_rate": [0.001, 0.002],
         "matching_age_scheme": ["matching_6", "analysis_7"],
     }
-    grid = GridDesign(base, factors, (1201, 1202), {}, "a" * 64, {}, Path("grid"))
+    descriptor = {
+        "eqasimCommit": "a",
+        "dataManifestSha256": "b",
+        "lockfileSha256": "c",
+        "eqasimSaVersion": "d",
+    }
+    sealed_context_hash = context_hash(descriptor)
+    grid = GridDesign(
+        base,
+        factors,
+        (1201, 1202),
+        {},
+        sealed_context_hash,
+        descriptor,
+        Path("grid"),
+    )
     grid_table = _table(grid, tuple(sorted(factors)))
     assert grid_table.num_rows == 8
     assert len(set(grid_table["runId"].to_pylist())) == 8
@@ -152,8 +168,8 @@ def test_installed_metadata_and_commands(tmp_path: Path) -> None:
         {"sampling_rate": [0.001, 0.002, 0.003]},
         (1301, 1302),
         {},
-        "a" * 64,
-        {},
+        sealed_context_hash,
+        descriptor,
         Path("discrete-oat"),
         2,
         20260817,
@@ -163,7 +179,15 @@ def test_installed_metadata_and_commands(tmp_path: Path) -> None:
     assert len(set(oat_table["runId"].to_pylist())) == 6
     assert set(oat_table["sampling_rate"].to_pylist()) == {0.001, 0.002, 0.003}
     sobol = SobolDesign(
-        base, factors, (1401, 1402), {}, "a" * 64, {}, Path("sobol"), 4, 20260814
+        base,
+        factors,
+        (1401, 1402),
+        {},
+        sealed_context_hash,
+        descriptor,
+        Path("sobol"),
+        4,
+        20260814,
     )
     sobol_table = _table(sobol, tuple(sorted({**factors, "seed": [1401, 1402]})))
     assert sobol_table.num_rows == 32

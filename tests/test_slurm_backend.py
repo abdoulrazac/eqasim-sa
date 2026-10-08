@@ -417,6 +417,7 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from eqasim_sa.adapters.backends import slurm
+    from eqasim_sa.adapters.eqasim import execution as eqasim_execution
 
     deceptive = tmp_path / "must-not-select-workdir"
     monkeypatch.setenv("SLURM_JOB_ID", str(deceptive / "job"))
@@ -472,7 +473,7 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
         settings_calls.append(args)
         return SimpleNamespace()
 
-    monkeypatch.setattr(slurm, "EqasimSettings", settings)
+    monkeypatch.setattr(eqasim_execution, "EqasimSettings", settings)
 
     class Simulator:
         def __init__(self) -> None:
@@ -487,12 +488,12 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
             raise RuntimeError("interrupt failed")
 
     simulator = Simulator()
-    monkeypatch.setattr(slurm, "EqasimSimulator", lambda *args: simulator)
+    monkeypatch.setattr(eqasim_execution, "EqasimSimulator", lambda *args: simulator)
     observed = []
     monkeypatch.setattr(
-        slurm,
+        eqasim_execution,
         "execute_run",
-        lambda spec, actual, root, workdir: (
+        lambda spec, actual, root, workdir, interrupted: (
             observed.append((spec, actual, root, workdir))
             or RunResult("id", "completed")
         ),
@@ -543,7 +544,7 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
         )(batch)
 
     monkeypatch.setattr(
-        slurm,
+        eqasim_execution,
         "execute_run",
         lambda *args: (_ for _ in ()).throw(RuntimeError("remote failed")),
     )

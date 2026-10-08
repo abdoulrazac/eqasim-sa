@@ -15,13 +15,13 @@ import numpy as np
 
 from eqasim_sa.adapters.application import analyze_from_meta_config, plan_from_meta_config
 from eqasim_sa.adapters.meta_config import load_meta_config
-from eqasim_sa.core.analyze import (
+from eqasim_sa.core.analyze import analyze
+from eqasim_sa.core.methods.canonical_morris import (
     _canonical_morris_tables,
     _replication_allocation,
-    analyze,
 )
 from eqasim_sa.core.indicators import ArtifactSet, RegisteredIndicator
-from eqasim_sa.core.durable_publication import write_parquet_atomic
+from eqasim_sa.utils.filesystem import write_parquet_atomic
 from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.plan import build_plan
 from eqasim_sa.core.sensitivity import morris_statistics

@@ -11,7 +11,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-import eqasim_sa.adapters.application as application_module
+import eqasim_sa.adapters.project_init as project_init_module
 from eqasim_sa.adapters.application import init_from_inputs
 from eqasim_sa.cli import dispatch, parser
 
@@ -185,7 +185,7 @@ def test_init_is_byte_and_mtime_idempotent(
     }
 
     monkeypatch.setattr(
-        "eqasim_sa.adapters.application.generate_data_manifest",
+        "eqasim_sa.adapters.project_init.generate_data_manifest",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("data rehashed")),
     )
     repeated = init_from_inputs(
@@ -353,7 +353,7 @@ def test_init_technical_inventory_rejects_symlinked_runtime_directories(
     target.symlink_to(external, target_is_directory=True)
 
     with pytest.raises(FileExistsError, match="foreign content"):
-        application_module._technical_state_allowed(technical, set(), "grid")
+        project_init_module._technical_state_allowed(technical, set(), "grid")
 
 
 def test_init_technical_inventory_requires_runtime_directory_ownership(
@@ -362,10 +362,10 @@ def test_init_technical_inventory_requires_runtime_directory_ownership(
     technical = tmp_path / ".eqasim-sa"
     technical.mkdir()
     uid = technical.stat().st_uid
-    monkeypatch.setattr(application_module.os, "getuid", lambda: uid + 1)
+    monkeypatch.setattr(project_init_module.os, "getuid", lambda: uid + 1)
 
     with pytest.raises(FileExistsError, match="foreign content"):
-        application_module._technical_state_allowed(technical, set(), "grid")
+        project_init_module._technical_state_allowed(technical, set(), "grid")
 
 
 def test_init_rejects_unsafe_or_foreign_state_without_publication(tmp_path: Path) -> None:

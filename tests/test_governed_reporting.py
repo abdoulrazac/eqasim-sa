@@ -8,12 +8,12 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from eqasim_sa.core.analyze import (
+from eqasim_sa.core.reporting import (
     _convergence_evidence_table,
     _governed_report,
     _output_summary_table,
 )
-from eqasim_sa.core.durable_publication import write_parquet_atomic
+from eqasim_sa.utils.filesystem import write_parquet_atomic
 from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.analyze import analyze
 from tests.test_analyze import _custom_indicator, _write_verified_run, root_relative
