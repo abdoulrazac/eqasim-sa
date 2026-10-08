@@ -1,6 +1,37 @@
-.venv/
+# Python bytecode and tool caches
 __pycache__/
+*.py[cod]
 .pytest_cache/
+.mypy_cache/
+.pyright/
+.ruff_cache/
+.tox/
+.nox/
+
+# Virtual environments and local environment variables
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+
+# Test and coverage output
+.coverage
+.coverage.*
+htmlcov/
+
+# Packaging output
 build/
 dist/
 *.egg-info/
+.eggs/
+*.egg
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db

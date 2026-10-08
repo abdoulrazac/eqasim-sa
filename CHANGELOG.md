@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Declares the project under GPL-2.0-only and adds bilingual contribution
+  guidance and package README metadata.
 - Adds generic named structured-list factors for Grid, historical Sobol, and
   multi-scramble Sobol. Plans store readable labels while resolved ordered lists
   determine `runId` and execution snapshots; aliases and malformed payloads are

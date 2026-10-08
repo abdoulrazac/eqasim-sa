@@ -105,3 +105,13 @@ the [practical structured-configurations tutorial](docs/structured-configuration
 - [Troubleshooting](docs/troubleshooting.md)
 - [Glossary](docs/glossary.md)
 - [Development guide](docs/development-guide.md)
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+development workflow, validation commands, and scientific-contract rules.
+
+## License
+
+`eqasim-sa` is distributed under the [GNU General Public License version 2.0
+only](LICENSE).

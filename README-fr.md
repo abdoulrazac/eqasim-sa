@@ -109,3 +109,14 @@ campagne/racine pour la cible dérivée. Consultez le
 - [Dépannage](docs-fr/troubleshooting.md)
 - [Glossaire](docs-fr/glossary.md)
 - [Guide de développement](docs-fr/development-guide.md)
+
+## Contribuer
+
+Les contributions sont les bienvenues. Consultez
+[CONTRIBUTING-fr.md](CONTRIBUTING-fr.md) pour le workflow de développement, les
+commandes de validation et les règles du contrat scientifique.
+
+## Licence
+
+`eqasim-sa` est distribué sous la [licence publique générale GNU version 2.0
+uniquement](LICENSE).
