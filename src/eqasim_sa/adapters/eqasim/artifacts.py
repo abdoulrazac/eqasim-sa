@@ -1,3 +1,5 @@
+"""Normalize eqasim CSV outputs into the canonical Parquet artifacts."""
+
 from pathlib import Path
 
 import pyarrow as pa
@@ -30,6 +32,8 @@ CSV_BLOCK_SIZE = 1 << 20
 def normalize_outputs(
     output: Path, normalized: Path, prefix: str, stages: tuple[str, ...] | None = None
 ) -> tuple[Artifact, ...]:
+    """Convert requested stage outputs to validated immutable Parquet files."""
+
     normalized.mkdir()
     artifacts: list[Artifact] = []
     requested = tuple(STAGE_ARTIFACTS) if stages is None else stages

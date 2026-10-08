@@ -1,3 +1,5 @@
+"""Render the packaged starter project into a user-owned directory."""
+
 import json
 import os
 import re
@@ -30,6 +32,8 @@ def render_project(
     invocation: tuple[str, ...],
     model_config: Path = Path("config_local_nantes.yml"),
 ) -> dict[str, bytes]:
+    """Render every packaged starter with project-relative paths and commands."""
+
     configs = directory / "configs"
     values = {
         "@PROJECT_NAME@": project_name,

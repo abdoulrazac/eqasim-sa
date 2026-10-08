@@ -1,3 +1,5 @@
+"""Application services that connect CLI commands to campaign workflows."""
+
 import hashlib
 import json
 import sys
@@ -49,6 +51,8 @@ from eqasim_sa.core.software_identity import verify_software_source_states
 
 
 def build_eqasim(arguments: Namespace) -> tuple[EqasimSimulator, dict, object]:
+    """Construct an eqasim simulator from the internal worker CLI arguments."""
+
     invocation = json.loads(arguments.invocation_json)
     if not isinstance(invocation, list) or not all(
         isinstance(item, str) for item in invocation
@@ -68,6 +72,8 @@ def build_eqasim(arguments: Namespace) -> tuple[EqasimSimulator, dict, object]:
 
 
 def plan_from_meta_config(path: Path) -> PlanResult:
+    """Validate a meta-config and publish its deterministic campaign plan."""
+
     meta = load_meta_config(path)
     try:
         context_identity = ExecutionContextIdentity.from_descriptor(
@@ -112,6 +118,8 @@ def _warn_sobol_capacity(
 
 
 def run_from_meta_config(path: Path) -> dict:
+    """Resume all pending runs using the configured local or SLURM backend."""
+
     meta_path = path.resolve(strict=True)
     meta_bytes = meta_path.read_bytes()
     meta = load_meta_config(meta_path)
@@ -238,6 +246,8 @@ def _legacy_plan_from_meta_path(path: Path) -> tuple[str, tuple[str, int]] | Non
 
 
 def analyze_from_meta_config(path: Path, descriptive_only: bool = False) -> dict:
+    """Analyze a campaign after enforcing current or legacy plan constraints."""
+
     if type(descriptive_only) is not bool:
         raise TypeError("descriptive_only must be a bool")
     early = _legacy_plan_from_meta_path(path)
@@ -334,6 +344,8 @@ def analyze_from_meta_config(path: Path, descriptive_only: bool = False) -> dict
 
 
 def main() -> int:
+    """Run the production CLI and translate user interruption to exit code 130."""
+
     try:
         return dispatch(
             FakeSimulator(),

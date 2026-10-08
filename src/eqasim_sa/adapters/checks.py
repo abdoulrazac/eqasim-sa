@@ -317,6 +317,8 @@ def _smoke(meta, specs) -> None:  # type: ignore[no-untyped-def]
 def check_from_meta_config(
     path: Path, calibrations: tuple[Path, ...], smoke: bool
 ) -> dict:
+    """Run static and optional smoke checks for a sealed campaign."""
+
     payload, meta, specs = _static_check(path, calibrations)
     if not smoke or payload["status"] != "valid":
         return payload

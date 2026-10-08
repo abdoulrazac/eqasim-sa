@@ -1,3 +1,5 @@
+"""Publish immutable analysis generations from verified campaign snapshots."""
+
 import hashlib
 import importlib.metadata
 import json
@@ -81,6 +83,8 @@ AnalysisManifestOutcomeUnknown = PublicationOutcomeUnknown
 
 @dataclass(frozen=True)
 class PlanCapture:
+    """Stable plan snapshot copied into an analysis transaction."""
+
     path: Path
     table: pa.Table
     sha256: str
@@ -89,6 +93,8 @@ class PlanCapture:
 
 @dataclass(frozen=True)
 class RunCapture:
+    """Selected run artifacts and the digest of their captured inventory."""
+
     expected_ids: frozenset[str]
     completed_ids: frozenset[str]
     artifacts: Mapping[str, ArtifactSet]
@@ -99,6 +105,8 @@ class RunCapture:
 
 @dataclass(frozen=True)
 class PublishedGeneration:
+    """Committed immutable analysis generation and its resolved outputs."""
+
     generation_id: str
     path: Path
     paths: Mapping[str, Path]
@@ -107,6 +115,8 @@ class PublishedGeneration:
 
 @dataclass(frozen=True)
 class AnalysisArtifact:
+    """Named table or byte payload prepared for analysis publication."""
+
     filename: str
     content: pa.Table | bytes
 
@@ -192,6 +202,8 @@ def validate_scientific_execution_evidence(
     *,
     allow_empty: bool = False,
 ) -> str | None:
+    """Require equivalent schema-v2 execution evidence for scientific runs."""
+
     expected = expected_records(table, campaign)
     if set(evidence_by_run) - set(expected):
         raise ValueError("scientific execution evidence names an unexpected run")
@@ -241,6 +253,8 @@ def validate_scientific_execution_evidence(
 def validate_descriptive_execution_evidence(
     evidence_by_run: Mapping[str, ExecutionEvidence | None],
 ) -> str | None:
+    """Validate optional but uniform execution evidence for descriptive runs."""
+
     if not evidence_by_run or all(
         evidence is None for evidence in evidence_by_run.values()
     ):
@@ -262,6 +276,8 @@ def validate_descriptive_execution_evidence(
 
 
 def dependency_versions(software_identity: SoftwareIdentity) -> dict[str, str]:
+    """Capture sorted runtime versions and the sealed package source digest."""
+
     versions = {"python": platform.python_version()}
     for distribution in ("eqasim-sa", "numpy", "pyarrow", "SALib", "scipy"):
         versions[distribution] = importlib.metadata.version(distribution)
@@ -270,6 +286,8 @@ def dependency_versions(software_identity: SoftwareIdentity) -> dict[str, str]:
 
 
 class AnalysisPublication:
+    """Capture sources and atomically publish one immutable analysis generation."""
+
     def __init__(self, campaign_root: Path) -> None:
         self.campaign_root = campaign_root
         _validate_analysis_state(

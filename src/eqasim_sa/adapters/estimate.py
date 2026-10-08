@@ -112,6 +112,8 @@ def _estimate_state(
 
 
 def estimate_from_meta_config(path: Path, calibration_paths: tuple[Path, ...]) -> dict:
+    """Estimate pending resources from explicit and configured calibrations."""
+
     target = load_meta_config(path)
     calibrations = tuple(
         dict.fromkeys((*calibration_paths, *target.calibration_meta_configs))

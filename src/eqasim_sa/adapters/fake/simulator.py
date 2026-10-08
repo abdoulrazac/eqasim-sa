@@ -1,3 +1,5 @@
+"""Deterministic simulator double for end-to-end campaign tests."""
+
 import json
 import shutil
 import subprocess
@@ -16,6 +18,8 @@ from eqasim_sa.ports.simulator import (
 
 
 class FakeSimulator:
+    """Invoke the installed fake pipeline through the simulator interface."""
+
     def requirements(
         self, indicators: Sequence[IndicatorRequirement]
     ) -> Mapping[str, JsonValue]:

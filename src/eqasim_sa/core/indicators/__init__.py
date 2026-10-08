@@ -1,3 +1,5 @@
+"""Declare, resolve, identify, and execute campaign indicators."""
+
 import hashlib
 import inspect
 import json
@@ -36,6 +38,8 @@ CUSTOM_INDICATOR_API_VERSION = 1
 
 @dataclass(frozen=True)
 class ArtifactSet:
+    """Validated read-only mapping from artifact names to Parquet paths."""
+
     paths: Mapping[str, Path]
 
     def __post_init__(self) -> None:
@@ -67,6 +71,8 @@ class ArtifactSet:
 
 @dataclass(frozen=True)
 class TableArtifact:
+    """Resolved table schema and producing stage used by an indicator."""
+
     name: str
     class_column: str
     synthetic_column: str
@@ -100,6 +106,8 @@ class TableArtifact:
 
 @dataclass(frozen=True)
 class ArtifactDeclaration:
+    """User declaration of an artifact's value and reference columns."""
+
     class_column: str
     synthetic_column: str
     references: tuple[str, ...]
@@ -127,6 +135,8 @@ class ArtifactDeclaration:
 
 @dataclass(frozen=True)
 class PairDeclaration:
+    """One scalarizer applied to one artifact-reference pair."""
+
     scalarizer: str
     artifact: str
     reference: str
@@ -141,6 +151,8 @@ class PairDeclaration:
 
 @dataclass(frozen=True)
 class ProductDeclaration:
+    """Cartesian declaration of scalarizers and artifacts."""
+
     scalarizers: tuple[str, ...]
     artifacts: tuple[str, ...]
 
@@ -151,6 +163,8 @@ class ProductDeclaration:
 
 @dataclass(frozen=True)
 class CustomDeclaration:
+    """Custom indicator entry-point name and required artifact."""
+
     function: str
     artifact: str
 
@@ -162,6 +176,8 @@ class CustomDeclaration:
 
 
 class Indicator(Protocol):
+    """Scalar analysis computed from a validated set of artifacts."""
+
     @property
     def name(self) -> str: ...
 
@@ -170,6 +186,8 @@ class Indicator(Protocol):
 
 @dataclass(frozen=True)
 class PluginIdentity:
+    """Immutable entry-point, distribution, implementation, and source identity."""
+
     implementation: str
     entry_point: str | None = None
     distribution: str | None = None
@@ -293,6 +311,8 @@ def _distribution_inventory(distribution: object) -> tuple[SoftwareSourceState, 
 
 
 def plugin_identity_from_entry_point(entry_point: object) -> PluginIdentity:
+    """Seal an installed custom-indicator entry point and its distribution."""
+
     group, name, value = _entry_value(entry_point)
     target = ENTRY_POINT_TARGET.fullmatch(value)
     if target is None:
@@ -350,6 +370,8 @@ def plugin_identity_from_entry_point(entry_point: object) -> PluginIdentity:
 
 
 def verify_plugin_identity(entry_point: object, identity: PluginIdentity) -> None:
+    """Fail if a custom-indicator entry point changed after sealing."""
+
     group, name, value = _entry_value(entry_point)
     distribution = getattr(entry_point, "dist", None)
     if (
@@ -377,6 +399,8 @@ def verify_plugin_identity(entry_point: object, identity: PluginIdentity) -> Non
 
 
 class LazyPluginImplementation:
+    """Verify and load a custom indicator only when it is first evaluated."""
+
     def __init__(self, entry_point: object, identity: PluginIdentity) -> None:
         self.entry_point = entry_point
         self.identity = identity
@@ -421,6 +445,8 @@ class LazyPluginImplementation:
 
 @dataclass(frozen=True)
 class RegisteredIndicatorFactory:
+    """Bind an immutable plugin implementation to an artifact declaration."""
+
     implementation: object
     plugin_identity: PluginIdentity
 
@@ -430,6 +456,8 @@ class RegisteredIndicatorFactory:
 
 @dataclass(frozen=True)
 class RegisteredIndicator:
+    """Validated custom indicator with optional immutable plugin provenance."""
+
     function: str
     artifact: str
     implementation: object
@@ -496,6 +524,8 @@ def _artifact_identity(artifact: TableArtifact | None, name: str) -> dict[str, o
 
 
 def analysis_identity(indicator: Indicator) -> dict[str, object]:
+    """Build and validate the canonical identity of an indicator implementation."""
+
     if isinstance(indicator, TotalVariationIndicator):
         _, implementation_sha256 = _implementation_hash(TotalVariationIndicator)
         definition = {
@@ -574,6 +604,8 @@ def analysis_identity(indicator: Indicator) -> dict[str, object]:
 
 
 def verify_indicator_runtime_identity(indicator: Indicator) -> None:
+    """Recheck immutable plugin provenance immediately before computation."""
+
     if not isinstance(indicator, RegisteredIndicator):
         return
     plugin = indicator.plugin_identity
@@ -592,6 +624,8 @@ def verify_indicator_runtime_identity(indicator: Indicator) -> None:
 def validate_indicator_definition(
     value: object, *, require_scientific: bool = False
 ) -> dict[str, object]:
+    """Validate a canonical indicator definition and scientific requirements."""
+
     if not isinstance(value, dict) or set(value) != {
         "schemaVersion",
         "name",
@@ -708,6 +742,8 @@ def validate_indicator_definition(
 
 
 def indicator_definition_sha256(value: object) -> str:
+    """Hash a validated scientific indicator definition with its domain."""
+
     definition = validate_indicator_definition(value, require_scientific=True)
     return hashlib.sha256(
         INDICATOR_DEFINITION_DOMAIN + _canonical(definition)
@@ -716,6 +752,8 @@ def indicator_definition_sha256(value: object) -> str:
 
 @dataclass(frozen=True)
 class IndicatorIdentity:
+    """Builtin scalarizer, artifact, and reference identity."""
+
     scalarizer: str
     artifact: str
     reference: str
@@ -723,6 +761,8 @@ class IndicatorIdentity:
 
 @dataclass(frozen=True)
 class TotalVariationIndicator:
+    """Compute total-variation distance between synthetic and reference shares."""
+
     artifact: TableArtifact
     reference_column: str
 
@@ -791,6 +831,8 @@ def resolve_indicators(
     scalarizers: Mapping[str, ScalarizerFactory],
     custom: Mapping[str, CustomFactory],
 ) -> tuple[object, ...]:
+    """Resolve builtin and custom declarations to executable indicators."""
+
     resolved: list[object] = []
     errors: list[str] = []
 

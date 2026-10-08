@@ -1,3 +1,5 @@
+"""Build deterministic campaign plans and validate their sealed metadata."""
+
 import copy
 import hashlib
 import itertools
@@ -84,6 +86,8 @@ DOMAIN = b"eqasim-sa:design:grid:v1\0"
 
 @dataclass(frozen=True)
 class GridDesign:
+    """Cartesian demonstration design over factor supports and seeds."""
+
     base_config: dict
     factors: dict[str, list]
     seeds: tuple[int, ...]
@@ -97,6 +101,8 @@ class GridDesign:
 
 @dataclass(frozen=True)
 class MorrisDesign:
+    """Legacy non-inferential Morris design retained for compatibility."""
+
     base_config: dict
     factors: dict[str, list]
     seeds: tuple[int, ...]
@@ -112,6 +118,8 @@ class MorrisDesign:
 
 @dataclass(frozen=True)
 class DiscreteOATDesign:
+    """Adjacent-level one-at-a-time demonstration design."""
+
     base_config: dict
     factors: dict[str, list]
     seeds: tuple[int, ...]
@@ -127,6 +135,8 @@ class DiscreteOATDesign:
 
 @dataclass(frozen=True)
 class CanonicalMorrisDesign:
+    """Scientific Morris screening design with replication metadata."""
+
     base_config: dict
     factors: dict[str, list]
     seeds: tuple[int, ...]
@@ -150,6 +160,8 @@ class CanonicalMorrisDesign:
 
 @dataclass(frozen=True)
 class SobolDesign:
+    """Legacy single-scramble Sobol demonstration design."""
+
     base_config: dict
     factors: dict[str, list]
     seeds: tuple[int, ...]
@@ -165,6 +177,8 @@ class SobolDesign:
 
 @dataclass(frozen=True)
 class MultiScrambleSobolDesign:
+    """Scientific Sobol design across independent declared QMC scrambles."""
+
     base_config: dict
     factors: dict[str, list]
     seeds: tuple[int, ...]
@@ -183,6 +197,8 @@ class MultiScrambleSobolDesign:
 
 @dataclass(frozen=True)
 class PlanResult:
+    """Publication status and cardinalities of a deterministic plan."""
+
     status: str
     path: Path
     design_positions: int
@@ -199,6 +215,8 @@ def estimate_plan(
     method: str = "grid",
     formula_inputs: dict[str, int] | None = None,
 ) -> dict:
+    """Estimate campaign resources from design size and calibration data."""
+
     if any(
         type(value) is not int or value < 0 for value in (design_positions, plan_bytes)
     ):
@@ -889,6 +907,8 @@ def resolve_config(
     values: tuple,
     seed: int,
 ) -> dict:
+    """Resolve one design point into an executable model configuration."""
+
     resolved = copy.deepcopy(design.base_config)
     nested = resolved["config"]
     for name, value in zip(names, values):
@@ -905,6 +925,8 @@ def resolve_config(
 
 
 def unique_config_seed_pairs(design: Design) -> bool:
+    """Report whether every design row maps to a distinct run identity."""
+
     names = _validate(design)
     ids = _table(design, names)["runId"].to_pylist()
     return len(ids) == len(set(ids))
@@ -913,6 +935,8 @@ def unique_config_seed_pairs(design: Design) -> bool:
 def load_run_specs(
     path: Path, design: Design, campaign: str
 ) -> tuple[RunSpec, ...]:
+    """Verify a sealed plan against its design and reconstruct unique runs."""
+
     if path.is_symlink() or not path.is_file():
         raise ValueError("plan.parquet must be a regular non-symlink file")
     names = _validate(design)
@@ -1075,6 +1099,8 @@ def _validate_existing_plan_technical(root: Path) -> None:
 
 
 def build_plan(design: Design) -> PlanResult:
+    """Create or verify an immutable deterministic plan for a campaign."""
+
     names = _validate(design)
     design_positions = _plan_positions(design, names)
     if design.method in {"canonical_morris", "multiscramble_sobol"}:

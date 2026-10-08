@@ -1,3 +1,5 @@
+"""Define the command-line interface and its JSON response envelope."""
+
 import argparse
 import json
 import re
@@ -10,6 +12,8 @@ EQASIM_PARAMETERS = {"sampling_rate", "hts", "income_assignation_method"}
 
 
 def parser() -> argparse.ArgumentParser:
+    """Build the argument parser for every installed command."""
+
     result = argparse.ArgumentParser(prog="eqasim-sa")
     commands = result.add_subparsers(dest="command")
     init = commands.add_parser(
@@ -118,6 +122,8 @@ def dispatch(
     init_factory: Any = None,
     analyze_factory: Any = None,
 ) -> int:
+    """Dispatch one parsed command and emit its stable JSON response."""
+
     arguments = parser().parse_args()
     if arguments.command is None:
         parser().print_help()

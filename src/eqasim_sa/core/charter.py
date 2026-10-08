@@ -1,3 +1,5 @@
+"""Model and validate scientific charters for sensitivity campaigns."""
+
 import json
 import math
 from collections.abc import Sequence
@@ -11,44 +13,60 @@ from eqasim_sa.core.indicators import (
 
 
 class CharterStatus(StrEnum):
+    """Governance level assigned to a campaign."""
+
     DEMONSTRATION = "demonstration"
     SCIENTIFIC = "scientific"
 
 
 class DecisionUse(StrEnum):
+    """Intended diagnostic or prognostic use of a scientific result."""
+
     DIAGNOSTIC = "diagnostic"
     PROGNOSTIC = "prognostic"
 
 
 class SensitivityObjective(StrEnum):
+    """Supported scientific decision objectives."""
+
     SCREENING = "screening"
     FACTOR_PRIORITIZATION = "fp"
     FACTOR_FIXING = "ff"
 
 
 class InventoryStatus(StrEnum):
+    """Role assigned to an uncertainty source in a campaign."""
+
     VARIED = "varied"
     FIXED = "fixed"
     EXCLUDED = "excluded"
 
 
 class DependenceKind(StrEnum):
+    """Whether factor dependence is absent or explicitly modeled."""
+
     INDEPENDENT = "independent"
     DECLARED = "declared"
 
 
 class StochasticTarget(StrEnum):
+    """Supported interpretations of simulator-seed uncertainty."""
+
     CONDITIONAL_MEAN = "conditional_mean"
     FINITE_SEED_FACTOR = "finite_seed_factor"
 
 
 class AllocationPhase(StrEnum):
+    """Pilot or production phase of a replication allocation."""
+
     PILOT = "pilot"
     PRODUCTION = "production"
 
 
 @dataclass(frozen=True)
 class ParameterDistribution:
+    """Declared factor distribution, transform, and scientific provenance."""
+
     family: str
     transform: str
     provenance: str
@@ -56,12 +74,16 @@ class ParameterDistribution:
 
 @dataclass(frozen=True)
 class DemonstrationCharter:
+    """Non-inferential charter used by generated examples and legacy inputs."""
+
     status: CharterStatus = CharterStatus.DEMONSTRATION
     legacy: bool = False
 
 
 @dataclass(frozen=True)
 class Decision:
+    """Scientific claim, estimand, indicator, and practical objective."""
+
     claim: str
     use: DecisionUse
     setting: str
@@ -75,6 +97,8 @@ class Decision:
 
 @dataclass(frozen=True)
 class DependenceGroup:
+    """Factors joined by one declared dependence model."""
+
     factors: tuple[str, ...]
     model: str
     provenance: str
@@ -82,6 +106,8 @@ class DependenceGroup:
 
 @dataclass(frozen=True)
 class Dependence:
+    """Factor dependence assumption and any modeled groups."""
+
     kind: DependenceKind
     rationale: str
     groups: tuple[DependenceGroup, ...] = ()
@@ -89,6 +115,8 @@ class Dependence:
 
 @dataclass(frozen=True)
 class InventoryItem:
+    """One uncertainty source and its role, rationale, and provenance."""
+
     name: str
     status: InventoryStatus
     provenance: str
@@ -97,6 +125,8 @@ class InventoryItem:
 
 @dataclass(frozen=True)
 class UncertaintyInventory:
+    """Complete categorized inventory of campaign uncertainty sources."""
+
     parameters: tuple[InventoryItem, ...]
     data: tuple[InventoryItem, ...]
     structures: tuple[InventoryItem, ...]
@@ -106,12 +136,16 @@ class UncertaintyInventory:
 
 @dataclass(frozen=True)
 class Budget:
+    """Maximum run count and reserved fraction of that capacity."""
+
     maximum_runs: int
     reserve_fraction: float
 
 
 @dataclass(frozen=True)
 class StoppingCriterion:
+    """Metric threshold and required consecutive successful checks."""
+
     metric: str
     threshold: float
     consecutive_checks: int
@@ -119,12 +153,16 @@ class StoppingCriterion:
 
 @dataclass(frozen=True)
 class RobustnessCheck:
+    """Study-specific robustness work required before claim authorization."""
+
     name: str
     rationale: str
 
 
 @dataclass(frozen=True)
 class ReplicationAllocation:
+    """Pilot bounds or selected production replication count and provenance."""
+
     phase: AllocationPhase
     variance_quantile: float
     target_mcse: float
@@ -136,6 +174,8 @@ class ReplicationAllocation:
 
 @dataclass(frozen=True)
 class ConditionalMeanStochastic:
+    """Stochastic contract targeting a seed-conditional mean with replication."""
+
     allocation: ReplicationAllocation
     target: StochasticTarget = field(default=StochasticTarget.CONDITIONAL_MEAN, init=False)
     random_source: str = field(default="simulator_seed", init=False)
@@ -145,6 +185,8 @@ class ConditionalMeanStochastic:
 
 @dataclass(frozen=True)
 class FiniteSeedFactorStochastic:
+    """Stochastic contract treating a finite seed support as a nuisance factor."""
+
     target: StochasticTarget = field(default=StochasticTarget.FINITE_SEED_FACTOR, init=False)
     random_source: str = field(default="simulator_seed", init=False)
     intrinsic_variance: str = field(default="not_identified", init=False)
@@ -159,6 +201,8 @@ ScientificStochastic = ConditionalMeanStochastic | FiniteSeedFactorStochastic
 
 @dataclass(frozen=True)
 class ScientificCharter:
+    """Complete decision, uncertainty, budget, stopping, and robustness contract."""
+
     decision: Decision
     dependence: Dependence
     inventory: UncertaintyInventory
@@ -264,6 +308,8 @@ def _replication_count(value: object, name: str) -> int:
 
 
 def parse_stochastic(value: object, name: str = "charter.stochastic") -> ScientificStochastic:
+    """Parse and validate one supported stochastic contract."""
+
     document = _mapping(value, name)
     target = document.get("target")
     if target == StochasticTarget.CONDITIONAL_MEAN:
@@ -368,6 +414,8 @@ def parse_stochastic(value: object, name: str = "charter.stochastic") -> Scienti
 
 
 def serialize_stochastic(stochastic: ScientificStochastic) -> dict:
+    """Serialize a stochastic contract and validate its canonical structure."""
+
     if isinstance(stochastic, ConditionalMeanStochastic):
         allocation = stochastic.allocation
         document = {
@@ -400,6 +448,8 @@ def serialize_stochastic(stochastic: ScientificStochastic) -> dict:
 
 
 def charter_status(value: object | None) -> CharterStatus:
+    """Determine charter status while validating its minimal shape."""
+
     if value is None:
         return CharterStatus.DEMONSTRATION
     document = _mapping(value, "charter")
@@ -413,6 +463,8 @@ def charter_status(value: object | None) -> CharterStatus:
 
 
 def parse_distribution(value: object, name: str) -> ParameterDistribution:
+    """Parse the supported discrete-uniform distribution declaration."""
+
     document = _mapping(value, f"parameter {name!r} distribution")
     _exact(
         document,
@@ -599,6 +651,8 @@ def parse_charter(
     indicator_names: set[str],
     indicator_definitions: dict[str, dict[str, object]] | None = None,
 ) -> AnalysisCharter:
+    """Parse a demonstration or fully governed scientific charter."""
+
     status = charter_status(value)
     if status is CharterStatus.DEMONSTRATION:
         return DemonstrationCharter(legacy=value is None)
@@ -925,6 +979,8 @@ def serialize_scientific_contract(
     eqasim_sa_version: str,
     eqasim_sa_sha256: str,
 ) -> dict:
+    """Seal a validated scientific charter with factors and software identity."""
+
     if not isinstance(charter, ScientificCharter):
         raise TypeError("canonical scientific contract requires a ScientificCharter")
     if set(factors) != set(distributions):

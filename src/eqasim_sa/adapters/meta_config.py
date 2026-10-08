@@ -1,3 +1,5 @@
+"""Parse and validate campaign meta-configuration files and identities."""
+
 import hashlib
 import importlib.metadata
 import json
@@ -70,6 +72,8 @@ SCALARIZERS = {
 
 @dataclass(frozen=True)
 class SlurmResources:
+    """Scheduler resource options accepted by the SLURM adapter."""
+
     timeout_min: int = 1440
     mem_gb: int | float | None = None
     partition: str | None = None
@@ -79,6 +83,8 @@ class SlurmResources:
 
 @dataclass(frozen=True)
 class Execution:
+    """Validated runtime, backend, workspace, and override configuration."""
+
     backend: str
     workers: int
     processes: int
@@ -91,6 +97,8 @@ class Execution:
 
 @dataclass(frozen=True)
 class MetaConfig:
+    """Fully resolved campaign contract consumed by application services."""
+
     campaign: str
     campaign_root: Path
     model_config: Path
@@ -516,6 +524,8 @@ def _indicator_blocks(
 def load_meta_config(
     path: Path, validate_factors: bool = True, deadline: float | None = None
 ) -> MetaConfig:
+    """Load, seal, and cross-validate a campaign meta-configuration."""
+
     software_identity = read_software_identity()
     source = _file(path, "meta-config")
     source_state = path_state(source)

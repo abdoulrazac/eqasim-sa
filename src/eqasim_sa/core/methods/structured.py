@@ -22,6 +22,8 @@ def _structured_json(value: dict[str, dict[str, list[str]]]) -> bytes:
 def validate_structured_plan_metadata(
     metadata: dict[bytes, bytes],
 ) -> dict[str, dict[str, list[str]]]:
+    """Decode canonical schema-v3 structured-factor metadata."""
+
     version = metadata.get(b"planSchemaVersion")
     pair = {b"structuredFactorsVersion", b"structuredFactors"}
     present = pair & set(metadata)
@@ -78,6 +80,8 @@ def validate_structured_plan_metadata(
 def validate_structured_plan_rows(
     plan: pa.Table, structured: dict[str, dict[str, list[str]]]
 ) -> None:
+    """Match structured labels and declaration order to plan rows."""
+
     if not structured:
         return
     factor_columns = set(plan.column_names) - set(FIXED)
@@ -103,6 +107,8 @@ def validate_structured_plan_rows(
 def validate_structured_factor_supports(
     structured: dict[str, dict[str, list[str]]], supports: dict[str, list]
 ) -> None:
+    """Require plan supports to equal declared structured labels exactly."""
+
     for name, configurations in structured.items():
         if name not in supports or list(configurations) != supports[name]:
             raise ValueError(

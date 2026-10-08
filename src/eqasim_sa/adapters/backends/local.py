@@ -1,3 +1,5 @@
+"""Thread-based execution backend for local campaign workers."""
+
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from typing import TypeVar
@@ -7,6 +9,8 @@ R = TypeVar("R")
 
 
 class LocalBackend:
+    """Map independent worker calls through a bounded thread pool."""
+
     def __init__(self, max_workers: int = 1) -> None:
         if (
             isinstance(max_workers, bool)

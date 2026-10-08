@@ -19,6 +19,8 @@ def validate_multiscramble_scientific_contract(
     factors: dict[str, list],
     distributions: dict,
 ) -> None:
+    """Validate the FP/FF and finite-seed contract for multi-scramble Sobol."""
+
     validate_scientific_contract(
         contract,
         factors,

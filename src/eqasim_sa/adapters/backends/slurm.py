@@ -1,3 +1,5 @@
+"""Submitit-backed SLURM execution with durable submission recovery."""
+
 import hashlib
 import json
 import os
@@ -40,12 +42,16 @@ _READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
 
 @dataclass(frozen=True)
 class ActiveJobs:
+    """Durable identity of jobs submitted as one recoverable SLURM batch."""
+
     job_ids: tuple[str, ...]
     submission_id: str | None = None
 
 
 @dataclass(frozen=True)
 class SubmissionIntent:
+    """Pre-submission record that prevents uncertain duplicate submission."""
+
     submission_id: str
     spec_count: int
 
@@ -365,6 +371,8 @@ def _terminal_barrier(jobs: Iterable[object], *, cancel_unfinished: bool) -> Non
 
 
 class SlurmBackend:
+    """Submit batches to SLURM while reconciling durable scheduler state."""
+
     def __init__(
         self,
         campaign_root: Path,
@@ -491,6 +499,8 @@ class SlurmBackend:
 
 @dataclass(frozen=True)
 class EqasimSlurmJob:
+    """Reload and validate a sealed campaign before executing a remote batch."""
+
     meta_config_path: Path
     expected_context_hash: str
     meta_config_sha256: str

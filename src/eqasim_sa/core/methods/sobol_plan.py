@@ -14,6 +14,8 @@ SOBOL_DOMAIN = b"eqasim-sa:design:sobol:v1\0"
 def validate_sobol_bootstrap_work(
     bootstrap_resamples: int, base_sample_size: int, dimensions: int
 ) -> None:
+    """Reject Sobol bootstrap workloads above the safe cap."""
+
     work = bootstrap_resamples * base_sample_size * (2 * dimensions + 2)
     if work > MAX_BOOTSTRAP_WORK_CELLS:
         raise ValueError(
@@ -65,6 +67,8 @@ def _sobol_positions(design: SobolDesign, names: tuple[str, ...]):  # type: igno
 
 
 def validate_sobol_effective_hybrid_contrasts(points, names):  # type: ignore[no-untyped-def]
+    """Require at least one effective projected hybrid per factor."""
+
     dimensions = len(names)
     for factor, name in enumerate(names):
         if not any(point[factor] != point[dimensions + factor] for point in points):

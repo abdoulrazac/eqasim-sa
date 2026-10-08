@@ -12,6 +12,8 @@ DISCRETE_OAT_DOMAIN = b"eqasim-sa:design:discrete-oat:v1\0"
 
 
 def validate_morris_values(name: str, values: list) -> None:
+    """Require finite, ordered numeric levels for an OAT factor."""
+
     if (
         len(values) < 2
         or type(values[0]) not in (int, float)

@@ -1,3 +1,5 @@
+"""Command-line fake pipeline used by integration and packaging tests."""
+
 import argparse
 import hashlib
 import json
@@ -9,6 +11,8 @@ import pyarrow.parquet as pq
 
 
 def parser() -> argparse.ArgumentParser:
+    """Build the internal fake-pipeline argument parser."""
+
     result = argparse.ArgumentParser(description="Installed fake eqasim pipeline")
     result.add_argument("--request", type=Path, required=True)
     result.add_argument("--manifest", type=Path, required=True)
@@ -16,6 +20,8 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    """Materialize deterministic fake artifacts from one request document."""
+
     arguments = parser().parse_args()
     request = json.loads(arguments.request.read_text(encoding="utf-8"))
     config = request["config"]

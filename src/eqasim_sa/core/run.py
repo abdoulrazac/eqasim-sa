@@ -1,3 +1,5 @@
+"""Identify, execute, resume, and summarize individual campaign runs."""
+
 import copy
 import hashlib
 import json
@@ -49,6 +51,8 @@ ARTIFACT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 @dataclass(frozen=True)
 class RunSpec:
+    """Resolved execution request and parameters for one unique run."""
+
     campaign: str
     resolved_config: ResolvedConfig
     seed: int
@@ -58,6 +62,8 @@ class RunSpec:
 
 @dataclass(frozen=True)
 class RunResult:
+    """Stable run identity, terminal status, and optional error message."""
+
     run_id: str
     status: str
     error: str | None = None
@@ -83,6 +89,8 @@ def _validate_json(value: object) -> None:
 
 
 def canonical_config(config: ResolvedConfig, seed: int) -> ResolvedConfig:
+    """Remove infrastructure fields from a JSON-compatible run configuration."""
+
     if type(seed) is not int or not -(2**63) <= seed < 2**63:
         raise ValueError("seed must be a signed int64")
     _validate_json(config)
@@ -101,6 +109,8 @@ def canonical_config(config: ResolvedConfig, seed: int) -> ResolvedConfig:
 
 
 def compute_run_id(config: ResolvedConfig, seed: int) -> str:
+    """Derive a deterministic versioned identity from config and seed."""
+
     envelope: dict[str, JsonValue] = {
         "canonicalizationVersion": CANONICALIZATION_VERSION,
         "excludedPaths": list(EXCLUDED_PATHS),
@@ -120,6 +130,8 @@ def compute_run_id(config: ResolvedConfig, seed: int) -> str:
 def validate_manifest(
     manifest: Manifest, workdir: Path
 ) -> tuple[tuple[str, Path], ...]:
+    """Validate simulator artifacts and confine them to one attempt directory."""
+
     attempt = Path(os.path.abspath(os.fspath(manifest.attempt_directory)))
     work = Path(os.path.abspath(os.fspath(workdir)))
     try:
@@ -169,6 +181,8 @@ def execute_run(
     workdir: Path,
     interrupted=None,
 ) -> RunResult:  # type: ignore[no-untyped-def]
+    """Execute and durably publish one run with resumable failure handling."""
+
     run_id = ""
     try:
         run_id = compute_run_id(spec.resolved_config, spec.seed)
@@ -263,6 +277,8 @@ def execute_run(
 def pending_run_specs(
     campaign_root: Path, specs: tuple[RunSpec, ...]
 ) -> tuple[RunSpec, ...]:
+    """Filter out specs whose validated completion markers already exist."""
+
     completed = CampaignSnapshot.completed_specs(campaign_root, specs)
     return tuple(
         spec
@@ -288,6 +304,8 @@ def run_one(
     workdir: Path,
     current_context_hash: str,
 ) -> RunResult:
+    """Execute one run through a backend after checking its context identity."""
+
     try:
         run_id = compute_run_id(spec.resolved_config, spec.seed)
         validate_parameters(spec.parameters)
@@ -315,6 +333,8 @@ def run_one(
 
 
 def summarize_runs(run_ids: list[str], results: list[RunResult]) -> dict:
+    """Validate backend results and aggregate their terminal statuses."""
+
     if len(results) != len(run_ids) or [result.run_id for result in results] != run_ids:
         raise RuntimeError(
             "backend result cardinality or identities do not match submitted runs"

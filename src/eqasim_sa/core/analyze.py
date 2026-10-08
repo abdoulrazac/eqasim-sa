@@ -1,3 +1,5 @@
+"""Analyze complete campaign snapshots and prepare governed results."""
+
 import json
 import math
 import os
@@ -53,6 +55,8 @@ from eqasim_sa.utils.arrow import rows_to_table
 
 @dataclass(frozen=True)
 class AnalyzeResult:
+    """Paths, counts, and inference status produced by campaign analysis."""
+
     path: Path
     dispersion_path: Path | None
     sensitivity_method: str | None
@@ -92,6 +96,8 @@ def analyze(
     meta_config_sha256: str | None = None,
     descriptive_only: bool = False,
 ) -> AnalyzeResult:
+    """Analyze a campaign and publish outputs under its governed contract."""
+
     campaign_root = campaign_root.resolve(strict=True)
     return _analyze_campaign(
         campaign_root,

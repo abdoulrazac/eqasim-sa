@@ -518,6 +518,8 @@ def init_from_inputs(
     model_config: Path = Path("config_local_nantes.yml"),
     regenerate_data_manifest: bool = False,
 ) -> dict:
+    """Create or safely resume a generated demonstration project."""
+
     started = time.monotonic()
     project_name = _project_name(project_name)
     if not invocation or not all(

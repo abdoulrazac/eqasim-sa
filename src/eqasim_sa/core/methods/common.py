@@ -20,6 +20,8 @@ def trajectory_role(trajectory: int, rank: int, factor: str | None = None) -> st
 def validate_bootstrap_resamples(
     value: object, *, method: str, minimum: int
 ) -> int:
+    """Validate a method's bootstrap count against shared operational limits."""
+
     if (
         type(value) is not int
         or not minimum <= value <= MAX_BOOTSTRAP_RESAMPLES

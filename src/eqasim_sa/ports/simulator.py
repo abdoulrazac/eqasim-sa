@@ -1,3 +1,5 @@
+"""Simulator port and immutable value objects exchanged with the core."""
+
 import hashlib
 import json
 import os
@@ -21,6 +23,8 @@ EXECUTION_EVIDENCE_DOMAIN = EXECUTION_EVIDENCE_V2_DOMAIN
 
 @dataclass(frozen=True)
 class ExecutionEvidence:
+    """Canonical attestation of model, data, executable, environment, and source."""
+
     context_hash: str
     data_tree_sha256: str
     environment_sha256: str
@@ -166,12 +170,16 @@ class ExecutionEvidence:
 
 @dataclass(frozen=True)
 class Artifact:
+    """Named simulator output path offered for durable publication."""
+
     name: str
     path: Path
 
 
 @dataclass(frozen=True)
 class IndicatorRequirement:
+    """Indicator name paired with the artifact it requires."""
+
     indicator: str
     artifact: str
 
@@ -185,6 +193,8 @@ class IndicatorRequirement:
 
 @dataclass(frozen=True)
 class Manifest:
+    """Simulator outputs, attempt ownership, resource use, and provenance."""
+
     artifacts: tuple[Artifact, ...]
     attempt_directory: Path
     scratch_bytes: int = 0
@@ -192,6 +202,8 @@ class Manifest:
 
 
 class SimulationError(RuntimeError):
+    """Simulation failure with a validated log inside its attempt directory."""
+
     def __init__(self, message: str, log_path: Path, attempt_directory: Path) -> None:
         attempt = attempt_directory.resolve(strict=True)
         log = log_path.resolve(strict=True)
@@ -213,6 +225,8 @@ class SimulationError(RuntimeError):
 
 
 class Simulator(Protocol):
+    """Execute resolved configurations and declare indicator requirements."""
+
     def simulate(
         self, config: ResolvedConfig, seed: int, workdir: Path
     ) -> Manifest: ...

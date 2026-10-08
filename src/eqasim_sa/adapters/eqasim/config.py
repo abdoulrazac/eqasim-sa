@@ -1,3 +1,5 @@
+"""Load, validate, and resolve eqasim YAML configuration documents."""
+
 import copy
 import json
 import re
@@ -16,6 +18,8 @@ STAGES = ["synthesis.output", "analysis.synthesis.population"]
 
 @dataclass(frozen=True)
 class EqasimSettings:
+    """Validated paths and invocation shared by one eqasim worker slot."""
+
     config_path: Path
     eqasim_root: Path
     invocation: tuple[str, ...]
@@ -65,6 +69,8 @@ class EqasimSettings:
 
 
 def load_config(path: Path, seed: int) -> ResolvedConfig:
+    """Resolve a model YAML for execution and inject the requested run seed."""
+
     document = load_yaml_document(path)
     validate_eqasim_document(document)
     resolved = copy.deepcopy(document)
@@ -74,6 +80,8 @@ def load_config(path: Path, seed: int) -> ResolvedConfig:
 
 
 def validate_eqasim_document(document: object) -> None:
+    """Validate the minimal eqasim mapping required by the execution adapter."""
+
     if not isinstance(document, dict):
         raise TypeError("eqasim YAML root must be a mapping")
     if not isinstance(document.get("working_directory"), str):
@@ -85,10 +93,14 @@ def validate_eqasim_document(document: object) -> None:
 
 
 def load_yaml_document(path: Path) -> object:
+    """Load a UTF-8 YAML file under the project's strict YAML rules."""
+
     return load_yaml_source(path.read_text(encoding="utf-8"))
 
 
 def load_yaml_source(source: str) -> object:
+    """Parse JSON-compatible YAML while rejecting aliases and duplicate keys."""
+
     node = yaml.compose(source, Loader=yaml.SafeLoader)
     if node is not None:
         _validate_yaml_nodes(node, set())

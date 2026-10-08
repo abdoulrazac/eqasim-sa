@@ -1,3 +1,5 @@
+"""Execute an installed eqasim pipeline behind the simulator port."""
+
 import copy
 import json
 import math
@@ -32,6 +34,8 @@ TERMINATION_GRACE_SECONDS = 2.0
 
 
 class EqasimSimulator:
+    """Run synpp in an isolated workspace and return normalized artifacts."""
+
     def __init__(
         self,
         settings: EqasimSettings,
@@ -311,6 +315,8 @@ class EqasimSimulator:
 def eqasim_requirements(
     indicators: Sequence[IndicatorRequirement],
 ) -> Mapping[str, JsonValue]:
+    """Derive the minimal ordered synpp stages required by indicators."""
+
     stages = ["synthesis.output"]
     for requirement in indicators:
         stage = ARTIFACT_STAGE.get(requirement.artifact)
@@ -327,6 +333,8 @@ def eqasim_requirements(
 def probe_environment(
     invocation: tuple[str, ...], root: Path, timeout: float = 20.0
 ) -> None:
+    """Check that an invocation reaches synpp without starting a simulation."""
+
     missing = root / f".eqasim-sa-probe-{uuid.uuid4().hex}.yml"
     completed = subprocess.run(
         [*invocation, str(missing)],
@@ -346,6 +354,8 @@ def probe_environment(
 
 
 def validate_transport(name: str, value: object) -> None:
+    """Validate a scalar override that can cross the synpp CLI boundary."""
+
     if not OPTION.fullmatch(name) or name in DEDICATED:
         raise ValueError(f"invalid or dedicated synpp option: {name!r}")
     _scalar_argument(name, value)

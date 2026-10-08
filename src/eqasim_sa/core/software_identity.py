@@ -1,3 +1,5 @@
+"""Capture and guard the installed package's immutable source identity."""
+
 import hashlib
 import importlib.metadata
 import json
@@ -17,6 +19,8 @@ TEMPLATE_SUFFIXES = frozenset({".md", ".yaml", ".yml"})
 
 @dataclass(frozen=True)
 class SoftwareSourceState:
+    """Stable path, metadata, size, and digest for one behavior source."""
+
     relative_path: str
     path: Path
     state: FileState
@@ -26,6 +30,8 @@ class SoftwareSourceState:
 
 @dataclass(frozen=True)
 class SoftwareIdentity:
+    """Versioned digest and complete source inventory of the installed package."""
+
     version: str
     sha256: str
     package_root: Path
@@ -82,6 +88,8 @@ def _inventory(root: Path) -> tuple[tuple[str, Path], ...]:
 
 
 def stable_file_identity(path: Path) -> tuple[int, str, FileState]:
+    """Read a source file only if its metadata stays stable while hashing."""
+
     try:
         snapshot = stable_file(path)
     except (OSError, ValueError) as error:
@@ -94,6 +102,8 @@ def stable_file_identity(path: Path) -> tuple[int, str, FileState]:
 def read_software_identity(
     package_root: Path | None = None, version: str | None = None
 ) -> SoftwareIdentity:
+    """Inventory package behavior sources and derive their canonical digest."""
+
     root = (
         Path(__file__).resolve(strict=True).parents[1]
         if package_root is None
@@ -132,6 +142,8 @@ def read_software_identity(
 
 
 def verify_software_source_states(identity: SoftwareIdentity) -> None:
+    """Fail if the package inventory or any source metadata changed."""
+
     if not isinstance(identity, SoftwareIdentity):
         raise TypeError("software identity is required")
     current_inventory = _inventory(identity.package_root)
@@ -152,6 +164,8 @@ def verify_software_source_states(identity: SoftwareIdentity) -> None:
 
 
 class SoftwareSourceGuard:
+    """Thread-safe fail-closed guard for a previously sealed package identity."""
+
     def __init__(self, identity: SoftwareIdentity) -> None:
         self.identity = identity
         self._failure: str | None = None

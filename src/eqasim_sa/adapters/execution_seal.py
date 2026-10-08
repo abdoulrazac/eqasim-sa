@@ -1,3 +1,5 @@
+"""Seal executable, model, environment, and data identities for a run."""
+
 import hashlib
 import json
 import os
@@ -92,6 +94,8 @@ def _path_executable(command: str, root: Path, environment: Mapping[str, str]) -
 def resolve_invocation(
     invocation: Sequence[str], root: Path, environment: Mapping[str, str]
 ) -> tuple[str, ...]:
+    """Resolve an invocation's executable to one stable absolute path."""
+
     values = tuple(invocation)
     if not values or not all(
         type(item) is str and item and "\0" not in item for item in values
@@ -124,6 +128,8 @@ def _git(
 
 
 class ExecutionSeal:
+    """Guard all provenance inputs against mutation during execution."""
+
     def __init__(
         self,
         *,
@@ -256,6 +262,8 @@ class ExecutionSeal:
 def create_execution_seal(
     meta, environment: Mapping[str, str] | None = None
 ) -> ExecutionSeal:  # type: ignore[no-untyped-def]
+    """Create and fully verify the execution seal for a loaded meta-config."""
+
     if meta.execution is None:
         raise ValueError("execution section is required for an execution seal")
     data_root = getattr(meta.execution, "data_path", None)

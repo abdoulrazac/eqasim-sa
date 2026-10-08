@@ -24,6 +24,8 @@ def validate_canonical_morris_bootstrap_work(
     replications: int,
     checkpoints: tuple[int, ...] | list[int],
 ) -> None:
+    """Reject canonical Morris bootstrap workloads above the safe cap."""
+
     pairwise_rankings = factors * (factors - 1) // 2
     work = bootstrap_resamples * len(checkpoints) * (
         factors * trajectories * replications
@@ -40,6 +42,8 @@ def validate_canonical_morris_bootstrap_work(
 def canonical_morris_distance_terms(
     dimensions: int, candidates: int, trajectories: int
 ) -> int:
+    """Count distance terms required by candidate selection."""
+
     pair_distances = candidates * (candidates - 1) // 2
     greedy_distances = sum(
         (candidates - selected) * selected
@@ -203,6 +207,8 @@ def _canonical_morris_positions(
 
 
 def changed_factor(matrix: list[list[int]], rank: int) -> int:
+    """Return the factor index changed at a trajectory step."""
+
     return next(
         index
         for index, (before, after) in enumerate(zip(matrix[rank - 1], matrix[rank]))

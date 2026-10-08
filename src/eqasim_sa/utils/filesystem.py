@@ -97,6 +97,8 @@ class StableFile:
 
 
 def file_state(info: os.stat_result) -> FileState:
+    """Reduce stat metadata to the fields used for stability checks."""
+
     return FileState(
         file_identity(info),
         info.st_size,
@@ -106,14 +108,20 @@ def file_state(info: os.stat_result) -> FileState:
 
 
 def path_state(path: Path, *, follow_symlinks: bool = True) -> FileState:
+    """Capture the stable metadata state visible at a path."""
+
     return file_state(path.stat(follow_symlinks=follow_symlinks))
 
 
 def file_identity(info: os.stat_result) -> FileIdentity:
+    """Return device, inode, and file type identity from stat metadata."""
+
     return FileIdentity(info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode))
 
 
 def absolute(path: Path) -> Path:
+    """Return a lexical absolute path without resolving symbolic links."""
+
     return Path(os.path.abspath(os.fspath(path)))
 
 
@@ -148,6 +156,8 @@ def open_directory(path: Path, *, create: bool = False) -> int:
 
 
 def open_child_directory(parent: int, name: str, *, create: bool = False) -> int:
+    """Open one safe child directory relative to an existing descriptor."""
+
     if not name or "/" in name or name in {".", ".."}:
         raise ValueError(f"invalid directory name: {name!r}")
     if create:
@@ -163,6 +173,8 @@ def open_child_directory(parent: int, name: str, *, create: bool = False) -> int
 
 
 def directory_is_current(path: Path, descriptor: int) -> bool:
+    """Check whether a path still resolves to an open directory descriptor."""
+
     try:
         visible = open_directory(path)
     except OSError:
@@ -174,6 +186,8 @@ def directory_is_current(path: Path, descriptor: int) -> bool:
 
 
 def secure_directory(path: Path, *, create: bool = False) -> Path:
+    """Validate an owned directory without traversing symbolic links."""
+
     try:
         descriptor = open_directory(path, create=create)
     except OSError as error:
@@ -190,11 +204,15 @@ def secure_directory(path: Path, *, create: bool = False) -> Path:
 
 
 def validate_directory(path: Path) -> None:
+    """Require every component of a directory path to be non-symlinked."""
+
     descriptor = open_directory(path)
     os.close(descriptor)
 
 
 def open_regular(path: Path) -> tuple[int, int, str]:
+    """Open a stable regular file and its parent without following symlinks."""
+
     resolved = absolute(path)
     if not resolved.name:
         raise ValueError("regular file path must have a name")
@@ -222,6 +240,8 @@ def open_regular(path: Path) -> tuple[int, int, str]:
 
 
 def validate_regular_file(path: Path) -> None:
+    """Require a path to identify a stable regular non-symlink file."""
+
     descriptor, parent, _ = open_regular(path)
     os.close(descriptor)
     os.close(parent)
@@ -335,12 +355,16 @@ def capture_stable_file(
 
 
 def verify_stable_file(snapshot: StableFile) -> None:
+    """Fail when a regular file differs from a captured stable snapshot."""
+
     current = stable_file(snapshot.path)
     if current != snapshot:
         raise RuntimeError(f"selected analysis source changed: {snapshot.path}")
 
 
 def write_all(descriptor: int, content: bytes) -> None:
+    """Write an entire byte payload to a descriptor, handling short writes."""
+
     remaining = memoryview(content)
     while remaining:
         written = os.write(descriptor, remaining)
@@ -350,6 +374,8 @@ def write_all(descriptor: int, content: bytes) -> None:
 
 
 def fsync_directory(path: Path) -> None:
+    """Synchronize directory metadata through a safely opened descriptor."""
+
     descriptor = open_directory(path)
     try:
         os.fsync(descriptor)
@@ -831,6 +857,8 @@ def write_parquet_atomic(
     *,
     staging_directory: Path | None = None,
 ) -> Path:
+    """Atomically replace a destination with a compressed Parquet table."""
+
     return write_atomic(
         destination,
         lambda path: pq.write_table(table, path, compression="zstd"),
@@ -845,6 +873,8 @@ def write_parquet_exclusive(
     staging_directory: Path | None = None,
     guard: Callable[[], bool] | None = None,
 ) -> Path:
+    """Publish a Parquet table without replacing an existing destination."""
+
     return write_exclusive(
         destination,
         lambda path: pq.write_table(table, path, compression="zstd"),
@@ -859,6 +889,8 @@ def write_bytes_atomic(
     *,
     staging_directory: Path | None = None,
 ) -> Path:
+    """Atomically replace a destination with a byte payload."""
+
     return write_atomic(
         destination,
         lambda path: path.write_bytes(content),
@@ -873,6 +905,8 @@ def write_bytes_exclusive(
     staging_directory: Path | None = None,
     guard: Callable[[], bool] | None = None,
 ) -> Path:
+    """Publish bytes without replacing an existing destination."""
+
     return write_exclusive(
         destination,
         lambda path: path.write_bytes(content),
@@ -955,6 +989,8 @@ def copy_file_atomic(
     *,
     staging_directory: Path | None = None,
 ) -> Path:
+    """Atomically copy a file through the guarded staging machinery."""
+
     def copy(temporary: Path) -> None:
         with source.open("rb") as input_stream, temporary.open("wb") as output_stream:
             shutil.copyfileobj(input_stream, output_stream)

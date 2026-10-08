@@ -1,3 +1,5 @@
+"""Create, parse, and verify immutable manifests of input data trees."""
+
 import hashlib
 import json
 import os
@@ -20,6 +22,8 @@ SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 @dataclass(frozen=True)
 class DataManifestEntry:
+    """Digest and byte size of one safe relative path in a data tree."""
+
     path: str
     size: int
     sha256: str
@@ -27,12 +31,16 @@ class DataManifestEntry:
 
 @dataclass(frozen=True)
 class DataManifest:
+    """Canonical ordered file inventory and its domain-separated tree digest."""
+
     files: tuple[DataManifestEntry, ...]
     tree_sha256: str
 
 
 @dataclass(frozen=True)
 class DataTreeState:
+    """Filesystem metadata captured while verifying an immutable data tree."""
+
     root: Path
     root_state: State
     entries: tuple[tuple[str, State], ...]
@@ -48,6 +56,8 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 
 def parse_data_manifest(payload: bytes) -> DataManifest:
+    """Parse canonical manifest bytes and reject ambiguous or malformed input."""
+
     try:
         document = json.loads(payload, object_pairs_hook=_unique_object)
         if not isinstance(document, dict) or set(document) != {
@@ -109,6 +119,8 @@ def parse_data_manifest(payload: bytes) -> DataManifest:
 
 
 def load_data_manifest(path: Path) -> DataManifest:
+    """Load a regular, non-symlink manifest file from disk."""
+
     try:
         if path.is_symlink() or not path.is_file():
             raise ValueError
@@ -118,6 +130,8 @@ def load_data_manifest(path: Path) -> DataManifest:
 
 
 def verify_data_manifest(data_root: Path, manifest: DataManifest) -> DataTreeState:
+    """Match a live data tree against every file and digest in a manifest."""
+
     root, root_state, records, before = _read_tree(data_root, hash_files=True)
     _, current_root_state, _, after = _read_tree(root, hash_files=False)
     if root_state != current_root_state or before != after:
@@ -145,6 +159,8 @@ def verify_data_manifest(data_root: Path, manifest: DataManifest) -> DataTreeSta
 
 
 def verify_data_tree_state(expected: DataTreeState) -> None:
+    """Fail if metadata changed after a successful manifest verification."""
+
     root, root_state, _, states = _read_tree(expected.root, hash_files=False)
     if (
         root != expected.root
@@ -166,6 +182,8 @@ def _records(
 def generate_data_manifest(
     data_root: Path, destination: Path, *, replace: bool = False
 ) -> Path:
+    """Hash a stable data tree and atomically publish its canonical manifest."""
+
     reject_symlink_traversal(data_root, "data root")
     root = data_root.resolve(strict=True)
     root_descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)

@@ -41,6 +41,8 @@ RUN_SET_DOMAIN = b"eqasim-sa:analysis-run-set:v1\0"
 
 @dataclass(frozen=True)
 class RunSnapshot:
+    """Stable completion marker, archive, and artifacts for one selected run."""
+
     expected: RunRecord
     completion: CompletionState
     marker: StableFile
@@ -56,6 +58,8 @@ class RunSnapshot:
 
 @dataclass(frozen=True)
 class MaterializedCampaign:
+    """Read-only copy of selected campaign inputs used during analysis."""
+
     plan_path: Path
     artifacts: Mapping[str, ArtifactSet]
     run_set_sha256: str
@@ -64,6 +68,8 @@ class MaterializedCampaign:
 
 @dataclass(frozen=True)
 class PlanSnapshot:
+    """Stable plan file, decoded table, and optional context descriptor."""
+
     source: StableFile
     table: pa.Table
     context_descriptor: dict | None
@@ -71,6 +77,8 @@ class PlanSnapshot:
 
 @dataclass(frozen=True)
 class CampaignSnapshot:
+    """Coherent immutable view of a plan and its completed run archives."""
+
     campaign_root: Path
     campaign: str
     plan_source: StableFile
@@ -372,6 +380,8 @@ class CampaignSnapshot:
 
 
 def expected_records(table: pa.Table, campaign: str) -> dict[str, RunRecord]:
+    """Reconstruct unique expected run records from a validated plan table."""
+
     if type(campaign) is not str or not campaign:
         raise ValueError("campaign must be a non-empty string")
     required = {"designId", "method", "role", "runId", "seed", "contextHash"}
@@ -401,6 +411,8 @@ def expected_records(table: pa.Table, campaign: str) -> dict[str, RunRecord]:
 
 
 def context_descriptor(table: pa.Table) -> dict | None:
+    """Decode and validate the optional context descriptor sealed in a plan."""
+
     payload = (table.schema.metadata or {}).get(b"contextDescriptor")
     if payload is None:
         return None
@@ -415,6 +427,8 @@ def context_descriptor(table: pa.Table) -> dict | None:
 
 
 def completion_descriptor(run_id: str, completion: CompletionState) -> dict:
+    """Return the canonical analysis-facing description of a completed run."""
+
     evidence = completion.execution_evidence
     evidence_bytes = evidence.canonical_bytes() if evidence is not None else None
     return {
@@ -436,6 +450,8 @@ def completion_descriptor(run_id: str, completion: CompletionState) -> dict:
 
 
 def directory_state(path: Path) -> FileState:
+    """Capture metadata for a regular, non-symlink analysis archive directory."""
+
     try:
         info = path.lstat()
     except OSError as error:

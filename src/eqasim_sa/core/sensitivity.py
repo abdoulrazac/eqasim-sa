@@ -1,3 +1,5 @@
+"""Numerical design and estimator boundaries implemented through SALib."""
+
 from __future__ import annotations
 
 import importlib.metadata
@@ -33,6 +35,8 @@ def engine_descriptor(
     levels: int | None = None,
     selected_trajectories: int | None = None,
 ) -> dict[str, object]:
+    """Describe the exact SALib sampling and analysis contract for a method."""
+
     version = _installed_version()
     if type(sample_size) is not int or sample_size <= 0:
         raise ValueError("SALib descriptor sample_size must be positive")
@@ -124,6 +128,8 @@ def morris_unit_trajectories(
     levels: int,
     seed: int,
 ) -> list[list[list[int]]]:
+    """Generate validated canonical Morris trajectories on an integer grid."""
+
     _installed_version()
     if (
         type(candidate_trajectories) is not int
@@ -176,6 +182,8 @@ def morris_unit_trajectories(
 def sobol_unit_positions(
     names: Sequence[str], base_sample_size: int, seed: int
 ) -> list[tuple[str, tuple[float, ...]]]:
+    """Generate labeled symmetric Sobol positions in the unit hypercube."""
+
     _installed_version()
     if (
         type(base_sample_size) is not int
@@ -241,6 +249,8 @@ def sobol_symmetric_indices(
     *,
     indicator: str,
 ) -> tuple[np.ndarray, np.ndarray]:
+    """Average forward and reverse SALib first- and total-order indices."""
+
     _installed_version()
     dimensions = len(names)
     a = np.asarray(f_a, dtype=np.float64)
@@ -322,6 +332,8 @@ def morris_statistics(
     *,
     levels: int,
 ) -> dict[str, tuple[float, float, float]]:
+    """Compute finite Morris mu, mu-star, and sigma statistics by factor."""
+
     _installed_version()
     inputs = np.asarray(unit_inputs, dtype=np.float64)
     values = np.asarray(outputs, dtype=np.float64)

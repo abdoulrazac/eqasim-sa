@@ -1,3 +1,5 @@
+"""Maintain durable run leases, archives, and completion records."""
+
 import errno
 import json
 import math
@@ -60,6 +62,8 @@ _READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
 
 @dataclass(frozen=True)
 class RunRecord:
+    """Canonical completion metadata for one successfully published run."""
+
     run_id: str
     campaign: str
     seed: int
@@ -72,6 +76,8 @@ class RunRecord:
 
 @dataclass(frozen=True)
 class ArtifactManifestEntry:
+    """Name, size, and digest of one durable run artifact."""
+
     name: str
     size: int
     sha256: str
@@ -79,6 +85,8 @@ class ArtifactManifestEntry:
 
 @dataclass(frozen=True)
 class CompletionState:
+    """Validated completion record, artifact inventory, and execution evidence."""
+
     duration: float
     scratch_bytes: int
     archive_integrity: str
@@ -91,6 +99,8 @@ class CompletionState:
 
 
 def run_path(campaign_root: Path, run_id: str) -> Path:
+    """Return the completion-marker path for a validated run identity."""
+
     if type(run_id) is not str or not RUN_ID.fullmatch(run_id):
         raise ValueError(
             "run_id must contain exactly 32 lowercase hexadecimal characters"
@@ -104,6 +114,8 @@ def run_lease(
     run_id: str,
     interrupted: Callable[[], bool] | None = None,
 ) -> Iterator[None]:
+    """Hold the exclusive per-run lease used for execution and publication."""
+
     if type(run_id) is not str or not RUN_ID.fullmatch(run_id):
         raise ValueError(
             "run_id must contain exactly 32 lowercase hexadecimal characters"
@@ -299,6 +311,8 @@ def _verify_archive(
 def completion_state(
     campaign_root: Path, expected: RunRecord
 ) -> CompletionState | None:
+    """Validate and return a run completion marker, or ``None`` if absent."""
+
     path = run_path(campaign_root, expected.run_id)
     try:
         campaign = open_directory(campaign_root)
@@ -472,6 +486,8 @@ def completion_state(
 
 
 def completion_marker_names(campaign_root: Path) -> tuple[str, ...]:
+    """List stable completion marker names while rejecting foreign content."""
+
     try:
         campaign = open_directory(campaign_root)
     except FileNotFoundError:
@@ -630,6 +646,8 @@ def _remove_entry_at(parent: int, name: str) -> None:
 
 
 class ArchiveTransaction:
+    """Stage artifacts and commit archive plus marker as one guarded operation."""
+
     def __init__(
         self,
         campaign_root: Path,
@@ -881,6 +899,8 @@ def archive_transaction(
     artifacts: Sequence[tuple[str, Path]],
     interrupted: Callable[[], bool] | None = None,
 ) -> Iterator[ArchiveTransaction]:
+    """Prepare an archive transaction and guarantee descriptor cleanup."""
+
     transaction = ArchiveTransaction(campaign_root, run_id, artifacts, interrupted)
     try:
         transaction.prepare()
@@ -890,6 +910,8 @@ def archive_transaction(
 
 
 def validate_parameters(parameters: dict[str, Scalar]) -> None:
+    """Validate scalar plan parameters accepted by completion records."""
+
     if not isinstance(parameters, dict):
         raise TypeError("parameters must be a dictionary")
     if collision := RESERVED_COLUMNS & parameters.keys():
@@ -918,6 +940,8 @@ def validate_parameters(parameters: dict[str, Scalar]) -> None:
 
 
 def validate_run_record(record: RunRecord) -> None:
+    """Validate run identity, timing, context, parameters, and resource use."""
+
     if not isinstance(record, RunRecord):
         raise TypeError("record must be a RunRecord")
     if type(record.run_id) is not str or not RUN_ID.fullmatch(record.run_id):
@@ -951,6 +975,8 @@ def write_run(
     artifact_manifest: Sequence[ArtifactManifestEntry] | None = None,
     execution_evidence: bytes | ExecutionEvidence | None = None,
 ) -> Path:
+    """Publish one immutable completion marker with optional provenance."""
+
     validate_run_record(record)
     validate_parameters(record.parameters)
     evidence = _validated_execution_evidence(execution_evidence, record.context_hash)
