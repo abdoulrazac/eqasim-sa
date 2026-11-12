@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from eqasim_sa.adapters.eqasim.artifacts import ARTIFACT_STAGE
+from eqasim_sa.utils.names import reject_case_collisions, validate_portable_name
 from eqasim_sa.adapters.eqasim.config import (
     CAMPAIGN,
     load_yaml_document,
@@ -421,6 +422,12 @@ def _indicator_blocks(
     dict[str, ArtifactDeclaration], tuple[object, ...], tuple[IndicatorRequirement, ...]
 ]:
     raw_artifacts = _mapping(document.get("artifacts", {}), "artifacts")
+    for name in raw_artifacts:
+        if isinstance(name, str):
+            validate_portable_name(name, "artifact")
+    reject_case_collisions(
+        [name for name in raw_artifacts if isinstance(name, str)], "artifact"
+    )
     artifacts = {}
     for name, value in raw_artifacts.items():
         declaration = _mapping(value, f"artifact {name!r}")
@@ -509,6 +516,7 @@ def _indicator_blocks(
     names = [item.name for item in resolved]
     if len(names) != len(set(names)):
         raise ValueError("resolved indicator names must be unique")
+    reject_case_collisions(names, "indicator")
     requirements = tuple(
         IndicatorRequirement(
             item.name,
@@ -549,6 +557,7 @@ def load_meta_config(
     campaign = document["campaign"]
     if not isinstance(campaign, str) or not CAMPAIGN.fullmatch(campaign):
         raise ValueError("campaign must be one safe path segment")
+    validate_portable_name(campaign, "campaign")
     model, context = (
         _mapping(document["model"], "model"),
         _mapping(document["context"], "context"),

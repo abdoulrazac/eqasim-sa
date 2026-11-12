@@ -16,6 +16,7 @@ from pathlib import Path
 from threading import RLock
 
 from eqasim_sa.utils.filesystem import fsync_directory
+from eqasim_sa.utils.names import validate_portable_name
 
 
 _CAMPAIGN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -41,11 +42,13 @@ class WorkerWorkspace:
             raise ValueError("worker slot must be a non-negative integer")
         if type(campaign) is not str or _CAMPAIGN.fullmatch(campaign) is None:
             raise ValueError("campaign must be one safe path segment")
+        validate_portable_name(campaign, "campaign")
         if (
             type(context_hash) is not str
             or _CONTEXT.fullmatch(context_hash) is None
         ):
             raise ValueError("context_hash must be one safe non-empty path segment")
+        validate_portable_name(context_hash, "context_hash")
         self.scratch = scratch.resolve(strict=True)
         self.campaign = campaign
         self.slot = slot

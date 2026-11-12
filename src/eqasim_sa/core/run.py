@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
+from eqasim_sa.utils.names import validate_portable_name
 from eqasim_sa.utils.filesystem import (
     copy_file_atomic,
     fsync_directory,
@@ -158,6 +159,7 @@ def validate_manifest(
             or not artifact.name.endswith(".parquet")
         ):
             raise ValueError(f"invalid artifact name: {artifact.name!r}")
+        validate_portable_name(artifact.name, "artifact")
         if artifact.name in validated:
             raise ValueError(f"duplicate artifact name: {artifact.name!r}")
         if not isinstance(artifact.path, Path):

@@ -10,6 +10,7 @@ from pathlib import Path
 import yaml
 
 from eqasim_sa.adapters.eqasim.workspace import WorkerWorkspace
+from eqasim_sa.utils.names import validate_portable_name
 from eqasim_sa.ports.simulator import ResolvedConfig
 
 CAMPAIGN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -42,6 +43,7 @@ class EqasimSettings:
             raise ValueError("invocation must contain non-empty arguments")
         if not CAMPAIGN.fullmatch(self.campaign):
             raise ValueError("campaign must be one safe path segment")
+        validate_portable_name(self.campaign, "campaign")
         if type(self.context_hash) is not str or not CAMPAIGN.fullmatch(
             self.context_hash
         ):

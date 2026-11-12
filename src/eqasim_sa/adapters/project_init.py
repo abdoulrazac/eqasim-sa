@@ -25,6 +25,7 @@ from eqasim_sa.core.analysis_publication import (
     OUTPUT_FILENAMES,
 )
 from eqasim_sa.utils.filesystem import reject_links_below, resolve_root
+from eqasim_sa.utils.names import validate_portable_name
 
 
 def _directory(path: Path, name: str) -> Path:
@@ -86,7 +87,7 @@ def _project_name(value: str) -> str:
 
     if not isinstance(value, str) or len(value) > 64 or not CAMPAIGN.fullmatch(value):
         raise ValueError("project-name must be one safe path segment of 1 to 64 characters")
-    return value
+    return validate_portable_name(value, "project-name")
 
 
 def _regular(path: Path, description: str, private: bool = False) -> None:
