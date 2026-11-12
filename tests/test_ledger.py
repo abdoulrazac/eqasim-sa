@@ -16,6 +16,7 @@ from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
 from eqasim_sa.core.ledger import RunRecord, run_path, write_run
 from eqasim_sa.core.run import RunSpec, compute_run_id, pending_run_specs
 from eqasim_sa.ports.simulator import EXECUTION_EVIDENCE_DOMAIN, ExecutionEvidence
+from tests.conftest import make_symlink
 
 
 def is_complete(campaign_root: Path, current: RunSpec) -> bool:
@@ -592,7 +593,7 @@ def test_v2_reader_rejects_archive_inventory_and_content_damage(
     elif damage == "symlink":
         source = tmp_path / "source.parquet"
         artifact.unlink()
-        artifact.symlink_to(source)
+        make_symlink(artifact, source)
     elif damage == "directory":
         artifact.unlink()
         artifact.mkdir()
@@ -650,7 +651,7 @@ def test_v2_reader_rejects_symlinked_archive_directory(tmp_path: Path) -> None:
     archive = artifact.parent
     detached = archive.with_name("detached")
     archive.rename(detached)
-    archive.symlink_to(detached, target_is_directory=True)
+    make_symlink(archive, detached, target_is_directory=True)
 
     with pytest.raises(ValueError, match="completion marker"):
         is_complete(tmp_path, spec)
@@ -709,7 +710,7 @@ def test_marker_writer_rejects_symlinked_parent_directory(tmp_path: Path) -> Non
     outside.mkdir()
     campaign = tmp_path / "campaign"
     campaign.mkdir()
-    (campaign / "runs").symlink_to(outside, target_is_directory=True)
+    make_symlink(campaign / "runs", outside, target_is_directory=True)
     record = RunRecord("a" * 32, "demo", 1, "ctx", "node", 1.0, {})
 
     with pytest.raises(ValueError, match="non-symlink"):
@@ -741,7 +742,7 @@ def test_pending_runs_reject_every_unsafe_runs_entry(
         else f"{compute_run_id(spec.resolved_config, spec.seed)}.parquet"
     )
     if unsafe == "symlink":
-        path.symlink_to(tmp_path / "missing")
+        make_symlink(path, tmp_path / "missing")
     elif unsafe == "directory":
         path.mkdir()
     else:

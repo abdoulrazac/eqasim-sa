@@ -14,6 +14,7 @@ import pytest
 import eqasim_sa.adapters.project_init as project_init_module
 from eqasim_sa.adapters.application import init_from_inputs
 from eqasim_sa.cli import dispatch, parser
+from tests.conftest import make_symlink
 
 
 METHODS = ("calibration", "grid", "discrete-oat", "sobol")
@@ -350,7 +351,7 @@ def test_init_technical_inventory_rejects_symlinked_runtime_directories(
     external = tmp_path / f"external-{relative.as_posix().replace('/', '-')}"
     external.mkdir()
     shutil.rmtree(target)
-    target.symlink_to(external, target_is_directory=True)
+    make_symlink(target, external, target_is_directory=True)
 
     with pytest.raises(FileExistsError, match="foreign content"):
         project_init_module._technical_state_allowed(technical, set(), "grid")
@@ -383,7 +384,7 @@ def test_init_rejects_unsafe_or_foreign_state_without_publication(tmp_path: Path
         init_from_inputs("project", old, model, data, None, invocation())
 
     linked = data / "linked"
-    linked.symlink_to(data / "input.txt")
+    make_symlink(linked, data / "input.txt")
     root = tmp_path / "project"
     with pytest.raises(ValueError, match="symlink"):
         init_from_inputs("project", root, model, data, None, invocation())

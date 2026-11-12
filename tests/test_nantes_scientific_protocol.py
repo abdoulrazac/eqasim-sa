@@ -12,6 +12,7 @@ from eqasim_sa.adapters.application import _design
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.core.plan import build_plan
 from tests.test_init import initialize
+from tests.conftest import make_symlink
 
 
 PROTOCOL = Path(__file__).resolve().parents[1] / "protocols/nantes-scientific"
@@ -475,7 +476,7 @@ def test_renderer_rejects_symlinked_v7_generation_component(tmp_path: Path) -> N
     generation = evidence.parent
     actual = generation.with_name("actual-generation")
     generation.rename(actual)
-    generation.symlink_to(actual.name, target_is_directory=True)
+    make_symlink(generation, actual.name, target_is_directory=True)
 
     output = tmp_path / "symlinked-v7.yml"
     result = subprocess.run(
@@ -734,7 +735,7 @@ def test_renderer_rejects_symlinked_evidence_file(tmp_path: Path) -> None:
     allocation = paths["pilot"] / "replication-allocation.json"
     target = paths["pilot"] / "actual-allocation.json"
     allocation.rename(target)
-    allocation.symlink_to(target.name)
+    make_symlink(allocation, target.name)
     output = tmp_path / "production.yml"
     result = subprocess.run(
         _render_command(TEMPLATES[1], output, paths, tmp_path / "campaign"),
@@ -751,7 +752,7 @@ def test_renderer_rejects_symlinked_upstream_plan(tmp_path: Path) -> None:
     plan = paths["pilot"] / "plan.parquet"
     target = paths["pilot"] / "actual-plan.parquet"
     plan.rename(target)
-    plan.symlink_to(target.name)
+    make_symlink(plan, target.name)
     output = tmp_path / "production.yml"
     result = subprocess.run(
         _render_command(TEMPLATES[1], output, paths, tmp_path / "campaign"),
@@ -766,7 +767,7 @@ def test_renderer_rejects_symlinked_upstream_plan(tmp_path: Path) -> None:
 def test_renderer_rejects_symlink_in_evidence_root_components(tmp_path: Path) -> None:
     paths = _fixture_paths(tmp_path)
     linked_parent = tmp_path / "linked evidence"
-    linked_parent.symlink_to(paths["pilot"].parent, target_is_directory=True)
+    make_symlink(linked_parent, paths["pilot"].parent, target_is_directory=True)
     paths["pilot"] = linked_parent / paths["pilot"].name
     output = tmp_path / "production.yml"
     result = subprocess.run(

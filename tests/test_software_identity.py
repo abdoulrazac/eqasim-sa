@@ -12,6 +12,7 @@ from eqasim_sa.ports.simulator import (
     EXECUTION_EVIDENCE_V2_DOMAIN,
     ExecutionEvidence,
 )
+from tests.conftest import make_symlink
 
 
 def _write_package(root: Path, names: tuple[str, ...]) -> None:
@@ -66,7 +67,7 @@ def test_software_identity_rejects_symlinked_python_source(tmp_path: Path) -> No
     (root / "__init__.py").write_text("")
     target = tmp_path / "foreign.py"
     target.write_text("VALUE = 1\n")
-    (root / "linked.py").symlink_to(target)
+    make_symlink(root / "linked.py", target)
 
     with pytest.raises(ValueError, match="must not be a symlink"):
         read_software_identity(root, version="test")

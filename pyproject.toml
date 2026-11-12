@@ -37,3 +37,7 @@ eqasim_sa = ["templates/*.yml", "templates/*.md"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["--import-mode=importlib", "--strict-config", "--strict-markers"]
+markers = [
+    "posix_only: test runs only on POSIX platforms",
+    "windows_only: test runs only on Windows",
+]

@@ -29,6 +29,7 @@ from eqasim_sa.core.run import RunResult, summarize_runs
 from eqasim_sa.core.software_identity import read_software_identity
 from eqasim_sa.ports.simulator import ExecutionEvidence
 from tests.provenance_helpers import context_hash, scientific_context_descriptor
+from tests.conftest import make_symlink
 
 
 def meta_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
@@ -537,7 +538,7 @@ def test_slurm_backend_rejects_unsafe_owned_submitit_directory(
     else:
         outside = tmp_path / "outside"
         outside.mkdir()
-        technical.symlink_to(outside, target_is_directory=True)
+        make_symlink(technical, outside, target_is_directory=True)
     with pytest.raises(ValueError, match="directory"):
         SlurmBackend(tmp_path / "campaign", 1, {})
 
@@ -967,7 +968,7 @@ def test_plan_reconstruction_rejects_unsafe_files(tmp_path: Path, damage: str) -
         path.unlink()
     elif damage == "symlink":
         path.unlink()
-        path.symlink_to(meta)
+        make_symlink(path, meta)
     elif damage == "truncated":
         path.write_bytes(b"PAR1")
     else:

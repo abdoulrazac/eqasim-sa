@@ -12,6 +12,7 @@ from eqasim_sa.adapters.fake.simulator import FakeSimulator
 from eqasim_sa.core import ledger
 from eqasim_sa.core.run import RunSpec, execute_run, run_one, validate_manifest
 from eqasim_sa.ports.simulator import Artifact, Manifest, SimulationError
+from tests.conftest import make_symlink
 
 
 def spec(*, fail: bool = False) -> RunSpec:
@@ -220,7 +221,7 @@ def test_orphan_archive_symlink_is_replaced_without_following_it(
     sentinel.write_text("untouched")
     archive = campaign / "archives" / run_id
     archive.parent.mkdir(parents=True)
-    archive.symlink_to(outside, target_is_directory=True)
+    make_symlink(archive, outside, target_is_directory=True)
 
     result = run_one(
         spec(), FakeSimulator(), LocalBackend(), campaign, tmp_path / "work", "ctx"
@@ -303,7 +304,7 @@ def test_rejects_duplicate_and_symlink_escape(tmp_path: Path) -> None:
     outside = tmp_path / "outside.parquet"
     outside.write_bytes(b"outside")
     link = attempt / "population.parquet"
-    link.symlink_to(outside)
+    make_symlink(link, outside)
     with pytest.raises(ValueError, match="escapes"):
         validate_manifest(
             Manifest((Artifact("population.parquet", link),), attempt), tmp_path
@@ -322,7 +323,7 @@ def test_rejects_artifact_with_symlinked_parent(tmp_path: Path) -> None:
     source = real / "population.parquet"
     pq.write_table(pa.table({"value": [1]}), source, compression="zstd")
     linked = attempt / "linked"
-    linked.symlink_to(real, target_is_directory=True)
+    make_symlink(linked, real, target_is_directory=True)
 
     with pytest.raises(ValueError, match="escapes"):
         validate_manifest(

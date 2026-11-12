@@ -64,6 +64,7 @@ from tests.provenance_helpers import (
     scientific_context_descriptor,
     scientific_registered_indicator,
 )
+from tests.conftest import make_symlink
 
 
 def _artifact_value(artifacts: ArtifactSet) -> float:
@@ -3046,7 +3047,7 @@ def test_expected_invalid_failure_log_is_rejected(tmp_path: Path, kind: str) -> 
     if kind == "empty":
         log.write_bytes(b"")
     elif kind == "symlink":
-        log.symlink_to(root / "plan.parquet")
+        make_symlink(log, root / "plan.parquet")
     else:
         log.mkdir()
     with pytest.raises(ValueError, match=rf"invalid failure log.*{run_ids[1]}"):
@@ -3084,9 +3085,14 @@ def _hold_analysis(root: str, entered, release) -> None:  # type: ignore[no-unty
     )
 
 
-def test_analyze_serializes_concurrent_publications(tmp_path: Path) -> None:
+def test_analyze_serializes_concurrent_publications(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Spawned children unpickle targets by module name (tests.test_analyze);
+    # they inherit sys.path from the parent.
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1]))
     root, _ = _campaign(tmp_path)
-    context = multiprocessing.get_context("fork")
+    context = multiprocessing.get_context("spawn")
     entered, release = context.Event(), context.Event()
     process = context.Process(target=_hold_analysis, args=(str(root), entered, release))
     process.start()

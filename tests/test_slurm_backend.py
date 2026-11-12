@@ -14,6 +14,7 @@ from eqasim_sa.adapters.backends.slurm import EqasimSlurmJob, SlurmBackend
 from eqasim_sa.adapters.worker import Indexed, WorkerBatch
 from eqasim_sa.core.run import RunResult, RunSpec
 from eqasim_sa.core.software_identity import read_software_identity
+from tests.conftest import make_symlink
 
 
 def slurm_state(root: Path) -> Path:
@@ -278,7 +279,7 @@ def test_slurm_backend_rejects_symlinked_legacy_state_before_submit(
 ) -> None:
     external = tmp_path / "external-submitit"
     external.mkdir()
-    (tmp_path / ".submitit").symlink_to(external, target_is_directory=True)
+    make_symlink(tmp_path / ".submitit", external, target_is_directory=True)
     backend = SlurmBackend(tmp_path, 1, {}, executor_factory=FakeExecutor)
 
     with pytest.raises(ValueError, match="directory"):
@@ -323,7 +324,7 @@ def test_slurm_backend_refuses_unsafe_leftover_journal_before_executor(
     if damage == "symlink":
         target = tmp_path / "target.json"
         target.write_text('{"jobIds":["900"],"version":1}')
-        journal.symlink_to(target)
+        make_symlink(journal, target)
     elif damage == "unsafe-id":
         journal.write_text('{"jobIds":["../900"],"version":1}')
     else:

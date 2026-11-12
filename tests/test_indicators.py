@@ -17,6 +17,7 @@ from eqasim_sa.core.indicators import (
     TotalVariationIndicator,
     resolve_indicators,
 )
+from tests.conftest import make_symlink
 
 
 def archive(tmp_path: Path, **columns: list[object]) -> Path:
@@ -236,7 +237,7 @@ def test_artifact_set_rejects_missing_symlink_and_non_parquet(tmp_path: Path) ->
         ArtifactSet({"distribution": tmp_path / "missing.parquet"})
     real = archive(tmp_path, **{"class": ["a"], "synthetic": [1], "reference": [1]})
     link = tmp_path / "linked.parquet"
-    link.symlink_to(real)
+    make_symlink(link, real)
     with pytest.raises(ValueError, match="symlink"):
         ArtifactSet({"distribution": link})
     text = tmp_path / "distribution.txt"
@@ -250,13 +251,13 @@ def test_artifact_set_rejects_symlinked_parent_and_replacement(tmp_path: Path) -
     real_parent.mkdir()
     path = archive(real_parent, **{"class": ["a"], "synthetic": [1], "reference": [1]})
     linked_parent = tmp_path / "linked"
-    linked_parent.symlink_to(real_parent, target_is_directory=True)
+    make_symlink(linked_parent, real_parent, target_is_directory=True)
     with pytest.raises(ValueError, match="symlink"):
         ArtifactSet({"distribution": linked_parent / path.name})
 
     artifacts = ArtifactSet({"distribution": path})
     path.unlink()
-    path.symlink_to(tmp_path / "missing.parquet")
+    make_symlink(path, tmp_path / "missing.parquet")
     with pytest.raises(ValueError, match="cannot be read"):
         indicator().compute(artifacts)
 

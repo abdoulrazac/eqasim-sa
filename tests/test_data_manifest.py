@@ -14,6 +14,7 @@ from eqasim_sa.adapters.data_manifest import (
     verify_data_manifest,
     verify_data_tree_state,
 )
+from tests.conftest import make_symlink
 
 
 def test_generates_deterministic_auditable_manifest(tmp_path: Path) -> None:
@@ -70,7 +71,7 @@ def test_rejects_symlinks_special_entries_and_destination_inside_tree(tmp_path: 
     outside = tmp_path / "outside"
     outside.write_text("value")
     link = data / "link"
-    link.symlink_to(outside)
+    make_symlink(link, outside)
     with pytest.raises(ValueError, match="symlink"):
         generate_data_manifest(data, tmp_path / "manifest.json")
     link.unlink()
@@ -79,12 +80,12 @@ def test_rejects_symlinks_special_entries_and_destination_inside_tree(tmp_path: 
         generate_data_manifest(data, data / "manifest.json")
 
     linked_root = tmp_path / "linked-root"
-    linked_root.symlink_to(data, target_is_directory=True)
+    make_symlink(linked_root, data, target_is_directory=True)
     with pytest.raises(ValueError, match="symlink"):
         generate_data_manifest(linked_root, tmp_path / "manifest.json")
 
     linked_parent = tmp_path / "linked-parent"
-    linked_parent.symlink_to(tmp_path, target_is_directory=True)
+    make_symlink(linked_parent, tmp_path, target_is_directory=True)
     with pytest.raises(ValueError, match="symlink"):
         generate_data_manifest(data, linked_parent / "manifest.json")
 

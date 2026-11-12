@@ -25,6 +25,7 @@ from tests.provenance_helpers import (
     context_hash as provenance_context_hash,
     scientific_context_descriptor,
 )
+from tests.conftest import make_symlink
 
 
 class _PluginDistribution:
@@ -930,7 +931,7 @@ def test_conflict_state_and_unsafe_plan_are_never_overwritten(tmp_path: Path) ->
             build_plan(design(root, factors={"a": [1]}))
     link_root = tmp_path / "link-root"
     link_root.mkdir()
-    (link_root / "plan.parquet").symlink_to(tmp_path / "missing")
+    make_symlink(link_root / "plan.parquet", tmp_path / "missing")
     with pytest.raises(ValueError, match="regular"):
         build_plan(design(link_root, factors={"a": [1]}))
 
@@ -1230,7 +1231,7 @@ def test_plan_rejects_unowned_technical_namespace(
     if kind == "symlink":
         external = tmp_path / "external"
         external.mkdir()
-        technical.symlink_to(external, target_is_directory=True)
+        make_symlink(technical, external, target_is_directory=True)
     else:
         technical.mkdir()
         if kind == "foreign":
@@ -1238,9 +1239,7 @@ def test_plan_rejects_unowned_technical_namespace(
         else:
             external = tmp_path / "transactions"
             external.mkdir()
-            (technical / "transactions").symlink_to(
-                external, target_is_directory=True
-            )
+            make_symlink(technical / "transactions", external, target_is_directory=True)
 
     with pytest.raises((ValueError, FileExistsError), match="directory|foreign"):
         build_plan(design(root, factors={"a": [1]}))
@@ -1434,7 +1433,7 @@ def test_meta_rejects_dirty_repo_untracked_config_symlinks_and_nested_campaign(
         )
     )
     manifest.unlink()
-    manifest.symlink_to(model / "lock.yml")
+    make_symlink(manifest, model / "lock.yml")
     with pytest.raises(ValueError, match="symlink"):
         load_meta_config(meta)
 

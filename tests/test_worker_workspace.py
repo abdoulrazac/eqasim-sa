@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from eqasim_sa.adapters.eqasim.workspace import WorkerWorkspace
+from tests.conftest import make_symlink
 
 
 def workspace(
@@ -82,7 +83,7 @@ def test_structurally_invalid_clean_cache_is_purged_under_lease(
         current.mark_clean()
         target = cache / "target"
         target.write_text("owned\n")
-        (cache / "unsafe").symlink_to(target)
+        make_symlink(cache / "unsafe", target)
 
     with workspace(tmp_path).session() as reopened:
         cache = reopened.prepare_cache()
@@ -103,7 +104,7 @@ def test_invalid_cache_entries_fail_measurement_and_leave_active(
         target.write_text("owned\n")
         invalid = cache / "invalid"
         if kind == "symlink":
-            invalid.symlink_to(target)
+            make_symlink(invalid, target)
         elif kind == "hardlink":
             os.link(target, invalid)
         elif kind == "fifo":

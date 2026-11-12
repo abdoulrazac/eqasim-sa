@@ -16,6 +16,7 @@ from eqasim_sa.utils.filesystem import (
     write_bytes_atomic,
     write_atomic,
 )
+from tests.conftest import make_symlink
 
 
 def test_stable_capture_is_exclusive_and_verifiable(tmp_path: Path) -> None:
@@ -36,7 +37,7 @@ def test_stable_capture_rejects_symlink_source(tmp_path: Path) -> None:
     source = tmp_path / "source.bin"
     source.write_bytes(b"content")
     linked = tmp_path / "linked.bin"
-    linked.symlink_to(source)
+    make_symlink(linked, source)
 
     with pytest.raises(ValueError, match="non-symlink"):
         capture_stable_file(linked, tmp_path / "captured.bin")
@@ -146,7 +147,7 @@ def test_atomic_writer_must_leave_one_private_regular_file(
     def damage_staging(path: Path) -> None:
         path.unlink()
         if damage == "symlink":
-            path.symlink_to(foreign)
+            make_symlink(path, foreign)
         elif damage == "hardlink":
             os.link(foreign, path)
         else:

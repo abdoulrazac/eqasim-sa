@@ -21,6 +21,7 @@ from eqasim_sa.core.plan import (
 from eqasim_sa.core.run import compute_run_id
 from eqasim_sa.ports.simulator import IndicatorRequirement
 from tests.provenance_helpers import context_hash
+from tests.conftest import make_symlink
 
 
 def test_estimate_plan_uses_unique_runs_and_observed_arithmetic_means() -> None:
@@ -328,7 +329,7 @@ def test_application_estimate_rejects_unsafe_archive(
         parquet.write_bytes(b"PAR1")
     else:
         parquet.unlink()
-        parquet.symlink_to(meta.marker)
+        make_symlink(parquet, meta.marker)
     monkeypatch.setattr(
         "eqasim_sa.adapters.estimate.load_meta_config", lambda path: meta
     )

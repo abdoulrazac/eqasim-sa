@@ -13,6 +13,7 @@ from eqasim_sa.adapters.eqasim.artifacts import normalize_outputs
 from eqasim_sa.adapters.eqasim.config import EqasimSettings, load_config
 from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator
 from eqasim_sa.ports.simulator import IndicatorRequirement, SimulationError
+from tests.conftest import make_symlink
 
 
 def write_yaml(path: Path, *, prefix: str = "nantes_") -> None:
@@ -666,7 +667,7 @@ def test_rejects_output_symlink_escaping_attempt(tmp_path: Path) -> None:
     output.mkdir()
     outside = tmp_path / "outside.csv"
     outside.write_text("id;label\n1;x\n", encoding="utf-8")
-    (output / "nantes_persons.csv").symlink_to(outside)
+    make_symlink(output / "nantes_persons.csv", outside)
     with pytest.raises(ValueError, match="escapes"):
         normalize_outputs(output, normalized, "nantes_")
 
@@ -678,7 +679,7 @@ def test_rejects_output_csv_symlink_even_when_target_stays_inside_output(
     output.mkdir()
     target = output / "real.csv"
     target.write_text("id;label\n1;x\n", encoding="utf-8")
-    (output / "nantes_persons.csv").symlink_to(target)
+    make_symlink(output / "nantes_persons.csv", target)
     with pytest.raises(ValueError, match="symlink"):
         normalize_outputs(
             output, tmp_path / "normalized", "nantes_", ("synthesis.output",)
@@ -781,7 +782,7 @@ def test_rejects_workdir_symlink_escaping_scratch(tmp_path: Path) -> None:
     outside = tmp_path / "outside"
     outside.mkdir()
     current.workdir.parent.mkdir(parents=True)
-    current.workdir.symlink_to(outside, target_is_directory=True)
+    make_symlink(current.workdir, outside, target_is_directory=True)
     with pytest.raises(ValueError, match="symlink"):
         simulator(current).simulate(
             load_config(current.config_path, 42), 42, current.workdir
@@ -795,7 +796,7 @@ def test_rejects_output_directory_symlink_escaping_attempt(tmp_path: Path) -> No
     outside.mkdir()
     (outside / "nantes_persons.csv").write_text("id;label\n1;x\n", encoding="utf-8")
     output = attempt / "output"
-    output.symlink_to(outside, target_is_directory=True)
+    make_symlink(output, outside, target_is_directory=True)
     with pytest.raises(ValueError, match="output directory escapes"):
         normalize_outputs(output, attempt / "normalized", "nantes_")
 
