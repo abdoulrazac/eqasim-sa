@@ -9,6 +9,7 @@ from importlib.resources import files
 from pathlib import Path
 
 import pyarrow.parquet as pq
+import pytest
 
 from eqasim_sa.adapters.fake.simulator import FakeSimulator
 from eqasim_sa.core.analyze import analyze
@@ -26,7 +27,8 @@ from tests.provenance_helpers import context_hash
 
 
 def installed_script(name: str) -> Path:
-    script = Path(sys.executable).with_name(name)
+    suffix = ".exe" if sys.platform == "win32" else ""
+    script = Path(sys.executable).with_name(name + suffix)
     assert script.is_file()
     return script
 
@@ -498,6 +500,7 @@ def test_installed_plan_creates_replays_and_refuses_conflict(tmp_path: Path) -> 
     }
 
 
+@pytest.mark.posix_only
 def test_installed_campaign_interrupts_resumes_then_is_noop(tmp_path: Path) -> None:
     model = tmp_path / "model"
     model.mkdir()

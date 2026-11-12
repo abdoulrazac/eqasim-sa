@@ -29,7 +29,7 @@ from eqasim_sa.core.run import RunResult, summarize_runs
 from eqasim_sa.core.software_identity import read_software_identity
 from eqasim_sa.ports.simulator import ExecutionEvidence
 from tests.provenance_helpers import context_hash, scientific_context_descriptor
-from tests.conftest import make_symlink
+from tests.conftest import make_symlink, pid_alive
 
 
 def meta_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
@@ -1413,9 +1413,9 @@ def test_campaign_resume_filters_before_simulator_backend_and_preflight(
     assert not (scratch / "esa" / "demo").exists()
 
 
-def test_real_sigint_returns_130_and_reaps_owned_descendants(
-    tmp_path: Path,
-) -> None:
+def _start_interruptible_spy_run(
+    tmp_path: Path, **popen_options: object
+) -> tuple[subprocess.Popen, Path, Path]:
     from eqasim_sa.adapters.application import plan_from_meta_config
 
     meta, _, _, _ = meta_fixture(tmp_path)
@@ -1441,7 +1441,11 @@ def test_real_sigint_returns_130_and_reaps_owned_descendants(
     )
     process = subprocess.Popen(
         [
-            str(Path(sys.executable).with_name("eqasim-sa")),
+            str(
+                Path(sys.executable).with_name(
+                    "eqasim-sa.exe" if sys.platform == "win32" else "eqasim-sa"
+                )
+            ),
             "run",
             "--meta-config",
             str(meta),
@@ -1449,19 +1453,59 @@ def test_real_sigint_returns_130_and_reaps_owned_descendants(
         cwd=tmp_path,
         env=environment,
         text=True,
+        encoding="utf-8",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        **popen_options,
     )
     deadline = time.monotonic() + 10
     while (not child.exists() or not record.exists()) and time.monotonic() < deadline:
         time.sleep(0.02)
-    assert child.exists() and record.exists()
+    if not (child.exists() and record.exists()):
+        process.kill()
+        process.communicate(timeout=10)
+        pytest.fail("the spy pipeline did not start")
+    return process, record, child
+
+
+@pytest.mark.posix_only
+def test_real_sigint_returns_130_and_reaps_owned_descendants(
+    tmp_path: Path,
+) -> None:
+    process, record, child = _start_interruptible_spy_run(tmp_path)
     process.send_signal(signal.SIGINT)
     process.communicate(timeout=10)
     assert process.returncode == 130
     for pid in (json.loads(record.read_text())["pid"], int(child.read_text())):
         with pytest.raises(ProcessLookupError):
             os.kill(pid, 0)
+    assert not tuple((tmp_path / "campaign" / "runs").glob("*.parquet"))
+
+
+@pytest.mark.windows_only
+def test_real_ctrl_break_interrupts_and_leaves_no_descendants(
+    tmp_path: Path,
+) -> None:
+    # Windows cannot deliver SIGINT to one process: CTRL_BREAK_EVENT reaches
+    # the new process group of eqasim-sa (and its descendants). Python either
+    # turns it into KeyboardInterrupt (130) or ends with STATUS_CONTROL_C_EXIT;
+    # in both cases the Job Object must leave no eqasim descendant alive.
+    process, record, child = _start_interruptible_spy_run(
+        tmp_path, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+    )
+    pids = (json.loads(record.read_text(encoding="utf-8"))["pid"], int(child.read_text()))
+    try:
+        process.send_signal(signal.CTRL_BREAK_EVENT)
+        process.communicate(timeout=30)
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate(timeout=10)
+    assert process.returncode in (130, 0xC000013A)
+    deadline = time.monotonic() + 10
+    while any(pid_alive(pid) for pid in pids) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not any(pid_alive(pid) for pid in pids)
     assert not tuple((tmp_path / "campaign" / "runs").glob("*.parquet"))
 
 
