@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from eqasim_sa.utils.filesystem import FileState, file_state, stable_file
+from eqasim_sa.utils import platform
 
 
 SOFTWARE_IDENTITY_DOMAIN = b"eqasim-sa:software-identity:v1\0"
@@ -50,7 +51,7 @@ def _inventory(root: Path) -> tuple[tuple[str, Path], ...]:
         root_info = root.lstat()
     except OSError as error:
         raise ValueError("eqasim_sa package root is unavailable") from error
-    if not stat.S_ISDIR(root_info.st_mode) or root.is_symlink():
+    if not stat.S_ISDIR(root_info.st_mode) or platform.is_link(root):
         raise ValueError("eqasim_sa package root must be a non-symlink directory")
 
     result: list[tuple[str, Path]] = []
@@ -109,7 +110,7 @@ def read_software_identity(
         if package_root is None
         else package_root
     )
-    if root.is_symlink():
+    if platform.is_link(root):
         raise ValueError("eqasim_sa package root must not be a symlink")
     root = root.resolve(strict=True)
     resolved_version = importlib.metadata.version("eqasim-sa") if version is None else version

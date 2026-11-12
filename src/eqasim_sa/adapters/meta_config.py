@@ -33,6 +33,7 @@ from eqasim_sa.core.charter import (
 )
 from eqasim_sa.core.context_identity import ExecutionContextIdentity
 from eqasim_sa.utils.filesystem import FileState, path_state
+from eqasim_sa.utils import platform
 from eqasim_sa.core.indicators import (
     ArtifactDeclaration,
     CustomDeclaration,
@@ -157,7 +158,7 @@ def _mapping(value: object, name: str) -> dict:
 
 
 def _file(path: Path, name: str) -> Path:
-    if path.is_symlink():
+    if platform.is_link(path):
         raise ValueError(f"{name} must not be a symlink")
     resolved = path.resolve(strict=True)
     if not resolved.is_file():
@@ -225,12 +226,12 @@ def _campaign_root(path: Path, model_root: Path) -> Path:
     current = Path(candidate.anchor)
     for part in candidate.parts[1:]:
         current /= part
-        if current.exists() and current.is_symlink():
+        if current.exists() and platform.is_link(current):
             raise ValueError("campaign_root must not traverse a symlink")
     ancestor = candidate
     while not ancestor.exists() and ancestor != ancestor.parent:
         ancestor = ancestor.parent
-    if ancestor.is_symlink() or not ancestor.is_dir():
+    if platform.is_link(ancestor) or not ancestor.is_dir():
         raise ValueError("campaign_root ancestor must be a non-symlink directory")
     resolved = ancestor.resolve(strict=True).joinpath(
         *candidate.relative_to(ancestor).parts
@@ -249,7 +250,7 @@ def _resolved_directory(path: Path, name: str) -> Path:
     current = Path(absolute.anchor)
     for part in absolute.parts[1:]:
         current /= part
-        if current.exists() and current.is_symlink():
+        if current.exists() and platform.is_link(current):
             raise ValueError(f"{name} must not traverse a symlink")
     resolved = path.resolve(strict=True)
     if not resolved.is_dir():
@@ -800,7 +801,7 @@ def load_meta_config(
     if not isinstance(root_value, str) or not isinstance(config_value, str):
         raise TypeError("model paths must be strings")
     root_path = base / root_value
-    if root_path.is_symlink():
+    if platform.is_link(root_path):
         raise ValueError("model.root must not be a symlink")
     root = root_path.resolve(strict=True)
     if (

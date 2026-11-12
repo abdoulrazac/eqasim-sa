@@ -26,6 +26,7 @@ from eqasim_sa.core.plan import load_run_specs, unique_config_seed_pairs
 from eqasim_sa.core.run import RunSpec
 from eqasim_sa.core.software_identity import verify_software_source_states
 from eqasim_sa.utils.filesystem import path_state
+from eqasim_sa.utils import platform
 
 SEALED_SENSITIVITY_METHODS = frozenset(
     {"morris", "discrete_oat", "canonical_morris", "sobol", "multiscramble_sobol"}
@@ -123,7 +124,7 @@ def _static_check(path: Path, calibrations: tuple[Path, ...]):  # type: ignore[n
         scratch_free = shutil.disk_usage(meta.execution.scratch).free
         _remaining(deadline)
         if (
-            ancestor.is_symlink()
+            platform.is_link(ancestor)
             or path_state(ancestor).identity != before.identity
             or path_state(meta.execution.scratch) != scratch_before
             or any(path_state(item) != state for item, state in snapshot)
@@ -187,7 +188,7 @@ def _static_check(path: Path, calibrations: tuple[Path, ...]):  # type: ignore[n
 
 def _smoke_log(root: Path, run_id: str) -> str:
     log = root / "logs" / f"{run_id}.log"
-    if not log.is_file() or log.is_symlink():
+    if not log.is_file() or platform.is_link(log):
         return ""
     with log.open("rb") as stream:
         stream.seek(max(0, log.stat().st_size - 65536))
@@ -266,7 +267,7 @@ def _smoke(meta, specs) -> None:  # type: ignore[no-untyped-def]
                 archive = campaign_root / "archives" / result.run_id
                 entries = (
                     tuple(archive.iterdir())
-                    if archive.is_dir() and not archive.is_symlink()
+                    if archive.is_dir() and not platform.is_link(archive)
                     else ()
                 )
                 requested = set(
@@ -281,7 +282,7 @@ def _smoke(meta, specs) -> None:  # type: ignore[no-untyped-def]
                 )
                 expected = {f"{name}.parquet" for name in requested}
                 if {item.name for item in entries} != expected or any(
-                    item.is_symlink() or not item.is_file() for item in entries
+                    platform.is_link(item) or not item.is_file() for item in entries
                 ):
                     message = (
                         _smoke_log(campaign_root, result.run_id)

@@ -18,6 +18,7 @@ from typing import Mapping, Protocol
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from eqasim_sa.utils import platform
 from eqasim_sa.core.software_identity import (
     SoftwareSourceState,
     stable_file_identity,
@@ -296,7 +297,7 @@ def _distribution_inventory(distribution: object) -> tuple[SoftwareSourceState, 
             ) from error
         if stat.S_ISDIR(visible.st_mode):
             continue
-        if not stat.S_ISREG(visible.st_mode) or path.is_symlink():
+        if not stat.S_ISREG(visible.st_mode) or platform.is_link(path):
             raise ValueError(
                 f"plugin distribution file must be regular and non-symlinked: {relative_name}"
             )

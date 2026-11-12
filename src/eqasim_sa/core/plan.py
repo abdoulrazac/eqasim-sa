@@ -77,6 +77,7 @@ from eqasim_sa.utils import platform
 from eqasim_sa.utils.filesystem import (
     PublicationOutcomeUnknown,
     file_state,
+    owned_by_current_user,
     reject_links_below,
     secure_directory,
     write_parquet_exclusive,
@@ -990,11 +991,6 @@ _PLAN_READ_FLAGS = (
 )
 
 
-def _owned(info: os.stat_result) -> bool:
-    uid = platform.current_uid()
-    return uid is None or info.st_uid == uid
-
-
 def _plan_transactions(root: Path) -> Path:
     technical = root / ".eqasim-sa"
     transactions = technical / "transactions"
@@ -1007,7 +1003,7 @@ def _plan_transactions(root: Path) -> Path:
         if (
             not _STAGED_TEMPORARY.fullmatch(entry.name)
             or not stat.S_ISREG(info.st_mode)
-            or not _owned(info)
+            or not owned_by_current_user(info)
             or info.st_nlink not in {1, 2}
         ):
             raise FileExistsError(

@@ -6,7 +6,6 @@ import math
 import os
 import re
 import stat
-import uuid
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -29,6 +28,7 @@ from eqasim_sa.utils.filesystem import (
     fsync_directory,
     open_regular,
     secure_directory,
+    short_name,
     write_parquet_exclusive,
 )
 from eqasim_sa.ports.simulator import ExecutionEvidence
@@ -610,10 +610,6 @@ def _remove_entry(path: Path) -> None:
         platform.remove_file(path)
 
 
-def _short_name(prefix: str) -> str:
-    return f".{prefix}{uuid.uuid4().hex[:8]}"
-
-
 def _rename_conflicts(error: OSError, destination: Path) -> bool:
     """True when a rename failed because ``destination`` is occupied.
 
@@ -674,6 +670,7 @@ class ArchiveTransaction:
         self._technical: DirectoryAnchor | None = None
         self._marker_staging: DirectoryAnchor | None = None
         self._staging: DirectoryAnchor | None = None
+        self._staging_path: Path | None = None
         self._staging_pending = False
         self._committed = False
 
@@ -681,7 +678,10 @@ class ArchiveTransaction:
         absolute_path = absolute(self.campaign_root)
         if not absolute_path.name:
             raise ValueError("campaign root must have a final path component")
-        parent = anchor_directory(absolute_path.parent, create=True)
+        # Links among the campaign's ancestors are accepted (spec 8.3): the
+        # parent is resolved once; links are refused from the campaign down.
+        absolute_path.parent.mkdir(parents=True, exist_ok=True)
+        parent = anchor_directory(absolute_path.parent.resolve(strict=True))
         self._campaign = parent.child(absolute_path.name, create=True)
         self._archives = self._campaign.child("archives", create=True)
         self._runs = self._campaign.child("runs", create=True)
@@ -690,13 +690,14 @@ class ArchiveTransaction:
         fsync_directory(self._technical.path)
         fsync_directory(self._campaign.path)
         while True:
-            staging = self._archives.path / _short_name("s")
+            staging = self._archives.path / short_name("s")
             try:
                 os.mkdir(staging, 0o700)
             except FileExistsError:
                 continue
             break
         self._staging_pending = True
+        self._staging_path = staging
         self._staging = self._archives.child(staging.name)
         if not self._publication_is_current():
             raise RuntimeError("campaign publication directories changed")
@@ -751,7 +752,7 @@ class ArchiveTransaction:
         try:
             while True:
                 if _entry_state(archive) is not None:
-                    backup = archives / _short_name("b")
+                    backup = archives / short_name("b")
                     try:
                         platform.rename_with_retry(archive, backup)
                     except FileNotFoundError:
@@ -813,8 +814,13 @@ class ArchiveTransaction:
 
     def close(self) -> None:
         staging = self._staging
-        if self._staging_pending and staging is not None and staging.is_current():
-            _remove_entry(staging.path)
+        if self._staging_pending:
+            if staging is not None:
+                if staging.is_current():
+                    _remove_entry(staging.path)
+            elif self._staging_path is not None:
+                # The private staging name was created but never anchored.
+                _remove_entry(self._staging_path)
         self._staging_pending = False
 
 

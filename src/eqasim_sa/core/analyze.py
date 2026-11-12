@@ -52,6 +52,8 @@ from eqasim_sa.core.reporting import (
 )
 from eqasim_sa.core.software_identity import read_software_identity
 from eqasim_sa.utils.arrow import rows_to_table
+from eqasim_sa.utils import platform
+from eqasim_sa.utils.filesystem import open_regular
 
 @dataclass(frozen=True)
 class AnalyzeResult:
@@ -197,7 +199,7 @@ def _analyze_campaign(
         raise ValueError("completeness_threshold must be a finite float in [0,1]")
     _validate_indicators(indicators)
     plan = campaign_root / "plan.parquet"
-    if plan.is_symlink() or not plan.is_file():
+    if platform.is_link(plan) or not plan.is_file():
         raise ValueError("plan.parquet must be a regular non-symlink file")
     plan_snapshot = CampaignSnapshot.inspect_plan(plan)
     plan_table = plan_snapshot.table
@@ -798,20 +800,20 @@ def _validate_grid_plan(
 
 def _failure_ids(campaign_root: Path, incomplete: set[str]) -> set[str]:
     logs = campaign_root / "logs"
-    if not logs.exists() and not logs.is_symlink():
+    if not logs.exists() and not platform.is_link(logs):
         return set()
-    if logs.is_symlink() or not logs.is_dir():
+    if platform.is_link(logs) or not logs.is_dir():
         raise ValueError("logs must be a regular non-symlink directory")
     failed = set()
     for run_id in incomplete:
         path = logs / f"{run_id}.log"
-        if not path.exists() and not path.is_symlink():
+        if not path.exists() and not platform.is_link(path):
             continue
         try:
             info = path.lstat()
             if not stat.S_ISREG(info.st_mode) or info.st_size == 0:
                 raise ValueError("must be a non-empty regular file")
-            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+            descriptor = open_regular(path)
             try:
                 info = os.fstat(descriptor)
                 if not stat.S_ISREG(info.st_mode) or info.st_size == 0:

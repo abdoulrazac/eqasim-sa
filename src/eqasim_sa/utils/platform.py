@@ -139,7 +139,11 @@ def remove_tree(path: Path) -> None:
     """Delete a directory tree eqasim-sa created, clearing read-only files."""
 
     def clear_read_only(function, failed_path, error) -> None:  # type: ignore[no-untyped-def]
-        if not IS_WINDOWS or not isinstance(error, PermissionError):
+        if (
+            not IS_WINDOWS
+            or not isinstance(error, PermissionError)
+            or function not in (os.unlink, os.remove, os.rmdir)
+        ):
             raise error
         _retry_writable(function, failed_path)
 

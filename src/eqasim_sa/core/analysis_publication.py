@@ -26,6 +26,7 @@ from eqasim_sa.utils import platform
 from eqasim_sa.utils.filesystem import (
     PublicationOutcomeUnknown,
     file_lease,
+    owned_by_current_user,
     fsync_directory,
     secure_directory,
     stable_file,
@@ -156,17 +157,12 @@ def _validate_generation_inventory(generations: Path) -> None:
             if (
                 not stat.S_ISREG(output_info.st_mode)
                 or platform.is_link(output)
-                or not _owned(output_info)
+                or not owned_by_current_user(output_info)
                 or output_info.st_nlink != 1
             ):
                 raise ValueError(
                     f"analysis generation contains an invalid output: {output}"
                 )
-
-
-def _owned(info: os.stat_result) -> bool:
-    uid = platform.current_uid()
-    return uid is None or info.st_uid == uid
 
 
 def _validate_analysis_state(

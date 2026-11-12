@@ -48,11 +48,13 @@ __all__ = (
     "file_state",
     "fsync_directory",
     "open_regular",
+    "owned_by_current_user",
     "path_state",
     "publish_bytes",
     "reject_links_below",
     "resolve_root",
     "secure_directory",
+    "short_name",
     "stable_file",
     "stable_file_bytes",
     "validate_directory",
@@ -432,7 +434,9 @@ def _lstat_or_none(path: Path) -> os.stat_result | None:
         return None
 
 
-def _short_name(prefix: str) -> str:
+def short_name(prefix: str) -> str:
+    """Return a short hidden temporary name: ``.<prefix><8 hex>``."""
+
     return f".{prefix}{uuid.uuid4().hex[:8]}"
 
 
@@ -444,7 +448,9 @@ def _create_empty(path: Path, mode: int = 0o600) -> os.stat_result:
         os.close(descriptor)
 
 
-def _owned(info: os.stat_result) -> bool:
+def owned_by_current_user(info: os.stat_result) -> bool:
+    """True when the owner matches the current user; always true on Windows."""
+
     uid = platform.current_uid()
     return uid is None or info.st_uid == uid
 
@@ -467,7 +473,7 @@ def file_lease(
         opened = os.fstat(descriptor)
         if (
             not stat.S_ISREG(opened.st_mode)
-            or not _owned(opened)
+            or not owned_by_current_user(opened)
             or opened.st_nlink != 1
         ):
             raise ValueError("lease must be a private owned regular file")
@@ -511,7 +517,7 @@ def write_exclusive(
     destination = absolute(destination)
     staging = absolute(staging_directory or destination.parent)
     destination_anchor = anchor_directory(destination.parent, create=True)
-    temporary = staging / _short_name("t")
+    temporary = staging / short_name("t")
     linked = False
     temporary_exists = False
     preserve_temporary = False
@@ -538,7 +544,7 @@ def write_exclusive(
         visible = os.lstat(temporary)
         if (
             not stat.S_ISREG(visible.st_mode)
-            or not _owned(visible)
+            or not owned_by_current_user(visible)
             or visible.st_nlink != 1
             or file_identity(visible) != file_identity(created)
         ):
@@ -572,7 +578,7 @@ def write_exclusive(
         fsync_directory(destination.parent)
         if not stable():
             raise RuntimeError("exclusive publication directories changed")
-        os.unlink(temporary)
+        platform.remove_file(temporary)
         temporary_exists = False
         _fsync_file(destination)
         fsync_directory(staging)
@@ -595,7 +601,7 @@ def write_exclusive(
                     raise RuntimeError(
                         "exclusive destination changed before rollback"
                     )
-                os.unlink(destination)
+                platform.remove_file(destination)
                 fsync_directory(destination.parent)
                 if _lstat_or_none(destination) is not None:
                     raise RuntimeError(
@@ -612,7 +618,7 @@ def write_exclusive(
     finally:
         if temporary_exists and not preserve_temporary:
             try:
-                os.unlink(temporary)
+                platform.remove_file(temporary)
             except OSError:
                 pass
 
@@ -640,8 +646,8 @@ def write_atomic(
         )
     )
     destination_anchor = anchor_directory(destination.parent, create=True)
-    temporary = staging / _short_name("t")
-    backup = staging / _short_name("b")
+    temporary = staging / short_name("t")
+    backup = staging / short_name("b")
     temporary_created = False
     backup_created = False
     preserve_backup = False
@@ -739,7 +745,7 @@ def write_atomic(
                         "durable destination changed before rollback"
                     )
                 if previous_identity is None:
-                    os.unlink(destination)
+                    platform.remove_file(destination)
                     if _lstat_or_none(destination) is not None:
                         raise RuntimeError(
                             "new durable destination survived rollback"
@@ -767,12 +773,12 @@ def write_atomic(
     finally:
         if temporary_created:
             try:
-                os.unlink(temporary)
+                platform.remove_file(temporary)
             except OSError:
                 pass
         if backup_created and not preserve_backup:
             try:
-                os.unlink(backup)
+                platform.remove_file(backup)
                 if committed:
                     try:
                         fsync_directory(staging)
@@ -859,7 +865,7 @@ def publish_bytes(
     requested_destination = destination
     destination = absolute(destination)
     parent = anchor_directory(destination.parent)
-    temporary = parent.path / _short_name("t")
+    temporary = parent.path / short_name("t")
     temporary_descriptor = -1
     try:
         mode = default_mode
@@ -884,7 +890,7 @@ def publish_bytes(
             platform.replace_with_retry(temporary, destination)
         else:
             _link(temporary, destination)
-            os.unlink(temporary)
+            platform.remove_file(temporary)
         fsync_directory(parent.path)
         if not parent.is_current():
             raise RuntimeError("publication directory changed")
@@ -893,7 +899,7 @@ def publish_bytes(
         if temporary_descriptor >= 0:
             os.close(temporary_descriptor)
         try:
-            os.unlink(temporary)
+            platform.remove_file(temporary)
         except FileNotFoundError:
             pass
 

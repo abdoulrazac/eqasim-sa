@@ -7,6 +7,7 @@ import pyarrow.csv as csv
 import pyarrow.parquet as pq
 
 from eqasim_sa.ports.simulator import Artifact
+from eqasim_sa.utils import platform
 
 POPULATION = (
     "persons",
@@ -63,7 +64,7 @@ def _normalize(
     delimiter: str,
     remove_index: bool,
 ) -> Artifact:
-    if source.is_symlink():
+    if platform.is_link(source):
         raise ValueError(
             f"eqasim artifact symlink escapes the accepted source contract: {name}"
         )

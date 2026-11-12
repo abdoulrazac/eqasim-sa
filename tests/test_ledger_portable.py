@@ -11,10 +11,17 @@ import pytest
 from eqasim_sa.adapters import data_manifest, project_init
 from eqasim_sa.adapters.backends.local import LocalBackend
 from eqasim_sa.adapters.fake.simulator import FakeSimulator
-from eqasim_sa.core import analysis_publication, campaign_snapshot, ledger, plan, run
+from eqasim_sa.core import (
+    analysis_publication,
+    analyze,
+    campaign_snapshot,
+    ledger,
+    plan,
+    run,
+)
 from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.run import RunSpec, run_one
-from eqasim_sa.utils import platform
+from eqasim_sa.utils import filesystem, platform
 from tests.conftest import make_symlink
 
 RUN_ID = "a" * 32
@@ -29,11 +36,14 @@ def test_ledger_sources_have_no_posix_only_calls() -> None:
         project_init,
         run,
         data_manifest,
+        analyze,
     ):
         src = Path(module.__file__).read_text(encoding="utf-8")
         for token in (
             "dir_fd",
             "O_DIRECTORY",
+            "os.O_NOFOLLOW",
+            ".is_symlink()",
             "os.getuid",
             "os.uname",
             "import fcntl",
@@ -158,6 +168,44 @@ def test_reader_accepts_links_among_campaign_ancestors(tmp_path: Path) -> None:
     assert state is not None and state.archive_integrity == ledger.VERIFIED
 
 
+def test_transaction_accepts_links_among_campaign_ancestors(
+    tmp_path: Path,
+) -> None:
+    real = tmp_path / "real"
+    real.mkdir()
+    make_symlink(tmp_path / "alias", real, target_is_directory=True)
+    campaign = tmp_path / "alias" / "campaign"
+
+    marker = _publish(campaign, 1)
+
+    assert marker == campaign / "runs" / f"{RUN_ID}.parquet"
+    assert (real / "campaign" / "archives" / RUN_ID / "output.parquet").is_file()
+    state = ledger.completion_state(campaign, _record())
+    assert state is not None and state.archive_integrity == ledger.VERIFIED
+
+
+def test_close_removes_staging_that_could_not_be_anchored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    campaign = tmp_path / "campaign"
+    source = _source(tmp_path / "sources", 1)
+    real_child = filesystem.DirectoryAnchor.child
+
+    def refuse_staging(self, name, *, create=False):  # type: ignore[no-untyped-def]
+        if name.startswith(".s"):
+            raise RuntimeError("staging anchor failed")
+        return real_child(self, name, create=create)
+
+    monkeypatch.setattr(filesystem.DirectoryAnchor, "child", refuse_staging)
+    with pytest.raises(RuntimeError, match="staging anchor failed"):
+        with ledger.archive_transaction(
+            campaign, RUN_ID, (("output.parquet", source),)
+        ):
+            pass
+
+    assert _archive_entries(campaign) == []
+
+
 def test_failure_log_uses_utf8(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -248,3 +296,26 @@ def test_remove_tree_clears_read_only_files_on_windows(
     platform.remove_tree(tree)
 
     assert not tree.exists()
+
+
+def test_remove_tree_does_not_retry_listing_errors_on_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree = tmp_path / "work"
+    tree.mkdir()
+    calls = []
+
+    def refuse(path, *arguments, **options):  # type: ignore[no-untyped-def]
+        calls.append(path)
+        raise PermissionError(13, "listing refused", str(path))
+
+    monkeypatch.setattr(platform, "IS_WINDOWS", True)
+    monkeypatch.setattr(platform.shutil, "_use_fd_functions", False, raising=False)
+    monkeypatch.setattr(os, "scandir", refuse)
+    monkeypatch.setattr(platform.time, "sleep", lambda _delay: None)
+
+    with pytest.raises(PermissionError, match="listing refused"):
+        platform.remove_tree(tree)
+
+    assert len(calls) == 1
+    assert stat.S_IMODE(tree.stat().st_mode) != stat.S_IWRITE

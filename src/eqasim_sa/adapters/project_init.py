@@ -24,7 +24,11 @@ from eqasim_sa.core.analysis_publication import (
     OUTPUT_FILENAMES,
 )
 from eqasim_sa.utils import platform
-from eqasim_sa.utils.filesystem import reject_links_below, resolve_root
+from eqasim_sa.utils.filesystem import (
+    owned_by_current_user,
+    reject_links_below,
+    resolve_root,
+)
 from eqasim_sa.utils.names import validate_portable_name
 
 
@@ -90,11 +94,6 @@ def _project_name(value: str) -> str:
     return validate_portable_name(value, "project-name")
 
 
-def _owned(info: os.stat_result) -> bool:
-    uid = platform.current_uid()
-    return uid is None or info.st_uid == uid
-
-
 def _regular(path: Path, description: str, private: bool = False) -> None:
     try:
         info = path.lstat()
@@ -102,7 +101,7 @@ def _regular(path: Path, description: str, private: bool = False) -> None:
         raise FileExistsError(f"foreign content in init project: {description}") from error
     if (
         not stat.S_ISREG(info.st_mode)
-        or not _owned(info)
+        or not owned_by_current_user(info)
         or info.st_nlink != 1
         or private and stat.S_IMODE(info.st_mode) & 0o077
     ):
@@ -124,8 +123,8 @@ def _backup(path: Path, destination: Path, description: str) -> None:
     if (
         not stat.S_ISREG(info.st_mode)
         or not stat.S_ISREG(target.st_mode)
-        or not _owned(info)
-        or not _owned(target)
+        or not owned_by_current_user(info)
+        or not owned_by_current_user(target)
         or info.st_nlink != 2
         or (info.st_dev, info.st_ino) != (target.st_dev, target.st_ino)
     ):
@@ -334,7 +333,7 @@ def _owned_technical_tree(path: Path, description: str) -> None:
         info = path.lstat()
     except OSError as error:
         raise FileExistsError(f"foreign content in init project: {description}") from error
-    if platform.is_link(path) or not _owned(info):
+    if platform.is_link(path) or not owned_by_current_user(info):
         raise FileExistsError(f"foreign content in init project: {description}")
     if stat.S_ISREG(info.st_mode):
         _regular(path, description)
@@ -355,7 +354,7 @@ def _owned_technical_directory(path: Path, description: str) -> None:
     if (
         platform.is_link(path)
         or not stat.S_ISDIR(info.st_mode)
-        or not _owned(info)
+        or not owned_by_current_user(info)
     ):
         raise FileExistsError(
             f"foreign content in init campaign: {description}"
@@ -430,7 +429,7 @@ def _analysis_state_allowed(path: Path, method: str) -> None:
     info = path.lstat()
     if (
         not stat.S_ISDIR(info.st_mode)
-        or not _owned(info)
+        or not owned_by_current_user(info)
         or platform.is_link(path)
     ):
         raise FileExistsError(
