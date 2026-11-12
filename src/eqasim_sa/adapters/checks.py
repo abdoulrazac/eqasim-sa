@@ -4,6 +4,7 @@ import json
 import math
 import re
 import shutil
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -17,6 +18,7 @@ from eqasim_sa.adapters.eqasim.execution import (
     _apply_execution_overrides,
 )
 from eqasim_sa.adapters.eqasim.simulator import probe_environment
+from eqasim_sa.adapters.eqasim.workspace import WORKSPACE_PREFIX_BUDGET
 from eqasim_sa.adapters.estimate import _estimate_state, _remaining
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.adapters.worker import ordered_results, worker_batches
@@ -25,12 +27,69 @@ from eqasim_sa.core.indicators import ArtifactSet
 from eqasim_sa.core.plan import load_run_specs, unique_config_seed_pairs
 from eqasim_sa.core.run import RunSpec
 from eqasim_sa.core.software_identity import verify_software_source_states
-from eqasim_sa.utils.filesystem import path_state
+from eqasim_sa.utils.filesystem import path_state, resolve_root
 from eqasim_sa.utils import platform
 
 SEALED_SENSITIVITY_METHODS = frozenset(
     {"morris", "discrete_oat", "canonical_morris", "sobol", "multiscramble_sobol"}
 )
+
+WINDOWS_PATH_LIMIT = 260
+# Longest path eqasim created below its cache directory in a real Nantes run:
+# 231 characters (data.spatial.iris__<32 hex>.cache/CONTOURS-IRIS-PE_.../
+# EMPRISE/EMPRISE.shx, from the extracted IGN IRIS archive), plus 9 margin.
+EQASIM_RELATIVE_PATH_BUDGET: int = 240
+
+
+def estimate_max_path_length(scratch: Path, campaign: str) -> int:
+    """Estimate the longest path eqasim will create below ``scratch``."""
+    return (
+        len(str(resolve_root(scratch, "execution.scratch")))
+        + WORKSPACE_PREFIX_BUDGET
+        + EQASIM_RELATIVE_PATH_BUDGET
+    )
+
+
+def _path_length_item(meta) -> dict:  # type: ignore[no-untyped-def]
+    item = {"name": "path_length", "status": "passed", "error": None}
+    try:
+        length = estimate_max_path_length(meta.execution.scratch, meta.campaign)
+    except Exception as error:
+        return {"name": "path_length", "status": "failed", "error": _safe_error(error)}
+    if length <= WINDOWS_PATH_LIMIT:
+        return item
+    if platform.IS_WINDOWS:
+        if platform.windows_long_paths_enabled():
+            item["error"] = (
+                f"estimated path length {length} exceeds 260 characters; "
+                "Windows long paths are enabled"
+            )
+            return item
+        item["status"] = "failed"
+        item["error"] = (
+            f"estimated path length {length} exceeds the Windows limit of 260 "
+            "characters; choose a shorter execution.scratch (for example C:\\esa). "
+            "Most of this length comes from eqasim's own cache (e.g. the extracted "
+            "IRIS archive); if a shorter scratch is not enough, an administrator "
+            "can enable Windows long paths (LongPathsEnabled) once."
+        )
+        return item
+    item["status"] = "warning"
+    item["error"] = (
+        f"estimated path length {length} exceeds the Windows limit of 260 "
+        "characters; choose a shorter execution.scratch (for example C:\\esa)"
+    )
+    return item
+
+
+def _backend_item(meta) -> dict:  # type: ignore[no-untyped-def]
+    if getattr(meta.execution, "backend", "local") == "slurm" and sys.platform != "linux":
+        return {
+            "name": "backend",
+            "status": "failed",
+            "error": "the slurm backend requires Linux; run eqasim-sa on the cluster",
+        }
+    return {"name": "backend", "status": "passed", "error": None}
 
 
 def _check(name: str, action) -> tuple[dict, object]:  # type: ignore[no-untyped-def]
@@ -147,6 +206,10 @@ def _static_check(path: Path, calibrations: tuple[Path, ...]):  # type: ignore[n
             scratch_missing,
         )
 
+    for build in (_backend_item, _path_length_item):
+        if meta is not None and meta.execution is not None:
+            checks.append(build(meta))
+
     try:
         disk_values = disk()
         missing, scratch_missing = disk_values[3], disk_values[6]
@@ -169,7 +232,7 @@ def _static_check(path: Path, calibrations: tuple[Path, ...]):  # type: ignore[n
     values = disk_values or (None,) * 7
     payload = {
         "status": "valid"
-        if all(item["status"] == "passed" for item in checks)
+        if all(item["status"] in {"passed", "warning"} for item in checks)
         else "invalid",
         "checkVersion": 2,
         "elapsedSeconds": time.monotonic() - started,

@@ -15,6 +15,7 @@ from eqasim_sa.core.indicators import TableArtifact, TotalVariationIndicator
 from eqasim_sa.core.plan import GridDesign, unique_config_seed_pairs
 from eqasim_sa.core.software_identity import read_software_identity
 from eqasim_sa.ports.simulator import Artifact, Manifest
+from eqasim_sa.utils import platform
 from tests.provenance_helpers import context_hash
 
 
@@ -572,3 +573,121 @@ def test_smoke_applies_run_overrides_and_computes_every_indicator(
     assert len(simulators) == 1 and simulators[0].interrupted
     assert all(not workdir.parents[2].exists() for _, _, _, workdir in seen)
     assert not tuple(target.iterdir())
+
+
+def _static_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scratch: Path, backend: str = "local"
+) -> dict:
+    root = tmp_path / "campaign"
+    root.mkdir(exist_ok=True)
+    meta = SimpleNamespace(
+        campaign="demo",
+        campaign_root=root,
+        model_document={"config": {"rate": 0, "sampling_rate": 1}},
+        factors={"rate": [0, 1]},
+        seeds=(1, 2),
+        method="grid",
+        context_hash="c" * 64,
+        context_descriptor={"version": "test"},
+        execution=SimpleNamespace(
+            invocation=("spy",), scratch=scratch, workers=1, backend=backend
+        ),
+        model_root=tmp_path,
+        calibration_meta_configs=(),
+        indicator_requirements=(),
+        software_identity=read_software_identity(),
+    )
+    monkeypatch.setattr(check_service, "load_meta_config", lambda *args, **kwargs: meta)
+    monkeypatch.setattr(check_service, "load_run_specs", lambda *args: ())
+    monkeypatch.setattr(check_service, "unique_config_seed_pairs", lambda design: True)
+    monkeypatch.setattr(check_service, "probe_environment", lambda *args: None)
+    monkeypatch.setattr(
+        check_service,
+        "_estimate_state",
+        lambda *args: (
+            {"estimatedDiskBytes": 0, "estimatedScratchBytes": 0},
+            meta,
+            (),
+            0,
+        ),
+    )
+    return check_service.check_from_meta_config(Path("meta.yml"), (), False)
+
+
+def _entry(payload: dict, name: str) -> dict:
+    return next(item for item in payload["checks"] if item["name"] == name)
+
+
+def _deep_scratch(tmp_path: Path) -> Path:
+    deep = tmp_path / ("x" * 200)
+    deep.mkdir()
+    return deep
+
+
+def test_path_length_fails_on_windows_without_long_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(platform, "IS_WINDOWS", True)
+    monkeypatch.setattr(platform, "windows_long_paths_enabled", lambda: False)
+    payload = _static_payload(tmp_path, monkeypatch, _deep_scratch(tmp_path))
+    item = _entry(payload, "path_length")
+    assert item["status"] == "failed"
+    assert "exceeds the Windows limit of 260 characters" in item["error"]
+    assert item["error"].endswith("(LongPathsEnabled) once.")
+    assert payload["status"] == "invalid"
+
+
+def test_path_length_passes_on_windows_with_long_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(platform, "IS_WINDOWS", True)
+    monkeypatch.setattr(platform, "windows_long_paths_enabled", lambda: True)
+    payload = _static_payload(tmp_path, monkeypatch, _deep_scratch(tmp_path))
+    item = _entry(payload, "path_length")
+    assert item["status"] == "passed"
+    assert "long paths are enabled" in item["error"]
+
+
+def test_path_length_warns_only_on_posix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(platform, "IS_WINDOWS", False)
+    payload = _static_payload(tmp_path, monkeypatch, _deep_scratch(tmp_path))
+    item = _entry(payload, "path_length")
+    assert item["status"] == "warning"
+    assert item["error"].startswith("estimated path length ")
+    assert "(for example C:\\esa)" in item["error"]
+    assert payload["status"] == "valid"
+
+
+def test_path_length_passes_for_short_scratch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(platform, "IS_WINDOWS", False)
+    # With the real budgets no scratch fits in 260 characters; shrink them.
+    monkeypatch.setattr(check_service, "EQASIM_RELATIVE_PATH_BUDGET", 10)
+    monkeypatch.setattr(check_service, "WORKSPACE_PREFIX_BUDGET", 10)
+    short = tmp_path / "s"
+    short.mkdir()
+    payload = _static_payload(tmp_path, monkeypatch, short)
+    item = _entry(payload, "path_length")
+    assert item == {"name": "path_length", "status": "passed", "error": None}
+
+
+def test_slurm_backend_rejected_off_linux(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "platform", "win32")
+    payload = _static_payload(tmp_path, monkeypatch, tmp_path, backend="slurm")
+    item = _entry(payload, "backend")
+    assert item["status"] == "failed"
+    assert item["error"] == "the slurm backend requires Linux; run eqasim-sa on the cluster"
+    assert payload["status"] == "invalid"
+
+
+def test_slurm_backend_accepted_on_linux(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    payload = _static_payload(tmp_path, monkeypatch, tmp_path, backend="slurm")
+    assert _entry(payload, "backend")["status"] == "passed"

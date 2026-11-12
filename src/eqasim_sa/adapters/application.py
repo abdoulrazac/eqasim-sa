@@ -9,7 +9,6 @@ from pathlib import Path
 import pyarrow.parquet as pq
 
 from eqasim_sa.adapters.backends.local import LocalBackend
-from eqasim_sa.adapters.backends.slurm import EqasimSlurmJob, SlurmBackend
 from eqasim_sa.adapters.campaign_design import _design, _validate_scientific_method
 from eqasim_sa.adapters.checks import check_from_meta_config
 from eqasim_sa.adapters.data_manifest import load_data_manifest
@@ -162,6 +161,8 @@ def run_from_meta_config(path: Path) -> dict:
             len(specs),
         )
     else:
+        from eqasim_sa.adapters.backends.slurm import EqasimSlurmJob, SlurmBackend
+
         slurm = meta.execution.slurm
         parameters: dict[str, object] = {
             "timeout_min": slurm.timeout_min,

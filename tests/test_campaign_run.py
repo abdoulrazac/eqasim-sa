@@ -491,7 +491,7 @@ def test_slurm_campaign_composes_remote_job_without_local_simulator(
                 for batch in values
             )
 
-    monkeypatch.setattr(application, "SlurmBackend", Backend)
+    monkeypatch.setattr("eqasim_sa.adapters.backends.slurm.SlurmBackend", Backend)
     monkeypatch.setattr(
         application,
         "EqasimSimulator",
@@ -612,7 +612,7 @@ def test_slurm_campaign_resumes_only_missing_runs_and_complete_campaign_is_noop(
                 for batch in values
             )
 
-    monkeypatch.setattr(application, "SlurmBackend", Backend)
+    monkeypatch.setattr("eqasim_sa.adapters.backends.slurm.SlurmBackend", Backend)
     payload = run_from_meta_config(meta)
     assert payload["total"] == 1
     assert [item.seed for item in submitted] == [42]
@@ -631,8 +631,7 @@ def test_slurm_campaign_resumes_only_missing_runs_and_complete_campaign_is_noop(
         ),
     )
     monkeypatch.setattr(
-        application,
-        "SlurmBackend",
+        "eqasim_sa.adapters.backends.slurm.SlurmBackend",
         lambda *args: (_ for _ in ()).throw(AssertionError("backend instantiated")),
     )
     monkeypatch.setattr(
@@ -764,7 +763,7 @@ def test_remote_jobs_survive_workdir_loss_and_resume_only_from_runs(
                 for batch in values
             )
 
-    monkeypatch.setattr(application, "SlurmBackend", Backend)
+    monkeypatch.setattr("eqasim_sa.adapters.backends.slurm.SlurmBackend", Backend)
     payload = run_from_meta_config(meta)
 
     assert payload["total"] == 1
@@ -1142,13 +1141,13 @@ def test_sobol_capacity_warning_is_exact_and_precedes_backend_submission(
             )
 
     monkeypatch.setattr(application, "LocalBackend", Backend)
-    monkeypatch.setattr(application, "SlurmBackend", Backend)
+    monkeypatch.setattr("eqasim_sa.adapters.backends.slurm.SlurmBackend", Backend)
     monkeypatch.setattr(
         application,
         "EqasimSimulator",
         lambda *args: SimpleNamespace(interrupt=lambda: None),
     )
-    monkeypatch.setattr(application, "EqasimSlurmJob", lambda *args: object())
+    monkeypatch.setattr("eqasim_sa.adapters.backends.slurm.EqasimSlurmJob", lambda *args: object())
 
     payload = run_from_meta_config(meta_path)
 

@@ -28,6 +28,7 @@ __all__ = (
     "rename_with_retry",
     "replace_with_retry",
     "unlock",
+    "windows_long_paths_enabled",
 )
 
 IS_WINDOWS: bool = sys.platform == "win32"
@@ -167,3 +168,20 @@ def _retry_writable(operation, path) -> None:  # type: ignore[no-untyped-def]
 
 def current_uid() -> int | None:
     return None if IS_WINDOWS else os.getuid()
+
+
+def windows_long_paths_enabled() -> bool:
+    """True when Windows long-path support is on (read-only registry lookup)."""
+    if not IS_WINDOWS:
+        return False
+    try:
+        import winreg
+
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SYSTEM\CurrentControlSet\Control\FileSystem",
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, "LongPathsEnabled")
+    except OSError:
+        return False
+    return value == 1

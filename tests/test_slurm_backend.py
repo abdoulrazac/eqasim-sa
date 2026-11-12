@@ -1,5 +1,7 @@
 import hashlib
 import json
+import sys
+import subprocess
 import os
 import socket
 from contextlib import nullcontext
@@ -625,3 +627,11 @@ def test_remote_job_rejects_meta_config_byte_changes_before_reload(
     monkeypatch.setattr(slurm, "load_meta_config", mutate_during_reload)
     with pytest.raises(ValueError, match="changed during remote reload"):
         job(WorkerBatch(0, (Indexed(0, spec),)))
+
+
+def test_package_imports_without_slurm_module_loaded() -> None:
+    code = (
+        "import eqasim_sa.adapters.application, sys; "
+        "assert 'eqasim_sa.adapters.backends.slurm' not in sys.modules"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)
