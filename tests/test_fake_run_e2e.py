@@ -686,3 +686,43 @@ def test_partial_publication_replays_without_cleanup(
     assert (campaign / "runs" / f"{replay.run_id}.parquet").is_file()
     assert not log.exists() and (campaign / "plan.parquet").read_bytes() == before
     assert not any(path.name.endswith(".tmp") for path in (campaign / "runs").iterdir())
+
+
+def test_attempt_cleanup_refuses_attempt_reached_through_link(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import dataclasses
+
+    import eqasim_sa.core.run as run_module
+
+    work = tmp_path / "work"
+    (work / "real").mkdir(parents=True)
+    make_symlink(work / "alias", work / "real", target_is_directory=True)
+    real_attempts: list[Path] = []
+
+    class AliasedSimulator(FakeSimulator):
+        def simulate(self, config, seed, workdir):  # type: ignore[no-untyped-def]
+            manifest = super().simulate(config, seed, workdir / "real")
+            real_attempts.append(manifest.attempt_directory)
+            return dataclasses.replace(
+                manifest,
+                attempt_directory=workdir / "alias" / manifest.attempt_directory.name,
+            )
+
+    real_validate = run_module.validate_manifest
+
+    def validate_real_attempt(manifest, workdir):  # type: ignore[no-untyped-def]
+        # Simulates the attempt path being swapped for a link after validation.
+        return real_validate(
+            dataclasses.replace(manifest, attempt_directory=real_attempts[-1]),
+            workdir,
+        )
+
+    monkeypatch.setattr(run_module, "validate_manifest", validate_real_attempt)
+    result = run_one(
+        spec(), AliasedSimulator(), LocalBackend(), tmp_path / "campaign", work, "ctx"
+    )
+
+    assert result.status == "failed"
+    assert "must not traverse a symlink" in (result.error or "")
+    assert real_attempts[-1].is_dir()

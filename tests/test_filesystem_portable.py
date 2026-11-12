@@ -170,3 +170,57 @@ def test_secure_directory_rejects_symlink(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="non-symlink directory"):
         filesystem.secure_directory(tmp_path / "alias")
+
+
+@pytest.mark.parametrize("publication", ["exclusive", "atomic"])
+def test_staged_file_swapped_before_reopen_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, publication: str
+) -> None:
+    real_open = os.open
+    swapped = False
+
+    def swap_then_open(path, flags, *args, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal swapped
+        name = Path(path).name
+        if (
+            not swapped
+            and not flags & os.O_CREAT
+            and re.fullmatch(r"\.t[0-9a-f]{8}", name)
+        ):
+            swapped = True
+            # Keep the original inode alive so the swap cannot reuse it.
+            os.link(path, tmp_path / "held")
+            replacement = tmp_path / "replacement"
+            replacement.write_bytes(Path(path).read_bytes())
+            os.replace(replacement, path)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(filesystem.os, "open", swap_then_open)
+    destination = tmp_path / "value.bin"
+    write = (
+        filesystem.write_bytes_exclusive
+        if publication == "exclusive"
+        else filesystem.write_bytes_atomic
+    )
+    with pytest.raises(RuntimeError, match="changed before fsync"):
+        write(b"content", destination)
+
+    assert swapped and not destination.exists()
+    assert not [p for p in tmp_path.iterdir() if p.name != "held"]
+
+
+def test_publish_bytes_detects_directory_replaced_during_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    real_fsync_directory = filesystem.fsync_directory
+
+    def replace_parent(path: Path) -> None:
+        real_fsync_directory(path)
+        parent.rename(tmp_path / "detached")
+        parent.mkdir()
+
+    monkeypatch.setattr(filesystem, "fsync_directory", replace_parent)
+    with pytest.raises(RuntimeError, match="publication directory changed"):
+        filesystem.publish_bytes(b"content", parent / "value.bin", replace=False)

@@ -548,7 +548,9 @@ def write_exclusive(
         descriptor = os.open(temporary, _sync_flags())
         try:
             staged = os.fstat(descriptor)
-            if file_state(staged) != file_state(os.lstat(temporary)):
+            if file_identity(staged) != file_identity(created) or file_state(
+                staged
+            ) != file_state(os.lstat(temporary)):
                 raise RuntimeError("exclusive staged file changed before fsync")
             os.fsync(descriptor)
             staged = os.fstat(descriptor)
@@ -664,7 +666,9 @@ def write_atomic(
         descriptor = os.open(temporary, _sync_flags())
         try:
             staged = os.fstat(descriptor)
-            if file_state(staged) != file_state(os.lstat(temporary)):
+            if file_identity(staged) != file_identity(visible) or file_state(
+                staged
+            ) != file_state(os.lstat(temporary)):
                 raise RuntimeError("staged durable file changed before fsync")
             os.fsync(descriptor)
             staged = os.fstat(descriptor)
@@ -882,6 +886,8 @@ def publish_bytes(
             _link(temporary, destination)
             os.unlink(temporary)
         fsync_directory(parent.path)
+        if not parent.is_current():
+            raise RuntimeError("publication directory changed")
         return requested_destination
     finally:
         if temporary_descriptor >= 0:

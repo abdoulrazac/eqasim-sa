@@ -76,6 +76,7 @@ from eqasim_sa.core.run import RunSpec, compute_run_id
 from eqasim_sa.utils.filesystem import (
     PublicationOutcomeUnknown,
     file_state,
+    reject_links_below,
     secure_directory,
     write_parquet_exclusive,
 )
@@ -943,6 +944,7 @@ def load_run_specs(
     transactions = path.parent / ".eqasim-sa" / "transactions"
     existing_transactions = None
     if transactions.exists() or transactions.is_symlink():
+        reject_links_below(path.parent, transactions, "campaign transactions")
         existing_transactions = secure_directory(transactions)
     actual = _read_committed_plan(path, existing_transactions)
     if actual is None:

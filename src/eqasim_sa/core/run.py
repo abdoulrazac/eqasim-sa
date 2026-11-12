@@ -220,6 +220,7 @@ def execute_run(
                         resolved_workdir
                     ):
                         raise ValueError("successful attempt escapes workdir")
+                    reject_links_below(resolved_workdir, attempt, "attempt directory")
                     shutil.rmtree(attempt)
                     publication.commit(
                         RunRecord(

@@ -542,7 +542,7 @@ def init_from_inputs(
         raise ValueError("invocation must contain non-empty arguments")
     lexical_directory = Path(os.path.abspath(directory))
     if not lexical_directory.parent.resolve(strict=True).is_dir():
-        raise ValueError("directory parent must be a regular non-symlink directory")
+        raise ValueError("directory parent must be an existing directory")
     absolute = _resolved_location(lexical_directory, "directory")
     lexical_scratch = (
         lexical_directory / "scratch"

@@ -1676,3 +1676,18 @@ def test_custom_indicator_entry_point_class_requiring_arguments_is_rejected(
     pq.write_table(pa.table({"value": [1]}), artifact)
     with pytest.raises(TypeError, match="extension.*without arguments"):
         loaded.indicators[0].compute(ArtifactSet({"age": artifact}))
+
+
+def test_load_run_specs_rejects_symlinked_technical_directory(
+    tmp_path: Path,
+) -> None:
+    campaign = tmp_path / "campaign"
+    current = design(campaign)
+    build_plan(current)
+    technical = campaign / ".eqasim-sa"
+    external = tmp_path / "external-technical"
+    technical.rename(external)
+    make_symlink(technical, external, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="must not traverse a symlink"):
+        plan_module.load_run_specs(campaign / "plan.parquet", current, "demo")

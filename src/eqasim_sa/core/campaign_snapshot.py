@@ -15,6 +15,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from eqasim_sa.utils.filesystem import (
+    reject_links_below,
     FileState,
     StableFile,
     capture_stable_file,
@@ -155,6 +156,7 @@ class CampaignSnapshot:
                 artifacts_list = []
                 for path, _, _ in _artifact_sources(archive, completion):
                     try:
+                        reject_links_below(campaign_root, path, "archive artifact")
                         captured = stable_file(path)
                         pq.ParquetFile(path).metadata
                         _verify_stable_state(captured)
