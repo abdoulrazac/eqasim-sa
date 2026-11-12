@@ -35,6 +35,7 @@ from eqasim_sa.core.charter import (
 from eqasim_sa.core.context_identity import ExecutionContextIdentity
 from eqasim_sa.utils.filesystem import FileState, path_state
 from eqasim_sa.utils import platform
+from eqasim_sa.utils.text_identity import canonical_json_sha256, lf_sha256
 from eqasim_sa.core.indicators import (
     ArtifactDeclaration,
     CustomDeclaration,
@@ -826,8 +827,15 @@ def load_meta_config(
     if not isinstance(manifest_value, str) or not isinstance(lock_value, str):
         raise TypeError("context paths must be strings")
     config_bytes = config.read_bytes()
+    # --path applies the repository's eol/autocrlf filters, so a CRLF
+    # checkout of an LF blob still matches its sealed Git blob.
     if _git_stdin(
-        root, config_bytes, "hash-object", "--stdin", deadline=deadline
+        root,
+        config_bytes,
+        "hash-object",
+        f"--path={relative.as_posix()}",
+        "--stdin",
+        deadline=deadline,
     ) != _git(root, "rev-parse", f"{commit}:{relative.as_posix()}", deadline=deadline):
         raise ValueError("model.config does not match its sealed Git blob")
     model_document = load_yaml_source(config_bytes.decode("utf-8"))
@@ -840,12 +848,18 @@ def load_meta_config(
         (manifest, path_state(manifest)),
         (lockfile, path_state(lockfile)),
     )
+    _timeout(deadline)
+    try:
+        manifest_sha256 = canonical_json_sha256(manifest.read_bytes())
+    except ValueError as error:
+        raise ValueError("data manifest must be a valid JSON document") from error
     descriptor = {
         "eqasimCommit": commit,
-        "dataManifestSha256": _digest(manifest, deadline),
-        "lockfileSha256": _digest(lockfile, deadline),
+        "dataManifestSha256": manifest_sha256,
+        "lockfileSha256": lf_sha256(lockfile),
         "eqasimSaVersion": software_identity.version,
     }
+    _timeout(deadline)
     if _git(root, "rev-parse", "--verify", "HEAD", deadline=deadline) != commit or _git(
         root, "status", "--porcelain=v1", "--untracked-files=all", deadline=deadline
     ):

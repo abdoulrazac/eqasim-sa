@@ -26,6 +26,7 @@ from eqasim_sa.core.analysis_publication import (
 from eqasim_sa.utils import platform
 from eqasim_sa.utils.filesystem import (
     owned_by_current_user,
+    publish_bytes,
     reject_links_below,
     resolve_root,
 )
@@ -59,6 +60,14 @@ def _resolved_location(path: Path, name: str) -> Path:
     return resolve_root(existing, name).joinpath(*reversed(missing))
 
 
+GITATTRIBUTES = ".gitattributes"
+# Defense in depth: keep the study's sealed text inputs LF in every checkout.
+GITATTRIBUTES_CONTENT = (
+    b"*.yml text eol=lf\n"
+    b"*.yaml text eol=lf\n"
+    b"*.json text eol=lf\n"
+    b"*.lock text eol=lf\n"
+)
 INIT_METHODS = ("calibration", "grid", "discrete_oat", "sobol")
 INIT_CONFIGS = {
     "calibration": "configs/00-calibration.yml",
@@ -150,7 +159,7 @@ def _preflight_project(directory: Path, scratch_relative: Path | None) -> bool:
     entries = tuple(directory.iterdir())
     if not entries:
         return True
-    expected = {"manifest.json", "README.md", "configs", "campaigns"}
+    expected = {"manifest.json", "README.md", "configs", "campaigns", GITATTRIBUTES}
     scratch_top = scratch_relative.parts[0] if scratch_relative else None
     if scratch_top:
         expected.add(scratch_top)
@@ -161,6 +170,11 @@ def _preflight_project(directory: Path, scratch_relative: Path | None) -> bool:
             raise FileExistsError(f"foreign content in init project: {entry.name}")
     _regular(directory / "README.md", "README.md")
     _regular(directory / "manifest.json", "manifest.json")
+    attributes = directory / GITATTRIBUTES
+    if os.path.lexists(attributes) and (
+        platform.is_link(attributes) or not attributes.is_file()
+    ):
+        raise FileExistsError(f"foreign content in init project: {GITATTRIBUTES}")
     for name in {"configs", "campaigns"}:
         path = directory / name
         if platform.is_link(path) or not path.is_dir():
@@ -492,6 +506,7 @@ def _publish_scaffold(
         for name, content in templates.items():
             target = staging / ("README.md" if name == "README.md" else f"configs/{name}")
             target.write_bytes(content)
+        (staging / GITATTRIBUTES).write_bytes(GITATTRIBUTES_CONTENT)
         generate_data_manifest(data, staging / "manifest.json")
         if destination.exists():
             if any(destination.iterdir()):
@@ -567,7 +582,7 @@ def init_from_inputs(
         else None
     )
     if scratch_relative and scratch_relative.parts[0] in {
-        "README.md", "configs", "campaigns",
+        "README.md", "configs", "campaigns", GITATTRIBUTES,
     }:
         raise ValueError("nested scratch must not overlap generated static paths")
     if scratch_relative is not None:
@@ -641,6 +656,15 @@ def init_from_inputs(
         if not regenerate_data_manifest:
             _validate_project_manifest(absolute / "manifest.json")
         _durable_preflight(absolute, expected_artifacts)
+        attributes = absolute / GITATTRIBUTES
+        if not os.path.lexists(attributes):
+            # Never overwrite a user's .gitattributes; only restore a missing one.
+            try:
+                publish_bytes(
+                    GITATTRIBUTES_CONTENT, attributes, replace=False, default_mode=0o644
+                )
+            except FileExistsError:
+                pass
         selected_scratch = _directory_or_create(selected_scratch, "scratch")
     WorkerWorkspace.validate_scratch(selected_scratch, campaign_names)
     manifest = absolute / "manifest.json"

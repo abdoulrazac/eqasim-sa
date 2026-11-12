@@ -477,7 +477,7 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
     encoded = json.dumps(
         descriptor, sort_keys=True, separators=(",", ":"), allow_nan=False
     ).encode()
-    context_hash = hashlib.sha256(b"eqasim-sa:context:v1\0" + encoded).hexdigest()
+    context_hash = hashlib.sha256(b"eqasim-sa:context:v2\0" + encoded).hexdigest()
     meta_path = tmp_path / "meta.yml"
     meta_bytes = b"complete meta-config bytes\n"
     meta_path.write_bytes(meta_bytes)

@@ -11,7 +11,10 @@ from eqasim_sa.core.charter import (
     validate_scientific_contract,
     validate_scientific_stopping,
 )
-from eqasim_sa.core.context_identity import ExecutionContextIdentity
+from eqasim_sa.core.context_identity import (
+    LEGACY_CONTEXT_DOMAIN_V1,
+    ExecutionContextIdentity,
+)
 from eqasim_sa.core.methods.common import _json
 from eqasim_sa.core.methods.multiscramble_sobol_plan import (
     validate_multiscramble_scientific_contract,
@@ -65,7 +68,9 @@ def _legacy_scientific_metadata(
     except Exception as error:
         raise ValueError(f"legacy {label} v{version} metadata is invalid") from error
     try:
-        context_identity = ExecutionContextIdentity.from_descriptor(descriptor)
+        context_identity = ExecutionContextIdentity.from_descriptor(
+            descriptor, LEGACY_CONTEXT_DOMAIN_V1
+        )
     except ValueError as error:
         raise ValueError(
             f"legacy {label} v{version} contextDescriptor must contain exactly four string keys"

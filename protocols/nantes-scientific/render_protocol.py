@@ -19,6 +19,9 @@ import yaml
 
 from eqasim_sa.core.sensitivity import engine_descriptor, morris_unit_trajectories
 from eqasim_sa.core.software_identity import read_software_identity
+from eqasim_sa.utils import platform
+from eqasim_sa.utils.filesystem import resolve_root
+from eqasim_sa.utils.text_identity import canonical_json_sha256, lf_sha256
 
 
 DIGEST = re.compile(r"[0-9a-f]{64}")
@@ -106,12 +109,9 @@ def _evidence_root(root: Path | None, argument: str) -> Path:
     if root is None:
         raise ValueError(f"{argument} is required for this protocol")
     _absolute(root, argument.removeprefix("--").replace("-", " "))
-    current = Path(root.anchor)
-    for component in root.parts[1:]:
-        current /= component
-        if current.is_symlink():
-            raise ValueError(f"evidence root must not traverse symlinks: {root}")
-    resolved = root.resolve(strict=True)
+    # Resolve once: linked ancestors are accepted; links below are refused by
+    # the per-file checks.
+    resolved = resolve_root(root, "evidence root")
     if not resolved.is_dir():
         raise ValueError(f"evidence root must be a directory: {root}")
     return resolved
@@ -130,8 +130,10 @@ def _context_descriptor(arguments: argparse.Namespace) -> dict[str, str]:
     software = read_software_identity()
     return {
         "eqasimCommit": completed.stdout.strip(),
-        "dataManifestSha256": _sha256(arguments.data_manifest),
-        "lockfileSha256": _sha256(arguments.lockfile),
+        "dataManifestSha256": canonical_json_sha256(
+            arguments.data_manifest.read_bytes()
+        ),
+        "lockfileSha256": lf_sha256(arguments.lockfile),
         "eqasimSaVersion": software.version,
     }
 
@@ -165,7 +167,7 @@ def _read_json_file(path: Path) -> dict[str, Any]:
 def _json_file(root: Path | None, filename: str, argument: str) -> tuple[dict[str, Any], Path]:
     root = _evidence_root(root, argument)
     path = root / filename
-    if path.is_symlink() or not path.is_file():
+    if platform.is_link(path) or not path.is_file():
         raise ValueError(f"evidence must be a regular non-symlink file: {path}")
     document = _read_json_file(path)
     return document, path
@@ -194,7 +196,7 @@ def _safe_evidence_file(root: Path | None, relative: str, argument: str) -> Path
             info = current.lstat()
         except OSError as error:
             raise ValueError(f"manifest evidence path is unavailable: {relative}") from error
-        if stat.S_ISLNK(info.st_mode):
+        if stat.S_ISLNK(info.st_mode) or platform.is_link(current):
             raise ValueError(f"manifest evidence path must not traverse symlinks: {relative}")
         if index + 1 < len(pure.parts):
             if not stat.S_ISDIR(info.st_mode):
@@ -212,7 +214,7 @@ def _sealed_morris_plan(
 ) -> None:
     root = _evidence_root(root, argument)
     path = root / "plan.parquet"
-    if path.is_symlink() or not path.is_file():
+    if platform.is_link(path) or not path.is_file():
         raise ValueError(f"plan.parquet must be a regular non-symlink file: {path}")
     try:
         table = pq.ParquetFile(path).read()

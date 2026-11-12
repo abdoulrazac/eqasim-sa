@@ -764,7 +764,7 @@ def test_renderer_rejects_symlinked_upstream_plan(tmp_path: Path) -> None:
     assert not output.exists()
 
 
-def test_renderer_rejects_symlink_in_evidence_root_components(tmp_path: Path) -> None:
+def test_renderer_accepts_linked_ancestor_of_evidence_root(tmp_path: Path) -> None:
     paths = _fixture_paths(tmp_path)
     linked_parent = tmp_path / "linked evidence"
     make_symlink(linked_parent, paths["pilot"].parent, target_is_directory=True)
@@ -775,9 +775,22 @@ def test_renderer_rejects_symlink_in_evidence_root_components(tmp_path: Path) ->
         capture_output=True,
         text=True,
     )
-    assert result.returncode != 0
-    assert "evidence root must not traverse symlinks" in result.stderr
-    assert not output.exists()
+    assert result.returncode == 0, result.stderr
+    assert load_meta_config(output).method == "canonical_morris"
+
+
+def test_render_protocol_accepts_crlf_manifest(tmp_path: Path) -> None:
+    paths = _fixture_paths(tmp_path)
+    paths["manifest"].write_bytes(b"{ }\r\n")
+    output = tmp_path / "production.yml"
+    result = subprocess.run(
+        _render_command(TEMPLATES[1], output, paths, tmp_path / "campaign"),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    loaded = load_meta_config(output)
+    assert build_plan(_design(loaded)).design_positions == 288
 
 
 @pytest.mark.parametrize(

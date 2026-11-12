@@ -30,6 +30,10 @@ from eqasim_sa.core.methods.legacy import (
     LEGACY_MULTISCRAMBLE_SOBOL_DOMAIN,
     _legacy_canonical_selection,
 )
+from eqasim_sa.core.context_identity import (
+    LEGACY_CONTEXT_DOMAIN_V1,
+    ExecutionContextIdentity,
+)
 from eqasim_sa.core.methods.morris import _morris_ranking
 from eqasim_sa.core.methods.multiscramble_sobol import (
     _finite_population_variance,
@@ -184,7 +188,10 @@ def _legacy_scientific_campaign(
         "eqasimSaVersion": f"0.{version}.0",
         "eqasimSaSha256": "d" * 64,
     }
-    legacy_context = context_hash(descriptor)
+    # Legacy plans were sealed with the v1 context domain.
+    legacy_context = ExecutionContextIdentity.from_descriptor(
+        descriptor, LEGACY_CONTEXT_DOMAIN_V1
+    ).sha256
     if method == "canonical_morris":
         sealed.pop("numericalEngine")
         pool, selected_pairs = _legacy_canonical_selection(
@@ -424,7 +431,7 @@ def _morris_campaign(tmp_path: Path, seeds: tuple[int, ...] = (11, 12)) -> Path:
         "eqasimSaVersion": "0.1.0",
     }
     context_hash = hashlib.sha256(
-        b"eqasim-sa:context:v1\0"
+        b"eqasim-sa:context:v2\0"
         + json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     design = MorrisDesign(
@@ -472,7 +479,7 @@ def _sobol_campaign(tmp_path: Path, n: int = 8) -> Path:
         "eqasimSaVersion": "0.1.0",
     }
     context_hash = hashlib.sha256(
-        b"eqasim-sa:context:v1\0"
+        b"eqasim-sa:context:v2\0"
         + json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     design = SobolDesign(
@@ -1260,7 +1267,7 @@ def test_sobol_analysis_rejects_legacy_degenerate_hybrid_contrasts(
         descriptor, sort_keys=True, separators=(",", ":")
     ).encode()
     context_hash = hashlib.sha256(
-        b"eqasim-sa:context:v1\0" + descriptor_bytes
+        b"eqasim-sa:context:v2\0" + descriptor_bytes
     ).hexdigest()
     design = SobolDesign(
         {
@@ -2721,7 +2728,7 @@ def test_morris_fake_pipeline_end_to_end_deduplicates_runs_and_ranks(
         "eqasimSaVersion": "0.1.0",
     }
     context_hash = hashlib.sha256(
-        b"eqasim-sa:context:v1\0"
+        b"eqasim-sa:context:v2\0"
         + json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     design = MorrisDesign(

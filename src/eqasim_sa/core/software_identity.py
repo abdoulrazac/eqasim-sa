@@ -9,11 +9,18 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
-from eqasim_sa.utils.filesystem import FileState, file_state, stable_file
+from eqasim_sa.utils.filesystem import (
+    FileState,
+    StableFile,
+    file_state,
+    stable_file,
+    stable_file_bytes,
+)
 from eqasim_sa.utils import platform
+from eqasim_sa.utils.text_identity import lf_bytes
 
 
-SOFTWARE_IDENTITY_DOMAIN = b"eqasim-sa:software-identity:v1\0"
+SOFTWARE_IDENTITY_DOMAIN = b"eqasim-sa:software-identity:v2\0"
 SOURCE_SUFFIXES = frozenset({".py"})
 TEMPLATE_SUFFIXES = frozenset({".md", ".yaml", ".yml"})
 
@@ -100,6 +107,15 @@ def stable_file_identity(path: Path) -> tuple[int, str, FileState]:
     return snapshot.size, snapshot.sha256, snapshot.state
 
 
+def _stable_source_bytes(path: Path) -> tuple[bytes, StableFile]:
+    try:
+        return stable_file_bytes(path)
+    except (OSError, ValueError) as error:
+        raise ValueError(f"software source is not a stable regular file: {path}") from error
+    except RuntimeError as error:
+        raise RuntimeError(f"software source changed while hashing: {path}") from error
+
+
 def read_software_identity(
     package_root: Path | None = None, version: str | None = None
 ) -> SoftwareIdentity:
@@ -120,10 +136,21 @@ def read_software_identity(
     sources = []
     descriptor = []
     for relative_path, path in _inventory(root):
-        size, sha256, state = stable_file_identity(path)
-        sources.append(SoftwareSourceState(relative_path, path, state, size, sha256))
+        # Stability is guarded on raw bytes; the published identity hashes the
+        # LF-normalized content so CRLF checkouts yield the same identity.
+        content, snapshot = _stable_source_bytes(path)
+        sources.append(
+            SoftwareSourceState(
+                relative_path, path, snapshot.state, snapshot.size, snapshot.sha256
+            )
+        )
+        normalized = lf_bytes(content)
         descriptor.append(
-            {"path": relative_path, "sha256": sha256, "size": size}
+            {
+                "path": relative_path,
+                "sha256": hashlib.sha256(normalized).hexdigest(),
+                "size": len(normalized),
+            }
         )
     encoded = json.dumps(
         {"files": descriptor},

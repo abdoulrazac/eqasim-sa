@@ -261,7 +261,7 @@ def _grid_design(root: Path, *, structured_factors=None) -> GridDesign:  # type:
         seeds=(41,),
         requirements={"run": ["stage"]},
         context_hash=hashlib.sha256(
-            b"eqasim-sa:context:v1\0" + encoded
+            b"eqasim-sa:context:v2\0" + encoded
         ).hexdigest(),
         context_descriptor=descriptor,
         campaign_root=root,
@@ -444,7 +444,7 @@ def _structured_sobol_campaign(root: Path) -> Path:
         {"matching_attributes": support},
         (11, 12, 13),
         {},
-        hashlib.sha256(b"eqasim-sa:context:v1\0" + encoded).hexdigest(),
+        hashlib.sha256(b"eqasim-sa:context:v2\0" + encoded).hexdigest(),
         descriptor,
         root,
         base_sample_size=8,
@@ -771,7 +771,7 @@ def test_slurm_callable_preserves_structured_snapshot_without_list_cli(
         "eqasimSaVersion": "0.3.0",
     }
     encoded = json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
-    context_hash = hashlib.sha256(b"eqasim-sa:context:v1\0" + encoded).hexdigest()
+    context_hash = hashlib.sha256(b"eqasim-sa:context:v2\0" + encoded).hexdigest()
     meta_path = tmp_path / "meta.yml"
     meta_path.write_bytes(b"sealed meta\n")
     mapping = {

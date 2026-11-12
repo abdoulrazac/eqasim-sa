@@ -58,7 +58,7 @@ def design(root: Path, **changes) -> GridDesign:
         "eqasimSaVersion": "0.1.0",
     }
     context_hash = hashlib.sha256(
-        b"eqasim-sa:context:v1\0"
+        b"eqasim-sa:context:v2\0"
         + json.dumps(
             descriptor,
             sort_keys=True,
@@ -861,7 +861,7 @@ def test_duplicates_preserve_exact_plan_and_memoize_resolved_runs(
     before, mtime = path.read_bytes(), path.stat().st_mtime_ns
     assert calls == {"resolve": 2, "run_id": 2}
     assert hashlib.sha256(before).hexdigest() == (
-        "ac0869dd6d8d25778c5d7ed1c4b1470985ee1e4c8ee7d7b2e2445152b871a35a"
+        "d6276d87cb6da85dbb9591c13572dfb22af509c38a7adf85eae8ab7b4cdfd26e"
     )
     second = build_plan(current)
     rows = pq.read_table(path).to_pylist()
@@ -1385,7 +1385,7 @@ def test_meta_context_and_application_end_to_end(tmp_path: Path) -> None:
         "rev-parse", "--verify", "HEAD", cwd=model
     )
     expected = hashlib.sha256(
-        b"eqasim-sa:context:v1\0"
+        b"eqasim-sa:context:v2\0"
         + json.dumps(
             loaded.context_descriptor,
             sort_keys=True,
@@ -1463,7 +1463,7 @@ def test_each_context_input_changes_context_hash(
 ) -> None:
     meta, model, _, manifest = meta_fixture(tmp_path)
     baseline = load_meta_config(meta).context_hash
-    manifest.write_text("changed\n")
+    manifest.write_text('{"changed": true}\n')
     assert load_meta_config(meta).context_hash != baseline
     manifest.write_text("{}\n")
     (model / "lock.yml").write_text("changed\n")

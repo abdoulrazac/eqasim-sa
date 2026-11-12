@@ -88,6 +88,7 @@ def test_init_is_a_pure_atomic_template_generator(
     }
     assert {path.name for path in root.iterdir()} == {
         "manifest.json", "README.md", "configs", "campaigns", "scratch",
+        ".gitattributes",
     }
     assert not any((root / "campaigns").iterdir())
     assert not tuple(root.rglob("plan.parquet"))
@@ -195,6 +196,59 @@ def test_init_is_byte_and_mtime_idempotent(
 
     assert result["status"] == "initialized" and repeated["status"] == "unchanged"
     assert {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in states} == states
+
+
+GITATTRIBUTES = (
+    "*.yml text eol=lf\n"
+    "*.yaml text eol=lf\n"
+    "*.json text eol=lf\n"
+    "*.lock text eol=lf\n"
+)
+
+
+def test_init_writes_gitattributes(tmp_path: Path) -> None:
+    _, project, _, _ = initialize(tmp_path)
+
+    assert (project / ".gitattributes").read_text(encoding="utf-8") == GITATTRIBUTES
+    assert (project / ".gitattributes").read_bytes() == GITATTRIBUTES.encode()
+
+
+def test_init_resume_keeps_user_gitattributes(tmp_path: Path) -> None:
+    _, project, model, data = initialize(tmp_path)
+    attributes = project / ".gitattributes"
+    attributes.write_bytes(b"* text=auto\r\n")
+
+    result = init_from_inputs(
+        "my-study", project, model, data, None, invocation()
+    )
+
+    assert result["status"] == "unchanged"
+    assert attributes.read_bytes() == b"* text=auto\r\n"
+
+
+def test_init_resume_restores_missing_gitattributes(tmp_path: Path) -> None:
+    _, project, model, data = initialize(tmp_path)
+    (project / ".gitattributes").unlink()
+
+    result = init_from_inputs(
+        "my-study", project, model, data, None, invocation()
+    )
+
+    assert result["status"] == "unchanged"
+    assert (project / ".gitattributes").read_text(encoding="utf-8") == GITATTRIBUTES
+
+
+def test_init_rejects_symlinked_gitattributes(tmp_path: Path) -> None:
+    _, project, model, data = initialize(tmp_path)
+    attributes = project / ".gitattributes"
+    target = tmp_path / "foreign-attributes"
+    target.write_text("* -text\n", encoding="utf-8")
+    attributes.unlink()
+    make_symlink(attributes, target)
+
+    with pytest.raises(FileExistsError, match="foreign content"):
+        init_from_inputs("my-study", project, model, data, None, invocation())
+    assert target.read_text(encoding="utf-8") == "* -text\n"
 
 
 def test_init_regenerates_only_the_local_manifest(tmp_path: Path) -> None:

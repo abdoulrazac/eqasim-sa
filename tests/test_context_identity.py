@@ -1,6 +1,12 @@
+import hashlib
+
 import pytest
 
-from eqasim_sa.core.context_identity import ExecutionContextIdentity
+from eqasim_sa.core.context_identity import (
+    CONTEXT_DOMAIN,
+    LEGACY_CONTEXT_DOMAIN_V1,
+    ExecutionContextIdentity,
+)
 
 
 def descriptor() -> dict[str, str]:
@@ -37,3 +43,20 @@ def test_execution_context_identity_rejects_noncanonical_bytes_and_hash() -> Non
         )
     with pytest.raises(ValueError, match="does not match"):
         current.require_sha256("0" * 64)
+
+
+def test_context_identity_uses_v2_domain_and_v1_only_for_legacy() -> None:
+    current = ExecutionContextIdentity.from_descriptor(descriptor())
+    legacy = ExecutionContextIdentity.from_descriptor(
+        descriptor(), LEGACY_CONTEXT_DOMAIN_V1
+    )
+
+    assert CONTEXT_DOMAIN == b"eqasim-sa:context:v2\0"
+    assert current.sha256 == hashlib.sha256(
+        CONTEXT_DOMAIN + current.canonical_bytes
+    ).hexdigest()
+    assert legacy.sha256 == hashlib.sha256(
+        b"eqasim-sa:context:v1\0" + current.canonical_bytes
+    ).hexdigest()
+    assert legacy.canonical_bytes == current.canonical_bytes
+    assert legacy.sha256 != current.sha256

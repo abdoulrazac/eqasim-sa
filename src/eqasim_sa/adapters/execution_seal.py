@@ -23,6 +23,7 @@ from eqasim_sa.utils.filesystem import (
     stable_file,
     stable_file_bytes,
 )
+from eqasim_sa.utils.text_identity import lf_bytes
 from eqasim_sa.core.software_identity import (
     SoftwareIdentity,
     verify_software_source_states,
@@ -240,7 +241,9 @@ class ExecutionSeal:
             executable_sha256=executable_sha256,
             invocation=self.invocation,
             model_commit=model_commit,
-            model_config_sha256=hashlib.sha256(self.model_config_bytes).hexdigest(),
+            model_config_sha256=hashlib.sha256(
+                lf_bytes(self.model_config_bytes)
+            ).hexdigest(),
             schema_version=2,
             eqasim_sa_sha256=software_identity.sha256,
         ).canonical_bytes()

@@ -256,7 +256,7 @@ def test_installed_wheel_sobol_plan_fake_runs_and_analysis_end_to_end(
         "eqasimSaVersion": "0.1.0",
     }
     encoded = json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
-    context_hash = hashlib.sha256(b"eqasim-sa:context:v1\0" + encoded).hexdigest()
+    context_hash = hashlib.sha256(b"eqasim-sa:context:v2\0" + encoded).hexdigest()
     design = SobolDesign(
         {"config": {"a": 0}},
         {"a": [0, 1]},
