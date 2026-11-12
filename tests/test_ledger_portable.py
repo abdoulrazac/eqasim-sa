@@ -10,7 +10,7 @@ import pytest
 
 from eqasim_sa.adapters import data_manifest, project_init
 from eqasim_sa.adapters.backends.local import LocalBackend
-from eqasim_sa.adapters.eqasim import workspace
+from eqasim_sa.adapters.eqasim import simulator, workspace
 from eqasim_sa.adapters.fake.simulator import FakeSimulator
 from eqasim_sa.core import (
     analysis_publication,
@@ -22,7 +22,7 @@ from eqasim_sa.core import (
 )
 from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.run import RunSpec, run_one
-from eqasim_sa.utils import filesystem, platform
+from eqasim_sa.utils import filesystem, platform, process_tree
 from tests.conftest import make_symlink
 
 RUN_ID = "a" * 32
@@ -39,6 +39,7 @@ def test_ledger_sources_have_no_posix_only_calls() -> None:
         data_manifest,
         analyze,
         workspace,
+        simulator,
     ):
         src = Path(module.__file__).read_text(encoding="utf-8")
         for token in (
@@ -52,6 +53,18 @@ def test_ledger_sources_have_no_posix_only_calls() -> None:
             "posix_dirfd",
         ):
             assert token not in src, (module.__name__, token)
+
+
+def test_process_group_calls_live_only_in_process_tree() -> None:
+    allowed = {Path(process_tree.__file__).resolve()}
+    sources = Path(process_tree.__file__).resolve().parents[1]
+    assert Path(simulator.__file__).resolve().is_relative_to(sources)
+    for path in sorted(sources.rglob("*.py")):
+        if path.resolve() in allowed:
+            continue
+        src = path.read_text(encoding="utf-8")
+        for token in ("os.killpg", "signal.SIGKILL", "start_new_session"):
+            assert token not in src, (path.name, token)
 
 
 def _record() -> RunRecord:

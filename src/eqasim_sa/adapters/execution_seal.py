@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import shutil
 import stat
 import subprocess
 import threading
@@ -16,6 +17,7 @@ from eqasim_sa.adapters.data_manifest import (
     verify_data_manifest,
     verify_data_tree_state,
 )
+from eqasim_sa.utils import platform
 from eqasim_sa.utils.filesystem import (
     FileState,
     file_state,
@@ -68,6 +70,8 @@ def _regular_state(path: Path) -> FileState:
 
 
 def _path_executable(command: str, root: Path, environment: Mapping[str, str]) -> Path:
+    if platform.IS_WINDOWS:
+        return _windows_path_executable(command, root, environment)
     if "/" in command:
         candidate = Path(command)
         if not candidate.is_absolute():
@@ -89,6 +93,26 @@ def _path_executable(command: str, root: Path, environment: Mapping[str, str]) -
         except OSError:
             continue
     raise FileNotFoundError(f"execution executable is not resolvable: {command}")
+
+
+def _windows_path_executable(
+    command: str, root: Path, environment: Mapping[str, str]
+) -> Path:
+    """Resolve like ``cmd.exe``: ``PATHEXT`` suffixes, relative entries under root."""
+    if os.path.dirname(command):
+        candidate = Path(command)
+        if not candidate.is_absolute():
+            candidate = root / candidate
+        found = shutil.which(str(candidate))
+    else:
+        search = os.pathsep.join(
+            str(Path(part) if Path(part).is_absolute() else root / part)
+            for part in environment.get("PATH", os.defpath).split(os.pathsep)
+        )
+        found = shutil.which(command, path=search)
+    if found is None:
+        raise FileNotFoundError(f"execution executable is not resolvable: {command}")
+    return Path(found).resolve(strict=True)
 
 
 def resolve_invocation(

@@ -3,12 +3,9 @@
 import copy
 import json
 import math
-import os
 import re
-import signal
 import subprocess
 import threading
-import time
 import uuid
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -26,6 +23,7 @@ from eqasim_sa.ports.simulator import (
     ResolvedConfig,
     SimulationError,
 )
+from eqasim_sa.utils.process_tree import ProcessTree
 
 PREFIX = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 OPTION = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -53,8 +51,7 @@ class EqasimSimulator:
             if config_bytes is None
             else bytes(config_bytes)
         )
-        self._processes: set[subprocess.Popen] = set()
-        self._groups: set[int] = set()
+        self._trees: set[ProcessTree] = set()
         self._process_lock = threading.Lock()
         self._interrupted = threading.Event()
         self.workspace = settings.workspace(slot, self._interrupted.is_set)
@@ -65,33 +62,9 @@ class EqasimSimulator:
     def interrupt(self) -> None:
         self._interrupted.set()
         with self._process_lock:
-            processes = tuple(self._processes)
-            groups = tuple(self._groups)
-        for group in groups:
-            try:
-                os.killpg(group, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-        deadline = time.monotonic() + TERMINATION_GRACE_SECONDS
-        for process in processes:
-            try:
-                process.wait(max(0.0, deadline - time.monotonic()))
-            except subprocess.TimeoutExpired:
-                pass
-        remaining = max(0.0, deadline - time.monotonic())
-        if groups and remaining:
-            time.sleep(remaining)
-        for group in groups:
-            try:
-                os.killpg(group, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-        for process in processes:
-            if process.poll() is None:
-                try:
-                    process.wait(timeout=TERMINATION_GRACE_SECONDS)
-                except (ChildProcessError, subprocess.TimeoutExpired):
-                    pass
+            trees = tuple(self._trees)
+        for tree in trees:
+            tree.terminate(TERMINATION_GRACE_SECONDS)
 
     def requirements(
         self, indicators: Sequence[IndicatorRequirement]
@@ -264,52 +237,31 @@ class EqasimSimulator:
         timeout = options.pop("timeout", None)
         if self.execution_seal is not None:
             options["env"] = self.execution_seal.environment
+        tree = ProcessTree()
         with self._process_lock:
             if self._interrupted.is_set():
                 raise KeyboardInterrupt
-            process = subprocess.Popen(command, start_new_session=True, **options)
-            self._processes.add(process)
-            self._groups.add(process.pid)
+            process = tree.start(command, **options)
+            self._trees.add(tree)
         try:
-            stdout, stderr = process.communicate(timeout=timeout)
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                tree.terminate(0.0)
+                raise
             returncode = process.returncode
-            self._terminate_remaining_group(process.pid)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait()
-            raise
         finally:
-            with self._process_lock:
-                self._processes.discard(process)
-                try:
-                    os.killpg(process.pid, 0)
-                except ProcessLookupError:
-                    self._groups.discard(process.pid)
+            # The slot is released by the caller, so every descendant must be
+            # gone before this returns or raises.
+            try:
+                tree.terminate(TERMINATION_GRACE_SECONDS)
+            finally:
+                with self._process_lock:
+                    self._trees.discard(tree)
+                tree.close()
         if self._interrupted.is_set():
             raise KeyboardInterrupt
         return subprocess.CompletedProcess(command, returncode, stdout, stderr)
-
-    @staticmethod
-    def _terminate_remaining_group(group: int) -> None:
-        try:
-            os.killpg(group, 0)
-        except ProcessLookupError:
-            return
-        try:
-            os.killpg(group, signal.SIGTERM)
-        except ProcessLookupError:
-            return
-        deadline = time.monotonic() + TERMINATION_GRACE_SECONDS
-        while time.monotonic() < deadline:
-            try:
-                os.killpg(group, 0)
-            except ProcessLookupError:
-                return
-            time.sleep(0.05)
-        try:
-            os.killpg(group, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
 
 
 def eqasim_requirements(

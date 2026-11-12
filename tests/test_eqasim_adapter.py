@@ -803,3 +803,95 @@ def test_rejects_output_directory_symlink_escaping_attempt(tmp_path: Path) -> No
 
 def option_value(arguments: list[str], name: str) -> str:
     return arguments[arguments.index(name) + 1]
+
+
+def _pid_alive(pid: int) -> bool:
+    from tests.test_process_tree import pid_alive
+
+    return pid_alive(pid)
+
+
+def test_fake_pipeline_interrupt_leaves_slot_reusable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+    import time
+
+    current = settings(tmp_path)
+    record, child = tmp_path / "record.json", tmp_path / "child.pid"
+    monkeypatch.setenv("EQASIM_SPY_RECORD", str(record))
+    monkeypatch.setenv("EQASIM_SPY_CHILD_RECORD", str(child))
+    monkeypatch.setenv("EQASIM_SPY_SLEEP", "60")
+    first = simulator(current)
+    outcome: list[str] = []
+
+    def run() -> None:
+        try:
+            first.simulate(load_config(current.config_path, 42), 42, current.workdir)
+        except KeyboardInterrupt:
+            outcome.append("interrupted")
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    deadline = time.monotonic() + 15
+    while not (child.exists() and record.exists()) and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert child.exists() and record.exists()
+    started = time.monotonic()
+    first.interrupt()
+    thread.join(timeout=15)
+    assert not thread.is_alive() and outcome == ["interrupted"]
+    assert time.monotonic() - started < 15
+    for pid in (json.loads(record.read_text())["pid"], int(child.read_text())):
+        assert not _pid_alive(pid)
+    assert current.workspace(0).status() == "active"
+
+    monkeypatch.delenv("EQASIM_SPY_CHILD_RECORD")
+    monkeypatch.delenv("EQASIM_SPY_SLEEP")
+    second = simulator(current)
+    manifest = second.simulate(
+        load_config(current.config_path, 42), 42, current.workdir
+    )
+    assert manifest.artifacts
+    assert current.workspace(0).status() == "clean"
+
+
+def test_resolve_invocation_searches_path_with_which_on_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from eqasim_sa.adapters import execution_seal
+    from eqasim_sa.utils import platform
+
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    tool = tools / "uv"
+    tool.write_text("", encoding="utf-8")
+    tool.chmod(0o755)
+    seen: list[tuple[str, str | None]] = []
+    real_which = shutil.which
+
+    def which(command: str, mode: int = os.F_OK | os.X_OK, path: str | None = None):  # type: ignore[no-untyped-def]
+        seen.append((command, path))
+        return real_which(command, mode, path)
+
+    monkeypatch.setattr(platform, "IS_WINDOWS", True)
+    monkeypatch.setattr(execution_seal.shutil, "which", which)
+    resolved = execution_seal.resolve_invocation(
+        ["uv", "run"], tmp_path, {"PATH": "tools"}
+    )
+    assert resolved == (str(tool.resolve()), "run")
+    assert seen == [("uv", str(tmp_path / "tools"))]
+    with pytest.raises(FileNotFoundError, match="not resolvable"):
+        execution_seal.resolve_invocation(["missing"], tmp_path, {"PATH": "tools"})
+
+
+@pytest.mark.windows_only
+def test_resolve_invocation_finds_exe_without_suffix(tmp_path: Path) -> None:
+    from eqasim_sa.adapters.execution_seal import resolve_invocation
+
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    (tools / "uv.exe").write_bytes(b"MZ")
+    resolved = resolve_invocation(["uv", "run"], tmp_path, {"PATH": str(tools)})
+    assert resolved[0].lower().endswith("uv.exe")
+    assert resolved[1:] == ("run",)
