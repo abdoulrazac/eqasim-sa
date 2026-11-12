@@ -61,15 +61,12 @@ class EqasimBatchExecutor:
         campaign: str | None = None,
         campaign_root: Path | None = None,
         scratch: Path | None = None,
-        execution_seal=None,  # type: ignore[no-untyped-def]
     ) -> None:
         self.validate(meta)
         self.meta = meta
         self.campaign_root = campaign_root or meta.campaign_root
         self.execution_seal = (
-            execution_seal
-            if execution_seal is not None
-            else create_execution_seal(meta)
+            create_execution_seal(meta)
             if getattr(meta.execution, "data_path", None) is not None
             else None
         )

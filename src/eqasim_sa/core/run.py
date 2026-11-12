@@ -32,6 +32,7 @@ from eqasim_sa.ports.backend import Backend
 from eqasim_sa.ports.simulator import (
     ExecutionEvidence,
     JsonValue,
+    MachineIdentity,
     Manifest,
     ResolvedConfig,
     SimulationError,
@@ -312,13 +313,17 @@ MACHINE_FIELDS = (
 
 
 def require_same_machine(
-    existing: Mapping[str, ExecutionEvidence | None], current: ExecutionEvidence
+    existing: Mapping[str, ExecutionEvidence | None],
+    current: ExecutionEvidence | MachineIdentity | None,
 ) -> None:
     """Refuse to resume a campaign whose runs were executed elsewhere."""
 
     differing = set()
     for evidence in existing.values():
         if evidence is None:
+            continue
+        if current is None:
+            differing.add("execution evidence unavailable")
             continue
         for field in MACHINE_FIELDS:
             recorded = getattr(evidence, field)

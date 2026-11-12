@@ -820,6 +820,9 @@ def test_slurm_callable_preserves_structured_snapshot_without_list_cli(
     resolved["run"] = ["synthesis.output"]
     resolved["config"]["matching_attributes"] = ["sex"]
     resolved["config"]["random_seed"] = 41
+    monkeypatch.setattr(
+        "eqasim_sa.adapters.application.enforce_same_machine", lambda *args: None
+    )
     spec = RunSpec("demo", resolved, 41, context_hash, {"matching_attributes": "reduced"})
     digest = hashlib.sha256(meta_path.read_bytes()).hexdigest()
 

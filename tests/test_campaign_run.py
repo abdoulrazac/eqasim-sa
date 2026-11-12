@@ -1550,8 +1550,8 @@ def test_analysis_does_not_compare_to_local_machine(
     meta, _ = _completed_spy_campaign(tmp_path, monkeypatch)
     monkeypatch.setenv("EQASIM_RUNTIME_OTHER", "machine")
     monkeypatch.setattr(
-        "eqasim_sa.adapters.application.create_execution_seal",
-        lambda *args: (_ for _ in ()).throw(AssertionError("seal created")),
+        "eqasim_sa.adapters.application.current_machine_identity",
+        lambda *args: (_ for _ in ()).throw(AssertionError("identity compared")),
     )
     analyze_from_meta_config(meta)
 
@@ -1583,3 +1583,80 @@ def test_check_reports_same_machine_for_completed_campaign(
     item = _same_machine_item(loaded, specs)
     assert item["status"] == "failed"
     assert "prepare a new campaign on this machine" in item["error"]
+
+
+def test_resume_without_current_evidence_is_refused() -> None:
+    from eqasim_sa.core.run import require_same_machine
+
+    with pytest.raises(ValueError, match="execution evidence unavailable"):
+        require_same_machine({"r": _evidence()}, None)
+
+
+def test_check_does_not_hash_the_data_tree_and_needs_no_data_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from eqasim_sa.adapters import data_manifest
+    from eqasim_sa.adapters.application import _design
+    from eqasim_sa.adapters.checks import _same_machine_item
+    from eqasim_sa.core.plan import load_run_specs
+
+    meta, _ = _completed_spy_campaign(tmp_path, monkeypatch)
+    loaded = load_meta_config(meta)
+    specs = load_run_specs(
+        loaded.campaign_root / "plan.parquet", _design(loaded), loaded.campaign
+    )
+    monkeypatch.setattr(
+        data_manifest,
+        "descriptor_sha256",
+        lambda descriptor: (_ for _ in ()).throw(AssertionError("data hashed")),
+    )
+    loaded = replace(loaded, execution=replace(loaded.execution, data_path=None))
+    assert _same_machine_item(loaded, specs)["status"] == "passed"
+    expired = _same_machine_item(loaded, specs, deadline=time.monotonic() - 1)
+    assert expired["status"] == "failed" and "time budget" in expired["error"]
+
+
+def test_slurm_job_refuses_other_machine_on_the_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from eqasim_sa.adapters.backends import slurm
+    from eqasim_sa.adapters.checks import _same_machine_item
+
+    meta, _ = _completed_spy_campaign(tmp_path, monkeypatch)
+    meta.write_text(meta.read_text().replace('"local"', '"slurm"'))
+    runs = sorted((tmp_path / "campaign" / "runs").glob("*.parquet"))
+    runs[0].unlink()
+    loaded = load_meta_config(meta)
+    assert _same_machine_item(loaded, (object(),))["status"] == "skipped"
+    # The submitter never refuses: only the worker compares.
+    monkeypatch.setenv("EQASIM_RUNTIME_OTHER", "login-node")
+    monkeypatch.setattr(
+        "eqasim_sa.adapters.backends.slurm.SlurmBackend",
+        lambda *args: (_ for _ in ()).throw(RuntimeError("submitted")),
+    )
+    with pytest.raises(RuntimeError, match="submitted"):
+        run_from_meta_config(meta)
+    job = slurm.EqasimSlurmJob(
+        meta.resolve(),
+        loaded.context_hash,
+        hashlib.sha256(meta.read_bytes()).hexdigest(),
+        loaded.eqasim_sa_sha256,
+    )
+    monkeypatch.setattr(
+        slurm,
+        "EqasimBatchExecutor",
+        lambda *args: (_ for _ in ()).throw(AssertionError("executed")),
+    )
+    with pytest.raises(ValueError, match="prepare a new campaign on this machine"):
+        job(WorkerBatch(0, ()))
+
+
+def test_analysis_ignores_invalid_execution_directories(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    meta, _ = _completed_spy_campaign(tmp_path, monkeypatch)
+    shutil.rmtree(tmp_path / "data")
+    (tmp_path / "data").write_text("not a directory")
+    shutil.rmtree(tmp_path / "scratch")
+    (tmp_path / "scratch").write_text("not a directory")
+    analyze_from_meta_config(meta)

@@ -25,9 +25,8 @@ from eqasim_sa.adapters.worker import ordered_results, worker_batches
 from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
 from eqasim_sa.core.indicators import ArtifactSet
 from eqasim_sa.core.plan import load_run_specs, unique_config_seed_pairs
-from eqasim_sa.adapters.execution_seal import create_execution_seal
+from eqasim_sa.adapters.execution_seal import current_machine_identity
 from eqasim_sa.core.run import RunSpec, require_same_machine
-from eqasim_sa.ports.simulator import ExecutionEvidence
 from eqasim_sa.core.software_identity import verify_software_source_states
 from eqasim_sa.utils.filesystem import path_state, resolve_root
 from eqasim_sa.utils import platform
@@ -100,10 +99,16 @@ def _backend_item(meta) -> dict:  # type: ignore[no-untyped-def]
     return {"name": "backend", "status": "passed", "error": None}
 
 
-def _same_machine_item(meta, specs) -> dict:  # type: ignore[no-untyped-def]
+def _same_machine_item(meta, specs, deadline=None) -> dict:  # type: ignore[no-untyped-def]
     name = "same_machine"
     if not specs:
         return {"name": name, "status": "skipped", "error": "no runs in the plan"}
+    if getattr(meta.execution, "backend", "local") == "slurm":
+        return {
+            "name": name,
+            "status": "skipped",
+            "error": "slurm runs are compared on the compute node when the job starts",
+        }
     try:
         existing = CampaignSnapshot.completed_evidence(meta.campaign_root, specs)
         if not any(evidence is not None for evidence in existing.values()):
@@ -112,15 +117,10 @@ def _same_machine_item(meta, specs) -> dict:  # type: ignore[no-untyped-def]
                 "status": "skipped",
                 "error": "no completed runs with execution evidence",
             }
-        if getattr(meta.execution, "data_path", None) is None:
-            return {
-                "name": name,
-                "status": "skipped",
-                "error": "no effective data_path: execution evidence is unavailable",
-            }
-        # Read-only: seals and hashes the current machine, never runs eqasim.
-        seal = create_execution_seal(meta)
-        require_same_machine(existing, ExecutionEvidence.from_bytes(seal.evidence))
+        # Read-only: never hashes the data tree and never runs eqasim.
+        require_same_machine(
+            existing, current_machine_identity(meta, deadline=deadline)
+        )
     except Exception as error:
         return {"name": name, "status": "failed", "error": _safe_error(error)}
     return {"name": name, "status": "passed", "error": None}
@@ -244,7 +244,7 @@ def _static_check(path: Path, calibrations: tuple[Path, ...]):  # type: ignore[n
         if meta is not None and meta.execution is not None:
             checks.append(build(meta))
     if meta is not None and meta.execution is not None and sealed_valid:
-        checks.append(_same_machine_item(meta, specs))
+        checks.append(_same_machine_item(meta, specs, deadline))
 
     try:
         disk_values = disk()

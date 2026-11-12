@@ -40,9 +40,8 @@ from eqasim_sa.core.plan import (
     build_plan,
     load_run_specs,
 )
-from eqasim_sa.adapters.execution_seal import create_execution_seal
+from eqasim_sa.adapters.execution_seal import current_machine_identity
 from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
-from eqasim_sa.ports.simulator import ExecutionEvidence
 from eqasim_sa.core.run import (
     require_same_machine,
     EXCLUDED_PATHS,
@@ -120,6 +119,22 @@ def _warn_sobol_capacity(
         pass
 
 
+def enforce_same_machine(meta, specs=None) -> None:  # type: ignore[no-untyped-def]
+    """Refuse to resume runs executed on another machine.
+
+    ``specs`` defaults to the sealed plan of ``meta`` (used by Slurm workers).
+    """
+
+    if specs is None:
+        design = _design(meta, dict(eqasim_requirements(meta.indicator_requirements)))
+        specs = load_run_specs(
+            meta.campaign_root / "plan.parquet", design, meta.campaign
+        )
+    existing = CampaignSnapshot.completed_evidence(meta.campaign_root, specs)
+    if any(evidence is not None for evidence in existing.values()):
+        require_same_machine(existing, current_machine_identity(meta))
+
+
 def run_from_meta_config(path: Path) -> dict:
     """Resume all pending runs using the configured local or SLURM backend."""
 
@@ -143,14 +158,9 @@ def run_from_meta_config(path: Path) -> dict:
     specs = load_run_specs(meta.campaign_root / "plan.parquet", design, meta.campaign)
     unique_runs = len(specs)
     meta.campaign_root.resolve(strict=True)
-    seal = None
-    existing = CampaignSnapshot.completed_evidence(meta.campaign_root, specs)
-    if (
-        any(evidence is not None for evidence in existing.values())
-        and getattr(meta.execution, "data_path", None) is not None
-    ):
-        seal = create_execution_seal(meta)
-        require_same_machine(existing, ExecutionEvidence.from_bytes(seal.evidence))
+    if meta.execution.backend == "local":
+        # Slurm workers check themselves: the submitter is not the executing machine.
+        enforce_same_machine(meta, specs)
     specs = pending_run_specs(meta.campaign_root, specs)
     if not specs:
         return summarize_runs([], [])
@@ -166,7 +176,7 @@ def run_from_meta_config(path: Path) -> dict:
         )
     specs = _apply_execution_overrides(specs, meta.execution.overrides)
     if meta.execution.backend == "local":
-        executor = EqasimBatchExecutor(meta, execution_seal=seal)
+        executor = EqasimBatchExecutor(meta)
         batches = worker_batches(specs, meta.execution.workers)
         results = ordered_results(
             list(

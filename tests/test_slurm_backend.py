@@ -534,6 +534,9 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
             or RunResult("id", "completed")
         ),
     )
+    monkeypatch.setattr(
+        "eqasim_sa.adapters.application.enforce_same_machine", lambda *args: None
+    )
     spec = RunSpec("demo", {"config": {}}, 1, context_hash, {})
     job = EqasimSlurmJob(
         meta_path, context_hash, meta_sha256, software_identity.sha256

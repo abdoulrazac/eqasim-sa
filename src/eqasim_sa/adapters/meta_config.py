@@ -248,7 +248,7 @@ def _overlap(left: Path, right: Path) -> bool:
 
 
 def _resolved_directory(path: Path, name: str, *, must_exist: bool = True) -> Path:
-    if not must_exist and not os.path.lexists(path):
+    if not must_exist:
         # Analysis may run where the execution directories were never created.
         return Path(os.path.realpath(path))
     absolute = Path(os.path.abspath(path))

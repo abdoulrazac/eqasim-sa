@@ -560,5 +560,9 @@ class EqasimSlurmJob:
             raise ValueError("contextHash changed before remote execution")
         if meta.execution is None or meta.execution.backend != "slurm":
             raise ValueError("remote execution requires execution.backend slurm")
+        from eqasim_sa.adapters.application import enforce_same_machine
+
+        enforce_same_machine(meta)
         executor = EqasimBatchExecutor(meta)
         return executor.execute(batch)
+

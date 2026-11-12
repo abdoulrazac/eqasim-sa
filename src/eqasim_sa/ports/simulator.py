@@ -22,6 +22,18 @@ EXECUTION_EVIDENCE_DOMAIN = EXECUTION_EVIDENCE_V2_DOMAIN
 
 
 @dataclass(frozen=True)
+class MachineIdentity:
+    """The machine-bound subset of ``ExecutionEvidence`` (no data tree hash)."""
+
+    executable_sha256: str
+    environment_sha256: str
+    environment_variables: tuple[str, ...]
+    invocation: tuple[str, ...]
+    model_config_sha256: str
+    eqasim_sa_sha256: str | None
+
+
+@dataclass(frozen=True)
 class ExecutionEvidence:
     """Canonical attestation of model, data, executable, environment, and source."""
 

@@ -6,6 +6,7 @@ import os
 import stat
 import subprocess
 import threading
+import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import MappingProxyType
@@ -31,6 +32,7 @@ from eqasim_sa.core.software_identity import (
 from eqasim_sa.ports.simulator import (
     CHILD_ENVIRONMENT_DOMAIN,
     ExecutionEvidence,
+    MachineIdentity,
 )
 
 VOLATILE_ENVIRONMENT_NAMES = frozenset(
@@ -61,6 +63,17 @@ def normalized_child_environment(
     }
     result.setdefault("PATH", os.defpath)
     return result
+
+
+def child_environment_sha256(child_environment: Mapping[str, str]) -> str:
+    encoded = json.dumps(
+        child_environment,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    ).encode("ascii")
+    return hashlib.sha256(CHILD_ENVIRONMENT_DOMAIN + encoded).hexdigest()
 
 
 def _regular_state(path: Path) -> FileState:
@@ -223,16 +236,7 @@ class ExecutionSeal:
         self._data_state = verify_data_manifest(data_root, manifest)
         self._verify_current(include_data=True)
 
-        encoded_environment = json.dumps(
-            child_environment,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-            allow_nan=False,
-        ).encode("ascii")
-        environment_sha256 = hashlib.sha256(
-            CHILD_ENVIRONMENT_DOMAIN + encoded_environment
-        ).hexdigest()
+        environment_sha256 = child_environment_sha256(child_environment)
         self.evidence = ExecutionEvidence(
             context_hash=context_hash,
             data_tree_sha256=manifest.tree_sha256,
@@ -303,6 +307,43 @@ class ExecutionSeal:
             except Exception as error:
                 self._failure = f"execution provenance guard failed: {error}"
                 raise RuntimeError(self._failure) from error
+
+
+def current_machine_identity(
+    meta,  # type: ignore[no-untyped-def]
+    environment: Mapping[str, str] | None = None,
+    deadline: float | None = None,
+) -> MachineIdentity:
+    """Identify this machine for the fields compared on resume.
+
+    Read-only and cheap: it resolves and hashes the executable but never hashes
+    the data tree and never runs eqasim.
+    """
+
+    if meta.execution is None:
+        raise ValueError("execution section is required for machine identity")
+
+    def check_deadline() -> None:
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeoutError("machine identity time budget exhausted")
+
+    check_deadline()
+    child_environment = normalized_child_environment(
+        os.environ if environment is None else environment
+    )
+    invocation = resolve_invocation(
+        meta.execution.invocation, meta.model_root, child_environment
+    )
+    executable_sha256 = stable_file(Path(invocation[0])).sha256
+    check_deadline()
+    return MachineIdentity(
+        executable_sha256=executable_sha256,
+        environment_sha256=child_environment_sha256(child_environment),
+        environment_variables=tuple(sorted(child_environment)),
+        invocation=invocation,
+        model_config_sha256=hashlib.sha256(lf_bytes(meta.model_bytes)).hexdigest(),
+        eqasim_sa_sha256=meta.software_identity.sha256,
+    )
 
 
 def create_execution_seal(
