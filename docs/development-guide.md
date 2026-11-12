@@ -132,9 +132,16 @@ Inspect and test the newly produced artifacts; do not assume that pre-existing
 - The SLURM backend tested with Submitit doubles and reload contracts.
 - Interruption, resumption, idempotency, and concurrency tests.
 
-The SLURM tests do not demonstrate operation on a real cluster. No CI
-configuration file is claimed here; run the commands locally in the locked
-environment.
+The SLURM tests do not demonstrate operation on a real cluster. The CI workflow
+`.github/workflows/tests.yml` runs the suite on Ubuntu, macOS, and Windows; record
+results in [Platform verification](platform-verification.md). Platform test
+markers: `posix_only`, `windows_only`, and `linux_only` (slurm backend) are skipped
+automatically elsewhere.
+
+Durability note: on macOS, `os.fsync` flushes to the drive but does not force
+`F_FULLFSYNC`, so a power loss may still lose the most recent writes held in the
+drive cache. eqasim-sa does not issue `F_FULLFSYNC`; atomic publication (complete
+or absent) is unaffected.
 
 ## Important invariants
 

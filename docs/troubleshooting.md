@@ -315,7 +315,8 @@ as interrupted and can be resumed with `run`.
 Keep `campaign_root`, `execution.scratch`, and the data on a local NTFS, APFS,
 ext4, or xfs disk, or on the cluster's shared filesystem. FAT/exFAT volumes and SMB
 shares are not supported for campaigns (locks and atomic publication are not
-guaranteed).
+guaranteed). They are not detected either: eqasim-sa does not refuse them, so
+verify where these paths live.
 
 ## Safety warnings
 

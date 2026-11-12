@@ -4,8 +4,8 @@
 
 ## Prérequis
 
-- Windows 10 ou ultérieur, macOS 13 ou ultérieur, ou Linux. Le backend `local` se comporte de la même façon sur les trois ; le backend `slurm` exige Linux (voir le [dépannage](troubleshooting.md#backend-slurm-sous-windows-ou-macos)). Aucun droit administrateur n'est nécessaire, sauf sous Windows sans chemins longs, où un run eqasim réel exige qu'un administrateur les active une fois (voir [Scratch court sous Windows](#scratch-court-sous-windows)).
-- Campagnes, scratch et données sur un disque local NTFS, APFS, ext4 ou xfs, ou sur le système de fichiers partagé du cluster. Les volumes FAT/exFAT et les partages SMB ne sont pas pris en charge pour les campagnes.
+- Windows 10 ou ultérieur, macOS 13 ou ultérieur, ou Linux (pris en charge ; vérification sous Windows et macOS en attente, voir la [vérification des plateformes](../docs/platform-verification.md)). Le backend `local` se comporte de la même façon sur les trois ; le backend `slurm` exige Linux (voir le [dépannage](troubleshooting.md#backend-slurm-sous-windows-ou-macos)). Aucun droit administrateur n'est nécessaire, sauf sous Windows sans chemins longs, où un run eqasim réel exige qu'un administrateur les active une fois (voir [Scratch court sous Windows](#scratch-court-sous-windows)).
+- Campagnes, scratch et données sur un disque local NTFS, APFS, ext4 ou xfs, ou sur le système de fichiers partagé du cluster. Les volumes FAT/exFAT et les partages SMB ne sont pas pris en charge pour les campagnes (non détectés : eqasim-sa ne les refuse pas, vérifiez donc où se trouvent vos chemins).
 - Python 3.13 exactement dans la plage déclarée `>=3.13,<3.14`.
 - `uv` et Git disponibles.
 - Un dépôt eqasim propre, avec un commit `HEAD`, un YAML suivi par Git et un `uv.lock`.

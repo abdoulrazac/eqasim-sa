@@ -4,8 +4,8 @@
 
 ## Prerequisites
 
-- Windows 10 or later, macOS 13 or later, or Linux. The `local` backend behaves the same on all three; the `slurm` backend requires Linux (see [Troubleshooting](troubleshooting.md#slurm-backend-on-windows-or-macos)). No administrator rights are needed, except on Windows without long paths, where a real eqasim run needs an administrator to enable them once (see [Short scratch on Windows](#short-scratch-on-windows)).
-- Campaigns, scratch, and data on a local NTFS, APFS, ext4, or xfs disk, or on the cluster's shared filesystem. FAT/exFAT volumes and SMB shares are not supported for campaigns.
+- Windows 10 or later, macOS 13 or later, or Linux (supported; verification on Windows and macOS is pending, see [Platform verification](platform-verification.md)). The `local` backend behaves the same on all three; the `slurm` backend requires Linux (see [Troubleshooting](troubleshooting.md#slurm-backend-on-windows-or-macos)). No administrator rights are needed, except on Windows without long paths, where a real eqasim run needs an administrator to enable them once (see [Short scratch on Windows](#short-scratch-on-windows)).
+- Campaigns, scratch, and data on a local NTFS, APFS, ext4, or xfs disk, or on the cluster's shared filesystem. FAT/exFAT volumes and SMB shares are not supported for campaigns (not detected: eqasim-sa does not refuse them, so check where your paths live).
 - Exactly Python 3.13 within the declared range `>=3.13,<3.14`.
 - `uv` and Git available.
 - A clean eqasim repository with a `HEAD` commit, a YAML file tracked by Git, and a `uv.lock`.

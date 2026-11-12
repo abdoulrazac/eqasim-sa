@@ -12,7 +12,7 @@ Command: `uv run --extra test pytest -q` (or the CI workflow
 No Windows or macOS result is claimed here. Record each result in the table
 above when it is obtained.
 
-Linux notes: the two skipped tests are the `windows_only` tests (skipped
+Linux notes: the skipped tests are the `windows_only` tests (skipped
 automatically on other systems). A first full run showed two timeouts (10 s) in
 `tests/test_campaign_run.py::test_real_sigint_returns_130_and_reaps_owned_descendants`
 and `tests/test_distribution.py::test_installed_campaign_interrupts_resumes_then_is_noop`
@@ -29,10 +29,13 @@ and the second full run was entirely green.
   group inside a Job Object, and Ctrl+C handling must leave no descendant.
 - `tests/test_platform.py`: locks, atomic replace with bounded retries, links and
   junctions, fsync, long-path behavior.
-- `tests/test_fake_run_e2e.py` and the real-SIGINT tests
-  (`test_real_sigint_returns_130_and_reaps_owned_descendants`,
-  `test_installed_campaign_interrupts_resumes_then_is_noop`): end-to-end run,
-  interrupt, and resume.
+- `tests/test_fake_run_e2e.py` and
+  `test_real_ctrl_break_interrupts_and_leaves_no_descendants` (Windows
+  counterpart of the POSIX-only real-SIGINT tests): end-to-end run and
+  interruption with no surviving descendant.
+- `tests/test_slurm_backend.py` is skipped as a module on Windows, and
+  `linux_only` slurm-backend campaign tests are skipped on Windows and macOS:
+  confirm the skip reasons.
 - Symbolic-link tests are skipped when link creation is not permitted (no
   developer mode): confirm the skip reasons, not failures.
 

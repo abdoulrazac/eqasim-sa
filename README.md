@@ -40,14 +40,18 @@ ranks and tolerance classification. Convergence tables report
 evidence at declared sample sizes; they do not automatically declare stopping
 criteria satisfied.
 
-The package targets exactly Python 3.13 (`>=3.13,<3.14`) and runs natively on
-Windows 10+, macOS 13+, and Linux, installed with `uv` and without administrator
-rights (on Windows:
-`powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`).
-The `local` backend works on all three; the `slurm` backend requires Linux. A
-campaign runs entirely on one machine; analysis can be done on another one. See
-[Getting started](docs/getting-started.md) and
+The package targets exactly Python 3.13 (`>=3.13,<3.14`). Windows 10+, macOS
+13+, and Linux are supported natively, installed with `uv` and without
+administrator rights (on Windows:
+`powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`);
+verification on Windows and macOS is pending, see
+[Platform verification](docs/platform-verification.md). On Windows without long
+paths, a real eqasim run needs an administrator to enable them once (eqasim's own
+cache exceeds 260 characters). The `local` backend works on all three; the
+`slurm` backend requires Linux. A campaign runs entirely on one machine; analysis
+can be done on another one. See [Getting started](docs/getting-started.md) and
 [Troubleshooting](docs/troubleshooting.md) (Windows path length, line endings).
+The shell examples below are Bash; on Windows, run them from Git Bash.
 From this directory:
 
 ```bash

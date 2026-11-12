@@ -104,8 +104,10 @@ protocole Nantes reel a ete planifie ou execute.
 
 ## Plateformes et domaines de hash
 
-`eqasim-sa` fonctionne nativement sous Windows 10+, macOS 13+ et Linux avec le
-backend `local` ; `slurm` est réservé à Linux. Il n'y a pas de compatibilité
+`eqasim-sa` prend en charge nativement Windows 10+, macOS 13+ et Linux avec le
+backend `local` (vérification sous Windows et macOS en attente, voir la
+[vérification des plateformes](../docs/platform-verification.md)) ; `slurm` est
+réservé à Linux. Il n'y a pas de compatibilité
 ascendante pour les hash dont les octets ont changé : ces domaines sont désormais
 en `v2`, et les nouveaux plans les utilisent :
 

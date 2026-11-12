@@ -328,7 +328,9 @@ fichiers ouverts dans le scratch. Le run est enregistré comme interrompu et peu
 Gardez `campaign_root`, `execution.scratch` et les données sur un disque local
 NTFS, APFS, ext4 ou xfs, ou sur le système de fichiers partagé du cluster. Les
 volumes FAT/exFAT et les partages SMB ne sont pas pris en charge pour les
-campagnes (verrous et publication atomique non garantis).
+campagnes (verrous et publication atomique non garantis). Ils ne sont pas non
+plus détectés : eqasim-sa ne les refuse pas, vérifiez donc où se trouvent ces
+chemins.
 
 ## Avertissements de sécurité
 

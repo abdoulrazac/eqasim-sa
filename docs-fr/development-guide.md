@@ -131,9 +131,17 @@ répertoires `build/` ou `dist/` préexistants reflètent la source actuelle.
 - Backend SLURM testé avec doubles Submitit et contrats de rechargement.
 - Tests d'interruption, reprise, idempotence et concurrence.
 
-Les tests SLURM ne démontrent pas le fonctionnement sur un cluster réel. Aucun
-fichier de configuration CI n'est revendiqué ici; exécutez les commandes
-localement dans l'environnement verrouillé.
+Les tests SLURM ne démontrent pas le fonctionnement sur un cluster réel. Le
+workflow CI `.github/workflows/tests.yml` exécute la suite sous Ubuntu, macOS et
+Windows ; consignez les résultats dans la
+[vérification des plateformes](../docs/platform-verification.md). Marqueurs de
+plateforme : `posix_only`, `windows_only` et `linux_only` (backend slurm) sont
+ignorés automatiquement ailleurs.
+
+Note de durabilité : sous macOS, `os.fsync` vide vers le disque mais ne force pas
+`F_FULLFSYNC` ; une coupure de courant peut donc encore perdre les dernières
+écritures retenues dans le cache du disque. eqasim-sa n'émet pas `F_FULLFSYNC` ;
+la publication atomique (complète ou absente) n'est pas affectée.
 
 ## Invariants importants
 

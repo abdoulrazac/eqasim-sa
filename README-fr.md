@@ -43,15 +43,20 @@ FP/FF et de la classification de tolérance. Les tables de
 convergence apportent des éléments aux tailles déclarées sans déclarer
 automatiquement les critères d'arrêt satisfaits.
 
-Le paquet cible exactement Python 3.13 (`>=3.13,<3.14`) et fonctionne
-nativement sous Windows 10+, macOS 13+ et Linux, installé avec `uv` et sans
+Le paquet cible exactement Python 3.13 (`>=3.13,<3.14`). Windows 10+, macOS 13+
+et Linux sont pris en charge nativement, avec une installation par `uv` sans
 droits administrateur (sous Windows :
-`powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`).
-Le backend `local` fonctionne sur les trois ; le backend `slurm` exige Linux. Une
-campagne s'exécute entièrement sur une seule machine ; l'analyse peut se faire
-sur une autre. Voir le [démarrage](docs-fr/getting-started.md) et le
+`powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`) ;
+la vérification sous Windows et macOS est en attente, voir la
+[vérification des plateformes](docs/platform-verification.md). Sous Windows sans
+chemins longs, un run eqasim réel exige qu'un administrateur les active une fois
+(le cache d'eqasim dépasse à lui seul 260 caractères). Le backend `local`
+fonctionne sur les trois ; le backend `slurm` exige Linux. Une campagne
+s'exécute entièrement sur une seule machine ; l'analyse peut se faire sur une
+autre. Voir le [démarrage](docs-fr/getting-started.md) et le
 [dépannage](docs-fr/troubleshooting.md) (longueur de chemin Windows, fins de
-ligne). Depuis ce répertoire :
+ligne). Les exemples shell ci-dessous sont en Bash ; sous Windows, lancez-les
+depuis Git Bash. Depuis ce répertoire :
 
 ```bash
 uv sync --extra test --locked

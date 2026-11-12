@@ -2,8 +2,9 @@
 
 ## Unreleased
 
-- Runs natively on Windows 10+, macOS 13+, and Linux (Python 3.13 via uv, no
-  administrator rights) with the `local` backend; the `slurm` backend remains
+- Supports Windows 10+, macOS 13+, and Linux natively (Python 3.13 via uv, no
+  administrator rights) with the `local` backend; verification on Windows and
+  macOS is pending (see `docs/platform-verification.md`); the `slurm` backend remains
   Linux only and is refused early by `check` and `run` elsewhere. Exception: on
   Windows without long paths no scratch fits eqasim's own cache, so a real
   eqasim run needs an administrator to enable `LongPathsEnabled` once (or an
@@ -26,7 +27,6 @@
   distribution hash domains to `v2` (no backward compatibility; legacy v1 plans
   remain descriptive only).
 - Adds a multi-OS CI workflow and `docs/platform-verification.md`.
-
 - Declares the project under GPL-2.0-only and adds bilingual contribution
   guidance and package README metadata.
 - Adds generic named structured-list factors for Grid, historical Sobol, and

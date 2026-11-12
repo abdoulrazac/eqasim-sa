@@ -26,7 +26,8 @@ retained factors.
 
 ## Platforms
 
-The protocol is rendered and run the same way on Windows, macOS, and Linux. On
+The protocol is rendered and run the same way on Windows, macOS, and Linux. The
+command examples below are Bash; on Windows, run them from Git Bash. On
 Windows, `execution.scratch` must be very short (for example `C:\esa`), and
 because eqasim's own cache creates relative paths of up to 231 characters,
 Nantes cannot fit in 260 characters unless Windows long paths

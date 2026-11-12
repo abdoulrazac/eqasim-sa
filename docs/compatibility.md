@@ -86,8 +86,9 @@ excluded from FP/FF decision ranks.
 
 ## Platforms and hash domains
 
-`eqasim-sa` runs natively on Windows 10+, macOS 13+, and Linux with the `local`
-backend; `slurm` is Linux only. There is no backward compatibility for hashes whose
+`eqasim-sa` supports Windows 10+, macOS 13+, and Linux natively with the `local`
+backend (verification on Windows and macOS is pending, see
+[Platform verification](platform-verification.md)); `slurm` is Linux only. There is no backward compatibility for hashes whose
 bytes changed: these domains are now `v2`, and new plans use them:
 
 | Domain | Current |
