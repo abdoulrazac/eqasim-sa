@@ -372,6 +372,35 @@ def test_init_rerun_accepts_user_created_campaign_state(
     } == protected
 
 
+@pytest.mark.parametrize("windows", [False, True])
+def test_init_rerun_private_mode_check_is_posix_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, windows: bool
+) -> None:
+    # Windows reports 0o666 (or 0o444) for every regular file, so the POSIX
+    # "private file" mode test cannot apply there, like the owner check.
+    from eqasim_sa.utils import platform
+
+    _, root, model, data = initialize(tmp_path, "project")
+    campaign = root / "campaigns/grid"
+    campaign.mkdir()
+    run_id = "a" * 32
+    pq.write_table(pa.table({"runId": [run_id]}), campaign / "plan.parquet")
+    run_locks = campaign / ".eqasim-sa" / "locks" / "runs"
+    run_locks.mkdir(parents=True)
+    run_lock = run_locks / f"{run_id}.lock"
+    run_lock.write_bytes(b"")
+    run_lock.chmod(0o666)
+    monkeypatch.setattr(platform, "IS_WINDOWS", windows)
+
+    if windows:
+        result = init_from_inputs("project", root, model, data, None, invocation())
+        assert result["status"] == "unchanged"
+    else:
+        with pytest.raises(FileExistsError, match="locks/runs/"):
+            init_from_inputs("project", root, model, data, None, invocation())
+    assert run_lock.is_file()
+
+
 @pytest.mark.parametrize("analysis_state_name", ["analysis", ".eqasim-sa-analysis"])
 def test_init_reports_the_inspected_analysis_state_name(
     tmp_path: Path, analysis_state_name: str,

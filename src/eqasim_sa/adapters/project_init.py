@@ -112,7 +112,9 @@ def _regular(path: Path, description: str, private: bool = False) -> None:
         not stat.S_ISREG(info.st_mode)
         or not owned_by_current_user(info)
         or info.st_nlink != 1
-        or private and stat.S_IMODE(info.st_mode) & 0o077
+        or private
+        and not platform.IS_WINDOWS
+        and stat.S_IMODE(info.st_mode) & 0o077
     ):
         raise FileExistsError(f"foreign content in init project: {description}")
 
