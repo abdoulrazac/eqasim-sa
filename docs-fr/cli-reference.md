@@ -70,7 +70,8 @@ d'environnement utilise au plus 20 secondes de ce budget.
 `--smoke` n'est pas statique. Si les contrôles précédents passent, il exécute
 deux runs eqasim temporaires réels avec les deux premières seeds distinctes et
 `sampling_rate: 0.001`, valide leurs marqueurs et leurs Parquet, puis supprime le
-répertoire temporaire. Il exige `sampling_rate` et deux seeds explicites. Il
+répertoire temporaire. Ce répertoire est `<execution.scratch>/.smoke-<8 hex>/` :
+l'estimation `path_length` couvre donc aussi les runs du smoke. Il exige `sampling_rate` et deux seeds explicites. Il
 n'applique pas `execution.overrides` : sa configuration de départ est le YAML
 modèle scellé. Ainsi, `execution.overrides.data_path` est ignoré par le smoke et
 le `data_path` du modèle doit être utilisable depuis la machine qui lance le test.

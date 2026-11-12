@@ -221,7 +221,8 @@ ni consigne de contrôle ni estimation du bruit intrinsèque sans restriction.
 Cause : `check` estime le chemin le plus long qu'eqasim créera comme la longueur
 de `execution.scratch`, plus le préfixe worker de cette campagne
 (`esa/<campagne>/w<slot>/a<12 hex>/`, avec le nom réel de la campagne et un slot
-de 4 chiffres), plus un budget de 240 caractères pour les chemins relatifs propres
+de 4 chiffres, ou la disposition de `check --smoke`
+`.smoke-<8 hex>/s/esa/smoke/w<slot>/a<12 hex>/` si elle est plus longue), plus un budget de 240 caractères pour les chemins relatifs propres
 à eqasim. Ce budget a été mesuré sur un vrai run Nantes : le cache d'eqasim crée
 des chemins relatifs allant jusqu'à 231 caractères (archive IGN IRIS extraite dans
 `data.spatial.iris`).

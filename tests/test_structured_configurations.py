@@ -847,6 +847,8 @@ def test_public_smoke_check_preserves_structured_snapshot_without_list_cli(
     fixture.interrupt()
     campaign = tmp_path / "campaign"
     campaign.mkdir()
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
     mapping = {
         "matching_attributes": {
             "default": ["sex", "any_cars"],
@@ -859,7 +861,7 @@ def test_public_smoke_check_preserves_structured_snapshot_without_list_cli(
         model_config=tmp_path / "model" / "config.yml",
         campaign_root=campaign,
         model_root=tmp_path / "model",
-        execution=SimpleNamespace(invocation=("ignored",)),
+        execution=SimpleNamespace(invocation=("ignored",), scratch=scratch),
         model_document=base,
         model_bytes=(tmp_path / "model" / "config.yml").read_bytes(),
         structured_factors=mapping,

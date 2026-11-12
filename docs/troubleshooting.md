@@ -216,7 +216,8 @@ instruction to control seeds and not an estimate of unrestricted intrinsic noise
 Cause: `check` estimates the longest path eqasim will create as the length of
 `execution.scratch`, plus the worker prefix for this campaign
 (`esa/<campaign>/w<slot>/a<12 hex>/`, with the real campaign name and a 4-digit
-slot), plus a budget of 240 characters for eqasim's own relative paths. That
+slot, or the `check --smoke` layout `.smoke-<8 hex>/s/esa/smoke/w<slot>/a<12 hex>/`
+when that one is longer), plus a budget of 240 characters for eqasim's own relative paths. That
 budget was measured on a real Nantes run: eqasim's cache creates relative paths of
 up to 231 characters (the extracted IGN IRIS archive in `data.spatial.iris`).
 

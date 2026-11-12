@@ -73,7 +73,8 @@ uses at most 20 seconds of that budget.
 `--smoke` is not static. If the preceding checks pass, it executes two real,
 temporary eqasim runs with the first two distinct seeds and
 `sampling_rate: 0.001`, validates their markers and Parquet files, then deletes
-the temporary directory. It requires `sampling_rate` and two explicit seeds. It
+the temporary directory. That directory is `<execution.scratch>/.smoke-<8 hex>/`,
+so the `path_length` estimate covers the smoke runs too. It requires `sampling_rate` and two explicit seeds. It
 does not apply `execution.overrides`: its starting configuration is the sealed
 model YAML. Consequently, `execution.overrides.data_path` is ignored by the
 smoke test, and the model's `data_path` must be usable from the machine running

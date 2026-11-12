@@ -459,6 +459,8 @@ def test_smoke_applies_run_overrides_and_computes_every_indicator(
 
     target = tmp_path / "target"
     target.mkdir()
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
     config = {
         "working_directory": "/ignored",
         "run": ["synthesis.output", "analysis.synthesis.population"],
@@ -491,6 +493,7 @@ def test_smoke_applies_run_overrides_and_computes_every_indicator(
             invocation=("spy",),
             overrides={"data_path": override_data},
             data_path=None,
+            scratch=scratch,
         ),
         model_document=config,
         model_bytes=b"x",
@@ -571,8 +574,15 @@ def test_smoke_applies_run_overrides_and_computes_every_indicator(
         (2, 0.001, str(override_data)),
     ]
     assert len(simulators) == 1 and simulators[0].interrupted
+    # The smoke runs below execution.scratch, where path_length estimated them,
+    # and leave nothing behind.
+    assert all(
+        workdir.relative_to(scratch).parts[0].startswith(".smoke-")
+        for _, _, _, workdir in seen
+    )
     assert all(not workdir.parents[2].exists() for _, _, _, workdir in seen)
     assert not tuple(target.iterdir())
+    assert not tuple(scratch.iterdir())
 
 
 def _static_payload(
@@ -643,9 +653,10 @@ def test_path_length_says_no_windows_scratch_fits_the_eqasim_cache(
     monkeypatch.setattr(platform, "windows_long_paths_enabled", lambda: False)
     monkeypatch.setattr(check_service, "resolve_root", lambda path, name: Path("C:\\"))
     item = _entry(_static_payload(tmp_path, monkeypatch, tmp_path), "path_length")
-    # "C:\\" + "/esa/demo/w9999/a<12 hex>" + eqasim's 240-character cache budget.
+    # "C:\\" + "/.smoke-<8 hex>/s/esa/smoke/w9999/a<12 hex>" (the smoke layout is
+    # longer than "/esa/demo/...") + eqasim's 240-character cache budget.
     assert item["status"] == "failed"
-    assert item["error"].startswith("estimated path length 272 exceeds")
+    assert item["error"].startswith("estimated path length 291 exceeds")
     assert "no execution.scratch can fit" in item["error"]
     assert "LongPathsEnabled, a one-time administrator action" in item["error"]
     assert "shorter paths" in item["error"]
@@ -660,9 +671,9 @@ def test_path_length_suggests_a_scratch_only_when_one_fits(
     monkeypatch.setattr(check_service, "EQASIM_RELATIVE_PATH_BUDGET", 200)
     payload = _static_payload(tmp_path, monkeypatch, _deep_scratch(tmp_path))
     item = _entry(payload, "path_length")
-    # 260 - (len("/esa/demo/w9999/a<12 hex>") = 29) - 200 = 31 characters left.
+    # 260 - (len("/.smoke-<8 hex>/s/esa/smoke/w9999/a<12 hex>") = 48) - 200 = 12.
     assert item["status"] == "failed"
-    assert item["error"].endswith("choose an execution.scratch of at most 31 characters.")
+    assert item["error"].endswith("choose an execution.scratch of at most 12 characters.")
     assert "LongPathsEnabled" not in item["error"]
 
 
@@ -670,10 +681,21 @@ def test_path_length_estimate_uses_the_campaign_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(check_service, "resolve_root", lambda path, name: Path("C:\\esa"))
-    short = check_service.estimate_max_path_length(tmp_path, "a")
+    short = check_service.estimate_max_path_length(tmp_path, "a" * 40)
     long = check_service.estimate_max_path_length(tmp_path, "a" * 64)
-    assert long - short == 63
-    assert short == len("C:\\esa") + len("/esa/a/w9999/a") + 12 + 240
+    assert long - short == 24
+    assert long == len("C:\\esa") + len("/esa/" + "a" * 64 + "/w9999/a") + 12 + 240
+
+
+def test_path_length_estimate_covers_the_smoke_layout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(check_service, "resolve_root", lambda path, name: Path("C:\\esa"))
+    smoke = "/.smoke-12345678/s/esa/smoke/w9999/a" + "0" * 12
+    for campaign in ("a", "demo"):
+        assert check_service.estimate_max_path_length(tmp_path, campaign) == (
+            len("C:\\esa") + len(smoke) + 240
+        )
 
 
 def test_path_length_passes_on_windows_with_long_paths(

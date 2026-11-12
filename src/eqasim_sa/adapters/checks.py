@@ -5,8 +5,8 @@ import math
 import re
 import shutil
 import sys
-import tempfile
 import time
+import uuid
 from pathlib import Path
 
 import pyarrow.parquet as pq
@@ -44,14 +44,26 @@ POSIX_PATH_LIMIT = 4096
 # 231 characters (data.spatial.iris__<32 hex>.cache/CONTOURS-IRIS-PE_.../
 # EMPRISE/EMPRISE.shx, from the extracted IGN IRIS archive), plus 9 margin.
 EQASIM_RELATIVE_PATH_BUDGET: int = 240
+# check --smoke runs below execution.scratch, in
+# <scratch>/.smoke-<8 hex>/{c,s}, as campaign "smoke" with its own worker slots.
+SMOKE_CAMPAIGN = "smoke"
+_SMOKE_DIRECTORY_PREFIX = ".smoke-"
+_SMOKE_SCRATCH_PREFIX_LENGTH = len(f"/{_SMOKE_DIRECTORY_PREFIX}12345678/s")
 
 
 def _relative_path_budget(campaign: str) -> int:
-    return workspace_prefix_length(campaign) + EQASIM_RELATIVE_PATH_BUDGET
+    worker_prefix = max(
+        workspace_prefix_length(campaign),
+        _SMOKE_SCRATCH_PREFIX_LENGTH + workspace_prefix_length(SMOKE_CAMPAIGN),
+    )
+    return worker_prefix + EQASIM_RELATIVE_PATH_BUDGET
 
 
 def estimate_max_path_length(scratch: Path, campaign: str) -> int:
-    """Estimate the longest path eqasim will create below ``scratch``."""
+    """Estimate the longest path eqasim will create below ``scratch``.
+
+    Covers both the campaign's own workers and the ``check --smoke`` runs.
+    """
     return len(str(resolve_root(scratch, "execution.scratch"))) + _relative_path_budget(
         campaign
     )
@@ -323,112 +335,115 @@ def _smoke(meta, specs) -> None:  # type: ignore[no-untyped-def]
     specs = _apply_execution_overrides(
         tuple(specs), getattr(meta.execution, "overrides", {})
     )
-    temporary_parent = Path(tempfile.gettempdir()).resolve(strict=True)
-    target = meta.campaign_root.resolve(strict=True)
-    if temporary_parent == target or temporary_parent.is_relative_to(target):
-        temporary_parent = target.parent
-    with tempfile.TemporaryDirectory(
-        prefix="eqasim-sa-smoke-", dir=temporary_parent
-    ) as parent:
-        owned = Path(parent)
-        campaign_root, scratch = owned / "campaign", owned / "scratch"
-        scratch.mkdir()
-        executor = EqasimBatchExecutor(
-            meta,
-            campaign="smoke",
-            campaign_root=campaign_root,
-            scratch=scratch,
+    # Below execution.scratch so that the path_length estimate covers it.
+    configured_scratch = resolve_root(meta.execution.scratch, "execution.scratch")
+    owned = configured_scratch / f"{_SMOKE_DIRECTORY_PREFIX}{uuid.uuid4().hex[:8]}"
+    owned.mkdir()
+    try:
+        _smoke_in(meta, seeds, specs, owned)
+    finally:
+        platform.remove_tree(owned)
+
+
+def _smoke_in(meta, seeds, specs, owned: Path) -> None:  # type: ignore[no-untyped-def]
+    campaign_root, scratch = owned / "c", owned / "s"
+    scratch.mkdir()
+    executor = EqasimBatchExecutor(
+        meta,
+        campaign=SMOKE_CAMPAIGN,
+        campaign_root=campaign_root,
+        scratch=scratch,
+    )
+    first = specs[0]
+    smoke_specs = []
+    for seed in seeds[:2]:
+        config = json.loads(json.dumps(first.resolved_config))
+        config["config"]["sampling_rate"] = 0.001
+        config["config"]["random_seed"] = seed
+        smoke_specs.append(
+            RunSpec(
+                "smoke",
+                config,
+                seed,
+                first.expected_context_hash,
+                {**first.parameters, "sampling_rate": 0.001},
+            )
         )
-        first = specs[0]
-        smoke_specs = []
-        for seed in seeds[:2]:
-            config = json.loads(json.dumps(first.resolved_config))
-            config["config"]["sampling_rate"] = 0.001
-            config["config"]["random_seed"] = seed
-            smoke_specs.append(
-                RunSpec(
-                    "smoke",
-                    config,
-                    seed,
-                    first.expected_context_hash,
-                    {**first.parameters, "sampling_rate": 0.001},
-                )
-            )
-        try:
-            batches = worker_batches(smoke_specs, 1)
-            results = ordered_results(
-                [executor.execute(batches[0])], len(smoke_specs)
-            )
-            if any(result.status != "completed" for result in results):
-                details = []
-                for result in results:
-                    message = (
-                        _smoke_log(campaign_root, result.run_id)
-                        or result.error
-                        or result.status
-                    )
-                    details.append(f"{result.run_id}: {message}")
-                raise RuntimeError("; ".join(details))
-            expected_ids = {result.run_id for result in results}
-            if (
-                CampaignSnapshot.completed_specs(campaign_root, tuple(smoke_specs))
-                != expected_ids
-            ):
-                details = [
-                    f"{run_id}: {_smoke_log(campaign_root, run_id) or 'incomplete marker'}"
-                    for run_id in sorted(expected_ids)
-                ]
-                raise RuntimeError("; ".join(details))
+    try:
+        batches = worker_batches(smoke_specs, 1)
+        results = ordered_results(
+            [executor.execute(batches[0])], len(smoke_specs)
+        )
+        if any(result.status != "completed" for result in results):
+            details = []
             for result in results:
-                archive = campaign_root / "archives" / result.run_id
-                entries = (
-                    tuple(archive.iterdir())
-                    if archive.is_dir() and not platform.is_link(archive)
-                    else ()
+                message = (
+                    _smoke_log(campaign_root, result.run_id)
+                    or result.error
+                    or result.status
                 )
-                requested = set(
-                    result
-                    for stage in smoke_specs[0].resolved_config["run"]
-                    for result in (
-                        {
-                            "synthesis.output": POPULATION,
-                            "analysis.synthesis.population": ANALYSIS,
-                        }[stage]
-                    )
+                details.append(f"{result.run_id}: {message}")
+            raise RuntimeError("; ".join(details))
+        expected_ids = {result.run_id for result in results}
+        if (
+            CampaignSnapshot.completed_specs(campaign_root, tuple(smoke_specs))
+            != expected_ids
+        ):
+            details = [
+                f"{run_id}: {_smoke_log(campaign_root, run_id) or 'incomplete marker'}"
+                for run_id in sorted(expected_ids)
+            ]
+            raise RuntimeError("; ".join(details))
+        for result in results:
+            archive = campaign_root / "archives" / result.run_id
+            entries = (
+                tuple(archive.iterdir())
+                if archive.is_dir() and not platform.is_link(archive)
+                else ()
+            )
+            requested = set(
+                result
+                for stage in smoke_specs[0].resolved_config["run"]
+                for result in (
+                    {
+                        "synthesis.output": POPULATION,
+                        "analysis.synthesis.population": ANALYSIS,
+                    }[stage]
                 )
-                expected = {f"{name}.parquet" for name in requested}
-                if {item.name for item in entries} != expected or any(
-                    platform.is_link(item) or not item.is_file() for item in entries
-                ):
-                    message = (
-                        _smoke_log(campaign_root, result.run_id)
-                        or "incomplete archive"
+            )
+            expected = {f"{name}.parquet" for name in requested}
+            if {item.name for item in entries} != expected or any(
+                platform.is_link(item) or not item.is_file() for item in entries
+            ):
+                message = (
+                    _smoke_log(campaign_root, result.run_id)
+                    or "incomplete archive"
+                )
+                raise RuntimeError(
+                    f"{result.run_id}: {message}"
+                )
+            states = tuple((item, path_state(item)) for item in entries)
+            for item in entries:
+                pq.ParquetFile(item).metadata
+            if states != tuple((item, path_state(item)) for item in entries):
+                raise RuntimeError(
+                    f"{result.run_id}: smoke archive mutated while validating"
+                )
+            artifacts = ArtifactSet({item.stem: item for item in entries})
+            for indicator in getattr(meta, "indicators", ()):
+                try:
+                    value = indicator.compute(artifacts)
+                except Exception as error:
+                    raise ValueError(
+                        f"{result.run_id}: smoke indicator {indicator.name!r}: {error}"
+                    ) from error
+                if type(value) is not float or not math.isfinite(value):
+                    raise ValueError(
+                        f"{result.run_id}: smoke indicator {indicator.name!r} "
+                        "must return a finite float"
                     )
-                    raise RuntimeError(
-                        f"{result.run_id}: {message}"
-                    )
-                states = tuple((item, path_state(item)) for item in entries)
-                for item in entries:
-                    pq.ParquetFile(item).metadata
-                if states != tuple((item, path_state(item)) for item in entries):
-                    raise RuntimeError(
-                        f"{result.run_id}: smoke archive mutated while validating"
-                    )
-                artifacts = ArtifactSet({item.stem: item for item in entries})
-                for indicator in getattr(meta, "indicators", ()):
-                    try:
-                        value = indicator.compute(artifacts)
-                    except Exception as error:
-                        raise ValueError(
-                            f"{result.run_id}: smoke indicator {indicator.name!r}: {error}"
-                        ) from error
-                    if type(value) is not float or not math.isfinite(value):
-                        raise ValueError(
-                            f"{result.run_id}: smoke indicator {indicator.name!r} "
-                            "must return a finite float"
-                        )
-        finally:
-            executor.interrupt()
+    finally:
+        executor.interrupt()
 
 
 def check_from_meta_config(
