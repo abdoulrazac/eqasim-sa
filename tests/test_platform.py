@@ -210,3 +210,57 @@ def test_windows_lock_unexpected_error_propagates(tmp_path, monkeypatch):
     with pytest.raises(OSError) as raised:
         _windows_lock(tmp_path, monkeypatch, OSError(errno.EBADF, "bad"))
     assert raised.value.errno == errno.EBADF
+
+
+class _FakeWinreg:
+    HKEY_LOCAL_MACHINE = object()
+
+    def __init__(self, value=None, error=None):
+        self.value, self.error, self.opened = value, error, []
+
+    def OpenKey(self, root, path):  # noqa: N802 (winreg API name)
+        self.opened.append((root, path))
+        if self.error is not None:
+            raise self.error
+        fake = self
+
+        class _Key:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc_info):
+                return False
+
+        fake.key = _Key()
+        return fake.key
+
+    def QueryValueEx(self, key, name):  # noqa: N802 (winreg API name)
+        assert key is self.key and name == "LongPathsEnabled"
+        return self.value, 4  # REG_DWORD
+
+
+@pytest.mark.parametrize(
+    ("registry", "expected"),
+    [
+        ({"value": 1}, True),
+        ({"value": 0}, False),
+        ({"error": FileNotFoundError(errno.ENOENT, "no such value")}, False),
+        ({"error": PermissionError(errno.EACCES, "denied")}, False),
+    ],
+)
+def test_windows_long_paths_enabled_reads_the_registry(monkeypatch, registry, expected):
+    winreg = _FakeWinreg(**registry)
+    monkeypatch.setattr(platform, "IS_WINDOWS", True)
+    monkeypatch.setitem(sys.modules, "winreg", winreg)
+    assert platform.windows_long_paths_enabled() is expected
+    assert winreg.opened == [
+        (winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\FileSystem")
+    ]
+
+
+def test_windows_long_paths_never_read_off_windows(monkeypatch):
+    winreg = _FakeWinreg(value=1)
+    monkeypatch.setattr(platform, "IS_WINDOWS", False)
+    monkeypatch.setitem(sys.modules, "winreg", winreg)
+    assert platform.windows_long_paths_enabled() is False
+    assert winreg.opened == []
