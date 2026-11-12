@@ -294,7 +294,10 @@ def probe_environment(
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        # Only scanned for a marker: never fail on a console-encoded byte.
         text=True,
+        encoding="utf-8",
+        errors="replace",
         shell=False,
         timeout=timeout,
     )

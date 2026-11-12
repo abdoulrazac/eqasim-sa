@@ -185,6 +185,8 @@ def _git(root: Path, *arguments: str, deadline: float | None = None) -> str:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
+        errors="strict",
         shell=False,
         check=False,
         timeout=_timeout(deadline),
@@ -211,7 +213,7 @@ def _git_stdin(
     )
     if completed.returncode:
         raise ValueError(f"Git command failed: {' '.join(arguments)}")
-    return completed.stdout.decode().strip()
+    return completed.stdout.decode("utf-8").strip()
 
 
 def _digest(path: Path, deadline: float | None = None) -> str:
