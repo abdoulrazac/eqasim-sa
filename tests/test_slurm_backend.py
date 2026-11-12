@@ -11,8 +11,14 @@ from types import SimpleNamespace
 import cloudpickle
 import pytest
 
-from eqasim_sa.adapters.backends import slurm
-from eqasim_sa.adapters.backends.slurm import EqasimSlurmJob, SlurmBackend
+if sys.platform == "win32":
+    pytest.skip(
+        "the slurm backend is Linux-only and cannot be imported on Windows",
+        allow_module_level=True,
+    )
+
+from eqasim_sa.adapters.backends import slurm  # noqa: E402
+from eqasim_sa.adapters.backends.slurm import EqasimSlurmJob, SlurmBackend  # noqa: E402
 from eqasim_sa.adapters.worker import Indexed, WorkerBatch
 from eqasim_sa.core.run import RunResult, RunSpec
 from eqasim_sa.core.software_identity import read_software_identity

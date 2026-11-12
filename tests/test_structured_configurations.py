@@ -18,7 +18,6 @@ from eqasim_sa.adapters import checks as check_service
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.adapters import application
 from eqasim_sa.adapters.application import analyze_from_meta_config, plan_from_meta_config
-from eqasim_sa.adapters.backends import slurm
 from eqasim_sa.adapters.worker import Indexed, WorkerBatch
 from eqasim_sa.core.analyze import analyze
 from eqasim_sa.core.methods.multiscramble_sobol import _multiscramble_sobol_tables
@@ -755,9 +754,12 @@ def _failed_execution_spy(observed: list[tuple[list[str], dict]]):  # type: igno
     return execute
 
 
+@pytest.mark.posix_only
 def test_slurm_callable_preserves_structured_snapshot_without_list_cli(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from eqasim_sa.adapters.backends import slurm
+
     real_simulator = EqasimSimulator
     fixture, base = _simulator(tmp_path / "model")
     fixture.interrupt()
