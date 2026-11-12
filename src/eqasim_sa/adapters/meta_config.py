@@ -18,6 +18,7 @@ from eqasim_sa.adapters.eqasim.config import (
     load_yaml_source,
     validate_eqasim_document,
 )
+from eqasim_sa.adapters.eqasim.workspace import CAMPAIGN_MAX
 from eqasim_sa.adapters.eqasim.simulator import DEDICATED, validate_transport
 from eqasim_sa.core.charter import (
     AllocationPhase,
@@ -558,6 +559,8 @@ def load_meta_config(
     campaign = document["campaign"]
     if not isinstance(campaign, str) or not CAMPAIGN.fullmatch(campaign):
         raise ValueError("campaign must be one safe path segment")
+    if len(campaign) > CAMPAIGN_MAX:
+        raise ValueError(f"campaign must have at most {CAMPAIGN_MAX} characters")
     validate_portable_name(campaign, "campaign")
     model, context = (
         _mapping(document["model"], "model"),

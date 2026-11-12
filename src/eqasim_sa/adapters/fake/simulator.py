@@ -26,7 +26,7 @@ class FakeSimulator:
         return {"run": [item.artifact for item in indicators]}
 
     def simulate(self, config: ResolvedConfig, seed: int, workdir: Path) -> Manifest:
-        attempt = workdir / f"attempt-{uuid.uuid4().hex}"
+        attempt = workdir / f"a{uuid.uuid4().hex[:12]}"
         attempt.mkdir(parents=True)
         request = attempt / "request.json"
         manifest_path = attempt / "manifest.json"

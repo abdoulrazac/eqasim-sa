@@ -513,7 +513,7 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
         def __init__(self) -> None:
             self.interruptions = 0
             self.workspace = SimpleNamespace(
-                root=node_scratch / "eqasim-sa" / "demo" / "workers" / "2",
+                root=node_scratch / "esa" / "demo" / "w2",
                 session=lambda: nullcontext(self),
             )
 
@@ -563,7 +563,7 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
             spec,
             simulator,
             tmp_path,
-            node_scratch / "eqasim-sa" / "demo" / "workers" / "2",
+            node_scratch / "esa" / "demo" / "w2",
         )
     ]
 

@@ -69,11 +69,11 @@ def test_workdir_is_derived_only_from_scratch_and_campaign(tmp_path: Path) -> No
     )
 
     assert first.workdir == (
-        tmp_path / "scratch" / "eqasim-sa" / "nantes.v1" / "workers" / "0"
+        tmp_path / "scratch" / "esa" / "nantes.v1" / "w0"
     )
     assert same_campaign.workdir == first.workdir
     assert other_campaign.workdir == (
-        tmp_path / "scratch" / "eqasim-sa" / "nantes-calibration" / "workers" / "0"
+        tmp_path / "scratch" / "esa" / "nantes-calibration" / "w0"
     )
     assert other_campaign.workdir != first.workdir
 
@@ -95,8 +95,8 @@ def test_workdir_is_derived_only_from_scratch_and_campaign(tmp_path: Path) -> No
     assert tuple(
         path.relative_to(root) for path, root in zip(per_node, node_roots)
     ) == (
-        Path("eqasim-sa/nantes.v1/workers/0"),
-        Path("eqasim-sa/nantes.v1/workers/0"),
+        Path("esa/nantes.v1/w0"),
+        Path("esa/nantes.v1/w0"),
     )
 
 
@@ -121,8 +121,8 @@ def test_worker_cache_is_namespaced_by_the_full_context_hash(tmp_path: Path) -> 
     ).workspace(3)
 
     assert first.root == second.root
-    assert first.cache == first.root / "cache" / first_hash
-    assert second.cache == second.root / "cache" / second_hash
+    assert first.cache == first.root / ("c" + first_hash[:12])
+    assert second.cache == second.root / ("c" + second_hash[:12])
     assert first.cache != second.cache
 
 

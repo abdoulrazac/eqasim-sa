@@ -681,7 +681,7 @@ def test_remote_jobs_survive_workdir_loss_and_resume_only_from_runs(
     specs = load_run_specs(
         loaded.campaign_root / "plan.parquet", design, loaded.campaign
     )
-    workdir = scratch / "eqasim-sa" / "demo" / "workers" / "0"
+    workdir = scratch / "esa" / "demo" / "w0"
     job = EqasimSlurmJob(
         meta,
         loaded.context_hash,
@@ -714,7 +714,7 @@ def test_remote_jobs_survive_workdir_loss_and_resume_only_from_runs(
     durable = {
         path: (path.read_bytes(), path.stat().st_mtime_ns) for path in durable_paths
     }
-    stale_attempt = workdir / "attempt-stale"
+    stale_attempt = workdir / "astale"
     stale_attempt.mkdir()
     (stale_attempt / "pipeline.json").write_text("not authoritative")
     (workdir / "cache.lock").write_text("not authoritative")
@@ -730,7 +730,7 @@ def test_remote_jobs_survive_workdir_loss_and_resume_only_from_runs(
 
     second_id = compute_run_id(specs[1].resolved_config, specs[1].seed)
     (loaded.campaign_root / "runs" / f"{second_id}.parquet").unlink()
-    deceptive_attempt = workdir / "attempt-completed"
+    deceptive_attempt = workdir / "acompleted"
     deceptive_attempt.mkdir()
     deceptive_pipeline = deceptive_attempt / "pipeline.json"
     deceptive_lock = workdir / "cache.lock"
@@ -1401,7 +1401,7 @@ def test_campaign_resume_filters_before_simulator_backend_and_preflight(
         "error": None,
     }
     assert parsed == 1
-    assert not (scratch / "eqasim-sa" / "demo" / "workers").exists()
+    assert not (scratch / "esa" / "demo").exists()
 
 
 def test_real_sigint_returns_130_and_reaps_owned_descendants(

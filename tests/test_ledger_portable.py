@@ -10,6 +10,7 @@ import pytest
 
 from eqasim_sa.adapters import data_manifest, project_init
 from eqasim_sa.adapters.backends.local import LocalBackend
+from eqasim_sa.adapters.eqasim import workspace
 from eqasim_sa.adapters.fake.simulator import FakeSimulator
 from eqasim_sa.core import (
     analysis_publication,
@@ -37,6 +38,7 @@ def test_ledger_sources_have_no_posix_only_calls() -> None:
         run,
         data_manifest,
         analyze,
+        workspace,
     ):
         src = Path(module.__file__).read_text(encoding="utf-8")
         for token in (

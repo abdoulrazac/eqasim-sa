@@ -734,7 +734,7 @@ def test_simulator_keeps_scalar_cli_behavior(
     index = observed["command"].index("--sampling_rate")
     assert observed["command"][index + 1] == "0.25"
     assert (
-        next(simulator.workspace.root.glob("attempt-*/config.yml"))
+        next(simulator.workspace.root.glob("a*/config.yml"))
     ).read_bytes() == simulator.config_bytes
 
 
