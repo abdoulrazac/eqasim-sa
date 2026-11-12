@@ -5,7 +5,7 @@ Command: `uv run --extra test pytest -q` (or the CI workflow
 
 | Platform | Date | Result |
 | --- | --- | --- |
-| Linux (Ubuntu, kernel 6.8, Python 3.13.11) | 2026-11-12 | 1150 passed, 2 skipped in 171.95 s |
+| Linux (Ubuntu, kernel 6.8, Python 3.13.11) | 2026-11-12 | 1178 passed, 3 skipped in 177.66 s |
 | Windows 10+ | - | pending: run `uv run --extra test pytest -q` or the CI workflow `.github/workflows/tests.yml` |
 | macOS 13+ | - | pending: run `uv run --extra test pytest -q` or the CI workflow `.github/workflows/tests.yml` |
 
