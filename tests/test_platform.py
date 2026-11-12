@@ -1,3 +1,4 @@
+import errno
 import os
 import subprocess
 import sys
@@ -13,7 +14,7 @@ _CHILD_LOCK = """
 import os, sys
 from eqasim_sa.utils import platform
 fd = os.open(sys.argv[1], os.O_RDWR)
-sys.exit(0 if platform.lock_exclusive_nonblocking(fd) else 1)
+sys.exit(0 if platform.lock_exclusive_nonblocking(fd) else 3)
 """
 
 _CHILD_READ = """
@@ -25,6 +26,7 @@ sys.stdout.write(repr(os.read(fd, 10)))
 
 def _child_try_lock(path: Path) -> bool:
     result = subprocess.run([sys.executable, "-c", _CHILD_LOCK, str(path)])
+    assert result.returncode in (0, 3), result.returncode
     return result.returncode == 0
 
 
@@ -40,6 +42,7 @@ def test_second_process_cannot_take_lock(tmp_path):
         os.close(fd)
 
 
+# Only meaningful on Windows (mandatory locks); flock is advisory on POSIX.
 def test_locked_lease_content_remains_readable(tmp_path):
     path = tmp_path / "lease.lock"
     fd = os.open(path, os.O_RDWR | os.O_CREAT)
@@ -175,3 +178,35 @@ def test_current_uid_matches_platform():
         assert platform.current_uid() is None
     else:
         assert platform.current_uid() == os.getuid()
+
+
+class _FakeMsvcrt:
+    LK_NBLCK = 2
+    LK_UNLCK = 0
+
+    def __init__(self, error):
+        self.error = error
+
+    def locking(self, descriptor, mode, count):
+        raise self.error
+
+
+def _windows_lock(tmp_path, monkeypatch, error):
+    monkeypatch.setattr(platform, "IS_WINDOWS", True)
+    monkeypatch.setattr(platform, "msvcrt", _FakeMsvcrt(error), raising=False)
+    fd = os.open(tmp_path / "lease.lock", os.O_RDWR | os.O_CREAT)
+    try:
+        return platform.lock_exclusive_nonblocking(fd)
+    finally:
+        os.close(fd)
+
+
+def test_windows_lock_held_returns_false(tmp_path, monkeypatch):
+    error = PermissionError(errno.EACCES, "held")
+    assert _windows_lock(tmp_path, monkeypatch, error) is False
+
+
+def test_windows_lock_unexpected_error_propagates(tmp_path, monkeypatch):
+    with pytest.raises(OSError) as raised:
+        _windows_lock(tmp_path, monkeypatch, OSError(errno.EBADF, "bad"))
+    assert raised.value.errno == errno.EBADF

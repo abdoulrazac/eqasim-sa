@@ -47,7 +47,7 @@ def lock_exclusive_nonblocking(descriptor: int) -> bool:
             os.lseek(descriptor, LOCK_OFFSET, os.SEEK_SET)
             try:
                 msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
-            except OSError:
+            except PermissionError:
                 return False
             return True
         finally:
