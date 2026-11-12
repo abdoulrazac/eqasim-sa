@@ -10,13 +10,17 @@ def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
     on_windows = sys.platform == "win32"
+    on_linux = sys.platform == "linux"
     skip_posix = pytest.mark.skip(reason="POSIX-only test")
     skip_windows = pytest.mark.skip(reason="Windows-only test")
+    skip_linux = pytest.mark.skip(reason="Linux-only test (slurm backend)")
     for item in items:
         if on_windows and "posix_only" in item.keywords:
             item.add_marker(skip_posix)
         elif not on_windows and "windows_only" in item.keywords:
             item.add_marker(skip_windows)
+        if not on_linux and "linux_only" in item.keywords:
+            item.add_marker(skip_linux)
 
 
 def make_symlink(

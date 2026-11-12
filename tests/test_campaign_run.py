@@ -444,6 +444,7 @@ def test_execution_seal_rejects_model_head_and_executable_drift(
         seal.guard()
 
 
+@pytest.mark.linux_only
 def test_slurm_campaign_composes_remote_job_without_local_simulator(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -513,6 +514,7 @@ def test_slurm_campaign_composes_remote_job_without_local_simulator(
     assert len(observed["specs"]) == 2
 
 
+@pytest.mark.linux_only
 @pytest.mark.parametrize("kind", ["file", "symlink"])
 def test_slurm_backend_rejects_unsafe_owned_submitit_directory(
     tmp_path: Path,
@@ -543,6 +545,7 @@ def test_slurm_backend_rejects_unsafe_owned_submitit_directory(
         SlurmBackend(tmp_path / "campaign", 1, {})
 
 
+@pytest.mark.linux_only
 def test_slurm_campaign_resumes_only_missing_runs_and_complete_campaign_is_noop(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -642,6 +645,7 @@ def test_slurm_campaign_resumes_only_missing_runs_and_complete_campaign_is_noop(
     assert run_from_meta_config(meta)["total"] == 0
 
 
+@pytest.mark.linux_only
 def test_remote_jobs_survive_workdir_loss_and_resume_only_from_runs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1049,7 +1053,9 @@ def test_run_requires_execution_before_backend_or_simulator(
         run_from_meta_config(meta)
 
 
-@pytest.mark.parametrize("backend", ["local", "slurm"])
+@pytest.mark.parametrize(
+    "backend", ["local", pytest.param("slurm", marks=pytest.mark.linux_only)]
+)
 @pytest.mark.parametrize("pending_count", [2, 3])
 def test_sobol_capacity_warning_is_exact_and_precedes_backend_submission(
     tmp_path: Path,
@@ -1141,13 +1147,17 @@ def test_sobol_capacity_warning_is_exact_and_precedes_backend_submission(
             )
 
     monkeypatch.setattr(application, "LocalBackend", Backend)
-    monkeypatch.setattr("eqasim_sa.adapters.backends.slurm.SlurmBackend", Backend)
     monkeypatch.setattr(
         application,
         "EqasimSimulator",
         lambda *args: SimpleNamespace(interrupt=lambda: None),
     )
-    monkeypatch.setattr("eqasim_sa.adapters.backends.slurm.EqasimSlurmJob", lambda *args: object())
+    if backend == "slurm":
+        # Imported only here: the slurm module is Linux-only.
+        monkeypatch.setattr("eqasim_sa.adapters.backends.slurm.SlurmBackend", Backend)
+        monkeypatch.setattr(
+            "eqasim_sa.adapters.backends.slurm.EqasimSlurmJob", lambda *args: object()
+        )
 
     payload = run_from_meta_config(meta_path)
 
@@ -1616,6 +1626,7 @@ def test_check_does_not_hash_the_data_tree_and_needs_no_data_path(
     assert expired["status"] == "failed" and "time budget" in expired["error"]
 
 
+@pytest.mark.linux_only
 def test_slurm_job_refuses_other_machine_on_the_worker(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
