@@ -648,30 +648,58 @@ def test_path_length_passes_on_windows_with_long_paths(
     assert "long paths are enabled" in item["error"]
 
 
-def test_path_length_warns_only_on_posix(
+def test_path_length_warns_on_posix_above_linux_limit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(platform, "IS_WINDOWS", False)
-    payload = _static_payload(tmp_path, monkeypatch, _deep_scratch(tmp_path))
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(
+        check_service, "resolve_root", lambda path, name: Path("/" + "d" * 4100)
+    )
+    payload = _static_payload(tmp_path, monkeypatch, tmp_path)
     item = _entry(payload, "path_length")
     assert item["status"] == "warning"
-    assert item["error"].startswith("estimated path length ")
-    assert "(for example C:\\esa)" in item["error"]
+    assert "platform limit of 4096" in item["error"]
     assert payload["status"] == "valid"
 
 
-def test_path_length_passes_for_short_scratch(
+def test_path_length_warns_on_darwin_above_1024(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(platform, "IS_WINDOWS", False)
-    # With the real budgets no scratch fits in 260 characters; shrink them.
-    monkeypatch.setattr(check_service, "EQASIM_RELATIVE_PATH_BUDGET", 10)
-    monkeypatch.setattr(check_service, "WORKSPACE_PREFIX_BUDGET", 10)
-    short = tmp_path / "s"
-    short.mkdir()
-    payload = _static_payload(tmp_path, monkeypatch, short)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(
+        check_service, "resolve_root", lambda path, name: Path("/" + "d" * 1000)
+    )
+    payload = _static_payload(tmp_path, monkeypatch, tmp_path)
     item = _entry(payload, "path_length")
-    assert item == {"name": "path_length", "status": "passed", "error": None}
+    assert item["status"] == "warning"
+    assert "platform limit of 1024" in item["error"]
+
+
+def test_path_length_passes_on_posix_within_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(platform, "IS_WINDOWS", False)
+    monkeypatch.setattr(sys, "platform", "linux")
+    payload = _static_payload(tmp_path, monkeypatch, _deep_scratch(tmp_path))
+    item = _entry(payload, "path_length")
+    assert item["status"] == "passed"
+    assert "within the limit of 4096" in item["error"]
+
+
+def test_run_rejects_slurm_off_linux_before_importing_backend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from eqasim_sa.adapters import application
+
+    meta_file = tmp_path / "meta.yml"
+    meta_file.write_text("x", encoding="utf-8")
+    meta = SimpleNamespace(execution=SimpleNamespace(backend="slurm"))
+    monkeypatch.setattr(application, "load_meta_config", lambda *args, **kw: meta)
+    monkeypatch.setattr(sys, "platform", "win32")
+    with pytest.raises(ValueError, match="requires Linux"):
+        application.run_from_meta_config(meta_file)
 
 
 def test_slurm_backend_rejected_off_linux(

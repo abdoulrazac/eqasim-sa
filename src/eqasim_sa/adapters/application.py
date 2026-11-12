@@ -126,6 +126,10 @@ def run_from_meta_config(path: Path) -> dict:
         raise RuntimeError("meta-config changed while preparing execution")
     if meta.execution is None:
         raise ValueError("execution section is required for run")
+    if getattr(meta.execution, "backend", None) == "slurm" and sys.platform != "linux":
+        raise ValueError(
+            "the slurm backend requires Linux; run eqasim-sa on the cluster"
+        )
     EqasimBatchExecutor.validate(meta)
     verify_software_source_states(meta.software_identity)
     if getattr(meta.execution, "data_path", None) is not None:

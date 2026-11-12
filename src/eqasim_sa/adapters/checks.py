@@ -35,6 +35,8 @@ SEALED_SENSITIVITY_METHODS = frozenset(
 )
 
 WINDOWS_PATH_LIMIT = 260
+DARWIN_PATH_LIMIT = 1024
+POSIX_PATH_LIMIT = 4096
 # Longest path eqasim created below its cache directory in a real Nantes run:
 # 231 characters (data.spatial.iris__<32 hex>.cache/CONTOURS-IRIS-PE_.../
 # EMPRISE/EMPRISE.shx, from the extracted IGN IRIS archive), plus 9 margin.
@@ -56,9 +58,9 @@ def _path_length_item(meta) -> dict:  # type: ignore[no-untyped-def]
         length = estimate_max_path_length(meta.execution.scratch, meta.campaign)
     except Exception as error:
         return {"name": "path_length", "status": "failed", "error": _safe_error(error)}
-    if length <= WINDOWS_PATH_LIMIT:
-        return item
     if platform.IS_WINDOWS:
+        if length <= WINDOWS_PATH_LIMIT:
+            return item
         if platform.windows_long_paths_enabled():
             item["error"] = (
                 f"estimated path length {length} exceeds 260 characters; "
@@ -74,10 +76,14 @@ def _path_length_item(meta) -> dict:  # type: ignore[no-untyped-def]
             "can enable Windows long paths (LongPathsEnabled) once."
         )
         return item
+    limit = DARWIN_PATH_LIMIT if sys.platform == "darwin" else POSIX_PATH_LIMIT
+    if length <= limit:
+        item["error"] = f"estimated path length {length} is within the limit of {limit}"
+        return item
     item["status"] = "warning"
     item["error"] = (
-        f"estimated path length {length} exceeds the Windows limit of 260 "
-        "characters; choose a shorter execution.scratch (for example C:\\esa)"
+        f"estimated path length {length} exceeds the platform limit of {limit} "
+        "characters; choose a shorter execution.scratch"
     )
     return item
 
