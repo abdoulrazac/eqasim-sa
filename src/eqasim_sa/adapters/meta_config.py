@@ -247,7 +247,10 @@ def _overlap(left: Path, right: Path) -> bool:
     return left == right or left.is_relative_to(right) or right.is_relative_to(left)
 
 
-def _resolved_directory(path: Path, name: str) -> Path:
+def _resolved_directory(path: Path, name: str, *, must_exist: bool = True) -> Path:
+    if not must_exist and not os.path.lexists(path):
+        # Analysis may run where the execution directories were never created.
+        return Path(os.path.realpath(path))
     absolute = Path(os.path.abspath(path))
     current = Path(absolute.anchor)
     for part in absolute.parts[1:]:
@@ -261,7 +264,11 @@ def _resolved_directory(path: Path, name: str) -> Path:
 
 
 def _execution(
-    value: object, base: Path, model_root: Path, model_document: dict
+    value: object,
+    base: Path,
+    model_root: Path,
+    model_document: dict,
+    verify_data: bool = True,
 ) -> Execution:
     document = _mapping(value, "execution")
     required = {"backend", "workers", "scratch", "invocation"}
@@ -284,7 +291,9 @@ def _execution(
         raise TypeError("execution.scratch must be a string path")
     if not scratch or "\0" in scratch:
         raise ValueError("execution.scratch must be a non-empty path without NUL")
-    scratch_path = _resolved_directory(base / scratch, "execution.scratch")
+    scratch_path = _resolved_directory(
+        base / scratch, "execution.scratch", must_exist=verify_data
+    )
     if (
         not isinstance(invocation, list)
         or not invocation
@@ -312,7 +321,7 @@ def _execution(
         validate_transport(name, value)
         if name == "data_path":
             validated[name] = _resolved_directory(
-                base / value, "override 'data_path'"
+                base / value, "override 'data_path'", must_exist=verify_data
             )
         else:
             validated[name] = value
@@ -330,7 +339,9 @@ def _execution(
         if not effective_data_path or "\0" in effective_data_path:
             raise ValueError("effective execution data_path must be a non-empty path")
         data_path = _resolved_directory(
-            model_root / effective_data_path, "effective execution data_path"
+            model_root / effective_data_path,
+            "effective execution data_path",
+            must_exist=verify_data,
         )
     else:
         raise TypeError("effective execution data_path must be a string path")
@@ -533,9 +544,16 @@ def _indicator_blocks(
 
 
 def load_meta_config(
-    path: Path, validate_factors: bool = True, deadline: float | None = None
+    path: Path,
+    validate_factors: bool = True,
+    deadline: float | None = None,
+    verify_data: bool = True,
 ) -> MetaConfig:
-    """Load, seal, and cross-validate a campaign meta-configuration."""
+    """Load, seal, and cross-validate a campaign meta-configuration.
+
+    ``verify_data=False`` (analysis) does not require the execution scratch
+    and data directories to exist; the hashed data manifest suffices.
+    """
 
     software_identity = read_software_identity()
     source = _file(path, "meta-config")
@@ -1048,7 +1066,9 @@ def load_meta_config(
     if not isinstance(campaign_root, str):
         raise TypeError("campaign_root must be a string")
     execution = (
-        _execution(document["execution"], base, root, model_document)
+        _execution(
+            document["execution"], base, root, model_document, verify_data
+        )
         if "execution" in document
         else None
     )

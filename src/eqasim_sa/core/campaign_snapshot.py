@@ -204,7 +204,11 @@ class CampaignSnapshot:
         )
 
     @classmethod
-    def completed_specs(cls, campaign_root: Path, specs: Sequence[object]) -> frozenset[str]:
+    def completed_evidence(
+        cls, campaign_root: Path, specs: Sequence[object]
+    ) -> dict[str, ExecutionEvidence | None]:
+        """Map each completed run of ``specs`` to its recorded execution evidence."""
+
         from eqasim_sa.core.run import compute_run_id
 
         expected = {}
@@ -228,12 +232,17 @@ class CampaignSnapshot:
         ]
         if foreign:
             raise ValueError(f"invalid completion marker names: {sorted(foreign)}")
-        completed = []
+        evidence: dict[str, ExecutionEvidence | None] = {}
         for name in entries:
             run_id = name.removesuffix(".parquet")
-            if completion_state(campaign_root, expected[run_id]) is not None:
-                completed.append(run_id)
-        return frozenset(completed)
+            state = completion_state(campaign_root, expected[run_id])
+            if state is not None:
+                evidence[run_id] = state.execution_evidence
+        return evidence
+
+    @classmethod
+    def completed_specs(cls, campaign_root: Path, specs: Sequence[object]) -> frozenset[str]:
+        return frozenset(cls.completed_evidence(campaign_root, specs))
 
     @classmethod
     def run_completed(cls, campaign_root: Path, spec: object) -> bool:

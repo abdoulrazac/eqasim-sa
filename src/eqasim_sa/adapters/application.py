@@ -40,7 +40,11 @@ from eqasim_sa.core.plan import (
     build_plan,
     load_run_specs,
 )
+from eqasim_sa.adapters.execution_seal import create_execution_seal
+from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
+from eqasim_sa.ports.simulator import ExecutionEvidence
 from eqasim_sa.core.run import (
+    require_same_machine,
     EXCLUDED_PATHS,
     compute_run_id,
     pending_run_specs,
@@ -139,6 +143,14 @@ def run_from_meta_config(path: Path) -> dict:
     specs = load_run_specs(meta.campaign_root / "plan.parquet", design, meta.campaign)
     unique_runs = len(specs)
     meta.campaign_root.resolve(strict=True)
+    seal = None
+    existing = CampaignSnapshot.completed_evidence(meta.campaign_root, specs)
+    if (
+        any(evidence is not None for evidence in existing.values())
+        and getattr(meta.execution, "data_path", None) is not None
+    ):
+        seal = create_execution_seal(meta)
+        require_same_machine(existing, ExecutionEvidence.from_bytes(seal.evidence))
     specs = pending_run_specs(meta.campaign_root, specs)
     if not specs:
         return summarize_runs([], [])
@@ -154,7 +166,7 @@ def run_from_meta_config(path: Path) -> dict:
         )
     specs = _apply_execution_overrides(specs, meta.execution.overrides)
     if meta.execution.backend == "local":
-        executor = EqasimBatchExecutor(meta)
+        executor = EqasimBatchExecutor(meta, execution_seal=seal)
         batches = worker_batches(specs, meta.execution.workers)
         results = ordered_results(
             list(
@@ -267,7 +279,7 @@ def analyze_from_meta_config(path: Path, descriptive_only: bool = False) -> dict
                 f"{legacy_method} design v{legacy_version} is legacy and cannot support "
                 "inference; replan the campaign with the current SALib design v3"
             )
-    meta = load_meta_config(path)
+    meta = load_meta_config(path, verify_data=False)
     _validate_scientific_method(meta)
     plan_path = meta.campaign_root / "plan.parquet"
     legacy = _legacy_scientific_plan(plan_path)

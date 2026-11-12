@@ -440,6 +440,7 @@ def test_installed_plan_creates_replays_and_refuses_conflict(tmp_path: Path) -> 
         "eqasimEnvironment",
         "backend",
         "path_length",
+        "same_machine",
         "diskSpace",
     ]
     smoke = subprocess.run(

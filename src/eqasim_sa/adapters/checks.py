@@ -25,7 +25,9 @@ from eqasim_sa.adapters.worker import ordered_results, worker_batches
 from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
 from eqasim_sa.core.indicators import ArtifactSet
 from eqasim_sa.core.plan import load_run_specs, unique_config_seed_pairs
-from eqasim_sa.core.run import RunSpec
+from eqasim_sa.adapters.execution_seal import create_execution_seal
+from eqasim_sa.core.run import RunSpec, require_same_machine
+from eqasim_sa.ports.simulator import ExecutionEvidence
 from eqasim_sa.core.software_identity import verify_software_source_states
 from eqasim_sa.utils.filesystem import path_state, resolve_root
 from eqasim_sa.utils import platform
@@ -96,6 +98,32 @@ def _backend_item(meta) -> dict:  # type: ignore[no-untyped-def]
             "error": "the slurm backend requires Linux; run eqasim-sa on the cluster",
         }
     return {"name": "backend", "status": "passed", "error": None}
+
+
+def _same_machine_item(meta, specs) -> dict:  # type: ignore[no-untyped-def]
+    name = "same_machine"
+    if not specs:
+        return {"name": name, "status": "skipped", "error": "no runs in the plan"}
+    try:
+        existing = CampaignSnapshot.completed_evidence(meta.campaign_root, specs)
+        if not any(evidence is not None for evidence in existing.values()):
+            return {
+                "name": name,
+                "status": "skipped",
+                "error": "no completed runs with execution evidence",
+            }
+        if getattr(meta.execution, "data_path", None) is None:
+            return {
+                "name": name,
+                "status": "skipped",
+                "error": "no effective data_path: execution evidence is unavailable",
+            }
+        # Read-only: seals and hashes the current machine, never runs eqasim.
+        seal = create_execution_seal(meta)
+        require_same_machine(existing, ExecutionEvidence.from_bytes(seal.evidence))
+    except Exception as error:
+        return {"name": name, "status": "failed", "error": _safe_error(error)}
+    return {"name": name, "status": "passed", "error": None}
 
 
 def _check(name: str, action) -> tuple[dict, object]:  # type: ignore[no-untyped-def]
@@ -215,6 +243,8 @@ def _static_check(path: Path, calibrations: tuple[Path, ...]):  # type: ignore[n
     for build in (_backend_item, _path_length_item):
         if meta is not None and meta.execution is not None:
             checks.append(build(meta))
+    if meta is not None and meta.execution is not None and sealed_valid:
+        checks.append(_same_machine_item(meta, specs))
 
     try:
         disk_values = disk()
@@ -238,7 +268,7 @@ def _static_check(path: Path, calibrations: tuple[Path, ...]):  # type: ignore[n
     values = disk_values or (None,) * 7
     payload = {
         "status": "valid"
-        if all(item["status"] in {"passed", "warning"} for item in checks)
+        if all(item["status"] in {"passed", "warning", "skipped"} for item in checks)
         else "invalid",
         "checkVersion": 2,
         "elapsedSeconds": time.monotonic() - started,

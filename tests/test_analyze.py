@@ -2865,7 +2865,7 @@ def test_adapter_preflights_current_plan_and_uses_committed_generation_paths(
         },
     )()
     monkeypatch.setattr(
-        "eqasim_sa.adapters.application.load_meta_config", lambda path: meta
+        "eqasim_sa.adapters.application.load_meta_config", lambda path, **kwargs: meta
     )
     design, validated = object(), []
     monkeypatch.setattr("eqasim_sa.adapters.application._design", lambda current: design)
@@ -3257,7 +3257,7 @@ def test_analyze_adapter_passes_requested_method_and_exposes_sensitivity(
         failed=0,
     )
     monkeypatch.setattr(
-        "eqasim_sa.adapters.application.load_meta_config", lambda path: meta
+        "eqasim_sa.adapters.application.load_meta_config", lambda path, **kwargs: meta
     )
     monkeypatch.setattr("eqasim_sa.adapters.application._design", lambda current: object())
     monkeypatch.setattr(
@@ -3319,7 +3319,7 @@ def test_analyze_adapter_routes_legacy_plan_without_current_design_preflight(
     )
     seen = {}
     monkeypatch.setattr(
-        "eqasim_sa.adapters.application.load_meta_config", lambda path: meta
+        "eqasim_sa.adapters.application.load_meta_config", lambda path, **kwargs: meta
     )
     monkeypatch.setattr(
         "eqasim_sa.adapters.application._design",
@@ -3422,7 +3422,7 @@ def test_analyze_adapter_passes_sobol_bootstrap_contract(
         failed=0,
     )
     monkeypatch.setattr(
-        "eqasim_sa.adapters.application.load_meta_config", lambda path: meta
+        "eqasim_sa.adapters.application.load_meta_config", lambda path, **kwargs: meta
     )
     monkeypatch.setattr("eqasim_sa.adapters.application._design", lambda current: object())
     monkeypatch.setattr(

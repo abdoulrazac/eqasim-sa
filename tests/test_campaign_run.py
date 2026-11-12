@@ -1453,3 +1453,133 @@ def test_real_sigint_returns_130_and_reaps_owned_descendants(
         with pytest.raises(ProcessLookupError):
             os.kill(pid, 0)
     assert not tuple((tmp_path / "campaign" / "runs").glob("*.parquet"))
+
+
+def _completed_spy_campaign(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Path, ExecutionEvidence]:
+    from eqasim_sa.adapters.application import plan_from_meta_config
+    from eqasim_sa.core import ledger
+
+    meta, _, _, _ = meta_fixture(tmp_path)
+    meta.write_text(
+        meta.read_text()
+        .replace("values: [1, 2]", "values: [1]")
+        .replace("values: [x, y]", "values: [x]")
+    )
+    plan_from_meta_config(meta)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    add_execution(
+        meta,
+        scratch,
+        invocation=[sys.executable, str(Path(__file__).with_name("eqasim_spy.py"))],
+    )
+    monkeypatch.setenv("EQASIM_SPY_RECORD", str(tmp_path / "record.json"))
+    assert run_from_meta_config(meta)["completed"] == 2
+    marker = next((tmp_path / "campaign" / "runs").glob("*.parquet"))
+    payload = dict(pq.ParquetFile(marker).schema_arrow.metadata)[
+        ledger.EXECUTION_EVIDENCE
+    ]
+    return meta, ExecutionEvidence.from_bytes(payload)
+
+
+def _evidence() -> ExecutionEvidence:
+    return ExecutionEvidence(
+        context_hash="1" * 64,
+        data_tree_sha256="2" * 64,
+        environment_sha256="3" * 64,
+        environment_variables=("PATH",),
+        executable_sha256="4" * 64,
+        invocation=(os.path.abspath("python"),),
+        model_commit="5" * 40,
+        model_config_sha256="6" * 64,
+        eqasim_sa_sha256="7" * 64,
+    )
+
+
+def test_resume_with_same_evidence_is_allowed() -> None:
+    from eqasim_sa.core.run import require_same_machine
+
+    require_same_machine({"r": _evidence()}, _evidence())
+
+
+def test_resume_with_other_executable_is_refused() -> None:
+    from eqasim_sa.core.run import require_same_machine
+
+    with pytest.raises(
+        ValueError, match="prepare a new campaign on this machine"
+    ) as error:
+        require_same_machine(
+            {"r": _evidence()}, replace(_evidence(), executable_sha256="0" * 64)
+        )
+    assert "differing: executable_sha256)" in str(error.value)
+
+
+def test_empty_campaign_has_no_constraint() -> None:
+    from eqasim_sa.core.run import require_same_machine
+
+    require_same_machine({}, _evidence())
+    require_same_machine({"r": None}, _evidence())
+
+
+def test_legacy_evidence_compares_only_its_own_fields() -> None:
+    from eqasim_sa.core.run import require_same_machine
+
+    legacy = replace(_evidence(), schema_version=1, eqasim_sa_sha256=None)
+    require_same_machine({"r": legacy}, _evidence())
+    with pytest.raises(ValueError, match="differing: environment_sha256"):
+        require_same_machine({"r": legacy}, replace(_evidence(), environment_sha256="0" * 64))
+
+
+def test_run_refuses_resume_on_another_machine_before_execution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    meta, _ = _completed_spy_campaign(tmp_path, monkeypatch)
+    runs = sorted((tmp_path / "campaign" / "runs").glob("*.parquet"))
+    runs[0].unlink()
+    monkeypatch.setenv("EQASIM_RUNTIME_OTHER", "machine")
+    with pytest.raises(ValueError, match="prepare a new campaign on this machine"):
+        run_from_meta_config(meta)
+    assert not runs[0].exists()
+
+
+def test_analysis_does_not_compare_to_local_machine(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    meta, _ = _completed_spy_campaign(tmp_path, monkeypatch)
+    monkeypatch.setenv("EQASIM_RUNTIME_OTHER", "machine")
+    monkeypatch.setattr(
+        "eqasim_sa.adapters.application.create_execution_seal",
+        lambda *args: (_ for _ in ()).throw(AssertionError("seal created")),
+    )
+    analyze_from_meta_config(meta)
+
+
+def test_analysis_without_data_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    meta, _ = _completed_spy_campaign(tmp_path, monkeypatch)
+    shutil.rmtree(tmp_path / "data")
+    shutil.rmtree(tmp_path / "scratch")
+    analyze_from_meta_config(meta)
+
+
+def test_check_reports_same_machine_for_completed_campaign(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from eqasim_sa.adapters.checks import _same_machine_item
+    from eqasim_sa.adapters.application import _design
+    from eqasim_sa.core.plan import load_run_specs
+
+    meta, _ = _completed_spy_campaign(tmp_path, monkeypatch)
+    loaded = load_meta_config(meta)
+    specs = load_run_specs(
+        loaded.campaign_root / "plan.parquet", _design(loaded), loaded.campaign
+    )
+    assert _same_machine_item(loaded, specs)["status"] == "passed"
+    assert _same_machine_item(loaded, ())["status"] == "skipped"
+    monkeypatch.setenv("EQASIM_RUNTIME_OTHER", "machine")
+    item = _same_machine_item(loaded, specs)
+    assert item["status"] == "failed"
+    assert "prepare a new campaign on this machine" in item["error"]

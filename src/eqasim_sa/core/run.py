@@ -7,6 +7,7 @@ import math
 import os
 import re
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,6 +30,7 @@ from eqasim_sa.core.ledger import (
 )
 from eqasim_sa.ports.backend import Backend
 from eqasim_sa.ports.simulator import (
+    ExecutionEvidence,
     JsonValue,
     Manifest,
     ResolvedConfig,
@@ -297,6 +299,40 @@ def pending_run_specs(
         for spec in specs
         if compute_run_id(spec.resolved_config, spec.seed) not in completed
     )
+
+
+MACHINE_FIELDS = (
+    "executable_sha256",
+    "environment_sha256",
+    "environment_variables",
+    "invocation",
+    "model_config_sha256",
+    "eqasim_sa_sha256",
+)
+
+
+def require_same_machine(
+    existing: Mapping[str, ExecutionEvidence | None], current: ExecutionEvidence
+) -> None:
+    """Refuse to resume a campaign whose runs were executed elsewhere."""
+
+    differing = set()
+    for evidence in existing.values():
+        if evidence is None:
+            continue
+        for field in MACHINE_FIELDS:
+            recorded = getattr(evidence, field)
+            # Schema v1 evidence predates eqasim_sa binding: compare what it has.
+            if recorded is None and field == "eqasim_sa_sha256":
+                continue
+            if recorded != getattr(current, field):
+                differing.add(field)
+    if differing:
+        raise ValueError(
+            "campaign runs were executed on another machine "
+            f"(differing: {', '.join(sorted(differing))}); "
+            "prepare a new campaign on this machine"
+        )
 
 
 def _remove_failure_log(campaign_root: Path, run_id: str) -> None:

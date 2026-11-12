@@ -924,7 +924,7 @@ def test_application_passes_sealed_canonical_analysis_and_exposes_extra_paths(
         failed=0,
     )
     monkeypatch.setattr(
-        "eqasim_sa.adapters.application.load_meta_config", lambda path: meta
+        "eqasim_sa.adapters.application.load_meta_config", lambda path, **kwargs: meta
     )
     sealed_design = object()
     validation = {}
