@@ -4,15 +4,19 @@
 
 - Runs natively on Windows 10+, macOS 13+, and Linux (Python 3.13 via uv, no
   administrator rights) with the `local` backend; the `slurm` backend remains
-  Linux only and is refused early by `check` and `run` elsewhere.
+  Linux only and is refused early by `check` and `run` elsewhere. Exception: on
+  Windows without long paths no scratch fits eqasim's own cache, so a real
+  eqasim run needs an administrator to enable `LongPathsEnabled` once (or an
+  upstream eqasim change); `check` reports it before any run.
 - Adds a platform layer (locks, atomic replace, fsync, links, process-tree
   supervision with a Windows Job Object) and path-based durable I/O; all text I/O
   is explicit UTF-8.
 - Shortens the worker layout to `<scratch>/esa/<campaign>/w<slot>/c<12 hex>/`;
   refuses Windows reserved names, trailing dots/spaces, case-only collisions, and
   campaign names over 64 characters on every OS.
-- Adds `check` items `backend`, `path_length` (reads `LongPathsEnabled` read-only
-  on Windows), and `same_machine`; `run` refuses to resume a campaign whose
+- Adds `check` items `backend`, `path_length` (uses the real campaign name, reads
+  `LongPathsEnabled` read-only on Windows, and suggests a shorter scratch only
+  when one would fit), and `same_machine`; `run` refuses to resume a campaign whose
   completed runs carry different execution evidence.
 - Makes identities line-ending independent (CRLF normalized to LF for the
   lockfile, data manifest canonical JSON, software, indicator, and plugin

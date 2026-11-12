@@ -4,7 +4,7 @@
 
 ## Prérequis
 
-- Windows 10 ou ultérieur, macOS 13 ou ultérieur, ou Linux. Le backend `local` se comporte de la même façon sur les trois ; le backend `slurm` exige Linux (voir le [dépannage](troubleshooting.md#backend-slurm-sous-windows-ou-macos)). Aucun droit administrateur n'est nécessaire.
+- Windows 10 ou ultérieur, macOS 13 ou ultérieur, ou Linux. Le backend `local` se comporte de la même façon sur les trois ; le backend `slurm` exige Linux (voir le [dépannage](troubleshooting.md#backend-slurm-sous-windows-ou-macos)). Aucun droit administrateur n'est nécessaire, sauf sous Windows sans chemins longs, où un run eqasim réel exige qu'un administrateur les active une fois (voir [Scratch court sous Windows](#scratch-court-sous-windows)).
 - Campagnes, scratch et données sur un disque local NTFS, APFS, ext4 ou xfs, ou sur le système de fichiers partagé du cluster. Les volumes FAT/exFAT et les partages SMB ne sont pas pris en charge pour les campagnes.
 - Python 3.13 exactement dans la plage déclarée `>=3.13,<3.14`.
 - `uv` et Git disponibles.
@@ -105,8 +105,12 @@ invoquer le tableau avec `"${SA[@]}"` pour préserver les arguments.
 
 Windows limite les chemins à 260 caractères sauf si les chemins longs sont
 activés. Le cache d'eqasim crée déjà des chemins relatifs allant jusqu'à environ
-231 caractères : choisissez un `execution.scratch` très court, comme `C:\esa`,
-et lancez `check` avant `run`. Voir le
+231 caractères : sous Windows sans chemins longs, aucun `execution.scratch` ne
+convient à un run eqasim réel, et un administrateur doit activer une fois les
+chemins longs Windows (`LongPathsEnabled`), en dehors d'eqasim-sa, tant
+qu'eqasim ne crée pas de chemins plus courts. Utilisez un `execution.scratch`
+court, comme `C:\esa`, et lancez `check` avant `run` : il signale ce cas avant
+tout run long. Voir le
 [dépannage](troubleshooting.md#le-contrôle-path_length-échoue-sous-windows).
 
 ## Première calibration des ressources

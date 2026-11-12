@@ -32,6 +32,11 @@ WORKSPACE_PREFIX_BUDGET = (
     len("/esa//w/a") + CAMPAIGN_MAX + SLOT_MAX + _PREFIX_HEX
 )
 
+
+def workspace_prefix_length(campaign: str) -> int:
+    """Longest relative path eqasim-sa adds below scratch for ``campaign``."""
+    return len("/esa//w/a") + len(campaign) + SLOT_MAX + _PREFIX_HEX
+
 _CAMPAIGN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _CONTEXT = re.compile(r"^[0-9a-f]{64}$")
 _SLOT = re.compile(r"^(0|[1-9][0-9]{0,3})$")

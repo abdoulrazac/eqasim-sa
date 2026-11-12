@@ -18,7 +18,7 @@ from eqasim_sa.adapters.eqasim.execution import (
     _apply_execution_overrides,
 )
 from eqasim_sa.adapters.eqasim.simulator import probe_environment
-from eqasim_sa.adapters.eqasim.workspace import WORKSPACE_PREFIX_BUDGET
+from eqasim_sa.adapters.eqasim.workspace import workspace_prefix_length
 from eqasim_sa.adapters.estimate import _estimate_state, _remaining
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.adapters.worker import ordered_results, worker_batches
@@ -36,6 +36,8 @@ SEALED_SENSITIVITY_METHODS = frozenset(
 )
 
 WINDOWS_PATH_LIMIT = 260
+# Shortest usable Windows scratch: a drive root such as "C:\\".
+SHORTEST_WINDOWS_SCRATCH = len("C:\\")
 DARWIN_PATH_LIMIT = 1024
 POSIX_PATH_LIMIT = 4096
 # Longest path eqasim created below its cache directory in a real Nantes run:
@@ -44,12 +46,33 @@ POSIX_PATH_LIMIT = 4096
 EQASIM_RELATIVE_PATH_BUDGET: int = 240
 
 
+def _relative_path_budget(campaign: str) -> int:
+    return workspace_prefix_length(campaign) + EQASIM_RELATIVE_PATH_BUDGET
+
+
 def estimate_max_path_length(scratch: Path, campaign: str) -> int:
     """Estimate the longest path eqasim will create below ``scratch``."""
+    return len(str(resolve_root(scratch, "execution.scratch"))) + _relative_path_budget(
+        campaign
+    )
+
+
+def _windows_path_length_error(length: int, campaign: str) -> str:
+    longest_scratch = WINDOWS_PATH_LIMIT - _relative_path_budget(campaign)
+    exceeded = (
+        f"estimated path length {length} exceeds the Windows limit of 260 characters"
+    )
+    if longest_scratch < SHORTEST_WINDOWS_SCRATCH:
+        return (
+            f"{exceeded}; no execution.scratch can fit, because eqasim's own cache "
+            f"(e.g. the extracted IRIS archive) needs up to {EQASIM_RELATIVE_PATH_BUDGET} "
+            "characters on its own. Enable Windows long paths (LongPathsEnabled, a "
+            "one-time administrator action outside eqasim-sa) or use an eqasim "
+            "version that creates shorter paths."
+        )
     return (
-        len(str(resolve_root(scratch, "execution.scratch")))
-        + WORKSPACE_PREFIX_BUDGET
-        + EQASIM_RELATIVE_PATH_BUDGET
+        f"{exceeded}; choose an execution.scratch of at most {longest_scratch} "
+        "characters."
     )
 
 
@@ -69,13 +92,7 @@ def _path_length_item(meta) -> dict:  # type: ignore[no-untyped-def]
             )
             return item
         item["status"] = "failed"
-        item["error"] = (
-            f"estimated path length {length} exceeds the Windows limit of 260 "
-            "characters; choose a shorter execution.scratch (for example C:\\esa). "
-            "Most of this length comes from eqasim's own cache (e.g. the extracted "
-            "IRIS archive); if a shorter scratch is not enough, an administrator "
-            "can enable Windows long paths (LongPathsEnabled) once."
-        )
+        item["error"] = _windows_path_length_error(length, meta.campaign)
         return item
     limit = DARWIN_PATH_LIMIT if sys.platform == "darwin" else POSIX_PATH_LIMIT
     if length <= limit:

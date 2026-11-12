@@ -633,8 +633,47 @@ def test_path_length_fails_on_windows_without_long_paths(
     item = _entry(payload, "path_length")
     assert item["status"] == "failed"
     assert "exceeds the Windows limit of 260 characters" in item["error"]
-    assert item["error"].endswith("(LongPathsEnabled) once.")
     assert payload["status"] == "invalid"
+
+
+def test_path_length_says_no_windows_scratch_fits_the_eqasim_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(platform, "IS_WINDOWS", True)
+    monkeypatch.setattr(platform, "windows_long_paths_enabled", lambda: False)
+    monkeypatch.setattr(check_service, "resolve_root", lambda path, name: Path("C:\\"))
+    item = _entry(_static_payload(tmp_path, monkeypatch, tmp_path), "path_length")
+    # "C:\\" + "/esa/demo/w9999/a<12 hex>" + eqasim's 240-character cache budget.
+    assert item["status"] == "failed"
+    assert item["error"].startswith("estimated path length 272 exceeds")
+    assert "no execution.scratch can fit" in item["error"]
+    assert "LongPathsEnabled, a one-time administrator action" in item["error"]
+    assert "shorter paths" in item["error"]
+    assert "choose an execution.scratch" not in item["error"]
+
+
+def test_path_length_suggests_a_scratch_only_when_one_fits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(platform, "IS_WINDOWS", True)
+    monkeypatch.setattr(platform, "windows_long_paths_enabled", lambda: False)
+    monkeypatch.setattr(check_service, "EQASIM_RELATIVE_PATH_BUDGET", 200)
+    payload = _static_payload(tmp_path, monkeypatch, _deep_scratch(tmp_path))
+    item = _entry(payload, "path_length")
+    # 260 - (len("/esa/demo/w9999/a<12 hex>") = 29) - 200 = 31 characters left.
+    assert item["status"] == "failed"
+    assert item["error"].endswith("choose an execution.scratch of at most 31 characters.")
+    assert "LongPathsEnabled" not in item["error"]
+
+
+def test_path_length_estimate_uses_the_campaign_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(check_service, "resolve_root", lambda path, name: Path("C:\\esa"))
+    short = check_service.estimate_max_path_length(tmp_path, "a")
+    long = check_service.estimate_max_path_length(tmp_path, "a" * 64)
+    assert long - short == 63
+    assert short == len("C:\\esa") + len("/esa/a/w9999/a") + 12 + 240
 
 
 def test_path_length_passes_on_windows_with_long_paths(

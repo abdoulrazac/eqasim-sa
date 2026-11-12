@@ -219,23 +219,30 @@ ni consigne de contrôle ni estimation du bruit intrinsèque sans restriction.
 ## Le contrôle `path_length` échoue sous Windows
 
 Cause : `check` estime le chemin le plus long qu'eqasim créera comme la longueur
-de `execution.scratch`, plus le préfixe worker fixe
-(`esa/<campagne>/w<slot>/c<12 hex>/`), plus un budget de 240 caractères pour les
-chemins relatifs propres à eqasim. Ce budget a été mesuré sur un vrai run Nantes :
-le cache d'eqasim crée des chemins relatifs allant jusqu'à 231 caractères (archive
-IGN IRIS extraite dans `data.spatial.iris`). L'erreur indique
-`estimated path length N exceeds the Windows limit of 260 characters; choose a
-shorter execution.scratch (for example C:\esa)...`.
+de `execution.scratch`, plus le préfixe worker de cette campagne
+(`esa/<campagne>/w<slot>/a<12 hex>/`, avec le nom réel de la campagne et un slot
+de 4 chiffres), plus un budget de 240 caractères pour les chemins relatifs propres
+à eqasim. Ce budget a été mesuré sur un vrai run Nantes : le cache d'eqasim crée
+des chemins relatifs allant jusqu'à 231 caractères (archive IGN IRIS extraite dans
+`data.spatial.iris`).
 
-Remède : placer `execution.scratch` sur un chemin très court, comme `C:\esa`.
-Pour Nantes, même un scratch minimal ne tient pas dans 260 caractères, car
-l'essentiel de la longueur vient du cache d'eqasim ; `check` échoue donc tôt, avant
-tout run long, plutôt qu'en plein pipeline. Si les chemins longs Windows sont
-activés (`LongPathsEnabled`), `check` lit cette valeur du registre en lecture seule
-et passe ; eqasim-sa ne la modifie jamais. L'activer exige un administrateur, une
-fois, en dehors d'eqasim-sa. Une modification amont d'eqasim (extraire l'archive
-IRIS dans un dossier plus court) supprimerait ce besoin. Sous Linux et macOS, les
-limites sont de 4096 et 1024 caractères et `check` ne fait qu'avertir.
+Avec ce budget, le préfixe worker et le cache d'eqasim dépassent déjà à eux seuls
+260 caractères : **aucun `execution.scratch` ne peut convenir** sous Windows sans
+chemins longs, pas même une racine de lecteur comme `C:\`. L'erreur indique alors
+`estimated path length N exceeds the Windows limit of 260 characters; no
+execution.scratch can fit...`. `check` échoue tôt, avant tout run long, plutôt
+qu'en plein pipeline.
+
+Remède : c'est le seul cas qui exige un administrateur. Soit un administrateur
+active une fois les chemins longs Windows (`LongPathsEnabled`), en dehors
+d'eqasim-sa, soit une modification amont d'eqasim (extraire l'archive IRIS dans un
+dossier plus court) supprime ce besoin. `check` lit cette valeur du registre en
+lecture seule et passe lorsqu'elle est activée ; eqasim-sa ne la modifie jamais. Si
+un futur eqasim demande un budget plus petit, `check` indique au contraire la
+longueur maximale d'`execution.scratch` qui convient (`choose an execution.scratch
+of at most N characters`) ; placez alors le scratch sur un chemin court comme
+`C:\esa`. Sous Linux et macOS, les limites sont de 4096 et 1024 caractères et
+`check` ne fait qu'avertir.
 
 ## Nom de campagne ou d'artefact refusé
 
