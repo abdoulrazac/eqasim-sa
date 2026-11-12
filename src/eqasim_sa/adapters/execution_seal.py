@@ -3,7 +3,6 @@
 import hashlib
 import json
 import os
-import shutil
 import stat
 import subprocess
 import threading
@@ -46,6 +45,7 @@ VOLATILE_ENVIRONMENT_NAMES = frozenset(
     }
 )
 VOLATILE_ENVIRONMENT_PREFIXES = ("SLURM_", "SUBMITIT_")
+WINDOWS_DEFAULT_PATHEXT = ".COM;.EXE;.BAT;.CMD"
 
 
 def normalized_child_environment(
@@ -98,21 +98,40 @@ def _path_executable(command: str, root: Path, environment: Mapping[str, str]) -
 def _windows_path_executable(
     command: str, root: Path, environment: Mapping[str, str]
 ) -> Path:
-    """Resolve like ``cmd.exe``: ``PATHEXT`` suffixes, relative entries under root."""
+    """Resolve like ``cmd.exe`` without its implicit current-directory search.
+
+    Only the sealed ``PATH`` entries (relative ones under ``root``) are
+    searched, with suffixes from the sealed ``PATHEXT``; the launch
+    directory is never consulted, so a decoy there cannot be sealed.
+    """
+    pathext = environment.get("PATHEXT", WINDOWS_DEFAULT_PATHEXT)
+    extensions = [extension for extension in pathext.split(";") if extension]
+    names = [command + extension for extension in extensions]
+    if any(command.upper().endswith(extension.upper()) for extension in extensions):
+        names.insert(0, command)
     if os.path.dirname(command):
         candidate = Path(command)
         if not candidate.is_absolute():
             candidate = root / candidate
-        found = shutil.which(str(candidate))
+        directories = [candidate.parent]
+        names = [Path(name).name for name in names]
     else:
-        search = os.pathsep.join(
-            str(Path(part) if Path(part).is_absolute() else root / part)
+        directories = [
+            Path(part) if Path(part).is_absolute() else root / part
             for part in environment.get("PATH", os.defpath).split(os.pathsep)
-        )
-        found = shutil.which(command, path=search)
-    if found is None:
-        raise FileNotFoundError(f"execution executable is not resolvable: {command}")
-    return Path(found).resolve(strict=True)
+            if part
+        ]
+    for directory in directories:
+        for name in names:
+            candidate = directory / name
+            try:
+                if candidate.is_file():
+                    resolved = candidate.resolve(strict=True)
+                    if resolved.is_file():
+                        return resolved
+            except OSError:
+                continue
+    raise FileNotFoundError(f"execution executable is not resolvable: {command}")
 
 
 def resolve_invocation(

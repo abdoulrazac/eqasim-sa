@@ -13,7 +13,7 @@ from eqasim_sa.adapters.eqasim.artifacts import normalize_outputs
 from eqasim_sa.adapters.eqasim.config import EqasimSettings, load_config
 from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator
 from eqasim_sa.ports.simulator import IndicatorRequirement, SimulationError
-from tests.conftest import make_symlink
+from tests.conftest import make_symlink, pid_alive
 
 
 def write_yaml(path: Path, *, prefix: str = "nantes_") -> None:
@@ -805,12 +805,6 @@ def option_value(arguments: list[str], name: str) -> str:
     return arguments[arguments.index(name) + 1]
 
 
-def _pid_alive(pid: int) -> bool:
-    from tests.test_process_tree import pid_alive
-
-    return pid_alive(pid)
-
-
 def test_fake_pipeline_interrupt_leaves_slot_reusable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -842,8 +836,11 @@ def test_fake_pipeline_interrupt_leaves_slot_reusable(
     thread.join(timeout=15)
     assert not thread.is_alive() and outcome == ["interrupted"]
     assert time.monotonic() - started < 15
-    for pid in (json.loads(record.read_text())["pid"], int(child.read_text())):
-        assert not _pid_alive(pid)
+    for pid in (
+        json.loads(record.read_text(encoding="utf-8"))["pid"],
+        int(child.read_text(encoding="utf-8")),
+    ):
+        assert not pid_alive(pid)
     assert current.workspace(0).status() == "active"
 
     monkeypatch.delenv("EQASIM_SPY_CHILD_RECORD")
@@ -856,33 +853,38 @@ def test_fake_pipeline_interrupt_leaves_slot_reusable(
     assert current.workspace(0).status() == "clean"
 
 
-def test_resolve_invocation_searches_path_with_which_on_windows(
+def test_windows_resolution_searches_sealed_path_with_sealed_pathext(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from eqasim_sa.adapters import execution_seal
     from eqasim_sa.utils import platform
 
-    tools = tmp_path / "tools"
-    tools.mkdir()
-    tool = tools / "uv"
-    tool.write_text("", encoding="utf-8")
-    tool.chmod(0o755)
-    seen: list[tuple[str, str | None]] = []
-    real_which = shutil.which
-
-    def which(command: str, mode: int = os.F_OK | os.X_OK, path: str | None = None):  # type: ignore[no-untyped-def]
-        seen.append((command, path))
-        return real_which(command, mode, path)
-
+    launch = tmp_path / "launch"
+    tools = tmp_path / "root" / "tools"
+    launch.mkdir()
+    tools.mkdir(parents=True)
+    (launch / "uv.EXE").write_bytes(b"decoy")
+    (launch / "uv").write_bytes(b"decoy")
+    tool = tools / "uv.EXE"
+    tool.write_bytes(b"MZ")
+    (tools / "uv.BAT").write_bytes(b"later suffix")
+    monkeypatch.chdir(launch)
     monkeypatch.setattr(platform, "IS_WINDOWS", True)
-    monkeypatch.setattr(execution_seal.shutil, "which", which)
-    resolved = execution_seal.resolve_invocation(
-        ["uv", "run"], tmp_path, {"PATH": "tools"}
-    )
+    monkeypatch.setenv("PATHEXT", ".BAT")
+    root = tmp_path / "root"
+    sealed = {"PATH": "tools", "PATHEXT": ".COM;.EXE;.BAT"}
+
+    resolved = execution_seal.resolve_invocation(["uv", "run"], root, sealed)
     assert resolved == (str(tool.resolve()), "run")
-    assert seen == [("uv", str(tmp_path / "tools"))]
+    explicit = execution_seal.resolve_invocation(["uv.BAT"], root, sealed)
+    assert explicit == (str((tools / "uv.BAT").resolve()),)
+    relative = execution_seal.resolve_invocation(["tools/uv"], root, sealed)
+    assert relative == (str(tool.resolve()),)
+    for environment in ({"PATH": "tools", "PATHEXT": ".CMD"}, {"PATH": ""}):
+        with pytest.raises(FileNotFoundError, match="not resolvable"):
+            execution_seal.resolve_invocation(["uv"], root, environment)
     with pytest.raises(FileNotFoundError, match="not resolvable"):
-        execution_seal.resolve_invocation(["missing"], tmp_path, {"PATH": "tools"})
+        execution_seal.resolve_invocation(["uv"], launch, {"PATH": str(tools.parent / "none")})
 
 
 @pytest.mark.windows_only

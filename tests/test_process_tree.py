@@ -2,7 +2,6 @@
 
 import ctypes
 import importlib
-import os
 import subprocess
 import sys
 import time
@@ -14,6 +13,7 @@ import pytest
 
 from eqasim_sa.utils import platform, process_tree
 from eqasim_sa.utils.process_tree import ProcessTree
+from tests.conftest import pid_alive
 
 # Start a sleeping grandchild, publish its PID atomically, then either keep
 # sleeping ("stay") or exit at once so the grandchild is orphaned ("leave").
@@ -35,28 +35,6 @@ def wait_for(condition: Callable[[], bool], timeout: float = 15.0) -> None:
         if time.monotonic() > deadline:
             raise AssertionError("condition not reached in time")
         time.sleep(0.02)
-
-
-def pid_alive(pid: int) -> bool:
-    if sys.platform == "win32":
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        kernel32.OpenProcess.restype = ctypes.c_void_p
-        kernel32.OpenProcess.argtypes = (ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32)
-        kernel32.WaitForSingleObject.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
-        kernel32.CloseHandle.argtypes = (ctypes.c_void_p,)
-        synchronize = 0x00100000
-        handle = kernel32.OpenProcess(synchronize, False, pid)
-        if not handle:
-            return False
-        try:
-            return kernel32.WaitForSingleObject(handle, 0) == 0x102  # WAIT_TIMEOUT
-        finally:
-            kernel32.CloseHandle(handle)
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
 
 
 def _spawn(tmp_path: Path, mode: str) -> tuple[ProcessTree, int]:
@@ -141,10 +119,18 @@ def test_import_does_not_touch_windows_apis(monkeypatch: pytest.MonkeyPatch) -> 
 class _FakeWindowsApi:
     """Records Job Object calls so the Windows ordering is checked anywhere."""
 
-    def __init__(self, *, assign_error: OSError | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        assign_error: OSError | None = None,
+        resume_error: OSError | None = None,
+        terminate_error: OSError | None = None,
+    ) -> None:
         self.calls: list[tuple[str, object]] = []
         self.active = 0
         self.assign_error = assign_error
+        self.resume_error = resume_error
+        self.terminate_error = terminate_error
 
     def create_job(self) -> int:
         self.calls.append(("create_job", None))
@@ -158,9 +144,13 @@ class _FakeWindowsApi:
 
     def resume(self, process: int) -> None:
         self.calls.append(("resume", process))
+        if self.resume_error is not None:
+            raise self.resume_error
 
     def terminate(self, job: int) -> None:
         self.calls.append(("terminate", job))
+        if self.terminate_error is not None:
+            raise self.terminate_error
         self.active = 0
 
     def active_processes(self, job: int) -> int:
@@ -235,3 +225,39 @@ def test_windows_assignment_failure_kills_the_suspended_child(
     assert created[0].killed
     assert [name for name, _ in api.calls] == ["create_job", "assign", "close"]
     assert tree.is_empty()
+
+
+@pytest.mark.parametrize("terminate_fails", [False, True])
+def test_windows_resume_failure_kills_child_and_releases_job(
+    monkeypatch: pytest.MonkeyPatch, terminate_fails: bool
+) -> None:
+    api = _FakeWindowsApi(
+        resume_error=OSError("resume refused"),
+        terminate_error=OSError("terminate refused") if terminate_fails else None,
+    )
+    created = _windows_tree(monkeypatch, api)
+    tree = ProcessTree()
+    with pytest.raises(OSError, match="terminate refused" if terminate_fails else "resume refused"):
+        tree.start(["eqasim"])
+    assert created[0].killed
+    assert [name for name, _ in api.calls] == [
+        "create_job", "assign", "resume", "terminate", "close"
+    ]
+    assert tree.is_empty()
+    tree.close()
+    assert [name for name, _ in api.calls].count("close") == 1
+
+
+def test_windows_tree_state_after_failed_close_is_a_clear_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _FakeWindowsApi(terminate_error=OSError("terminate refused"))
+    _windows_tree(monkeypatch, api)
+    tree = ProcessTree()
+    tree.start(["eqasim"])
+    with pytest.raises(OSError, match="terminate refused"):
+        tree.close()
+    assert api.calls[-1] == ("close", 77)
+    with pytest.raises(RuntimeError, match="state is unknown"):
+        tree.is_empty()
+    tree.close()

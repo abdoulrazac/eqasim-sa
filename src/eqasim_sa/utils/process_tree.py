@@ -90,7 +90,11 @@ class ProcessTree:
                 except ProcessLookupError:
                     self._empty = True
             else:
-                assert self._job is not None
+                if self._job is None:
+                    raise RuntimeError(
+                        "process tree state is unknown: its job handle was "
+                        "released after a failed termination"
+                    )
                 self._empty = self._api.active_processes(self._job) == 0
             return self._empty
 
@@ -138,10 +142,19 @@ class ProcessTree:
         try:
             api.resume(int(process._handle))  # type: ignore[attr-defined]
         except BaseException:
-            api.terminate(job)
-            process.wait()
-            self._empty = True
-            self._release_job()
+            # The child never ran, so it has no descendants: once it is
+            # reaped the tree is empty, and the job handle is released even
+            # when TerminateJobObject itself fails.
+            try:
+                try:
+                    api.terminate(job)
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                    process.wait()
+            finally:
+                self._empty = True
+                self._release_job()
             raise
         return process
 
