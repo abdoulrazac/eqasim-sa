@@ -814,6 +814,64 @@ def test_local_backend_propagates_worker_exception() -> None:
         tuple(LocalBackend(2).map(fail, [1, 2, 3]))
 
 
+def test_local_backend_keeps_submission_order_when_later_work_finishes_first() -> None:
+    def work(value: float) -> float:
+        time.sleep(value)
+        return value
+
+    assert tuple(LocalBackend(3).map(work, [0.2, 0.0, 0.1])) == (0.2, 0.0, 0.1)
+
+
+def test_local_backend_raises_the_first_failure_in_submission_order() -> None:
+    def fail(value: int) -> int:
+        if value == 1:
+            time.sleep(0.1)
+            raise RuntimeError("first")
+        if value == 2:
+            raise RuntimeError("second")
+        return value
+
+    iterator = LocalBackend(3).map(fail, [0, 1, 2])
+    assert next(iterator) == 0
+    with pytest.raises(RuntimeError, match="first"):
+        next(iterator)
+
+
+def test_local_backend_waits_in_short_slices_and_interrupts_on_ctrl_c(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from eqasim_sa.adapters.backends import local
+
+    release = threading.Event()
+    started = []
+    timeouts = []
+    real_wait = local.wait
+
+    def interrupted_wait(pending, timeout, return_when):  # type: ignore[no-untyped-def]
+        timeouts.append(timeout)
+        if len(timeouts) == 2:
+            # A Ctrl+C delivered between two short waits of the main thread.
+            raise KeyboardInterrupt
+        return real_wait(pending, timeout=0.01, return_when=return_when)
+
+    def work(value: int) -> int:
+        started.append(value)
+        release.wait(5)
+        return value
+
+    interrupts = []
+    monkeypatch.setattr(local, "wait", interrupted_wait)
+    iterator = LocalBackend(2).map(
+        work, [1, 2, 3], lambda: (interrupts.append(True), release.set())
+    )
+    with pytest.raises(KeyboardInterrupt):
+        next(iterator)
+    assert interrupts == [True]
+    assert timeouts == [local.INTERRUPT_POLL_SECONDS] * 2
+    # The queued third item was cancelled, never started.
+    assert sorted(started) == [1, 2]
+
+
 def test_plan_reconstruction_deduplicates_first_occurrence(tmp_path: Path) -> None:
     from eqasim_sa.adapters.application import plan_from_meta_config
 
