@@ -35,15 +35,31 @@ from eqasim_sa.ports.simulator import (
     MachineIdentity,
 )
 
+# Per-session or per-terminal values: they change between two shells on the
+# same machine but never affect what eqasim computes.
 VOLATILE_ENVIRONMENT_NAMES = frozenset(
     {
+        "DISPLAY",
         "HOSTNAME",
+        "ITERM_SESSION_ID",
         "OLDPWD",
         "PWD",
+        "SECURITYSESSIONID",
         "SHLVL",
+        "SSH_AUTH_SOCK",
+        "SSH_CLIENT",
+        "SSH_CONNECTION",
+        "SSH_TTY",
         "TEMP",
+        "TERM_PROGRAM_VERSION",
+        "TERM_SESSION_ID",
         "TMP",
         "TMPDIR",
+        "WINDOWID",
+        "WT_PROFILE_ID",
+        "WT_SESSION",
+        "XDG_SESSION_ID",
+        "XDG_VTNR",
         "_",
     }
 )

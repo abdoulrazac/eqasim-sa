@@ -280,18 +280,29 @@ jamais de job.
 
 ## `campaign runs were executed on another machine`
 
-Message complet : `campaign runs were executed on another machine (differing: ...);
-prepare a new campaign on this machine`. Cause : des runs terminés de la campagne
-portent une preuve d'exécution (chemin et hash de l'exécutable, environnement
-enfant, invocation, configuration du modèle, identité d'`eqasim-sa`) différente de
-celle de cette machine. Une campagne s'exécute entièrement sur une seule machine :
-`run` refuse donc de la reprendre et `check` signale l'élément `same_machine` en
-échec. La liste `differing` nomme les champs. Remède : préparer une nouvelle
-campagne (nouveau `campaign_root`) sur cette machine. Le hash d'environnement
-couvre l'environnement de la session : un environnement de shell très différent sur
-la même machine, par exemple un autre environnement virtuel ou un autre `PATH`,
-peut aussi déclencher le refus ; reprenez depuis l'environnement qui a démarré la
-campagne. Pour le backend `slurm`, `same_machine` est ignoré sur la machine qui
+Message complet : `campaign runs were executed on another machine or with other
+inputs: <causes> (differing: ...); prepare a new campaign on this machine`.
+Cause : des runs terminés de la campagne portent une preuve d'exécution (chemin et
+hash de l'exécutable, environnement enfant, invocation, configuration du modèle,
+identité d'`eqasim-sa`) différente de celle de cette machine. Une campagne
+s'exécute entièrement sur une seule machine : `run` refuse donc de la reprendre et
+`check` signale l'élément `same_machine` en échec. Le message nomme chaque cause en
+clair, suivie des champs `differing` :
+
+| Cause | Champs | Raison typique |
+| --- | --- | --- |
+| `executable differs` | `executable_sha256`, `invocation` | autre machine, ou environnement eqasim réinstallé ou déplacé |
+| `environment differs` | `environment_sha256`, `environment_variables` | autre machine, ou environnement de shell différent (environnement virtuel, `PATH`, autres variables) |
+| `model configuration changed` | `model_config_sha256` | le fichier `model.config` d'eqasim a été modifié depuis les premiers runs |
+| `eqasim-sa installation changed` | `eqasim_sa_sha256` | `eqasim-sa` a été mis à jour ou réinstallé |
+
+Remède : préparer une nouvelle campagne (nouveau `campaign_root`) sur cette
+machine, ou rétablir ce qui a changé. Les variables propres à la session
+(identifiants de terminal et de session SSH comme `WT_SESSION`,
+`TERM_SESSION_ID`, `SSH_CONNECTION`, `DISPLAY`, `SHLVL`, `PWD`) sont ignorées :
+ouvrir un nouveau terminal ne déclenche pas le refus ; les autres variables entrent
+dans le hash d'environnement, reprenez donc depuis un environnement semblable à
+celui qui a démarré la campagne. Pour le backend `slurm`, `same_machine` est ignoré sur la machine qui
 soumet et appliqué dans le job Slurm.
 
 ## Analyser sur une autre machine

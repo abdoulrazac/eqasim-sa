@@ -1526,6 +1526,63 @@ def test_resume_with_other_executable_is_refused() -> None:
     assert "differing: executable_sha256)" in str(error.value)
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "cause"),
+    [
+        ("executable_sha256", "0" * 64, "executable differs"),
+        ("invocation", (os.path.abspath("other"),), "executable differs"),
+        ("environment_sha256", "0" * 64, "environment differs"),
+        ("environment_variables", ("HOME", "PATH"), "environment differs"),
+        ("model_config_sha256", "0" * 64, "model configuration changed"),
+        ("eqasim_sa_sha256", "0" * 64, "eqasim-sa installation changed"),
+    ],
+)
+def test_resume_refusal_names_the_cause(field: str, value: object, cause: str) -> None:
+    from eqasim_sa.core.run import require_same_machine
+
+    with pytest.raises(ValueError) as error:
+        require_same_machine({"r": _evidence()}, replace(_evidence(), **{field: value}))
+    assert str(error.value) == (
+        "campaign runs were executed on another machine or with other inputs: "
+        f"{cause} (differing: {field}); prepare a new campaign on this machine"
+    )
+
+
+def test_resume_refusal_lists_each_cause_once() -> None:
+    from eqasim_sa.core.run import require_same_machine
+
+    current = replace(
+        _evidence(),
+        executable_sha256="0" * 64,
+        invocation=(os.path.abspath("other"),),
+        model_config_sha256="0" * 64,
+    )
+    with pytest.raises(ValueError) as error:
+        require_same_machine({"r": _evidence()}, current)
+    assert str(error.value).startswith(
+        "campaign runs were executed on another machine or with other inputs: "
+        "executable differs, model configuration changed (differing: "
+        "executable_sha256, invocation, model_config_sha256);"
+    )
+
+
+def test_session_variables_do_not_change_the_child_environment() -> None:
+    from eqasim_sa.adapters.execution_seal import normalized_child_environment
+
+    base = {"PATH": "/bin", "JAVA_HOME": "/opt/java", "EQASIM_SEED": "1"}
+    session = {
+        name: "session-value"
+        for name in (
+            "WT_SESSION", "WT_PROFILE_ID", "TERM_SESSION_ID", "SECURITYSESSIONID",
+            "ITERM_SESSION_ID", "TERM_PROGRAM_VERSION", "SSH_CLIENT",
+            "SSH_CONNECTION", "SSH_TTY", "SSH_AUTH_SOCK", "WINDOWID", "DISPLAY",
+            "XDG_SESSION_ID", "XDG_VTNR", "SHLVL", "OLDPWD", "PWD", "_",
+            "HOSTNAME", "TEMP", "TMP", "TMPDIR", "SLURM_JOB_ID", "SUBMITIT_FOLDER",
+        )
+    }
+    assert normalized_child_environment({**base, **session}) == base
+
+
 def test_empty_campaign_has_no_constraint() -> None:
     from eqasim_sa.core.run import require_same_machine
 

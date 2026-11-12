@@ -310,6 +310,15 @@ MACHINE_FIELDS = (
     "model_config_sha256",
     "eqasim_sa_sha256",
 )
+# Plain-language cause of a refusal, per differing evidence field.
+MACHINE_FIELD_CAUSES = {
+    "executable_sha256": "executable differs",
+    "invocation": "executable differs",
+    "environment_sha256": "environment differs",
+    "environment_variables": "environment differs",
+    "model_config_sha256": "model configuration changed",
+    "eqasim_sa_sha256": "eqasim-sa installation changed",
+}
 
 
 def require_same_machine(
@@ -333,9 +342,10 @@ def require_same_machine(
             if recorded != getattr(current, field):
                 differing.add(field)
     if differing:
+        causes = sorted({MACHINE_FIELD_CAUSES.get(field, field) for field in differing})
         raise ValueError(
-            "campaign runs were executed on another machine "
-            f"(differing: {', '.join(sorted(differing))}); "
+            "campaign runs were executed on another machine or with other inputs: "
+            f"{', '.join(causes)} (differing: {', '.join(sorted(differing))}); "
             "prepare a new campaign on this machine"
         )
 
