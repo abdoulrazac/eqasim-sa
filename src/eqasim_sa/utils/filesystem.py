@@ -375,7 +375,7 @@ def capture_stable_file(
             destination_descriptor = -1
         if created:
             try:
-                destination.unlink(missing_ok=True)
+                platform.remove_file(destination)
             except OSError:
                 pass
         raise

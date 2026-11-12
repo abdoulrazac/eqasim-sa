@@ -204,7 +204,7 @@ def test_failure_after_first_staged_artifact_leaves_no_partial_archive(
 
     assert result.status == "failed"
     assert not (campaign / "archives" / result.run_id).exists()
-    assert not tuple((campaign / "archives").glob(".*.tmp"))
+    assert not tuple((campaign / "archives").glob(".s????????"))
     assert not (campaign / "runs" / f"{result.run_id}.parquet").exists()
 
 
@@ -578,13 +578,13 @@ def test_run_file_is_published_last_and_archive_failure_is_incomplete(
     import eqasim_sa.core.run as run_module
 
     events: list[str] = []
-    original_rename = ledger.os.rename
+    original_rename = ledger.platform.rename_with_retry
     original_publish = ledger.write_parquet_exclusive
     campaign = tmp_path / "ordered"
 
-    def observe_rename(source, target, *args, **kwargs):  # type: ignore[no-untyped-def]
-        result = original_rename(source, target, *args, **kwargs)
-        if kwargs.get("src_dir_fd") is not None and str(source).endswith(".tmp"):
+    def observe_rename(source, target):  # type: ignore[no-untyped-def]
+        result = original_rename(source, target)
+        if source.name.startswith(".s") and target.parent.name == "archives":
             events.append("archive")
         return result
 
@@ -593,7 +593,7 @@ def test_run_file_is_published_last_and_archive_failure_is_incomplete(
         events.append("marker")
         return original_publish(table, destination, **options)
 
-    monkeypatch.setattr(ledger.os, "rename", observe_rename)
+    monkeypatch.setattr(ledger.platform, "rename_with_retry", observe_rename)
     monkeypatch.setattr(ledger, "write_parquet_exclusive", observe_marker)
     result = run_one(
         spec(),
@@ -621,7 +621,7 @@ def test_run_file_is_published_last_and_archive_failure_is_incomplete(
     assert failed.status == "failed"
     assert not (tmp_path / "broken" / "runs" / f"{failed.run_id}.parquet").exists()
     assert not (tmp_path / "broken" / "archives" / failed.run_id).exists()
-    assert not tuple((tmp_path / "broken" / "archives").glob(".*.tmp"))
+    assert not tuple((tmp_path / "broken" / "archives").glob(".s????????"))
 
 
 @pytest.mark.parametrize("failure", ["archive", "run", "enospc"])

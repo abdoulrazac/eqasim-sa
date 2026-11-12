@@ -3,7 +3,6 @@
 import hashlib
 import os
 import re
-import shutil
 import stat
 import tempfile
 import time
@@ -24,6 +23,7 @@ from eqasim_sa.core.analysis_publication import (
     LEGACY_ANALYSIS_STATE_DIRECTORY,
     OUTPUT_FILENAMES,
 )
+from eqasim_sa.utils import platform
 from eqasim_sa.utils.filesystem import reject_links_below, resolve_root
 from eqasim_sa.utils.names import validate_portable_name
 
@@ -90,6 +90,11 @@ def _project_name(value: str) -> str:
     return validate_portable_name(value, "project-name")
 
 
+def _owned(info: os.stat_result) -> bool:
+    uid = platform.current_uid()
+    return uid is None or info.st_uid == uid
+
+
 def _regular(path: Path, description: str, private: bool = False) -> None:
     try:
         info = path.lstat()
@@ -97,7 +102,7 @@ def _regular(path: Path, description: str, private: bool = False) -> None:
         raise FileExistsError(f"foreign content in init project: {description}") from error
     if (
         not stat.S_ISREG(info.st_mode)
-        or info.st_uid != os.getuid()
+        or not _owned(info)
         or info.st_nlink != 1
         or private and stat.S_IMODE(info.st_mode) & 0o077
     ):
@@ -119,8 +124,8 @@ def _backup(path: Path, destination: Path, description: str) -> None:
     if (
         not stat.S_ISREG(info.st_mode)
         or not stat.S_ISREG(target.st_mode)
-        or info.st_uid != os.getuid()
-        or target.st_uid != os.getuid()
+        or not _owned(info)
+        or not _owned(target)
         or info.st_nlink != 2
         or (info.st_dev, info.st_ino) != (target.st_dev, target.st_ino)
     ):
@@ -141,7 +146,7 @@ def _control_names(directory: Path) -> set[str]:
 def _preflight_project(directory: Path, scratch_relative: Path | None) -> bool:
     if not directory.exists():
         return True
-    if directory.is_symlink() or not directory.is_dir():
+    if platform.is_link(directory) or not directory.is_dir():
         raise ValueError("directory must not be a file or symlink")
     entries = tuple(directory.iterdir())
     if not entries:
@@ -151,7 +156,7 @@ def _preflight_project(directory: Path, scratch_relative: Path | None) -> bool:
     if scratch_top:
         expected.add(scratch_top)
     for entry in entries:
-        if entry.is_symlink() or entry.name not in expected:
+        if platform.is_link(entry) or entry.name not in expected:
             if entry.name in {"nantes.yml", "nantes-calibration.yml"}:
                 raise FileExistsError("old starter detected; choose a new project directory")
             raise FileExistsError(f"foreign content in init project: {entry.name}")
@@ -159,11 +164,11 @@ def _preflight_project(directory: Path, scratch_relative: Path | None) -> bool:
     _regular(directory / "manifest.json", "manifest.json")
     for name in {"configs", "campaigns"}:
         path = directory / name
-        if path.is_symlink() or not path.is_dir():
+        if platform.is_link(path) or not path.is_dir():
             raise FileExistsError(f"foreign content in init project: {name}")
     config_names = {Path(path).name for path in INIT_CONFIGS.values()}
     for entry in (directory / "configs").iterdir():
-        if entry.is_symlink() or entry.name not in config_names:
+        if platform.is_link(entry) or entry.name not in config_names:
             raise FileExistsError(f"foreign content in init project: configs/{entry.name}")
         _regular(entry, f"configs/{entry.name}")
     if {entry.name for entry in (directory / "configs").iterdir()} != config_names:
@@ -171,7 +176,7 @@ def _preflight_project(directory: Path, scratch_relative: Path | None) -> bool:
     campaigns = directory / "campaigns"
     controls = _control_names(directory)
     for entry in campaigns.iterdir():
-        if entry.is_symlink():
+        if platform.is_link(entry):
             raise FileExistsError(f"foreign content in init project: campaigns/{entry.name}")
         if entry.name in controls:
             _regular(entry, f"campaigns/{entry.name}", private=True)
@@ -186,7 +191,7 @@ def _preflight_project(directory: Path, scratch_relative: Path | None) -> bool:
                 if parent != directory and any(parent.iterdir()):
                     raise FileExistsError("foreign content in init scratch")
                 break
-            if current.is_symlink() or not current.is_dir():
+            if platform.is_link(current) or not current.is_dir():
                 raise FileExistsError("foreign content in init scratch")
             if index + 1 < len(scratch_relative.parts):
                 names = {entry.name for entry in current.iterdir()}
@@ -211,7 +216,7 @@ def _init_campaign_allowed(
     temporary = re.compile(r"\.([0-9a-f]{32})\.parquet\.([A-Za-z0-9_-]+)\.tmp")
     backup = re.compile(r"\.([0-9a-f]{32})\.parquet\.([A-Za-z0-9_-]+)\.backup")
     for entry in root.iterdir():
-        if entry.is_symlink() or entry.name not in allowed:
+        if platform.is_link(entry) or entry.name not in allowed:
             raise FileExistsError(f"foreign content in init campaign: {entry.name}")
         if entry.name in {
             ANALYSIS_STATE_DIRECTORY,
@@ -275,7 +280,7 @@ def _init_campaign_allowed(
             run_id = child.stem if entry.name != "archives" else child.name
             valid_type = child.is_dir() if entry.name == "archives" else child.is_file()
             if (
-                child.is_symlink()
+                platform.is_link(child)
                 or not valid_type
                 or run_id not in expected_ids
                 or child.name != expected_name
@@ -309,7 +314,7 @@ def _init_campaign_allowed(
             if entry.name == "archives":
                 for artifact in child.iterdir():
                     if (
-                        artifact.is_symlink()
+                        platform.is_link(artifact)
                         or not artifact.is_file()
                         or expected_artifacts is None
                         or artifact.name not in expected_artifacts
@@ -329,7 +334,7 @@ def _owned_technical_tree(path: Path, description: str) -> None:
         info = path.lstat()
     except OSError as error:
         raise FileExistsError(f"foreign content in init project: {description}") from error
-    if path.is_symlink() or info.st_uid != os.getuid():
+    if platform.is_link(path) or not _owned(info):
         raise FileExistsError(f"foreign content in init project: {description}")
     if stat.S_ISREG(info.st_mode):
         _regular(path, description)
@@ -348,9 +353,9 @@ def _owned_technical_directory(path: Path, description: str) -> None:
             f"foreign content in init campaign: {description}"
         ) from error
     if (
-        path.is_symlink()
+        platform.is_link(path)
         or not stat.S_ISDIR(info.st_mode)
-        or info.st_uid != os.getuid()
+        or not _owned(info)
     ):
         raise FileExistsError(
             f"foreign content in init campaign: {description}"
@@ -425,8 +430,8 @@ def _analysis_state_allowed(path: Path, method: str) -> None:
     info = path.lstat()
     if (
         not stat.S_ISDIR(info.st_mode)
-        or info.st_uid != os.getuid()
-        or path.is_symlink()
+        or not _owned(info)
+        or platform.is_link(path)
     ):
         raise FileExistsError(
             f"foreign content in init campaign: {state_name}"
@@ -438,20 +443,20 @@ def _analysis_state_allowed(path: Path, method: str) -> None:
         )
     staging = children.get("staging")
     if staging is not None:
-        if staging.is_symlink() or not staging.is_dir() or any(staging.iterdir()):
+        if platform.is_link(staging) or not staging.is_dir() or any(staging.iterdir()):
             raise FileExistsError(
                 f"foreign content in init campaign: {state_name}/staging"
             )
     generations = children.get("generations")
     if generations is None:
         return
-    if generations.is_symlink() or not generations.is_dir():
+    if platform.is_link(generations) or not generations.is_dir():
         raise FileExistsError(
             f"foreign content in init campaign: {state_name}/generations"
         )
     for generation in generations.iterdir():
         if (
-            generation.is_symlink()
+            platform.is_link(generation)
             or not generation.is_dir()
             or re.fullmatch(r"[0-9a-f]{64}", generation.name) is None
         ):
@@ -493,11 +498,11 @@ def _publish_scaffold(
             if any(destination.iterdir()):
                 raise FileExistsError("directory changed while publishing init project")
             destination.rmdir()
-        staging.replace(destination)
+        platform.replace_with_retry(staging, destination)
         staging = None
     finally:
         if staging is not None:
-            shutil.rmtree(staging)
+            platform.remove_tree(staging)
 
 
 def _durable_preflight(directory: Path, expected_artifacts: set[str]) -> None:
@@ -582,7 +587,7 @@ def init_from_inputs(
         raise ValueError("model-config must be relative to model-root")
     selected_config = model / model_config
     reject_links_below(model, selected_config, "model-config")
-    if selected_config.is_symlink() or not selected_config.is_file():
+    if platform.is_link(selected_config) or not selected_config.is_file():
         raise ValueError(
             "model-config must be a regular non-symlink file under model-root"
         )

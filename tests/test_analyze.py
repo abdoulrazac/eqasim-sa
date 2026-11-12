@@ -2687,14 +2687,14 @@ def test_generation_rename_failure_keeps_previous_pointer_and_generation(
     root, _ = _campaign(tmp_path)
     current = _analyze(root, (_custom_indicator(),))
     pointer = (root / "analysis-generation.json").read_bytes()
-    real_rename = Path.rename
+    real_rename = os.rename
 
-    def fail_generation_rename(source: Path, destination: Path) -> Path:
-        if source.name == "generation":
+    def fail_generation_rename(source, destination):  # type: ignore[no-untyped-def]
+        if Path(source).name == "generation":
             raise OSError("injected generation rename failure")
         return real_rename(source, destination)
 
-    monkeypatch.setattr(Path, "rename", fail_generation_rename)
+    monkeypatch.setattr(os, "rename", fail_generation_rename)
     with pytest.raises(OSError, match="generation rename"):
         _analyze(
             root,

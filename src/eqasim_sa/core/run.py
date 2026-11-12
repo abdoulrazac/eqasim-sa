@@ -5,13 +5,13 @@ import hashlib
 import json
 import math
 import os
-import shutil
 import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
+from eqasim_sa.utils import platform
 from eqasim_sa.utils.names import validate_portable_name
 from eqasim_sa.utils.filesystem import (
     copy_file_atomic,
@@ -223,14 +223,14 @@ def execute_run(
                     ):
                         raise ValueError("successful attempt escapes workdir")
                     reject_links_below(resolved_workdir, attempt, "attempt directory")
-                    shutil.rmtree(attempt)
+                    platform.remove_tree(attempt)
                     publication.commit(
                         RunRecord(
                             run_id,
                             spec.campaign,
                             spec.seed,
                             spec.expected_context_hash,
-                            os.uname().nodename,
+                            platform.hostname(),
                             time.monotonic() - start,
                             spec.parameters,
                             manifest.scratch_bytes,
@@ -270,7 +270,10 @@ def execute_run(
                 try:
                     destination = campaign_root / "logs" / f"{run_id}.log"
                     write_atomic(
-                        destination, lambda path: path.write_text(str(error) + "\n")
+                        destination,
+                        lambda path: path.write_text(
+                            str(error) + "\n", encoding="utf-8", newline="\n"
+                        ),
                     )
                 except Exception as log_error:
                     return RunResult(
@@ -300,9 +303,8 @@ def _remove_failure_log(campaign_root: Path, run_id: str) -> None:
     log = campaign_root / "logs" / f"{run_id}.log"
     if not log.exists():
         return
-    log.unlink()
-    if os.name == "posix":
-        fsync_directory(log.parent)
+    platform.remove_file(log)
+    fsync_directory(log.parent)
 
 
 def run_one(

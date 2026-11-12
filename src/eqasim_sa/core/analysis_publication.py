@@ -4,9 +4,8 @@ import hashlib
 import importlib.metadata
 import json
 import os
-import platform
+import platform as python_platform
 import re
-import shutil
 import stat
 import sys
 import uuid
@@ -23,6 +22,7 @@ from eqasim_sa.core.campaign_snapshot import (
     context_descriptor,
     expected_records,
 )
+from eqasim_sa.utils import platform
 from eqasim_sa.utils.filesystem import (
     PublicationOutcomeUnknown,
     file_lease,
@@ -140,7 +140,7 @@ def _validate_generation_inventory(generations: Path) -> None:
         info = generation.lstat()
         if (
             not stat.S_ISDIR(info.st_mode)
-            or generation.is_symlink()
+            or platform.is_link(generation)
             or SHA256.fullmatch(generation.name) is None
         ):
             raise ValueError(
@@ -155,8 +155,8 @@ def _validate_generation_inventory(generations: Path) -> None:
             output_info = output.lstat()
             if (
                 not stat.S_ISREG(output_info.st_mode)
-                or output.is_symlink()
-                or output_info.st_uid != os.getuid()
+                or platform.is_link(output)
+                or not _owned(output_info)
                 or output_info.st_nlink != 1
             ):
                 raise ValueError(
@@ -164,10 +164,15 @@ def _validate_generation_inventory(generations: Path) -> None:
                 )
 
 
+def _owned(info: os.stat_result) -> bool:
+    uid = platform.current_uid()
+    return uid is None or info.st_uid == uid
+
+
 def _validate_analysis_state(
     state: Path, *, allow_active_staging: bool = False
 ) -> None:
-    if not state.exists() and not state.is_symlink():
+    if not state.exists() and not platform.is_link(state):
         return
     secure_directory(state, create=False)
     children = {entry.name: entry for entry in state.iterdir()}
@@ -183,7 +188,7 @@ def _validate_analysis_state(
         for entry in existing_staging.iterdir():
             if (
                 not allow_active_staging
-                or entry.is_symlink()
+                or platform.is_link(entry)
                 or not entry.is_dir()
                 or re.fullmatch(r"[0-9a-f]{32}", entry.name) is None
             ):
@@ -278,7 +283,7 @@ def validate_descriptive_execution_evidence(
 def dependency_versions(software_identity: SoftwareIdentity) -> dict[str, str]:
     """Capture sorted runtime versions and the sealed package source digest."""
 
-    versions = {"python": platform.python_version()}
+    versions = {"python": python_platform.python_version()}
     for distribution in ("eqasim-sa", "numpy", "pyarrow", "SALib", "scipy"):
         versions[distribution] = importlib.metadata.version(distribution)
     versions["eqasim-sa-source"] = software_identity.sha256
@@ -334,8 +339,8 @@ class AnalysisPublication:
         fsync_directory(self.staging)
     def __exit__(self, *exc_info) -> None:  # type: ignore[no-untyped-def]
         try:
-            if self.work.exists() and not self.work.is_symlink():
-                shutil.rmtree(self.work)
+            if self.work.exists() and not platform.is_link(self.work):
+                platform.remove_tree(self.work)
                 fsync_directory(self.staging)
         finally:
             self._lease_context.__exit__(*exc_info)
@@ -460,11 +465,7 @@ class AnalysisPublication:
             snapshot = stable_file(path)
             if path.lstat().st_nlink != 1:
                 raise ValueError(f"analysis output must not be hard-linked: {path}")
-            descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-            try:
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
+            _fsync_regular(path)
             staged_records[name] = {
                 "name": path.name,
                 "size": snapshot.size,
@@ -553,10 +554,10 @@ class AnalysisPublication:
             indicator_guard()
         verify_software_source_states(software_identity)
         self.verify_sources()
-        if final.exists() or final.is_symlink():
+        if final.exists() or platform.is_link(final):
             _validate_existing_generation(final, output_records)
         else:
-            self.generation_staging.rename(final)
+            platform.rename_with_retry(self.generation_staging, final)
             fsync_directory(self.generations)
         self.verify_sources()
         if indicator_guard is not None:
@@ -587,6 +588,17 @@ class AnalysisPublication:
             final_paths,
             MappingProxyType(manifest),
         )
+
+
+def _fsync_regular(path: Path) -> None:
+    # Windows can only flush handles opened for writing.
+    access = os.O_RDWR if platform.IS_WINDOWS else os.O_RDONLY
+    flags = access | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _legacy_output_fields(outputs: Mapping[str, Mapping[str, object]]) -> dict:
@@ -631,7 +643,7 @@ def _validate_existing_generation(
     directory: Path, outputs: Mapping[str, Mapping[str, object]]
 ) -> None:
     info = directory.lstat()
-    if not stat.S_ISDIR(info.st_mode) or directory.is_symlink():
+    if not stat.S_ISDIR(info.st_mode) or platform.is_link(directory):
         raise ValueError("content-addressed analysis generation is not a directory")
     expected = {Path(str(record["path"])).name for record in outputs.values()}
     entries = tuple(directory.iterdir())
@@ -658,7 +670,7 @@ def _clean_legacy_outputs(campaign_root: Path) -> None:
         except FileNotFoundError:
             continue
         if stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
-            path.unlink()
+            platform.remove_file(path)
             changed = True
     if changed:
         fsync_directory(campaign_root)

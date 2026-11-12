@@ -1,5 +1,6 @@
 """Create, parse, and verify immutable manifests of input data trees."""
 
+import errno
 import hashlib
 import json
 import os
@@ -8,6 +9,7 @@ import stat
 from dataclasses import dataclass
 from pathlib import Path
 
+from eqasim_sa.utils import platform
 from eqasim_sa.utils.filesystem import (
     descriptor_sha256,
     publish_bytes,
@@ -18,6 +20,12 @@ from eqasim_sa.utils.filesystem import (
 DOMAIN = b"eqasim-sa:data-tree:v1\0"
 State = tuple[int, int, int, int, int]
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_READ_FLAGS = (
+    os.O_RDONLY
+    | getattr(os, "O_NOFOLLOW", 0)
+    | getattr(os, "O_NONBLOCK", 0)
+    | getattr(os, "O_BINARY", 0)
+)
 
 
 @dataclass(frozen=True)
@@ -122,7 +130,7 @@ def load_data_manifest(path: Path) -> DataManifest:
     """Load a regular, non-symlink manifest file from disk."""
 
     try:
-        if path.is_symlink() or not path.is_file():
+        if platform.is_link(path) or not path.is_file():
             raise ValueError
         return parse_data_manifest(path.read_bytes())
     except OSError as error:
@@ -185,17 +193,13 @@ def generate_data_manifest(
     """Hash a stable data tree and atomically publish its canonical manifest."""
 
     root = resolve_root(data_root, "data root")
-    root_descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    try:
-        root_state = _state(os.fstat(root_descriptor))
-        records, before = _scan(root_descriptor, hash_files=True)
-        _, after = _scan(root_descriptor, hash_files=False)
-    finally:
-        os.close(root_descriptor)
+    root_state = _directory_state(root)
+    records, before = _scan(root, hash_files=True)
+    _, after = _scan(root, hash_files=False)
     if before != after:
         raise RuntimeError("data tree changed while generating its manifest")
     try:
-        current_root = os.stat(root, follow_symlinks=False)
+        current_root = os.lstat(root)
     except FileNotFoundError as error:
         raise RuntimeError("data root changed while generating its manifest") from error
     if not stat.S_ISDIR(current_root.st_mode) or _state(current_root) != root_state:
@@ -208,7 +212,7 @@ def generate_data_manifest(
         raise ValueError("data manifest must be outside the data tree")
     canonical = json.dumps(
         records, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ).encode()
+    ).encode("utf-8")
     document = {
         "algorithm": "sha256",
         "files": records,
@@ -217,7 +221,7 @@ def generate_data_manifest(
     }
     payload = (
         json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
-    ).encode()
+    ).encode("utf-8")
     try:
         publish_bytes(payload, target, replace=replace, default_mode=0o644)
     except FileExistsError as error:
@@ -239,14 +243,10 @@ def _read_tree(
     root = resolve_root(data_root, "data root")
     if not root.is_dir():
         raise ValueError("data root must be a directory")
-    root_descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    root_state = _directory_state(root)
+    records, states = _scan(root, hash_files=hash_files)
     try:
-        root_state = _state(os.fstat(root_descriptor))
-        records, states = _scan(root_descriptor, hash_files=hash_files)
-    finally:
-        os.close(root_descriptor)
-    try:
-        current_root = os.stat(root, follow_symlinks=False)
+        current_root = os.lstat(root)
     except FileNotFoundError as error:
         raise RuntimeError("data root changed while scanning") from error
     if not stat.S_ISDIR(current_root.st_mode) or _state(current_root) != root_state:
@@ -254,47 +254,48 @@ def _read_tree(
     return root, root_state, records, states
 
 
+def _directory_state(path: Path) -> State:
+    info = os.lstat(path)
+    if not stat.S_ISDIR(info.st_mode) or platform.is_link(path):
+        raise NotADirectoryError(
+            errno.ENOTDIR, "data root must be a non-link directory", str(path)
+        )
+    return _state(info)
+
+
 def _scan(
-    root_descriptor: int, *, hash_files: bool
+    root: Path, *, hash_files: bool
 ) -> tuple[list[dict[str, int | str]], dict[str, State]]:
+    """Walk a data tree by path, refusing links and detecting replacements.
+
+    Each directory's identity and metadata are captured before its listing and
+    compared again afterwards; each file is opened only after its path was
+    seen as a regular non-link file, and the opened handle must match it.
+    """
+
     records: list[dict[str, int | str]] = []
     states: dict[str, State] = {}
 
-    def visit(directory_descriptor: int, prefix: str) -> None:
-        directory_before = _state(os.fstat(directory_descriptor))
+    def visit(directory: Path, prefix: str, expected: State | None) -> None:
+        directory_before = _directory_state(directory)
+        if expected is not None and directory_before != expected:
+            raise RuntimeError(f"data entry changed while opening: {prefix}")
         states[f"{prefix}/"] = directory_before
-        with os.scandir(directory_descriptor) as entries:
-            ordered = list(entries)
+        names = os.listdir(directory)
         try:
-            ordered.sort(key=lambda entry: entry.name.encode("utf-8"))
+            names.sort(key=lambda name: name.encode("utf-8"))
         except UnicodeEncodeError as error:
             raise ValueError("data paths must be valid UTF-8") from error
-        for entry in ordered:
-            try:
-                entry.name.encode("utf-8")
-            except UnicodeEncodeError as error:
-                raise ValueError("data paths must be valid UTF-8") from error
-            relative = f"{prefix}/{entry.name}" if prefix else entry.name
-            info = entry.stat(follow_symlinks=False)
-            if stat.S_ISLNK(info.st_mode):
+        for name in names:
+            relative = f"{prefix}/{name}" if prefix else name
+            path = directory / name
+            info = os.lstat(path)
+            if stat.S_ISLNK(info.st_mode) or platform.is_link(path):
                 raise ValueError(f"data tree contains a symlink: {relative}")
             if stat.S_ISDIR(info.st_mode):
-                child = os.open(
-                    entry.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-                    dir_fd=directory_descriptor,
-                )
-                try:
-                    if _state(os.fstat(child)) != _state(info):
-                        raise RuntimeError(f"data entry changed while opening: {relative}")
-                    visit(child, relative)
-                finally:
-                    os.close(child)
+                visit(path, relative, _state(info))
             elif stat.S_ISREG(info.st_mode):
-                descriptor = os.open(
-                    entry.name,
-                    os.O_RDONLY | os.O_NOFOLLOW,
-                    dir_fd=directory_descriptor,
-                )
+                descriptor = os.open(path, _READ_FLAGS)
                 try:
                     opened = os.fstat(descriptor)
                     if _state(opened) != _state(info) or not stat.S_ISREG(opened.st_mode):
@@ -316,10 +317,16 @@ def _scan(
                     os.close(descriptor)
             else:
                 raise ValueError(f"data tree contains a non-regular entry: {relative}")
-        if _state(os.fstat(directory_descriptor)) != directory_before:
+        try:
+            directory_after = _directory_state(directory)
+        except OSError as error:
+            raise RuntimeError(
+                f"data directory changed while scanning: {prefix or '.'}"
+            ) from error
+        if directory_after != directory_before:
             raise RuntimeError(f"data directory changed while scanning: {prefix or '.'}")
 
-    visit(root_descriptor, "")
+    visit(root, "", None)
     return records, states
 
 

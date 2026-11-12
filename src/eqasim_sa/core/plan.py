@@ -73,6 +73,7 @@ from eqasim_sa.core.methods.structured import (
 )
 from eqasim_sa.core.ledger import RESERVED_COLUMNS
 from eqasim_sa.core.run import RunSpec, compute_run_id
+from eqasim_sa.utils import platform
 from eqasim_sa.utils.filesystem import (
     PublicationOutcomeUnknown,
     file_state,
@@ -938,12 +939,12 @@ def load_run_specs(
 ) -> tuple[RunSpec, ...]:
     """Verify a sealed plan against its design and reconstruct unique runs."""
 
-    if path.is_symlink() or not path.is_file():
+    if platform.is_link(path) or not path.is_file():
         raise ValueError("plan.parquet must be a regular non-symlink file")
     names = _validate(design)
     transactions = path.parent / ".eqasim-sa" / "transactions"
     existing_transactions = None
-    if transactions.exists() or transactions.is_symlink():
+    if transactions.exists() or platform.is_link(transactions):
         reject_links_below(path.parent, transactions, "campaign transactions")
         existing_transactions = secure_directory(transactions)
     actual = _read_committed_plan(path, existing_transactions)
@@ -981,6 +982,19 @@ def load_run_specs(
 _STAGED_TEMPORARY = re.compile(r"^\.t[0-9a-f]{8}$")
 
 
+_PLAN_READ_FLAGS = (
+    os.O_RDONLY
+    | getattr(os, "O_NOFOLLOW", 0)
+    | getattr(os, "O_NONBLOCK", 0)
+    | getattr(os, "O_BINARY", 0)
+)
+
+
+def _owned(info: os.stat_result) -> bool:
+    uid = platform.current_uid()
+    return uid is None or info.st_uid == uid
+
+
 def _plan_transactions(root: Path) -> Path:
     technical = root / ".eqasim-sa"
     transactions = technical / "transactions"
@@ -993,7 +1007,7 @@ def _plan_transactions(root: Path) -> Path:
         if (
             not _STAGED_TEMPORARY.fullmatch(entry.name)
             or not stat.S_ISREG(info.st_mode)
-            or info.st_uid != os.getuid()
+            or not _owned(info)
             or info.st_nlink not in {1, 2}
         ):
             raise FileExistsError(
@@ -1031,9 +1045,9 @@ def _read_committed_plan(
     deadline = time.monotonic() + 5.0
     while True:
         try:
-            descriptor = os.open(
-                destination, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
-            )
+            if platform.is_link(destination):
+                raise ValueError("plan.parquet must be a regular non-symlink file")
+            descriptor = os.open(destination, _PLAN_READ_FLAGS)
         except FileNotFoundError:
             return None
         try:
@@ -1092,7 +1106,7 @@ def _same_plan(candidate: pa.Table, existing: pa.Table) -> bool:
 
 def _validate_existing_plan_technical(root: Path) -> None:
     technical = root / ".eqasim-sa"
-    if not technical.exists() and not technical.is_symlink():
+    if not technical.exists() and not platform.is_link(technical):
         return
     secure_directory(technical)
     children = {entry.name: entry for entry in technical.iterdir()}
@@ -1123,7 +1137,9 @@ def build_plan(design: Design) -> PlanResult:
     candidate = _table(design, names)
     root, destination = design.campaign_root, design.campaign_root / "plan.parquet"
     _validate_existing_plan_technical(root)
-    if destination.is_symlink() or (destination.exists() and not destination.is_file()):
+    if platform.is_link(destination) or (
+        destination.exists() and not destination.is_file()
+    ):
         raise ValueError("plan.parquet must be a regular non-symlink file")
     if destination.exists():
         visible = destination.lstat()

@@ -14,6 +14,7 @@ from typing import Mapping, Sequence
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from eqasim_sa.utils import platform
 from eqasim_sa.utils.filesystem import (
     reject_links_below,
     FileState,
@@ -152,6 +153,12 @@ class CampaignSnapshot:
                 artifacts = completion.captured_artifacts
             else:
                 archive = campaign_root / "archives" / run_id
+                try:
+                    reject_links_below(campaign_root, archive, "analysis archive")
+                except ValueError as error:
+                    raise ValueError(
+                        f"invalid archive for {run_id}: {error}"
+                    ) from error
                 archive_state = directory_state(archive)
                 artifacts_list = []
                 for path, _, _ in _artifact_sources(archive, completion):
@@ -458,7 +465,7 @@ def directory_state(path: Path) -> FileState:
         info = path.lstat()
     except OSError as error:
         raise ValueError(f"analysis archive is not a regular directory: {path}") from error
-    if not stat.S_ISDIR(info.st_mode) or path.is_symlink():
+    if not stat.S_ISDIR(info.st_mode) or platform.is_link(path):
         raise ValueError(f"analysis archive is not a regular directory: {path}")
     return file_state(info)
 
@@ -500,7 +507,7 @@ def _artifact_sources(
         )
     entries = tuple(sorted(archive.iterdir(), key=lambda path: os.fsencode(path.name)))
     if not entries or any(
-        entry.suffix != ".parquet" or entry.is_symlink() or not entry.is_file()
+        entry.suffix != ".parquet" or platform.is_link(entry) or not entry.is_file()
         for entry in entries
     ):
         raise ValueError(

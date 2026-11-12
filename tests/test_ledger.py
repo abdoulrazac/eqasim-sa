@@ -375,7 +375,7 @@ def test_archive_transaction_never_replaces_a_competing_marker(
     assert not (tmp_path / "archives" / record.run_id).exists()
 
 
-def test_archive_marker_commit_uses_only_descriptors_held_during_prepare(
+def test_archive_marker_commit_uses_only_anchors_captured_during_prepare(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -389,9 +389,9 @@ def test_archive_marker_commit_uses_only_descriptors_held_during_prepare(
     ) as publication:
         monkeypatch.setattr(
             ledger,
-            "open_directory",
+            "anchor_directory",
             lambda *args, **kwargs: (_ for _ in ()).throw(
-                AssertionError("campaign reopened by pathname")
+                AssertionError("campaign re-anchored by pathname")
             ),
         )
         marker = publication.commit(record)
@@ -447,7 +447,8 @@ def test_archive_transaction_marker_race_is_no_clobber_and_self_consistent(
     assert completion is not None and completion.archive_integrity == ledger.VERIFIED
     archive = tmp_path / "archives" / record.run_id / "output.parquet"
     assert pq.read_table(archive).to_pylist() == [{"value": committed[0]}]
-    assert not tuple((tmp_path / "archives").glob(".*.backup"))
+    assert not tuple((tmp_path / "archives").glob(".b????????"))
+    assert not tuple((tmp_path / "archives").glob(".s????????"))
 
 
 def test_run_lease_is_private_to_run_and_rejects_foreign_lock(

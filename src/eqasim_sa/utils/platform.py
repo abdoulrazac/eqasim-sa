@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 import platform as _stdlib_platform
+import shutil
+import stat
 import sys
 import time
 from pathlib import Path
@@ -21,6 +23,8 @@ __all__ = (
     "hostname",
     "is_link",
     "lock_exclusive_nonblocking",
+    "remove_file",
+    "remove_tree",
     "rename_with_retry",
     "replace_with_retry",
     "unlock",
@@ -115,6 +119,45 @@ def _with_retry(operation, source, destination, *, passthrough) -> None:
             delay = next(delays, None)
             if delay is None:
                 raise
+            time.sleep(delay)
+
+
+def remove_file(path: Path) -> None:
+    """Delete a file eqasim-sa created, including read-only ones on Windows.
+
+    Windows refuses to delete a file whose read-only attribute is set (as for
+    captured ``0o400`` copies): the attribute is cleared and the deletion
+    retried with the usual bounded delays.  POSIX deletes directly.
+    """
+    if not IS_WINDOWS:
+        os.unlink(path)
+        return
+    _retry_writable(os.unlink, path)
+
+
+def remove_tree(path: Path) -> None:
+    """Delete a directory tree eqasim-sa created, clearing read-only files."""
+
+    def clear_read_only(function, failed_path, error) -> None:  # type: ignore[no-untyped-def]
+        if not IS_WINDOWS or not isinstance(error, PermissionError):
+            raise error
+        _retry_writable(function, failed_path)
+
+    shutil.rmtree(path, onexc=clear_read_only)
+
+
+def _retry_writable(operation, path) -> None:  # type: ignore[no-untyped-def]
+    delays = iter(RETRY_DELAYS)
+    while True:
+        try:
+            operation(path)
+            return
+        except PermissionError:
+            delay = next(delays, None)
+            if delay is None:
+                raise
+            if not is_link(Path(path)):
+                os.chmod(path, stat.S_IWRITE)
             time.sleep(delay)
 
 
