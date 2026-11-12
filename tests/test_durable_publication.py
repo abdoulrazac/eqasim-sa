@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 
 import pyarrow as pa
@@ -17,6 +18,17 @@ from eqasim_sa.utils.filesystem import (
     write_atomic,
 )
 from tests.conftest import make_symlink
+
+TEMPORARY = re.compile(r"\.t[0-9a-f]{8}")
+BACKUP = re.compile(r"\.b[0-9a-f]{8}")
+
+
+def temporaries(directory: Path) -> tuple[Path, ...]:
+    return tuple(p for p in directory.iterdir() if TEMPORARY.fullmatch(p.name))
+
+
+def backup_files(directory: Path) -> tuple[Path, ...]:
+    return tuple(p for p in directory.iterdir() if BACKUP.fullmatch(p.name))
 
 
 def test_stable_capture_is_exclusive_and_verifiable(tmp_path: Path) -> None:
@@ -63,8 +75,8 @@ def test_atomic_replacement_restores_previous_file_after_directory_fsync_failure
         write_parquet_atomic(pa.table({"value": [2]}), destination)
 
     assert pq.read_table(destination).to_pylist() == [{"value": 1}]
-    assert not tuple(tmp_path.glob(".*.tmp"))
-    assert not tuple(tmp_path.glob(".*.backup"))
+    assert not temporaries(tmp_path)
+    assert not backup_files(tmp_path)
 
 
 def test_failed_atomic_rollback_preserves_recoverable_backup(
@@ -97,7 +109,7 @@ def test_failed_atomic_rollback_preserves_recoverable_backup(
     with pytest.raises(PublicationOutcomeUnknown, match="rollback"):
         write_parquet_atomic(pa.table({"value": [2]}), destination)
 
-    backups = tuple(tmp_path.glob(".*.backup"))
+    backups = backup_files(tmp_path)
     assert len(backups) == 1
     assert pq.read_table(backups[0]).to_pylist() == [{"value": 1}]
 
@@ -121,7 +133,7 @@ def test_atomic_bytes_remove_temporary_after_staging_failure(
     real_write = Path.write_bytes
 
     def fail_write(path: Path, content: bytes) -> int:
-        if path.name.endswith(".tmp"):
+        if TEMPORARY.fullmatch(path.name):
             real_write(path, content[:1])
             raise OSError("injected staging failure")
         return real_write(path, content)
@@ -133,10 +145,13 @@ def test_atomic_bytes_remove_temporary_after_staging_failure(
         )
 
     assert not destination.exists()
-    assert not tuple(tmp_path.glob(".*.tmp"))
+    assert not temporaries(tmp_path)
 
 
-@pytest.mark.parametrize("damage", ["symlink", "hardlink", "fifo"])
+@pytest.mark.parametrize(
+    "damage",
+    ["symlink", "hardlink", pytest.param("fifo", marks=pytest.mark.posix_only)],
+)
 def test_atomic_writer_must_leave_one_private_regular_file(
     tmp_path: Path, damage: str
 ) -> None:
@@ -157,7 +172,7 @@ def test_atomic_writer_must_leave_one_private_regular_file(
         write_atomic(destination, damage_staging)
 
     assert not destination.exists()
-    assert not tuple(tmp_path.glob(".*.tmp"))
+    assert not temporaries(tmp_path)
 
 
 def test_atomic_rechecks_exact_predecessor_before_replace(
@@ -165,25 +180,29 @@ def test_atomic_rechecks_exact_predecessor_before_replace(
 ) -> None:
     destination = tmp_path / "value.bin"
     destination.write_bytes(b"original")
-    real_current = durable_publication.directory_is_current
-    calls = 0
+    real_current = durable_publication.DirectoryAnchor.is_current
+    mutated = False
 
-    def mutate_during_parent_check(path: Path, descriptor: int) -> bool:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
+    def mutate_during_parent_check(
+        anchor: durable_publication.DirectoryAnchor,
+    ) -> bool:
+        nonlocal mutated
+        if not mutated and backup_files(tmp_path):
+            mutated = True
             destination.unlink()
             destination.write_bytes(b"concurrent")
-        return real_current(path, descriptor)
+        return real_current(anchor)
 
     monkeypatch.setattr(
-        durable_publication, "directory_is_current", mutate_during_parent_check
+        durable_publication.DirectoryAnchor,
+        "is_current",
+        mutate_during_parent_check,
     )
     with pytest.raises(RuntimeError, match="predecessor changed"):
         write_atomic(destination, lambda path: path.write_bytes(b"replacement"))
 
     assert destination.read_bytes() == b"concurrent"
-    assert not tuple(tmp_path.glob(".*.backup"))
+    assert not backup_files(tmp_path)
 
 
 @pytest.mark.parametrize("interruption", [False, True])
@@ -212,8 +231,8 @@ def test_atomic_rolls_back_every_failure_after_replace(
         write_atomic(destination, lambda path: path.write_bytes(b"replacement"))
 
     assert destination.read_bytes() == b"original"
-    assert not tuple(tmp_path.glob(".*.tmp"))
-    assert not tuple(tmp_path.glob(".*.backup"))
+    assert not temporaries(tmp_path)
+    assert not backup_files(tmp_path)
 
 
 def test_atomic_rolls_back_new_destination_to_proven_absence(
@@ -245,7 +264,7 @@ def test_atomic_cleanup_failure_after_commit_does_not_change_success(
     real_unlink = durable_publication.os.unlink
 
     def fail_backup_cleanup(path, *args, **kwargs):  # type: ignore[no-untyped-def]
-        if str(path).endswith(".backup"):
+        if BACKUP.fullmatch(Path(path).name):
             raise OSError("injected cleanup failure")
         return real_unlink(path, *args, **kwargs)
 
@@ -255,7 +274,7 @@ def test_atomic_cleanup_failure_after_commit_does_not_change_success(
         destination, lambda path: path.write_bytes(b"replacement")
     ) == destination.resolve()
     assert destination.read_bytes() == b"replacement"
-    assert len(tuple(tmp_path.glob(".*.backup"))) == 1
+    assert len(backup_files(tmp_path)) == 1
 
 
 def test_exclusive_publication_reports_unknown_when_absence_cannot_be_restored(
@@ -274,7 +293,7 @@ def test_exclusive_publication_reports_unknown_when_absence_cannot_be_restored(
         real_fsync(descriptor)
 
     def fail_rollback(path, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
-        if path == destination.name:
+        if Path(path) == destination:
             raise OSError("injected rollback failure")
         real_unlink(path, *args, **kwargs)
 

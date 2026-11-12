@@ -974,6 +974,11 @@ def load_run_specs(
     return tuple(specs.values())
 
 
+# Short staging names produced by utils.filesystem.write_exclusive; the
+# association with plan.parquet is carried by inode identity, not by the name.
+_STAGED_TEMPORARY = re.compile(r"^\.t[0-9a-f]{8}$")
+
+
 def _plan_transactions(root: Path) -> Path:
     technical = root / ".eqasim-sa"
     transactions = technical / "transactions"
@@ -981,12 +986,10 @@ def _plan_transactions(root: Path) -> Path:
     if {entry.name for entry in technical.iterdir()} - {"transactions"}:
         raise FileExistsError("campaign technical directory contains foreign state")
     secure_directory(transactions, create=True)
-    allowed = f".plan.parquet."
     for entry in transactions.iterdir():
         info = entry.lstat()
         if (
-            not entry.name.startswith(allowed)
-            or not entry.name.endswith(".tmp")
+            not _STAGED_TEMPORARY.fullmatch(entry.name)
             or not stat.S_ISREG(info.st_mode)
             or info.st_uid != os.getuid()
             or info.st_nlink not in {1, 2}
@@ -1010,8 +1013,7 @@ def _pending_plan_link(destination: Path, transactions: Path) -> bool:
         except FileNotFoundError:
             continue
         if (
-            entry.name.startswith(".plan.parquet.")
-            and entry.name.endswith(".tmp")
+            _STAGED_TEMPORARY.fullmatch(entry.name)
             and stat.S_ISREG(candidate.st_mode)
             and candidate.st_dev == visible.st_dev
             and candidate.st_ino == visible.st_ino

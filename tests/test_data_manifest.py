@@ -79,16 +79,35 @@ def test_rejects_symlinks_special_entries_and_destination_inside_tree(tmp_path: 
     with pytest.raises(ValueError, match="outside"):
         generate_data_manifest(data, data / "manifest.json")
 
+
+
+def test_user_supplied_roots_are_resolved_through_links(tmp_path: Path) -> None:
+    # Spec 8.3: the data root and the manifest parent are resolved once at
+    # entry, so links reaching them (e.g. /tmp -> /private/tmp) are accepted.
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "input.bin").write_bytes(b"sealed")
+    direct = generate_data_manifest(data, tmp_path / "direct.json")
+
     linked_root = tmp_path / "linked-root"
     make_symlink(linked_root, data, target_is_directory=True)
-    with pytest.raises(ValueError, match="symlink"):
-        generate_data_manifest(linked_root, tmp_path / "manifest.json")
+    through_root = generate_data_manifest(linked_root, tmp_path / "root.json")
 
     linked_parent = tmp_path / "linked-parent"
     make_symlink(linked_parent, tmp_path, target_is_directory=True)
-    with pytest.raises(ValueError, match="symlink"):
-        generate_data_manifest(data, linked_parent / "manifest.json")
+    through_parent = generate_data_manifest(data, linked_parent / "parent.json")
 
+    assert through_root.read_bytes() == direct.read_bytes()
+    assert through_parent == tmp_path.resolve() / "parent.json"
+    assert through_parent.read_bytes() == direct.read_bytes()
+    with pytest.raises(ValueError, match="outside"):
+        generate_data_manifest(linked_root, data / "manifest.json")
+
+
+@pytest.mark.posix_only
+def test_rejects_fifo_in_data_tree(tmp_path: Path) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
     fifo = data / "fifo"
     os.mkfifo(fifo)
     with pytest.raises(ValueError, match="non-regular"):

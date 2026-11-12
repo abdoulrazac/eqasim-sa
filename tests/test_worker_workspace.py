@@ -91,7 +91,15 @@ def test_structurally_invalid_clean_cache_is_purged_under_lease(
         assert not (cache / "unsafe").exists()
 
 
-@pytest.mark.parametrize("kind", ["symlink", "hardlink", "fifo", "socket"])
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "symlink",
+        "hardlink",
+        pytest.param("fifo", marks=pytest.mark.posix_only),
+        pytest.param("socket", marks=pytest.mark.posix_only),
+    ],
+)
 def test_invalid_cache_entries_fail_measurement_and_leave_active(
     tmp_path: Path, kind: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

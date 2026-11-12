@@ -15,6 +15,7 @@ from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
 from eqasim_sa.utils.filesystem import (
     copy_file_atomic,
     fsync_directory,
+    reject_links_below,
     validate_directory,
     validate_regular_file,
     write_atomic,
@@ -143,6 +144,10 @@ def validate_manifest(
         raise ValueError("attempt directory or workdir traverses a symlink") from error
     if attempt == work or not attempt.is_relative_to(work):
         raise ValueError("attempt directory escapes workdir")
+    try:
+        reject_links_below(work, attempt, "attempt directory")
+    except ValueError as error:
+        raise ValueError("attempt directory or workdir traverses a symlink") from error
     if not manifest.artifacts:
         raise ValueError("manifest must contain at least one artifact")
     validated: dict[str, Path] = {}
@@ -163,6 +168,7 @@ def validate_manifest(
         if not source.is_relative_to(attempt):
             raise ValueError(f"artifact escapes attempt directory: {artifact.path}")
         try:
+            reject_links_below(attempt, source, "artifact")
             validate_regular_file(source)
         except FileNotFoundError:
             raise

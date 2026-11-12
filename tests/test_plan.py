@@ -1197,7 +1197,7 @@ def test_run_specs_wait_until_exclusive_plan_publication_is_finalized(
     transactions.mkdir(parents=True)
     current = design(campaign)
     candidate = plan_module._table(current, plan_module._validate(current))
-    temporary = transactions / (".plan.parquet." + "a" * 32 + ".tmp")
+    temporary = transactions / (".t" + "a" * 8)
     destination = campaign / "plan.parquet"
     pq.write_table(candidate, temporary, compression="zstd")
     os.link(temporary, destination)

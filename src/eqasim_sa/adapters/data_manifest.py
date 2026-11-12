@@ -11,7 +11,7 @@ from pathlib import Path
 from eqasim_sa.utils.filesystem import (
     descriptor_sha256,
     publish_bytes,
-    reject_symlink_traversal,
+    resolve_root,
 )
 
 
@@ -184,8 +184,7 @@ def generate_data_manifest(
 ) -> Path:
     """Hash a stable data tree and atomically publish its canonical manifest."""
 
-    reject_symlink_traversal(data_root, "data root")
-    root = data_root.resolve(strict=True)
+    root = resolve_root(data_root, "data root")
     root_descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         root_state = _state(os.fstat(root_descriptor))
@@ -203,8 +202,7 @@ def generate_data_manifest(
         raise RuntimeError("data root changed while generating its manifest")
 
     lexical_target = Path(os.path.abspath(destination))
-    reject_symlink_traversal(lexical_target.parent, "data manifest parent")
-    parent = lexical_target.parent.resolve(strict=True)
+    parent = resolve_root(lexical_target.parent, "data manifest parent")
     target = parent / lexical_target.name
     if parent == root or parent.is_relative_to(root):
         raise ValueError("data manifest must be outside the data tree")
@@ -238,8 +236,7 @@ def generate_data_manifest(
 def _read_tree(
     data_root: Path, *, hash_files: bool
 ) -> tuple[Path, State, list[dict[str, int | str]], dict[str, State]]:
-    reject_symlink_traversal(data_root, "data root")
-    root = data_root.resolve(strict=True)
+    root = resolve_root(data_root, "data root")
     if not root.is_dir():
         raise ValueError("data root must be a directory")
     root_descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)

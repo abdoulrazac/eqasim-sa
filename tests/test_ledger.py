@@ -128,7 +128,7 @@ def test_atomic_failure_cleans_temporary_and_preserves_destination(
             pa.table({"value": [2]}), destination
         )
     assert destination.read_bytes() == original
-    assert list(tmp_path.glob(".*.tmp")) == []
+    assert list(tmp_path.glob(".t????????")) == []
 
 
 def test_directory_fsync_failure_rolls_back_new_destination(
@@ -211,7 +211,7 @@ def test_failed_rollback_preserves_backup(
         durable_publication.write_parquet_atomic(
             pa.table({"value": [2]}), destination
         )
-    backups = list(tmp_path.glob(".*.backup"))
+    backups = list(tmp_path.glob(".b????????"))
     assert len(backups) == 1
     assert pq.read_table(backups[0]).to_pylist() == [{"value": 1}]
 
@@ -571,7 +571,15 @@ def test_v2_reader_rejects_execution_evidence_metadata_tamper(
 
 @pytest.mark.parametrize(
     "damage",
-    ["tamper", "hash", "missing", "extra", "symlink", "directory", "fifo"],
+    [
+        "tamper",
+        "hash",
+        "missing",
+        "extra",
+        "symlink",
+        "directory",
+        pytest.param("fifo", marks=pytest.mark.posix_only),
+    ],
 )
 def test_v2_reader_rejects_archive_inventory_and_content_damage(
     tmp_path: Path, damage: str

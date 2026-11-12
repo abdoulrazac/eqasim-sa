@@ -395,7 +395,7 @@ def test_slurm_recovers_interrupted_journal_publication(
     state = slurm_state(tmp_path)
     state.mkdir(parents=True)
     journal = slurm.ActiveJobs(("920",))
-    temporary = state / (f".{slurm.ACTIVE_JOB_JOURNAL}." + "b" * 32 + ".tmp")
+    temporary = state / (".t" + "b" * 8)
     temporary.write_bytes(slurm._journal_bytes(journal))
     if linked:
         os.link(temporary, journal_path(tmp_path))
@@ -411,6 +411,39 @@ def test_slurm_recovers_interrupted_journal_publication(
     assert list(backend.map(str, ())) == []
     assert job.cancelled and job.wait_calls == 1
     assert not temporary.exists() and not journal_path(tmp_path).exists()
+
+
+def test_slurm_attributes_short_staged_names_to_their_document(
+    tmp_path: Path,
+) -> None:
+    state = slurm_state(tmp_path)
+    state.mkdir(parents=True)
+    submission = slurm.SubmissionIntent("a" * 32, 1)
+    journal = slurm.ActiveJobs(("930",), submission.submission_id)
+    (state / (".t" + "1" * 8)).write_bytes(slurm._intent_bytes(submission))
+    (state / (".t" + "2" * 8)).write_bytes(slurm._journal_bytes(journal))
+    job = FakeJob(job_id="930")
+    backend = SlurmBackend(
+        tmp_path,
+        1,
+        {},
+        executor_factory=FakeExecutor,
+        job_factory=lambda folder, job_id: job,
+    )
+
+    assert list(backend.map(str, ())) == []
+    assert job.cancelled and job.wait_calls == 1
+    assert not tuple(state.glob(".t*"))
+
+
+def test_slurm_refuses_unattributable_staged_file(tmp_path: Path) -> None:
+    state = slurm_state(tmp_path)
+    state.mkdir(parents=True)
+    (state / (".t" + "c" * 8)).write_bytes(b"truncated")
+    backend = SlurmBackend(tmp_path, 1, {}, executor_factory=FakeExecutor)
+
+    with pytest.raises(ValueError, match="ambiguous interrupted publications"):
+        list(backend.map(str, ()))
 
 
 def test_remote_job_is_named_serializable_and_revalidates_context(

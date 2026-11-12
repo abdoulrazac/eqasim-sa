@@ -24,21 +24,34 @@ from eqasim_sa.core.analysis_publication import (
     LEGACY_ANALYSIS_STATE_DIRECTORY,
     OUTPUT_FILENAMES,
 )
-from eqasim_sa.utils.filesystem import reject_symlink_traversal
+from eqasim_sa.utils.filesystem import reject_links_below, resolve_root
 
 
 def _directory(path: Path, name: str) -> Path:
-    reject_symlink_traversal(path, name)
-    resolved = path.resolve(strict=True)
+    resolved = resolve_root(path, name)
     if not resolved.is_dir():
         raise ValueError(f"{name} must be an existing directory")
     return resolved
 
 
 def _directory_or_create(path: Path, name: str) -> Path:
-    reject_symlink_traversal(path, name)
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
     return _directory(path, name)
+
+
+def _resolved_location(path: Path, name: str) -> Path:
+    """Resolve the existing prefix of a user-supplied root once.
+
+    Links among existing components (system ancestors, or the root itself) are
+    accepted; components that do not exist yet are appended lexically.
+    """
+    lexical = Path(os.path.abspath(path))
+    missing: list[str] = []
+    existing = lexical
+    while not os.path.lexists(existing) and existing.parent != existing:
+        missing.append(existing.name)
+        existing = existing.parent
+    return resolve_root(existing, name).joinpath(*reversed(missing))
 
 
 INIT_METHODS = ("calibration", "grid", "discrete_oat", "sobol")
@@ -381,6 +394,7 @@ def _technical_state_allowed(
         _owned_technical_directory(transactions, ".eqasim-sa/transactions")
         transaction = re.compile(
             r"\.(?:plan\.parquet|([0-9a-f]{32})\.parquet)\.([A-Za-z0-9_-]+)\.(?:tmp|backup)"
+            r"|\.[tb][0-9a-f]{8}"
         )
         for entry in transactions.iterdir():
             match = transaction.fullmatch(entry.name)
@@ -526,12 +540,19 @@ def init_from_inputs(
         isinstance(item, str) and item and "\0" not in item for item in invocation
     ):
         raise ValueError("invocation must contain non-empty arguments")
-    reject_symlink_traversal(directory, "directory")
-    absolute = Path(os.path.abspath(directory))
-    if not absolute.parent.resolve(strict=True).is_dir():
+    lexical_directory = Path(os.path.abspath(directory))
+    if not lexical_directory.parent.resolve(strict=True).is_dir():
         raise ValueError("directory parent must be a regular non-symlink directory")
+    absolute = _resolved_location(lexical_directory, "directory")
+    lexical_scratch = (
+        lexical_directory / "scratch"
+        if scratch is None
+        else Path(os.path.abspath(scratch))
+    )
     selected_scratch = (
-        absolute / "scratch" if scratch is None else Path(os.path.abspath(scratch))
+        absolute / lexical_scratch.relative_to(lexical_directory)
+        if lexical_scratch.is_relative_to(lexical_directory)
+        else _resolved_location(lexical_scratch, "scratch")
     )
     if selected_scratch == absolute or absolute.is_relative_to(selected_scratch):
         raise ValueError("directory and scratch must not contain each other in that direction")
@@ -544,7 +565,8 @@ def init_from_inputs(
         "README.md", "configs", "campaigns",
     }:
         raise ValueError("nested scratch must not overlap generated static paths")
-    reject_symlink_traversal(selected_scratch, "scratch")
+    if scratch_relative is not None:
+        reject_links_below(absolute, selected_scratch, "scratch")
     model = _directory(model_root, "model-root")
     if (
         absolute == model
@@ -558,7 +580,7 @@ def init_from_inputs(
     if model_config.is_absolute() or ".." in model_config.parts:
         raise ValueError("model-config must be relative to model-root")
     selected_config = model / model_config
-    reject_symlink_traversal(selected_config, "model-config")
+    reject_links_below(model, selected_config, "model-config")
     if selected_config.is_symlink() or not selected_config.is_file():
         raise ValueError(
             "model-config must be a regular non-symlink file under model-root"

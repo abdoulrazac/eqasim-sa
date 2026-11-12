@@ -287,6 +287,9 @@ def test_init_rerun_accepts_user_created_campaign_state(
     transaction = transactions / f".{run_id}.parquet.safe.tmp"
     transaction.write_bytes(b"recoverable")
     transaction.chmod(0o600)
+    staged = transactions / (".t" + "c" * 8)
+    staged.write_bytes(b"staged")
+    staged.chmod(0o600)
     (submitit / "scheduler.log").write_text("owned\n")
 
     protected = {
@@ -298,6 +301,7 @@ def test_init_rerun_accepts_user_created_campaign_state(
             generation / "indicators.parquet",
             run_lock,
             transaction,
+            staged,
         )
     }
     result = init_from_inputs(
@@ -494,3 +498,43 @@ def test_init_cli_failure_uses_v3_schema(monkeypatch, capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "failed"
     assert payload["initVersion"] == 3
+
+
+def test_init_accepts_roots_reached_through_symlinked_ancestors(
+    tmp_path: Path,
+) -> None:
+    # Spec 8.3: user-supplied roots are resolved once (macOS /tmp -> /private/tmp).
+    real = tmp_path / "real"
+    real.mkdir()
+    alias = tmp_path / "alias"
+    make_symlink(alias, real, target_is_directory=True)
+    model, data = inputs(real)
+
+    result = init_from_inputs(
+        "project",
+        alias / "project",
+        alias / model.relative_to(real),
+        alias / data.relative_to(real),
+        alias / "scratch",
+        invocation(),
+    )
+
+    assert result["status"] == "initialized"
+    assert (real / "project" / "configs").is_dir()
+    assert (real / "scratch").is_dir()
+
+
+def test_init_rejects_nested_scratch_through_link_below_project(
+    tmp_path: Path,
+) -> None:
+    model, data = inputs(tmp_path)
+    root = tmp_path / "project"
+    root.mkdir()
+    external = tmp_path / "external"
+    external.mkdir()
+    make_symlink(root / "work", external, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="must not traverse a symlink"):
+        init_from_inputs(
+            "project", root, model, data, root / "work" / "scratch", invocation()
+        )

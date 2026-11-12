@@ -21,16 +21,18 @@ from eqasim_sa.utils.filesystem import (
     StableFile,
     absolute,
     descriptor_sha256,
-    directory_is_current,
     file_lease,
     file_identity,
     file_state,
     fsync_directory,
-    open_child_directory,
-    open_directory,
-    open_regular,
     secure_directory,
     write_parquet_exclusive,
+)
+from eqasim_sa.utils.posix_dirfd import (
+    directory_is_current,
+    open_child_directory,
+    open_directory,
+    open_regular_at as open_regular,
 )
 from eqasim_sa.ports.simulator import ExecutionEvidence
 

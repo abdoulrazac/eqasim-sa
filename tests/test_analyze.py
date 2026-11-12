@@ -2644,7 +2644,7 @@ def test_manifest_failed_rollback_raises_distinct_outcome_unknown_error(
         real_fsync(descriptor)
 
     def fail_rollback(source, destination, **options):  # type: ignore[no-untyped-def]
-        if str(source).endswith(".backup"):
+        if re.fullmatch(r"\.b[0-9a-f]{8}", Path(source).name):
             raise OSError("injected rollback failure")
         return real_replace(source, destination, **options)
 
@@ -2658,7 +2658,7 @@ def test_manifest_failed_rollback_raises_distinct_outcome_unknown_error(
         )
 
     assert fsync_failed
-    assert tuple((root / "analysis/staging").glob("*.backup"))
+    assert tuple((root / "analysis/staging").glob(".b????????"))
 
 
 def test_legacy_cleanup_failure_does_not_fail_committed_analysis(
@@ -2806,7 +2806,7 @@ def test_missing_artifact_names_run_indicator_and_preserves_previous(
     assert output.read_bytes() == b"previous"
     assert _snapshot(root) == after_removal
     assert set(before) - set(after_removal) == {f"archives/{run_ids[0]}/age.parquet"}
-    assert not tuple(root.glob(".*indicators.parquet.*.tmp"))
+    assert not tuple(root.glob(".t????????"))
 
 
 def test_cli_analyze_uses_injected_core_path_without_simulation(

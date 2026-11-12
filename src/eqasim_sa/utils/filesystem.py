@@ -1,14 +1,21 @@
 """Crash-conscious filesystem operations for durable campaign files.
 
-The public interface deliberately hides descriptor handling, stable-file capture,
-temporary names, backup names, fsync ordering, and rollback bookkeeping.  Callers
-choose only the destination and how to serialize its content.
+The public interface deliberately hides stable-file capture, temporary names,
+backup names, fsync ordering, and rollback bookkeeping.  Callers choose only
+the destination and how to serialize its content.
+
+Every operation is path-based so that it behaves identically on Linux, macOS
+and Windows: no directory is ever opened, and every file handle is closed
+before the file is linked, renamed, replaced or removed.  Directory identity
+(``st_dev``/``st_ino``) is captured by :class:`DirectoryAnchor` and compared
+before and after each publication, so a concurrent directory replacement is
+detected and refused rather than made impossible.
 """
 
 from __future__ import annotations
 
+import errno
 import hashlib
-import fcntl
 import os
 import shutil
 import stat
@@ -23,26 +30,28 @@ from typing import Iterator
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from eqasim_sa.utils import platform
+
 __all__ = (
+    "DirectoryAnchor",
     "PublicationOutcomeUnknown",
     "FileIdentity",
     "FileState",
     "StableFile",
     "absolute",
+    "anchor_directory",
     "capture_stable_file",
     "copy_file_atomic",
     "descriptor_sha256",
-    "directory_is_current",
     "file_identity",
     "file_lease",
     "file_state",
     "fsync_directory",
-    "open_child_directory",
-    "open_directory",
     "open_regular",
     "path_state",
     "publish_bytes",
-    "reject_symlink_traversal",
+    "reject_links_below",
+    "resolve_root",
     "secure_directory",
     "stable_file",
     "stable_file_bytes",
@@ -59,8 +68,13 @@ __all__ = (
 )
 
 
-_DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-_READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
+_BINARY = getattr(os, "O_BINARY", 0)
+_READ_FLAGS = os.O_RDONLY | _NOFOLLOW | _NONBLOCK | _BINARY
+_CREATE_FLAGS = os.O_CREAT | os.O_EXCL | _NOFOLLOW | _BINARY
+
+fsync_directory = platform.fsync_directory
 
 
 class PublicationOutcomeUnknown(RuntimeError):
@@ -125,130 +139,148 @@ def absolute(path: Path) -> Path:
     return Path(os.path.abspath(os.fspath(path)))
 
 
-def reject_symlink_traversal(path: Path, name: str) -> None:
-    """Reject a lexical path whose existing prefix contains a symbolic link."""
+@dataclass(frozen=True)
+class DirectoryAnchor:
+    """A directory path together with the identity it had when anchored."""
+
+    path: Path
+    identity: FileIdentity
+
+    def is_current(self) -> bool:
+        """True while the path still names the same non-link directory."""
+
+        try:
+            info = os.lstat(self.path)
+        except OSError:
+            return False
+        return (
+            stat.S_ISDIR(info.st_mode)
+            and not platform.is_link(self.path)
+            and file_identity(info) == self.identity
+        )
+
+    def child(self, name: str, *, create: bool = False) -> DirectoryAnchor:
+        """Anchor one direct, non-link child directory."""
+
+        if (
+            not name
+            or name in {".", ".."}
+            or "/" in name
+            or "\\" in name
+            or Path(name).name != name
+            or Path(name).anchor
+        ):
+            raise ValueError(f"invalid directory name: {name!r}")
+        child = self.path / name
+        if create:
+            try:
+                os.mkdir(child)
+            except FileExistsError:
+                pass
+        return _anchor(child)
+
+
+def _anchor(path: Path) -> DirectoryAnchor:
+    info = os.lstat(path)
+    if not stat.S_ISDIR(info.st_mode) or platform.is_link(path):
+        raise NotADirectoryError(
+            errno.ENOTDIR, "path must be a non-symlink directory", str(path)
+        )
+    return DirectoryAnchor(path, file_identity(info))
+
+
+def anchor_directory(path: Path, *, create: bool = False) -> DirectoryAnchor:
+    """Capture the identity of a non-link directory, creating it if asked."""
+
     resolved = absolute(path)
-    current = Path(resolved.anchor)
-    for part in resolved.parts[1:]:
-        current /= part
-        if current.is_symlink():
+    if create:
+        resolved.mkdir(parents=True, exist_ok=True)
+    return _anchor(resolved)
+
+
+def resolve_root(path: Path, name: str) -> Path:
+    """Resolve a user-supplied root once; links among its ancestors are fine."""
+
+    try:
+        return Path(path).resolve(strict=True)
+    except FileNotFoundError as error:
+        raise FileNotFoundError(
+            errno.ENOENT, f"{name} does not exist", str(path)
+        ) from error
+
+
+def reject_links_below(root: Path, path: Path, name: str) -> None:
+    """Reject a path whose components strictly below ``root`` include a link."""
+
+    lexical_root = absolute(root)
+    lexical_path = absolute(path)
+    try:
+        relative = lexical_path.relative_to(lexical_root)
+    except ValueError as error:
+        raise ValueError(f"{name} must be below {lexical_root}") from error
+    current = lexical_root
+    for part in relative.parts:
+        current = current / part
+        if platform.is_link(current):
             raise ValueError(f"{name} must not traverse a symlink")
 
 
-def open_directory(path: Path, *, create: bool = False) -> int:
-    """Open every directory component without traversing symbolic links."""
-    resolved = absolute(path)
-    descriptor = os.open(resolved.anchor, _DIRECTORY_FLAGS)
+def secure_directory(path: Path, *, create: bool = False) -> Path:
+    """Validate an owned non-link directory, creating it if asked."""
+
     try:
-        for part in resolved.parts[1:]:
-            if create:
-                try:
-                    os.mkdir(part, dir_fd=descriptor)
-                except FileExistsError:
-                    pass
-            child = os.open(part, _DIRECTORY_FLAGS, dir_fd=descriptor)
-            os.close(descriptor)
-            descriptor = child
+        anchor = anchor_directory(path, create=create)
+        info = os.lstat(anchor.path)
+    except OSError as error:
+        raise ValueError(
+            f"directory must be a regular non-symlink directory: {path}"
+        ) from error
+    uid = platform.current_uid()
+    if uid is not None and info.st_uid != uid:
+        raise ValueError(f"directory must be owned by the current user: {path}")
+    return path
+
+
+def validate_directory(path: Path) -> None:
+    """Require a path to name an existing non-link directory."""
+
+    anchor_directory(path)
+
+
+def open_regular(path: Path) -> int:
+    """Open a stable regular non-link file for reading; the caller closes it."""
+
+    resolved = absolute(path)
+    if not resolved.name:
+        raise ValueError("regular file path must have a name")
+    visible = os.lstat(resolved)
+    if not stat.S_ISREG(visible.st_mode):
+        raise ValueError(f"not a stable regular non-symlink file: {path}")
+    descriptor = os.open(resolved, _READ_FLAGS)
+    try:
+        opened = os.fstat(descriptor)
+        current = os.lstat(resolved)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or not stat.S_ISREG(current.st_mode)
+            or file_identity(opened) != file_identity(visible)
+            or file_state(opened) != file_state(current)
+        ):
+            raise ValueError(f"not a stable regular non-symlink file: {path}")
         return descriptor
     except BaseException:
         os.close(descriptor)
         raise
 
 
-def open_child_directory(parent: int, name: str, *, create: bool = False) -> int:
-    """Open one safe child directory relative to an existing descriptor."""
-
-    if not name or "/" in name or name in {".", ".."}:
-        raise ValueError(f"invalid directory name: {name!r}")
-    if create:
-        try:
-            os.mkdir(name, dir_fd=parent)
-        except FileExistsError:
-            pass
-    descriptor = os.open(name, _DIRECTORY_FLAGS, dir_fd=parent)
-    if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
-        os.close(descriptor)
-        raise ValueError(f"{name} must be a directory")
-    return descriptor
-
-
-def directory_is_current(path: Path, descriptor: int) -> bool:
-    """Check whether a path still resolves to an open directory descriptor."""
-
-    try:
-        visible = open_directory(path)
-    except OSError:
-        return False
-    try:
-        return file_identity(os.fstat(visible)) == file_identity(os.fstat(descriptor))
-    finally:
-        os.close(visible)
-
-
-def secure_directory(path: Path, *, create: bool = False) -> Path:
-    """Validate an owned directory without traversing symbolic links."""
-
-    try:
-        descriptor = open_directory(path, create=create)
-    except OSError as error:
-        raise ValueError(
-            f"directory must be a regular non-symlink directory: {path}"
-        ) from error
-    try:
-        info = os.fstat(descriptor)
-        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
-            raise ValueError(f"directory must be owned by the current user: {path}")
-        return path
-    finally:
-        os.close(descriptor)
-
-
-def validate_directory(path: Path) -> None:
-    """Require every component of a directory path to be non-symlinked."""
-
-    descriptor = open_directory(path)
-    os.close(descriptor)
-
-
-def open_regular(path: Path) -> tuple[int, int, str]:
-    """Open a stable regular file and its parent without following symlinks."""
-
-    resolved = absolute(path)
-    if not resolved.name:
-        raise ValueError("regular file path must have a name")
-    parent = open_directory(resolved.parent)
-    descriptor = -1
-    try:
-        visible = os.stat(resolved.name, dir_fd=parent, follow_symlinks=False)
-        if not stat.S_ISREG(visible.st_mode):
-            raise ValueError(f"not a stable regular non-symlink file: {path}")
-        descriptor = os.open(resolved.name, _READ_FLAGS, dir_fd=parent)
-        opened = os.fstat(descriptor)
-        visible = os.stat(resolved.name, dir_fd=parent, follow_symlinks=False)
-        if (
-            not stat.S_ISREG(opened.st_mode)
-            or not stat.S_ISREG(visible.st_mode)
-            or file_state(opened) != file_state(visible)
-        ):
-            raise ValueError(f"not a stable regular non-symlink file: {path}")
-        return descriptor, parent, resolved.name
-    except BaseException:
-        if descriptor >= 0:
-            os.close(descriptor)
-        os.close(parent)
-        raise
-
-
 def validate_regular_file(path: Path) -> None:
     """Require a path to identify a stable regular non-symlink file."""
 
-    descriptor, parent, _ = open_regular(path)
-    os.close(descriptor)
-    os.close(parent)
+    os.close(open_regular(path))
 
 
 def _read_stable_file(path: Path, *, retain_content: bool) -> tuple[bytes | None, StableFile]:
-    descriptor, parent, name = open_regular(path)
+    descriptor = open_regular(path)
     try:
         initial = os.fstat(descriptor)
         digest = hashlib.sha256()
@@ -258,18 +290,15 @@ def _read_stable_file(path: Path, *, retain_content: bool) -> tuple[bytes | None
             if content is not None:
                 content.extend(chunk)
         final = os.fstat(descriptor)
-        visible = os.stat(name, dir_fd=parent, follow_symlinks=False)
-        if file_state(final) != file_state(initial) or file_state(
-            visible
-        ) != file_state(initial):
-            raise RuntimeError(f"source changed while being hashed: {path}")
-        snapshot = StableFile(
-            path, file_state(initial), initial.st_size, digest.hexdigest()
-        )
-        return bytes(content) if content is not None else None, snapshot
     finally:
         os.close(descriptor)
-        os.close(parent)
+    visible = os.lstat(absolute(path))
+    if file_state(final) != file_state(initial) or file_state(
+        visible
+    ) != file_state(initial):
+        raise RuntimeError(f"source changed while being hashed: {path}")
+    snapshot = StableFile(path, file_state(initial), initial.st_size, digest.hexdigest())
+    return bytes(content) if content is not None else None, snapshot
 
 
 def stable_file(path: Path) -> StableFile:
@@ -309,16 +338,16 @@ def capture_stable_file(
     expected_sha256: str | None = None,
 ) -> StableFile:
     """Copy one stable regular file to a new exclusive destination."""
-    source_descriptor, source_parent, source_name = open_regular(source)
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    source_descriptor = open_regular(source)
     destination_descriptor = -1
+    created = False
     try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
         initial = os.fstat(source_descriptor)
         destination_descriptor = os.open(
-            destination,
-            os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW,
-            0o400,
+            destination, _CREATE_FLAGS | os.O_WRONLY, 0o400
         )
+        created = True
         digest = hashlib.sha256()
         size = 0
         while True:
@@ -331,7 +360,7 @@ def capture_stable_file(
         os.fchmod(destination_descriptor, 0o400)
         os.fsync(destination_descriptor)
         final = os.fstat(source_descriptor)
-        visible = os.stat(source_name, dir_fd=source_parent, follow_symlinks=False)
+        visible = os.lstat(absolute(source))
         if file_state(final) != file_state(initial) or file_state(visible) != file_state(initial):
             raise RuntimeError(f"source changed while being captured: {source}")
         actual_sha256 = digest.hexdigest()
@@ -342,6 +371,9 @@ def capture_stable_file(
         return StableFile(source, file_state(initial), size, actual_sha256)
     except BaseException:
         if destination_descriptor >= 0:
+            os.close(destination_descriptor)
+            destination_descriptor = -1
+        if created:
             try:
                 destination.unlink(missing_ok=True)
             except OSError:
@@ -351,7 +383,6 @@ def capture_stable_file(
         if destination_descriptor >= 0:
             os.close(destination_descriptor)
         os.close(source_descriptor)
-        os.close(source_parent)
 
 
 def verify_stable_file(snapshot: StableFile) -> None:
@@ -373,14 +404,49 @@ def write_all(descriptor: int, content: bytes) -> None:
         remaining = remaining[written:]
 
 
-def fsync_directory(path: Path) -> None:
-    """Synchronize directory metadata through a safely opened descriptor."""
+def _sync_flags() -> int:
+    # Windows can only flush handles opened for writing.
+    access = os.O_RDWR if platform.IS_WINDOWS else os.O_RDONLY
+    return access | _NOFOLLOW | _NONBLOCK | _BINARY
 
-    descriptor = open_directory(path)
+
+def _fsync_file(path: Path) -> None:
+    descriptor = os.open(path, _sync_flags())
     try:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+
+
+def _link(source: Path, destination: Path) -> None:
+    if platform.IS_WINDOWS:
+        os.link(source, destination)
+    else:
+        os.link(source, destination, follow_symlinks=False)
+
+
+def _lstat_or_none(path: Path) -> os.stat_result | None:
+    try:
+        return os.lstat(path)
+    except FileNotFoundError:
+        return None
+
+
+def _short_name(prefix: str) -> str:
+    return f".{prefix}{uuid.uuid4().hex[:8]}"
+
+
+def _create_empty(path: Path, mode: int = 0o600) -> os.stat_result:
+    descriptor = os.open(path, _CREATE_FLAGS | os.O_WRONLY, mode)
+    try:
+        return os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _owned(info: os.stat_result) -> bool:
+    uid = platform.current_uid()
+    return uid is None or info.st_uid == uid
 
 
 @contextmanager
@@ -391,19 +457,17 @@ def file_lease(
     interrupted: Callable[[], bool] | None = None,
 ) -> Iterator[None]:
     """Hold one private module lease without traversing links."""
-    parent = open_directory(path.parent, create=True)
-    descriptor = -1
+    path = absolute(path)
+    parent = anchor_directory(path.parent, create=True)
+    if platform.is_link(path):
+        raise ValueError("lease must be a private owned regular file")
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR | _NOFOLLOW | _BINARY, 0o600)
+    locked = False
     try:
-        descriptor = os.open(
-            path.name,
-            os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW,
-            0o600,
-            dir_fd=parent,
-        )
         opened = os.fstat(descriptor)
         if (
             not stat.S_ISREG(opened.st_mode)
-            or opened.st_uid != os.getuid()
+            or not _owned(opened)
             or opened.st_nlink != 1
         ):
             raise ValueError("lease must be a private owned regular file")
@@ -411,24 +475,22 @@ def file_lease(
         while True:
             if interrupted is not None and interrupted():
                 raise KeyboardInterrupt
-            try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if platform.lock_exclusive_nonblocking(descriptor):
+                locked = True
                 break
-            except BlockingIOError:
-                if not blocking:
-                    raise
-                time.sleep(0.05)
-        visible = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
-        if (
-            file_identity(visible) != file_identity(opened)
-            or not directory_is_current(path.parent, parent)
-        ):
+            if not blocking:
+                raise BlockingIOError(errno.EWOULDBLOCK, "lease is held", str(path))
+            time.sleep(0.05)
+        visible = os.lstat(path)
+        if file_identity(visible) != file_identity(opened) or not parent.is_current():
             raise RuntimeError("lease changed while being acquired")
         yield
     finally:
-        if descriptor >= 0:
+        try:
+            if locked:
+                platform.unlock(descriptor)
+        finally:
             os.close(descriptor)
-        os.close(parent)
 
 
 def write_exclusive(
@@ -440,107 +502,83 @@ def write_exclusive(
 ) -> Path:
     """Publish a new durable file without replacing an existing name.
 
-    Both directories stay pinned for the whole transaction.  ``guard`` lets a
-    caller bind publication to a wider directory graph without reimplementing
-    link, fsync, rollback, or outcome-unknown handling.
+    Both directories are anchored for the whole transaction and rechecked
+    around the link.  ``guard`` lets a caller bind publication to a wider
+    directory graph without reimplementing link, fsync, rollback, or
+    outcome-unknown handling.
     """
     requested_destination = destination
     destination = absolute(destination)
     staging = absolute(staging_directory or destination.parent)
-    destination_parent = open_directory(destination.parent, create=True)
-    staging_parent = -1
-    descriptor = -1
-    temporary_name = f".{destination.name}.{uuid.uuid4().hex}.tmp"
-    temporary = staging / temporary_name
+    destination_anchor = anchor_directory(destination.parent, create=True)
+    temporary = staging / _short_name("t")
     linked = False
     temporary_exists = False
     preserve_temporary = False
     staged_identity: FileIdentity | None = None
 
-    def guarded() -> bool:
-        return guard is None or guard()
+    def stable() -> bool:
+        return (
+            (guard is None or guard())
+            and destination_anchor.is_current()
+            and staging_anchor.is_current()
+        )
 
     try:
-        staging_parent = open_directory(staging, create=True)
-        if os.fstat(destination_parent).st_dev != os.fstat(staging_parent).st_dev:
+        staging_anchor = anchor_directory(staging, create=True)
+        if destination_anchor.identity.device != staging_anchor.identity.device:
             raise ValueError(
                 "exclusive publication staging must share the destination filesystem"
             )
-        descriptor = os.open(
-            temporary_name,
-            os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW,
-            0o600,
-            dir_fd=staging_parent,
-        )
+        created = _create_empty(temporary)
         temporary_exists = True
         writer(temporary)
-        staged = os.fstat(descriptor)
-        visible = os.stat(
-            temporary_name, dir_fd=staging_parent, follow_symlinks=False
-        )
+        if not (destination_anchor.is_current() and staging_anchor.is_current()):
+            raise RuntimeError("exclusive publication directories changed")
+        visible = os.lstat(temporary)
         if (
-            not stat.S_ISREG(staged.st_mode)
-            or staged.st_uid != os.getuid()
-            or staged.st_nlink != 1
-            or file_state(staged) != file_state(visible)
+            not stat.S_ISREG(visible.st_mode)
+            or not _owned(visible)
+            or visible.st_nlink != 1
+            or file_identity(visible) != file_identity(created)
         ):
             raise ValueError(
                 "exclusive publication writer must leave one private owned regular file"
             )
-        os.fsync(descriptor)
-        staged = os.fstat(descriptor)
-        visible = os.stat(
-            temporary_name, dir_fd=staging_parent, follow_symlinks=False
-        )
-        if file_state(staged) != file_state(visible):
+        descriptor = os.open(temporary, _sync_flags())
+        try:
+            staged = os.fstat(descriptor)
+            if file_state(staged) != file_state(os.lstat(temporary)):
+                raise RuntimeError("exclusive staged file changed before fsync")
+            os.fsync(descriptor)
+            staged = os.fstat(descriptor)
+        finally:
+            os.close(descriptor)
+        if file_state(staged) != file_state(os.lstat(temporary)):
             raise RuntimeError("exclusive staged file changed while being fsynced")
         staged_identity = file_identity(staged)
-        if (
-            not guarded()
-            or not directory_is_current(destination.parent, destination_parent)
-            or not directory_is_current(staging, staging_parent)
-        ):
+        if not stable():
             raise RuntimeError("exclusive publication directories changed")
-        os.link(
-            temporary_name,
-            destination.name,
-            src_dir_fd=staging_parent,
-            dst_dir_fd=destination_parent,
-            follow_symlinks=False,
-        )
+        _link(temporary, destination)
         linked = True
-        published = os.stat(
-            destination.name,
-            dir_fd=destination_parent,
-            follow_symlinks=False,
-        )
+        published = os.lstat(destination)
         if (
             not stat.S_ISREG(published.st_mode)
             or file_identity(published) != staged_identity
         ):
             raise RuntimeError("exclusive destination differs from staged content")
-        os.fsync(destination_parent)
-        if (
-            not guarded()
-            or not directory_is_current(destination.parent, destination_parent)
-            or not directory_is_current(staging, staging_parent)
-        ):
+        fsync_directory(destination.parent)
+        if not stable():
             raise RuntimeError("exclusive publication directories changed")
-        os.unlink(temporary_name, dir_fd=staging_parent)
+        os.unlink(temporary)
         temporary_exists = False
-        os.fsync(descriptor)
-        os.fsync(staging_parent)
-        published = os.stat(
-            destination.name,
-            dir_fd=destination_parent,
-            follow_symlinks=False,
-        )
+        _fsync_file(destination)
+        fsync_directory(staging)
+        published = os.lstat(destination)
         if (
             published.st_nlink != 1
             or file_identity(published) != staged_identity
-            or not guarded()
-            or not directory_is_current(destination.parent, destination_parent)
-            or not directory_is_current(staging, staging_parent)
+            or not stable()
         ):
             raise RuntimeError("exclusive publication did not reach a stable commit")
         linked = False
@@ -550,31 +588,18 @@ def write_exclusive(
             try:
                 if staged_identity is None:
                     raise RuntimeError("exclusive staged identity was not captured")
-                current = os.stat(
-                    destination.name,
-                    dir_fd=destination_parent,
-                    follow_symlinks=False,
-                )
+                current = os.lstat(destination)
                 if file_identity(current) != staged_identity:
                     raise RuntimeError(
                         "exclusive destination changed before rollback"
                     )
-                os.unlink(destination.name, dir_fd=destination_parent)
-                os.fsync(destination_parent)
-                try:
-                    os.stat(
-                        destination.name,
-                        dir_fd=destination_parent,
-                        follow_symlinks=False,
-                    )
-                except FileNotFoundError:
-                    pass
-                else:
+                os.unlink(destination)
+                fsync_directory(destination.parent)
+                if _lstat_or_none(destination) is not None:
                     raise RuntimeError(
                         "exclusive destination survived rollback"
                     )
-                if staging_parent >= 0:
-                    os.fsync(staging_parent)
+                fsync_directory(staging)
                 linked = False
             except BaseException as rollback_error:
                 preserve_temporary = temporary_exists
@@ -583,16 +608,11 @@ def write_exclusive(
                 ) from rollback_error
         raise commit_error
     finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-        if staging_parent >= 0:
-            if temporary_exists and not preserve_temporary:
-                try:
-                    os.unlink(temporary_name, dir_fd=staging_parent)
-                except OSError:
-                    pass
-            os.close(staging_parent)
-        os.close(destination_parent)
+        if temporary_exists and not preserve_temporary:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
 
 
 def write_atomic(
@@ -601,7 +621,12 @@ def write_atomic(
     *,
     staging_directory: Path | None = None,
 ) -> Path:
-    """Replace a durable file and prove either commit or exact rollback."""
+    """Replace a durable file and prove either commit or exact rollback.
+
+    The predecessor is pinned by a hard link (``.b<hex>``) in the staging
+    directory, which both keeps its identity alive and serves as the rollback
+    source.
+    """
     requested_destination = destination
     destination = absolute(destination)
     staging = absolute(
@@ -612,150 +637,88 @@ def write_atomic(
             else destination.parent
         )
     )
-    destination_parent = open_directory(destination.parent, create=True)
-    staging_parent = -1
-    staged_descriptor = -1
-    previous_descriptor = -1
-    temporary_name = f".{destination.name}.{uuid.uuid4().hex}.tmp"
-    backup_name = f".{destination.name}.{uuid.uuid4().hex}.backup"
-    temporary = staging / temporary_name
+    destination_anchor = anchor_directory(destination.parent, create=True)
+    temporary = staging / _short_name("t")
+    backup = staging / _short_name("b")
+    temporary_created = False
     backup_created = False
     preserve_backup = False
     replaced = False
     committed = False
     previous_identity: FileIdentity | None = None
     replacement_identity: FileIdentity | None = None
+
+    def directories_current() -> bool:
+        return destination_anchor.is_current() and staging_anchor.is_current()
+
     try:
-        staging_parent = open_directory(staging, create=True)
-        descriptor = os.open(
-            temporary_name,
-            os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW,
-            0o600,
-            dir_fd=staging_parent,
-        )
-        os.close(descriptor)
+        staging_anchor = anchor_directory(staging, create=True)
+        _create_empty(temporary)
+        temporary_created = True
         writer(temporary)
-        visible = os.stat(
-            temporary_name, dir_fd=staging_parent, follow_symlinks=False
-        )
+        if not directories_current():
+            raise RuntimeError("durable publication directories changed")
+        visible = os.lstat(temporary)
         if not stat.S_ISREG(visible.st_mode) or visible.st_nlink != 1:
             raise ValueError("durable writer must leave one private regular file")
-        staged_descriptor = os.open(
-            temporary_name, _READ_FLAGS, dir_fd=staging_parent
-        )
-        staged = os.fstat(staged_descriptor)
-        visible = os.stat(
-            temporary_name, dir_fd=staging_parent, follow_symlinks=False
-        )
-        if file_state(staged) != file_state(visible):
-            raise RuntimeError("staged durable file changed before fsync")
-        os.fsync(staged_descriptor)
-        staged = os.fstat(staged_descriptor)
-        visible = os.stat(
-            temporary_name, dir_fd=staging_parent, follow_symlinks=False
-        )
-        if file_state(staged) != file_state(visible):
+        descriptor = os.open(temporary, _sync_flags())
+        try:
+            staged = os.fstat(descriptor)
+            if file_state(staged) != file_state(os.lstat(temporary)):
+                raise RuntimeError("staged durable file changed before fsync")
+            os.fsync(descriptor)
+            staged = os.fstat(descriptor)
+        finally:
+            os.close(descriptor)
+        if file_state(staged) != file_state(os.lstat(temporary)):
             raise RuntimeError("staged durable file changed while being fsynced")
         replacement_identity = file_identity(staged)
 
-        try:
-            predecessor = os.stat(
-                destination.name,
-                dir_fd=destination_parent,
-                follow_symlinks=False,
-            )
-        except FileNotFoundError:
-            predecessor = None
+        predecessor = _lstat_or_none(destination)
         if predecessor is not None:
             if not stat.S_ISREG(predecessor.st_mode):
                 raise ValueError(
                     f"destination must be a regular non-symlink file: {destination}"
                 )
-            previous_descriptor = os.open(
-                destination.name, _READ_FLAGS, dir_fd=destination_parent
-            )
-            opened_previous = os.fstat(previous_descriptor)
-            visible_previous = os.stat(
-                destination.name,
-                dir_fd=destination_parent,
-                follow_symlinks=False,
-            )
-            if file_state(opened_previous) != file_state(visible_previous):
-                raise RuntimeError("durable predecessor changed while being pinned")
-            os.link(
-                destination.name,
-                backup_name,
-                src_dir_fd=destination_parent,
-                dst_dir_fd=staging_parent,
-                follow_symlinks=False,
-            )
+            previous_identity = file_identity(predecessor)
+            _link(destination, backup)
             backup_created = True
-            pinned = os.fstat(previous_descriptor)
-            visible_previous = os.stat(
-                destination.name,
-                dir_fd=destination_parent,
-                follow_symlinks=False,
-            )
-            held_backup = os.stat(
-                backup_name, dir_fd=staging_parent, follow_symlinks=False
-            )
-            previous_identity = file_identity(pinned)
+            visible_previous = os.lstat(destination)
+            held_backup = os.lstat(backup)
             if (
                 file_identity(visible_previous) != previous_identity
                 or file_identity(held_backup) != previous_identity
-                or visible_previous.st_size != pinned.st_size
-                or visible_previous.st_mtime_ns != pinned.st_mtime_ns
+                or visible_previous.st_size != predecessor.st_size
+                or visible_previous.st_mtime_ns != predecessor.st_mtime_ns
             ):
                 raise RuntimeError("durable predecessor changed before replacement")
 
-        if not directory_is_current(destination.parent, destination_parent) or not (
-            directory_is_current(staging, staging_parent)
-        ):
+        if not directories_current():
             raise RuntimeError("durable publication directories changed")
-        try:
-            current_predecessor = os.stat(
-                destination.name,
-                dir_fd=destination_parent,
-                follow_symlinks=False,
-            )
-        except FileNotFoundError:
-            current_predecessor = None
+        current_predecessor = _lstat_or_none(destination)
         if previous_identity is None:
             if current_predecessor is not None:
                 raise RuntimeError("durable destination appeared before replacement")
         elif (
             current_predecessor is None
             or file_identity(current_predecessor) != previous_identity
-            or previous_descriptor < 0
-            or file_identity(os.fstat(previous_descriptor)) != previous_identity
+            or file_identity(os.lstat(backup)) != previous_identity
         ):
             raise RuntimeError("durable predecessor changed before replacement")
-        os.replace(
-            temporary_name,
-            destination.name,
-            src_dir_fd=staging_parent,
-            dst_dir_fd=destination_parent,
-        )
+        platform.replace_with_retry(temporary, destination)
         replaced = True
-        published = os.stat(
-            destination.name,
-            dir_fd=destination_parent,
-            follow_symlinks=False,
-        )
+        temporary_created = False
+        published = os.lstat(destination)
         if (
             not stat.S_ISREG(published.st_mode)
             or file_identity(published) != replacement_identity
         ):
             raise RuntimeError("durable replacement changed during publication")
-        if not directory_is_current(destination.parent, destination_parent) or not (
-            directory_is_current(staging, staging_parent)
-        ):
+        if not directories_current():
             raise RuntimeError("durable publication directories changed after replace")
-        os.fsync(staging_parent)
-        os.fsync(destination_parent)
-        if not directory_is_current(destination.parent, destination_parent) or not (
-            directory_is_current(staging, staging_parent)
-        ):
+        fsync_directory(staging)
+        fsync_directory(destination.parent)
+        if not directories_current():
             raise RuntimeError("durable publication directories changed during fsync")
         committed = True
         return requested_destination
@@ -764,60 +727,30 @@ def write_atomic(
             try:
                 if replacement_identity is None:
                     raise RuntimeError("durable replacement identity was not captured")
-                if not directory_is_current(
-                    destination.parent, destination_parent
-                ) or not directory_is_current(staging, staging_parent):
+                if not directories_current():
                     raise RuntimeError("durable publication directories changed")
-                current = os.stat(
-                    destination.name,
-                    dir_fd=destination_parent,
-                    follow_symlinks=False,
-                )
+                current = os.lstat(destination)
                 if file_identity(current) != replacement_identity:
                     raise RuntimeError(
                         "durable destination changed before rollback"
                     )
                 if previous_identity is None:
-                    os.unlink(destination.name, dir_fd=destination_parent)
-                    try:
-                        os.stat(
-                            destination.name,
-                            dir_fd=destination_parent,
-                            follow_symlinks=False,
-                        )
-                    except FileNotFoundError:
-                        pass
-                    else:
+                    os.unlink(destination)
+                    if _lstat_or_none(destination) is not None:
                         raise RuntimeError(
                             "new durable destination survived rollback"
                         )
                 else:
-                    os.replace(
-                        backup_name,
-                        destination.name,
-                        src_dir_fd=staging_parent,
-                        dst_dir_fd=destination_parent,
-                    )
+                    platform.replace_with_retry(backup, destination)
                     backup_created = False
-                    restored = os.stat(
-                        destination.name,
-                        dir_fd=destination_parent,
-                        follow_symlinks=False,
-                    )
-                    if (
-                        file_identity(restored) != previous_identity
-                        or previous_descriptor < 0
-                        or file_identity(os.fstat(previous_descriptor))
-                        != previous_identity
-                    ):
+                    restored = os.lstat(destination)
+                    if file_identity(restored) != previous_identity:
                         raise RuntimeError(
                             "previous durable destination was not restored"
                         )
-                os.fsync(destination_parent)
-                os.fsync(staging_parent)
-                if not directory_is_current(
-                    destination.parent, destination_parent
-                ) or not directory_is_current(staging, staging_parent):
+                fsync_directory(destination.parent)
+                fsync_directory(staging)
+                if not directories_current():
                     raise RuntimeError(
                         "durable publication directories changed during rollback"
                     )
@@ -828,27 +761,21 @@ def write_atomic(
                 ) from rollback_error
         raise commit_error
     finally:
-        for descriptor in (staged_descriptor, previous_descriptor):
-            if descriptor >= 0:
-                os.close(descriptor)
-        if staging_parent >= 0:
+        if temporary_created:
             try:
-                os.unlink(temporary_name, dir_fd=staging_parent)
+                os.unlink(temporary)
             except OSError:
                 pass
-            if backup_created and not preserve_backup:
-                try:
-                    os.unlink(backup_name, dir_fd=staging_parent)
-                    if committed:
-                        try:
-                            os.fsync(staging_parent)
-                        except OSError:
-                            pass
-                except OSError:
-                    if not committed:
+        if backup_created and not preserve_backup:
+            try:
+                os.unlink(backup)
+                if committed:
+                    try:
+                        fsync_directory(staging)
+                    except OSError:
                         pass
-            os.close(staging_parent)
-        os.close(destination_parent)
+            except OSError:
+                pass
 
 
 def write_parquet_atomic(
@@ -927,17 +854,12 @@ def publish_bytes(
         raise ValueError("default_mode must be a Unix permission mode")
     requested_destination = destination
     destination = absolute(destination)
-    parent = open_directory(destination.parent)
-    temporary_name = f".{destination.name}.{uuid.uuid4().hex}.tmp"
+    parent = anchor_directory(destination.parent)
+    temporary = parent.path / _short_name("t")
     temporary_descriptor = -1
     try:
         mode = default_mode
-        try:
-            existing = os.stat(
-                destination.name, dir_fd=parent, follow_symlinks=False
-            )
-        except FileNotFoundError:
-            existing = None
+        existing = _lstat_or_none(destination)
         if existing is not None:
             if not stat.S_ISREG(existing.st_mode):
                 raise ValueError(
@@ -946,41 +868,28 @@ def publish_bytes(
             if not replace:
                 raise FileExistsError(f"destination already exists: {destination}")
             mode = stat.S_IMODE(existing.st_mode)
-        temporary_descriptor = os.open(
-            temporary_name,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-            mode,
-            dir_fd=parent,
-        )
+        temporary_descriptor = os.open(temporary, _CREATE_FLAGS | os.O_WRONLY, mode)
         os.fchmod(temporary_descriptor, mode)
         write_all(temporary_descriptor, content)
         os.fsync(temporary_descriptor)
+        os.close(temporary_descriptor)
+        temporary_descriptor = -1
+        if not parent.is_current():
+            raise RuntimeError("publication directory changed")
         if replace:
-            os.replace(
-                temporary_name,
-                destination.name,
-                src_dir_fd=parent,
-                dst_dir_fd=parent,
-            )
+            platform.replace_with_retry(temporary, destination)
         else:
-            os.link(
-                temporary_name,
-                destination.name,
-                src_dir_fd=parent,
-                dst_dir_fd=parent,
-                follow_symlinks=False,
-            )
-            os.unlink(temporary_name, dir_fd=parent)
-        os.fsync(parent)
+            _link(temporary, destination)
+            os.unlink(temporary)
+        fsync_directory(parent.path)
         return requested_destination
     finally:
         if temporary_descriptor >= 0:
             os.close(temporary_descriptor)
         try:
-            os.unlink(temporary_name, dir_fd=parent)
+            os.unlink(temporary)
         except FileNotFoundError:
             pass
-        os.close(parent)
 
 
 def copy_file_atomic(

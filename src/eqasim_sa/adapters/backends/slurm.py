@@ -19,13 +19,12 @@ from eqasim_sa.adapters.worker import Indexed, WorkerBatch
 from eqasim_sa.core.context_identity import ExecutionContextIdentity
 from eqasim_sa.utils.filesystem import (
     PublicationOutcomeUnknown,
-    directory_is_current,
     file_lease,
     fsync_directory,
-    open_directory,
     secure_directory,
     write_bytes_exclusive,
 )
+from eqasim_sa.utils.posix_dirfd import directory_is_current, open_directory
 from eqasim_sa.core.run import RunResult, RunSpec
 
 T = TypeVar("T")
@@ -37,6 +36,8 @@ SUBMISSION_ID = re.compile(r"^[0-9a-f]{32}$")
 JOURNAL_VERSION = 2
 LEGACY_JOURNAL_VERSION = 1
 INTENT_VERSION = 1
+# Short staging names produced by utils.filesystem.write_exclusive.
+_STAGED_TEMPORARY = re.compile(r"^\.t[0-9a-f]{8}$")
 _READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
 
 
@@ -219,18 +220,37 @@ def _read_document(path: Path, parser):  # type: ignore[no-untyped-def]
         os.close(parent)
 
 
+def _staged_temporaries(parent: int) -> list[str]:
+    return sorted(
+        name for name in os.listdir(parent) if _STAGED_TEMPORARY.fullmatch(name)
+    )
+
+
+def _belongs_to(parent: int, name: str, visible, parser) -> bool:  # type: ignore[no-untyped-def]
+    """Attribute a short-named staged file by hard-link identity or schema."""
+    held = os.stat(name, dir_fd=parent, follow_symlinks=False)
+    if visible is not None:
+        return (held.st_dev, held.st_ino) == (visible.st_dev, visible.st_ino)
+    try:
+        parser(_read_document_at(parent, name))
+    except (OSError, ValueError, RuntimeError):
+        return False
+    return True
+
+
 def _recover_exclusive_document(path: Path, parser) -> None:  # type: ignore[no-untyped-def]
     """Finish an interrupted no-clobber publication under the SLURM lease."""
     parent = open_directory(path.parent, create=True)
-    pattern = re.compile(rf"^\.{re.escape(path.name)}\.[0-9a-f]{{32}}\.tmp$")
     try:
-        temporaries = sorted(
-            name for name in os.listdir(parent) if pattern.fullmatch(name)
-        )
         try:
             visible = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
         except FileNotFoundError:
             visible = None
+        temporaries = [
+            name
+            for name in _staged_temporaries(parent)
+            if _belongs_to(parent, name, visible, parser)
+        ]
         if visible is None and not temporaries:
             return
         if not directory_is_current(path.parent, parent):
@@ -428,6 +448,12 @@ class SlurmBackend:
                 )
         _recover_exclusive_document(self.intent_path, _parse_intent)
         _recover_exclusive_document(self.journal_path, _parse_journal)
+        state = open_directory(self.journal_path.parent)
+        try:
+            if _staged_temporaries(state):
+                raise ValueError("SLURM state has ambiguous interrupted publications")
+        finally:
+            os.close(state)
         intent = _read_intent(self.intent_path)
         journal = _read_journal(self.journal_path)
         if intent is not None and journal is None:
