@@ -878,19 +878,29 @@ def publish_bytes(
             if not replace:
                 raise FileExistsError(f"destination already exists: {destination}")
             mode = stat.S_IMODE(existing.st_mode)
-        temporary_descriptor = os.open(temporary, _CREATE_FLAGS | os.O_WRONLY, mode)
-        os.fchmod(temporary_descriptor, mode)
+        # Windows refuses to replace a read-only destination: there the
+        # temporary stays writable and the preserved mode is re-applied after.
+        windows_read_only = platform.IS_WINDOWS and not mode & stat.S_IWUSR
+        temporary_mode = mode | stat.S_IWUSR if windows_read_only else mode
+        temporary_descriptor = os.open(
+            temporary, _CREATE_FLAGS | os.O_WRONLY, temporary_mode
+        )
+        os.fchmod(temporary_descriptor, temporary_mode)
         write_all(temporary_descriptor, content)
         os.fsync(temporary_descriptor)
         os.close(temporary_descriptor)
         temporary_descriptor = -1
         if not parent.is_current():
             raise RuntimeError("publication directory changed")
-        if replace:
+        if replace and windows_read_only:
+            _replace_read_only(temporary, destination, existing, mode)
+        elif replace:
             platform.replace_with_retry(temporary, destination)
         else:
             _link(temporary, destination)
             platform.remove_file(temporary)
+            if windows_read_only:
+                os.chmod(destination, mode)
         fsync_directory(parent.path)
         if not parent.is_current():
             raise RuntimeError("publication directory changed")
@@ -902,6 +912,21 @@ def publish_bytes(
             platform.remove_file(temporary)
         except FileNotFoundError:
             pass
+
+
+def _replace_read_only(
+    temporary: Path, destination: Path, existing: os.stat_result | None, mode: int
+) -> None:
+    """Replace a read-only file on Windows, then re-apply its read-only mode."""
+    if existing is not None:
+        os.chmod(destination, stat.S_IMODE(existing.st_mode) | stat.S_IWUSR)
+    try:
+        platform.replace_with_retry(temporary, destination)
+    except BaseException:
+        if existing is not None:
+            os.chmod(destination, stat.S_IMODE(existing.st_mode))
+        raise
+    os.chmod(destination, mode)
 
 
 def copy_file_atomic(

@@ -224,3 +224,73 @@ def test_publish_bytes_detects_directory_replaced_during_publication(
     monkeypatch.setattr(filesystem, "fsync_directory", replace_parent)
     with pytest.raises(RuntimeError, match="publication directory changed"):
         filesystem.publish_bytes(b"content", parent / "value.bin", replace=False)
+
+
+def _windows_like_replace(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Emulate Windows: os.replace onto a read-only destination is refused."""
+    from eqasim_sa.utils import platform
+
+    seen_modes = []
+    real_replace = platform.replace_with_retry
+
+    def replace(source: Path, destination: Path) -> None:
+        mode = destination.stat().st_mode & 0o777
+        seen_modes.append(mode)
+        if not mode & 0o200:
+            raise PermissionError(13, "Access is denied", str(destination))
+        real_replace(source, destination)
+
+    monkeypatch.setattr(platform, "IS_WINDOWS", True)
+    monkeypatch.setattr(platform, "replace_with_retry", replace)
+    return seen_modes
+
+
+@pytest.mark.posix_only
+def test_publish_bytes_replaces_a_read_only_file_on_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    destination = tmp_path / "value.bin"
+    destination.write_bytes(b"old")
+    destination.chmod(0o444)
+    seen_modes = _windows_like_replace(monkeypatch)
+
+    filesystem.publish_bytes(b"new", destination, replace=True)
+
+    assert destination.read_bytes() == b"new"
+    assert destination.stat().st_mode & 0o777 == 0o444
+    assert seen_modes == [0o644]
+    assert [path.name for path in tmp_path.iterdir()] == ["value.bin"]
+
+
+@pytest.mark.posix_only
+def test_publish_bytes_restores_read_only_mode_when_windows_replace_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from eqasim_sa.utils import platform
+
+    destination = tmp_path / "value.bin"
+    destination.write_bytes(b"old")
+    destination.chmod(0o444)
+    monkeypatch.setattr(platform, "IS_WINDOWS", True)
+
+    def refuse(source: Path, destination: Path) -> None:
+        raise PermissionError(13, "held by another process", str(destination))
+
+    monkeypatch.setattr(platform, "replace_with_retry", refuse)
+    with pytest.raises(PermissionError, match="held by another process"):
+        filesystem.publish_bytes(b"new", destination, replace=True)
+
+    assert destination.read_bytes() == b"old"
+    assert destination.stat().st_mode & 0o777 == 0o444
+    assert [path.name for path in tmp_path.iterdir()] == ["value.bin"]
+
+
+def test_publish_bytes_keeps_a_read_only_mode_on_replacement(tmp_path: Path) -> None:
+    destination = tmp_path / "value.bin"
+    destination.write_bytes(b"old")
+    destination.chmod(0o444)
+
+    filesystem.publish_bytes(b"new", destination, replace=True)
+
+    assert destination.read_bytes() == b"new"
+    assert not destination.stat().st_mode & 0o200
