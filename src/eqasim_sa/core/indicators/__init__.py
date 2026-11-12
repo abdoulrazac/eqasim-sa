@@ -21,12 +21,13 @@ import pyarrow.parquet as pq
 from eqasim_sa.utils import platform
 from eqasim_sa.core.software_identity import (
     SoftwareSourceState,
-    stable_file_identity,
+    stable_published_identity,
 )
+from eqasim_sa.utils.text_identity import is_text_name
 
 
-INDICATOR_DEFINITION_DOMAIN = b"eqasim-sa:indicator-definition:v1\0"
-PLUGIN_DISTRIBUTION_DOMAIN = b"eqasim-sa:plugin-distribution:v1\0"
+INDICATOR_DEFINITION_DOMAIN = b"eqasim-sa:indicator-definition:v2\0"
+PLUGIN_DISTRIBUTION_DOMAIN = b"eqasim-sa:plugin-distribution:v2\0"
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 ENTRY_POINT_TARGET = re.compile(
     r"^(?P<module>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*):"
@@ -267,7 +268,13 @@ def _entry_value(entry_point: object) -> tuple[str, str, str]:
     return group, name, value
 
 
-def _distribution_inventory(distribution: object) -> tuple[SoftwareSourceState, ...]:
+def _distribution_inventory(
+    distribution: object,
+) -> tuple[tuple[SoftwareSourceState, int, str], ...]:
+    """Raw stability states paired with published (size, sha256) per file.
+
+    Text files publish LF-normalized digests; binary files are hashed raw.
+    """
     raw_files = getattr(distribution, "files", None)
     if raw_files is None:
         raise ValueError("plugin distribution has no immutable file inventory")
@@ -301,11 +308,23 @@ def _distribution_inventory(distribution: object) -> tuple[SoftwareSourceState, 
             raise ValueError(
                 f"plugin distribution file must be regular and non-symlinked: {relative_name}"
             )
-        size, sha256, state = stable_file_identity(path)
-        states.append(
-            SoftwareSourceState(relative_name, path.resolve(strict=True), state, size, sha256)
+        snapshot, published_size, published_sha256 = stable_published_identity(
+            path, text=is_text_name(relative_name)
         )
-    states.sort(key=lambda item: item.relative_path.encode("utf-8"))
+        states.append(
+            (
+                SoftwareSourceState(
+                    relative_name,
+                    path.resolve(strict=True),
+                    snapshot.state,
+                    snapshot.size,
+                    snapshot.sha256,
+                ),
+                published_size,
+                published_sha256,
+            )
+        )
+    states.sort(key=lambda item: item[0].relative_path.encode("utf-8"))
     if not states:
         raise ValueError("plugin distribution has no stable regular files")
     return tuple(states)
@@ -330,13 +349,17 @@ def plugin_identity_from_entry_point(entry_point: object) -> PluginIdentity:
         raise ValueError(
             "custom indicator entry point is not backed by an identified distribution"
         )
-    states = _distribution_inventory(distribution)
+    inventory = _distribution_inventory(distribution)
+    states = tuple(item for item, _, _ in inventory)
+    published = {
+        item.relative_path: (size, sha256) for item, size, sha256 in inventory
+    }
     descriptor = {
         "files": [
             {
                 "path": item.relative_path,
-                "sha256": item.sha256,
-                "size": item.size,
+                "sha256": published[item.relative_path][1],
+                "size": published[item.relative_path][0],
             }
             for item in states
         ],
@@ -360,7 +383,7 @@ def plugin_identity_from_entry_point(entry_point: object) -> PluginIdentity:
         canonical_entry,
         distribution_name,
         distribution_version,
-        implementation_state.sha256,
+        published[implementation_state.relative_path][1],
         distribution_sha256,
         implementation_state.path,
         states,
@@ -508,7 +531,9 @@ def _implementation_hash(value: object) -> tuple[str | None, str | None]:
         source = inspect.getsourcefile(implementation) or inspect.getsourcefile(type(value))
         if source is None:
             return identity, None
-        _, sha256, _ = stable_file_identity(Path(source).resolve(strict=True))
+        _, _, sha256 = stable_published_identity(
+            Path(source).resolve(strict=True), text=True
+        )
         return identity, sha256
     except (OSError, TypeError, ValueError):
         return identity, None

@@ -83,6 +83,7 @@ def test_init_is_a_pure_atomic_template_generator(
             "discrete_oat": "configs/02-discrete-oat.yml",
             "sobol": "configs/03-sobol.yml",
         },
+        "restored": [],
         "elapsedSeconds": result["elapsedSeconds"],
         "error": None,
     }
@@ -222,7 +223,7 @@ def test_init_resume_keeps_user_gitattributes(tmp_path: Path) -> None:
         "my-study", project, model, data, None, invocation()
     )
 
-    assert result["status"] == "unchanged"
+    assert result["status"] == "unchanged" and result["restored"] == []
     assert attributes.read_bytes() == b"* text=auto\r\n"
 
 
@@ -235,6 +236,7 @@ def test_init_resume_restores_missing_gitattributes(tmp_path: Path) -> None:
     )
 
     assert result["status"] == "unchanged"
+    assert result["restored"] == [".gitattributes"]
     assert (project / ".gitattributes").read_text(encoding="utf-8") == GITATTRIBUTES
 
 
@@ -528,7 +530,7 @@ def test_init_cli_v3_schema_and_removed_manifest_option(monkeypatch, capsys) -> 
     expected = {
         "status": "initialized", "initVersion": 3, "projectName": "demo",
         "manifest": "manifest.json", "readme": "README.md", "metaConfigs": {},
-        "elapsedSeconds": 1.0, "error": None,
+        "restored": [], "elapsedSeconds": 1.0, "error": None,
     }
 
     def capture(*arguments):

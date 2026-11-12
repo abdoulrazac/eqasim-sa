@@ -139,6 +139,7 @@ def dispatch(
                 method: None
                 for method in ("calibration", "grid", "discrete_oat", "sobol")
             },
+            "restored": [],
             "elapsedSeconds": 0.0,
             "error": None,
         }

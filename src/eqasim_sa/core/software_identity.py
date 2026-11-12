@@ -13,7 +13,6 @@ from eqasim_sa.utils.filesystem import (
     FileState,
     StableFile,
     file_state,
-    stable_file,
     stable_file_bytes,
 )
 from eqasim_sa.utils import platform
@@ -95,18 +94,6 @@ def _inventory(root: Path) -> tuple[tuple[str, Path], ...]:
     return tuple(result)
 
 
-def stable_file_identity(path: Path) -> tuple[int, str, FileState]:
-    """Read a source file only if its metadata stays stable while hashing."""
-
-    try:
-        snapshot = stable_file(path)
-    except (OSError, ValueError) as error:
-        raise ValueError(f"software source is not a stable regular file: {path}") from error
-    except RuntimeError as error:
-        raise RuntimeError(f"software source changed while hashing: {path}") from error
-    return snapshot.size, snapshot.sha256, snapshot.state
-
-
 def _stable_source_bytes(path: Path) -> tuple[bytes, StableFile]:
     try:
         return stable_file_bytes(path)
@@ -114,6 +101,21 @@ def _stable_source_bytes(path: Path) -> tuple[bytes, StableFile]:
         raise ValueError(f"software source is not a stable regular file: {path}") from error
     except RuntimeError as error:
         raise RuntimeError(f"software source changed while hashing: {path}") from error
+
+
+def stable_published_identity(
+    path: Path, *, text: bool
+) -> tuple[StableFile, int, str]:
+    """Read a stable file once; return its raw snapshot and published digest.
+
+    The raw snapshot guards stability on this machine. The published size and
+    digest are computed on LF-normalized content for text files, so CRLF
+    checkouts publish the same identity; binary files are hashed raw.
+    """
+
+    content, snapshot = _stable_source_bytes(path)
+    published = lf_bytes(content) if text else content
+    return snapshot, len(published), hashlib.sha256(published).hexdigest()
 
 
 def read_software_identity(
@@ -138,19 +140,16 @@ def read_software_identity(
     for relative_path, path in _inventory(root):
         # Stability is guarded on raw bytes; the published identity hashes the
         # LF-normalized content so CRLF checkouts yield the same identity.
-        content, snapshot = _stable_source_bytes(path)
+        snapshot, published_size, published_sha256 = stable_published_identity(
+            path, text=True
+        )
         sources.append(
             SoftwareSourceState(
                 relative_path, path, snapshot.state, snapshot.size, snapshot.sha256
             )
         )
-        normalized = lf_bytes(content)
         descriptor.append(
-            {
-                "path": relative_path,
-                "sha256": hashlib.sha256(normalized).hexdigest(),
-                "size": len(normalized),
-            }
+            {"path": relative_path, "sha256": published_sha256, "size": published_size}
         )
     encoded = json.dumps(
         {"files": descriptor},

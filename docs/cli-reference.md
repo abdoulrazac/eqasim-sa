@@ -27,7 +27,10 @@ eqasim-sa init --project-name NAME [options]
 | `--regenerate-data-manifest` | no | false | rehashes and replaces only `manifest.json` |
 
 JSON statuses: `initialized`, `unchanged`, or `failed`. Fields: `initVersion`,
-`projectName`, `manifest`, `readme`, `metaConfigs`, `elapsedSeconds`, `error`.
+`projectName`, `manifest`, `readme`, `metaConfigs`, `restored`, `elapsedSeconds`,
+`error`. `restored` lists generated files that were missing from an existing
+project and were recreated (currently only `.gitattributes`); an existing
+`.gitattributes` is never overwritten.
 The command is template-only: hashing the data is not a pipeline execution. With
 `--regenerate-data-manifest`, an existing project must still pass the strict
 checks on its static files and durable state; only the manifest is replaced.

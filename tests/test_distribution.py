@@ -222,7 +222,7 @@ def test_installed_init_generates_template_without_campaign_execution(tmp_path: 
     assert payload["manifest"] == "manifest.json"
     assert set(payload) == {
         "status", "initVersion", "projectName", "manifest", "readme",
-        "metaConfigs", "elapsedSeconds", "error",
+        "metaConfigs", "restored", "elapsedSeconds", "error",
     }
     assert (root / "manifest.json").is_file()
     assert not any((root / "campaigns").iterdir())

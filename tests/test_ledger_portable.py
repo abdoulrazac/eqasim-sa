@@ -1,6 +1,7 @@
 """Portable, path-based ledger and analysis-publication behaviour."""
 
 import os
+import shutil
 import stat
 from pathlib import Path
 
@@ -324,13 +325,23 @@ def test_remove_tree_does_not_retry_listing_errors_on_windows(
         calls.append(path)
         raise PermissionError(13, "listing refused", str(path))
 
-    monkeypatch.setattr(platform, "IS_WINDOWS", True)
-    monkeypatch.setattr(platform.shutil, "_use_fd_functions", False, raising=False)
-    monkeypatch.setattr(os, "scandir", refuse)
-    monkeypatch.setattr(platform.time, "sleep", lambda _delay: None)
+    try:
+        with monkeypatch.context() as patched:
+            patched.setattr(platform, "IS_WINDOWS", True)
+            patched.setattr(
+                platform.shutil, "_use_fd_functions", False, raising=False
+            )
+            patched.setattr(os, "scandir", refuse)
+            patched.setattr(platform.time, "sleep", lambda _delay: None)
 
-    with pytest.raises(PermissionError, match="listing refused"):
-        platform.remove_tree(tree)
+            with pytest.raises(PermissionError, match="listing refused"):
+                platform.remove_tree(tree)
 
-    assert len(calls) == 1
-    assert stat.S_IMODE(tree.stat().st_mode) != stat.S_IWRITE
+        assert len(calls) == 1
+        assert stat.S_IMODE(tree.stat().st_mode) != stat.S_IWRITE
+    finally:
+        # Leave nothing pytest's temporary-directory cleanup cannot remove,
+        # even if a regression made the directory unreadable.
+        if tree.exists():
+            os.chmod(tree, stat.S_IRWXU)
+            shutil.rmtree(tree)

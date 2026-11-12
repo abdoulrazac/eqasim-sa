@@ -188,3 +188,110 @@ def test_model_config_content_drift_still_fails_git_check(tmp_path: Path) -> Non
 def test_domains_bumped() -> None:
     assert CONTEXT_DOMAIN == b"eqasim-sa:context:v2\0"
     assert SOFTWARE_IDENTITY_DOMAIN == b"eqasim-sa:software-identity:v2\0"
+
+
+def _builtin_indicator():  # type: ignore[no-untyped-def]
+    from eqasim_sa.core.indicators import TableArtifact, TotalVariationIndicator
+
+    return TotalVariationIndicator(
+        TableArtifact("distribution", "class", "synthetic", True), "reference"
+    )
+
+
+def test_builtin_indicator_definition_ignores_crlf(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import inspect
+
+    import eqasim_sa.core.indicators as indicators
+
+    original = Path(inspect.getsourcefile(indicators.TotalVariationIndicator))
+    crlf_copy = tmp_path / original.name
+    crlf_copy.write_bytes(_crlf(original.read_bytes()))
+    lf_definition = indicators.analysis_identity(_builtin_indicator())
+
+    monkeypatch.setattr(
+        indicators.inspect, "getsourcefile", lambda value: str(crlf_copy)
+    )
+    crlf_definition = indicators.analysis_identity(_builtin_indicator())
+
+    assert crlf_copy.read_bytes() != original.read_bytes()
+    # Equal definitions hash identically under INDICATOR_DEFINITION_DOMAIN.
+    assert crlf_definition == lf_definition
+    assert json.dumps(lf_definition).count(
+        hashlib.sha256(lf_bytes(original.read_bytes())).hexdigest()
+    ) == 1
+    assert indicators.INDICATOR_DEFINITION_DOMAIN == (
+        b"eqasim-sa:indicator-definition:v2\0"
+    )
+
+
+def _plugin_identity(root: Path, files: dict[str, bytes]):  # type: ignore[no-untyped-def]
+    from eqasim_sa.core.indicators import plugin_identity_from_entry_point
+
+    for name, payload in files.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+
+    class Distribution:
+        name = "demo-plugin"
+        version = "1.0.0"
+
+        def __init__(self) -> None:
+            self.files = tuple(Path(name) for name in files)
+
+        def locate_file(self, path: Path) -> Path:
+            return root / path
+
+    class EntryPoint:
+        group = "eqasim_sa.indicators"
+        name = "demo"
+        value = "demo_plugin:indicator"
+        dist = Distribution()
+
+    return plugin_identity_from_entry_point(EntryPoint())
+
+
+PLUGIN_FILES = {
+    "demo_plugin.py": b"def indicator(artifacts):\n    return 1.0\n",
+    "demo_plugin-1.0.0.dist-info/METADATA": b"Name: demo-plugin\nVersion: 1.0.0\n",
+    "data/table.bin": b"\x00\x01\r\n\x02",
+}
+
+
+def test_plugin_identity_ignores_crlf_in_text_files_only(tmp_path: Path) -> None:
+    from eqasim_sa.core.indicators import PLUGIN_DISTRIBUTION_DOMAIN
+
+    lf = _plugin_identity(tmp_path / "lf", PLUGIN_FILES)
+    text_crlf = _plugin_identity(
+        tmp_path / "text-crlf",
+        {
+            name: payload if name.endswith(".bin") else _crlf(payload)
+            for name, payload in PLUGIN_FILES.items()
+        },
+    )
+    binary_lf = _plugin_identity(
+        tmp_path / "binary-lf",
+        {**PLUGIN_FILES, "data/table.bin": lf_bytes(PLUGIN_FILES["data/table.bin"])},
+    )
+
+    assert PLUGIN_DISTRIBUTION_DOMAIN == b"eqasim-sa:plugin-distribution:v2\0"
+    assert text_crlf.implementation_sha256 == lf.implementation_sha256
+    assert text_crlf.distribution_sha256 == lf.distribution_sha256
+    assert binary_lf.implementation_sha256 == lf.implementation_sha256
+    assert binary_lf.distribution_sha256 != lf.distribution_sha256
+
+
+def test_text_name_rule() -> None:
+    from eqasim_sa.utils.text_identity import is_text_name
+
+    assert is_text_name("pkg/module.py") and is_text_name("pkg/conf.TOML")
+    assert is_text_name("pkg-1.0.dist-info/RECORD")
+    assert not is_text_name("pkg/table.bin") and not is_text_name("pkg/LICENSE")
+    assert not is_text_name("pkg/native.so")
+
+
+def test_manifest_hash_rejects_deeply_nested_json() -> None:
+    with pytest.raises(ValueError, match="cannot be canonicalized"):
+        canonical_json_sha256(b"[" * 100_000 + b"]" * 100_000)

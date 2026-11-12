@@ -597,6 +597,7 @@ def init_from_inputs(
     ):
         raise ValueError("directory and scratch must not overlap model-root")
     new_project = _preflight_project(absolute, scratch_relative)
+    restored: list[str] = []
     if model_config.is_absolute() or ".." in model_config.parts:
         raise ValueError("model-config must be relative to model-root")
     selected_config = model / model_config
@@ -663,6 +664,7 @@ def init_from_inputs(
                 publish_bytes(
                     GITATTRIBUTES_CONTENT, attributes, replace=False, default_mode=0o644
                 )
+                restored.append(GITATTRIBUTES)
             except FileExistsError:
                 pass
         selected_scratch = _directory_or_create(selected_scratch, "scratch")
@@ -677,6 +679,7 @@ def init_from_inputs(
         "manifest": "manifest.json",
         "readme": "README.md",
         "metaConfigs": dict(INIT_CONFIGS),
+        "restored": restored,
         "elapsedSeconds": time.monotonic() - started,
         "error": None,
     }
