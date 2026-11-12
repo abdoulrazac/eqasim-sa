@@ -84,6 +84,24 @@ excluded from FP/FF decision ranks.
 | Incomplete OAT or Sobol analysis | rejected because completeness must equal `1.0` |
 | Unsupported or unevaluable stopping evidence | fails closed as not converged |
 
+## Platforms and hash domains
+
+`eqasim-sa` runs natively on Windows 10+, macOS 13+, and Linux with the `local`
+backend; `slurm` is Linux only. There is no backward compatibility for hashes whose
+bytes changed: these domains are now `v2`, and new plans use them:
+
+| Domain | Current |
+| --- | --- |
+| Execution context | `eqasim-sa:context:v2` |
+| `eqasim-sa` software identity | `eqasim-sa:software-identity:v2` |
+| Indicator definition | `eqasim-sa:indicator-definition:v2` |
+| Indicator plugin distribution | `eqasim-sa:plugin-distribution:v2` |
+
+Legacy v1 plans and fixtures still parse and describe, descriptively only; they are
+never reinterpreted as v2. Text inputs are hashed after CRLF-to-LF normalization
+(see [Troubleshooting](troubleshooting.md#line-endings-and-gitattributes)). The
+worker scratch layout changed to `<scratch>/esa/<campaign>/w<slot>/c<12 hex>/`.
+
 ## Init and Nantes boundaries
 
 `eqasim-sa init` generates only calibration, Grid, discrete OAT, and historical

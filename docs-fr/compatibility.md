@@ -102,6 +102,26 @@ alterees, incompatibles avec le contexte ou la phase. Les tests du renderer
 emploient de faux modeles et preuves temporaires. Ils n'etablissent pas que le
 protocole Nantes reel a ete planifie ou execute.
 
+## Plateformes et domaines de hash
+
+`eqasim-sa` fonctionne nativement sous Windows 10+, macOS 13+ et Linux avec le
+backend `local` ; `slurm` est réservé à Linux. Il n'y a pas de compatibilité
+ascendante pour les hash dont les octets ont changé : ces domaines sont désormais
+en `v2`, et les nouveaux plans les utilisent :
+
+| Domaine | Courant |
+| --- | --- |
+| Contexte d'exécution | `eqasim-sa:context:v2` |
+| Identité logicielle d'`eqasim-sa` | `eqasim-sa:software-identity:v2` |
+| Définition d'indicateur | `eqasim-sa:indicator-definition:v2` |
+| Distribution de plugin d'indicateur | `eqasim-sa:plugin-distribution:v2` |
+
+Les plans et fixtures v1 restent lisibles et descriptibles, à titre descriptif
+uniquement ; ils ne sont jamais réinterprétés en v2. Les entrées texte sont
+hachées après normalisation CRLF vers LF (voir le
+[dépannage](troubleshooting.md#fins-de-ligne-et-gitattributes)). La disposition du
+scratch worker est devenue `<scratch>/esa/<campagne>/w<slot>/c<12 hex>/`.
+
 ## Matrice de version
 
 | Version | Python | Schemas de plan lus/ecrits | Manifeste d'analyse | Migration |

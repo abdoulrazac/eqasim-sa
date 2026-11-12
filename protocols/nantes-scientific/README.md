@@ -24,6 +24,17 @@ finite simulator-seed nuisance. FP and FF are blocked until a valid production
 screening root supplies complete, converged conditional evidence for both
 retained factors.
 
+## Platforms
+
+The protocol is rendered and run the same way on Windows, macOS, and Linux. On
+Windows, `execution.scratch` must be very short (for example `C:\esa`), and
+because eqasim's own cache creates relative paths of up to 231 characters,
+Nantes cannot fit in 260 characters unless Windows long paths
+(`LongPathsEnabled`) are enabled by an administrator once; `check` fails early
+with an explanation otherwise. A campaign runs on a single machine; render the
+machine paths again on each machine that runs or analyzes it. See
+[Troubleshooting](../../docs/troubleshooting.md#path_length-check-fails-on-windows).
+
 ## Rendering
 
 `render_protocol.py` is the only documented rendering path. It structurally

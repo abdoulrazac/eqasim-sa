@@ -43,7 +43,15 @@ FP/FF et de la classification de tolérance. Les tables de
 convergence apportent des éléments aux tailles déclarées sans déclarer
 automatiquement les critères d'arrêt satisfaits.
 
-Le paquet cible exactement Python 3.13 (`>=3.13,<3.14`). Depuis ce répertoire :
+Le paquet cible exactement Python 3.13 (`>=3.13,<3.14`) et fonctionne
+nativement sous Windows 10+, macOS 13+ et Linux, installé avec `uv` et sans
+droits administrateur (sous Windows :
+`powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`).
+Le backend `local` fonctionne sur les trois ; le backend `slurm` exige Linux. Une
+campagne s'exécute entièrement sur une seule machine ; l'analyse peut se faire
+sur une autre. Voir le [démarrage](docs-fr/getting-started.md) et le
+[dépannage](docs-fr/troubleshooting.md) (longueur de chemin Windows, fins de
+ligne). Depuis ce répertoire :
 
 ```bash
 uv sync --extra test --locked

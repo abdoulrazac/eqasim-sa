@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- Runs natively on Windows 10+, macOS 13+, and Linux (Python 3.13 via uv, no
+  administrator rights) with the `local` backend; the `slurm` backend remains
+  Linux only and is refused early by `check` and `run` elsewhere.
+- Adds a platform layer (locks, atomic replace, fsync, links, process-tree
+  supervision with a Windows Job Object) and path-based durable I/O; all text I/O
+  is explicit UTF-8.
+- Shortens the worker layout to `<scratch>/esa/<campaign>/w<slot>/c<12 hex>/`;
+  refuses Windows reserved names, trailing dots/spaces, case-only collisions, and
+  campaign names over 64 characters on every OS.
+- Adds `check` items `backend`, `path_length` (reads `LongPathsEnabled` read-only
+  on Windows), and `same_machine`; `run` refuses to resume a campaign whose
+  completed runs carry different execution evidence.
+- Makes identities line-ending independent (CRLF normalized to LF for the
+  lockfile, data manifest canonical JSON, software, indicator, and plugin
+  identities, and the `model.config` Git check); `init` writes a
+  `.gitattributes`.
+- Bumps the context, software identity, indicator definition, and plugin
+  distribution hash domains to `v2` (no backward compatibility; legacy v1 plans
+  remain descriptive only).
+- Adds a multi-OS CI workflow and `docs/platform-verification.md`.
+
 - Declares the project under GPL-2.0-only and adds bilingual contribution
   guidance and package README metadata.
 - Adds generic named structured-list factors for Grid, historical Sobol, and

@@ -216,6 +216,101 @@ Le support fini de seed est toujours une nuisance non actionnable. Un rang ou un
 tolérance FF nuls pour `seed` sont intentionnels : ses indices sont diagnostiques,
 ni consigne de contrôle ni estimation du bruit intrinsèque sans restriction.
 
+## Le contrôle `path_length` échoue sous Windows
+
+Cause : `check` estime le chemin le plus long qu'eqasim créera comme la longueur
+de `execution.scratch`, plus le préfixe worker fixe
+(`esa/<campagne>/w<slot>/c<12 hex>/`), plus un budget de 240 caractères pour les
+chemins relatifs propres à eqasim. Ce budget a été mesuré sur un vrai run Nantes :
+le cache d'eqasim crée des chemins relatifs allant jusqu'à 231 caractères (archive
+IGN IRIS extraite dans `data.spatial.iris`). L'erreur indique
+`estimated path length N exceeds the Windows limit of 260 characters; choose a
+shorter execution.scratch (for example C:\esa)...`.
+
+Remède : placer `execution.scratch` sur un chemin très court, comme `C:\esa`.
+Pour Nantes, même un scratch minimal ne tient pas dans 260 caractères, car
+l'essentiel de la longueur vient du cache d'eqasim ; `check` échoue donc tôt, avant
+tout run long, plutôt qu'en plein pipeline. Si les chemins longs Windows sont
+activés (`LongPathsEnabled`), `check` lit cette valeur du registre en lecture seule
+et passe ; eqasim-sa ne la modifie jamais. L'activer exige un administrateur, une
+fois, en dehors d'eqasim-sa. Une modification amont d'eqasim (extraire l'archive
+IRIS dans un dossier plus court) supprimerait ce besoin. Sous Linux et macOS, les
+limites sont de 4096 et 1024 caractères et `check` ne fait qu'avertir.
+
+## Nom de campagne ou d'artefact refusé
+
+Les noms de campagne sont limités à 64 caractères. Sur tous les systèmes,
+eqasim-sa refuse les noms réservés Windows (`CON`, `PRN`, `AUX`, `NUL`,
+`COM1`-`COM9`, `LPT1`-`LPT9`, avec ou sans extension, quelle que soit la casse),
+les noms terminés par un point ou une espace, et les noms qui ne diffèrent que par
+la casse. Une campagne créée sous Linux reste ainsi transférable vers Windows et
+macOS. Renommez la campagne, l'artefact ou l'indicateur.
+
+## Fins de ligne et `.gitattributes`
+
+Un checkout Git sous Windows peut convertir LF en CRLF. eqasim-sa hache les
+entrées texte après normalisation CRLF vers LF : un checkout CRLF produit donc les
+mêmes identités que sur le cluster. Cela concerne le hash de `uv.lock`
+(`lockfileSha256`), la forme JSON canonique du manifeste de données
+(`dataManifestSha256`), l'identité logicielle d'`eqasim-sa`, le texte des
+indicateurs intégrés et des plugins (les fichiers binaires restent bruts) et le
+contrôle Git de `model.config`, qui utilise `git hash-object --path` pour appliquer
+les règles de conversion de Git. Les fichiers de données restent hachés octet pour
+octet. `init` écrit aussi un `.gitattributes` (sans jamais écraser le vôtre) qui
+impose LF pour les fichiers YAML, JSON et `*.lock`. Si `check` signale une
+divergence après un transfert, comparez les fichiers avec `git status` et
+`git diff` avant de soupçonner les données.
+
+## Backend SLURM sous Windows ou macOS
+
+Le backend `slurm` exige Linux. `check` signale l'élément `backend` en échec avec
+`the slurm backend requires Linux; run eqasim-sa on the cluster`, et `run` refuse
+avec le même message. Préparez l'étude sur le PC, copiez-la vers le cluster par
+Git, `scp` ou `sftp`, refaites le rendu des chemins machine (marqueurs
+`__MACHINE_*__` de `protocols/*/` avec `render_protocol.py`, ou édition des chemins
+du YAML), puis lancez `check`, `plan` et `run` sur le cluster. Le PC ne soumet
+jamais de job.
+
+## `campaign runs were executed on another machine`
+
+Message complet : `campaign runs were executed on another machine (differing: ...);
+prepare a new campaign on this machine`. Cause : des runs terminés de la campagne
+portent une preuve d'exécution (chemin et hash de l'exécutable, environnement
+enfant, invocation, configuration du modèle, identité d'`eqasim-sa`) différente de
+celle de cette machine. Une campagne s'exécute entièrement sur une seule machine :
+`run` refuse donc de la reprendre et `check` signale l'élément `same_machine` en
+échec. La liste `differing` nomme les champs. Remède : préparer une nouvelle
+campagne (nouveau `campaign_root`) sur cette machine. Le hash d'environnement
+couvre l'environnement de la session : un environnement de shell très différent sur
+la même machine, par exemple un autre environnement virtuel ou un autre `PATH`,
+peut aussi déclencher le refus ; reprenez depuis l'environnement qui a démarré la
+campagne. Pour le backend `slurm`, `same_machine` est ignoré sur la machine qui
+soumet et appliqué dans le job Slurm.
+
+## Analyser sur une autre machine
+
+`analyze` n'a besoin ni de l'arborescence de données ni du scratch, et ne compare
+jamais la preuve d'exécution à la machine qui analyse. Il faut : le dossier de
+campagne rapatrié (`scp` ou `sftp`), le dépôt eqasim au même commit, le même
+`uv.lock` et le même manifeste de données, et le rendu des chemins machine refait
+pour cette machine. `metaConfigSha256` est une provenance publiée, pas une
+contrainte d'égalité : des chemins machine différents ne bloquent pas l'analyse.
+
+## Ctrl+C sous Windows
+
+Le processus enfant eqasim est démarré dans son propre groupe de processus, à
+l'intérieur d'un Job Object Windows. Lors d'un Ctrl+C, la gestion d'interruption
+d'eqasim-sa termine tout l'arbre de processus : aucun descendant ne garde de
+fichiers ouverts dans le scratch. Le run est enregistré comme interrompu et peut
+être repris avec `run`.
+
+## Système de fichiers non pris en charge
+
+Gardez `campaign_root`, `execution.scratch` et les données sur un disque local
+NTFS, APFS, ext4 ou xfs, ou sur le système de fichiers partagé du cluster. Les
+volumes FAT/exFAT et les partages SMB ne sont pas pris en charge pour les
+campagnes (verrous et publication atomique non garantis).
+
 ## Avertissements de sécurité
 
 - Ne modifiez jamais `plan.parquet`.

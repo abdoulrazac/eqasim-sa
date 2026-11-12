@@ -4,12 +4,32 @@
 
 ## Prerequisites
 
-- Linux/POSIX: the code uses `fcntl`, `flock`, `os.uname`, and process groups, among other features.
+- Windows 10 or later, macOS 13 or later, or Linux. The `local` backend behaves the same on all three; the `slurm` backend requires Linux (see [Troubleshooting](troubleshooting.md#slurm-backend-on-windows-or-macos)). No administrator rights are needed.
+- Campaigns, scratch, and data on a local NTFS, APFS, ext4, or xfs disk, or on the cluster's shared filesystem. FAT/exFAT volumes and SMB shares are not supported for campaigns.
 - Exactly Python 3.13 within the declared range `>=3.13,<3.14`.
 - `uv` and Git available.
 - A clean eqasim repository with a `HEAD` commit, a YAML file tracked by Git, and a `uv.lock`.
 - An existing data directory without symbolic links for `init`.
 - The synpp environment required by eqasim. `synpp` is not a Python dependency of `eqasim-sa`.
+
+## Install uv without administrator rights
+
+Linux and macOS:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Windows (PowerShell):
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+`uv` installs into your user profile and downloads Python 3.13 itself when
+needed. The command examples in this guide use Bash syntax. On Windows, run them
+from Git Bash, or in PowerShell write the full `uv run --project <path>
+--locked eqasim-sa` command wherever `"${SA[@]}"` appears.
 
 ## Install with uv
 
@@ -41,6 +61,7 @@ anything, or run any pipeline stage.
 
 ```text
 mon-analyse-sa/
+├── .gitattributes
 ├── README.md
 ├── manifest.json
 ├── configs/
@@ -51,6 +72,11 @@ mon-analyse-sa/
 ├── campaigns/
 └── scratch/
 ```
+
+`init` also writes a `.gitattributes` that forces LF line endings for `*.yml`,
+`*.yaml`, `*.json`, and `*.lock`, so that a Windows checkout with CRLF conversion
+does not change sealed inputs. It never overwrites an existing `.gitattributes`;
+a missing one is recreated and reported under `restored`.
 
 An identical rerun returns `status: unchanged` without rehashing the data.
 `--regenerate-data-manifest` atomically replaces the local manifest but does
@@ -73,6 +99,13 @@ From a source checkout, the rendered command uses
 `uv run --project /chemin/vers/eqasim-sa --locked eqasim-sa`. In an installed
 package where no source `pyproject.toml` can be detected, it uses `eqasim-sa`.
 Always invoke the array with `"${SA[@]}"` to preserve the arguments.
+
+## Short scratch on Windows
+
+Windows limits paths to 260 characters unless long paths are enabled. eqasim's
+own cache already creates relative paths of up to about 231 characters, so
+choose a very short `execution.scratch` such as `C:\esa` and run `check` before
+`run`. See [Troubleshooting](troubleshooting.md#path_length-check-fails-on-windows).
 
 ## First resource calibration
 

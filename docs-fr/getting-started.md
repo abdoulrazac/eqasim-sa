@@ -4,12 +4,32 @@
 
 ## Prérequis
 
-- Linux/POSIX : le code utilise notamment `fcntl`, `flock`, `os.uname` et des groupes de processus.
+- Windows 10 ou ultérieur, macOS 13 ou ultérieur, ou Linux. Le backend `local` se comporte de la même façon sur les trois ; le backend `slurm` exige Linux (voir le [dépannage](troubleshooting.md#backend-slurm-sous-windows-ou-macos)). Aucun droit administrateur n'est nécessaire.
+- Campagnes, scratch et données sur un disque local NTFS, APFS, ext4 ou xfs, ou sur le système de fichiers partagé du cluster. Les volumes FAT/exFAT et les partages SMB ne sont pas pris en charge pour les campagnes.
 - Python 3.13 exactement dans la plage déclarée `>=3.13,<3.14`.
 - `uv` et Git disponibles.
 - Un dépôt eqasim propre, avec un commit `HEAD`, un YAML suivi par Git et un `uv.lock`.
 - Un répertoire de données existant sans liens symboliques pour `init`.
 - L'environnement synpp requis par eqasim. `synpp` n'est pas une dépendance Python d'`eqasim-sa`.
+
+## Installer uv sans droits administrateur
+
+Linux et macOS :
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Windows (PowerShell) :
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+`uv` s'installe dans votre profil utilisateur et télécharge lui-même Python 3.13
+au besoin. Les exemples de ce guide utilisent la syntaxe Bash. Sous Windows,
+lancez-les depuis Git Bash, ou en PowerShell écrivez la commande complète
+`uv run --project <chemin> --locked eqasim-sa` à la place de `"${SA[@]}"`.
 
 ## Installer avec uv
 
@@ -41,6 +61,7 @@ l'environnement synpp, ne planifie rien et n'exécute aucune étape du pipeline.
 
 ```text
 mon-analyse-sa/
+├── .gitattributes
 ├── README.md
 ├── manifest.json
 ├── configs/
@@ -51,6 +72,12 @@ mon-analyse-sa/
 ├── campaigns/
 └── scratch/
 ```
+
+`init` écrit aussi un `.gitattributes` qui impose les fins de ligne LF pour
+`*.yml`, `*.yaml`, `*.json` et `*.lock`, afin qu'une conversion CRLF lors d'un
+checkout Windows ne modifie pas les entrées scellées. Il n'écrase jamais un
+`.gitattributes` existant ; s'il manque, il est recréé et signalé sous
+`restored`.
 
 Une relance identique renvoie `status: unchanged` sans rehacher les données.
 `--regenerate-data-manifest` remplace atomiquement le manifeste local, mais ne
@@ -73,6 +100,14 @@ Depuis un checkout source, le rendu utilise
 `uv run --project /chemin/vers/eqasim-sa --locked eqasim-sa`. Dans un paquet
 installé sans `pyproject.toml` source détectable, il utilise `eqasim-sa`. Toujours
 invoquer le tableau avec `"${SA[@]}"` pour préserver les arguments.
+
+## Scratch court sous Windows
+
+Windows limite les chemins à 260 caractères sauf si les chemins longs sont
+activés. Le cache d'eqasim crée déjà des chemins relatifs allant jusqu'à environ
+231 caractères : choisissez un `execution.scratch` très court, comme `C:\esa`,
+et lancez `check` avant `run`. Voir le
+[dépannage](troubleshooting.md#le-contrôle-path_length-échoue-sous-windows).
 
 ## Première calibration des ressources
 
