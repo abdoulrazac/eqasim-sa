@@ -41,7 +41,7 @@ seed séparément. Plus précisément, les binaires exclus sont `git_binary`,
 
 `designId` identifie une position statistique, pas une exécution. Il inclut les
 indices de niveau et de réplication pour Grid, ou le rôle scellé du design pour
-Morris historique, OAT discret, Morris canonique et Sobol. Deux `designId`
+OAT discret, Morris canonique et Sobol. Deux `designId`
 distincts peuvent donc partager un `runId`.
 
 ## Positions et runs uniques
@@ -51,19 +51,17 @@ distincts peuvent donc partager un `runId`.
 | Colonne | Type | Sens |
 | --- | --- | --- |
 | `designId` | string | identité de la position |
-| `method` | string | `grid`, ancien `morris`, `discrete_oat`, `canonical_morris` ou `sobol` |
+| `method` | string | `grid`, `discrete_oat`, `canonical_morris` ou `sobol` |
 | `role` | string | `point`, étape de trajectoire ou matrice Sobol |
 | `runId` | string | identité de l'exécution dédupliquée |
 | `seed` | int64 | seed eqasim |
 | `contextHash` | string | contexte scientifique |
 | `<factor>` | type du domaine | valeur projetée de chaque facteur hors seed |
 
-L'ancien `morris` est uniquement une provenance historique de démonstration
-lisible. Les nouvelles démonstrations adjacentes utilisent `discrete_oat` et le
+Les démonstrations adjacentes utilisent `discrete_oat` et le
 criblage scientifique `canonical_morris`. Les plans Morris canoniques non structures ont
 `planSchemaVersion: 2` et scellent le contrat scientifique normalisé ainsi que la
-définition complète du design et de l'analyse. Les autres plans actuels et
-historiques non structures utilisent le schéma v1. Tout design pris en charge
+définition complète du design et de l'analyse. Les autres plans non structures utilisent le schéma v1. Tout design pris en charge
 avec un facteur liste structuree nomme utilise le schema v3 et scelle les
 metadonnees structurees canoniques v1 ; la colonne garde le label tandis que le
 `runId` hache la liste ordonnee resolue.
@@ -149,9 +147,8 @@ travail transactionnel et reste vide après la fin normale d'une commande.
 `.eqasim-sa/` regroupe la coordination technique durable propre à la campagne :
 leases privées aux modules, transactions run sur le même filesystem et état
 Submitit. Ce répertoire n'est pas du scratch, n'est jamais créé dans le parent
-de la campagne et disparaît avec elle. Les anciens `.eqasim-sa-tmp`,
-`.eqasim-sa-run-locks`, `.submitit` et locks de parent sont acceptés par `init`
-lorsqu'ils sont sûrs, mais les commandes courantes ne les recréent pas.
+de la campagne et disparaît avec elle. `init` refuse une campagne contenant
+`.submitit`, `.eqasim-sa-tmp` ou `.eqasim-sa-run-locks`.
 
 ```text
 scratch/eqasim-sa/<campaign>/workers/<slot>/
@@ -215,17 +212,9 @@ l'écart-type non biaisé `standardDeviation`, `minimum`, les quantiles linéair
 `plan.parquet` : les positions de design structurellement dupliquées conservent
 donc leur poids au lieu d'être réduites aux runId uniques.
 
-### `morris-ranking.parquet` (compatibilité historique)
-
-Colonnes : `indicator`, `factor`, `rank`, `trajectories`, `replications`, `n`,
-`mu`, `mu_star`, `sigma`, `seed_std`. Le rang est ordonné par `mu_star`
-décroissant puis nom du facteur. Cette sortie appartient uniquement à la
-provenance historique lisible `method: morris` et n'est pas recommandée.
-
 ### `discrete-oat-effects.parquet`
 
-Produite pour `method: discrete_oat`. Elle reprend les colonnes adjacentes
-historiques : `indicator`, `factor`, rang entier `rank`, `trajectories`,
+Produite pour `method: discrete_oat`. Colonnes : `indicator`, `factor`, rang entier `rank`, `trajectories`,
 `replications`, `n`, `mu`, `mu_star`, `sigma` nullable et `seed_std` nullable.
 Les effets utilisent des niveaux numériques adjacents et normalisent chaque pas
 local par l'étendue totale déclarée. Cette sortie de démonstration n'est pas
@@ -299,9 +288,9 @@ Colonnes : `indicator`, `factor`, `rank`, `base_sample_size`,
 `bootstrap_resamples`, `bootstrap_attempts`, `first_order`,
 `first_order_ci_low`, `first_order_ci_high`, `total_order`,
 `total_order_ci_low`, `total_order_ci_high`. Le rang suit l'ordre total
-décroissant. Ce fichier appartient au Sobol historique; son bootstrap de lignes
+décroissant. Ce fichier appartient au Sobol de démonstration; son bootstrap de lignes
 reste non inférentiel et le manifeste porte
-`inferenceStatus: legacy_noninferential`.
+`inferenceStatus: demonstration_noninferential`.
 
 ### Sorties Sobol multi-scramble
 
@@ -345,8 +334,8 @@ métrique non prise en charge, incomplète ou non finie échoue de façon fermé
 `governed-report.json` enregistre la décision scellée, les hachages des preuves,
 les exclusions, les facteurs non actionnables, les preuves compatibles avec
 l'objectif, la convergence, les contrôles de robustesse en attente, le statut
-d'inférence, les codes de raison et `claimAuthorized`. Une démonstration vaut
-`demonstration_noninferential`, Sobol historique `legacy_noninferential`, et un
+d'inférence, les codes de raison et `claimAuthorized`. Une démonstration, y compris Sobol de démonstration, vaut
+`demonstration_noninferential`, et un
 pilote canonique `pilot_only`. Une production scientifique vaut `unstable` tant
 que l'arrêt échoue, puis `conditional` tant que la robustesse reste en attente.
 Le contrat actuel ne peut donc produire ni `robust` ni une autorisation de
@@ -359,10 +348,7 @@ Le manifeste version 7 est le pointeur remplacé atomiquement vers la générati
 immuable courante. Son `layout` reste `immutable-generation-v1` ;
 `generationPath` désigne `analysis/generations/<generationId>` et chaque sortie
 porte son chemin relatif, sa taille et son SHA-256. Les artefacts propres aux
-méthodes restent dans cette génération avec leurs hachages. Les manifestes
-version 7 historiques qui pointent vers
-`.eqasim-sa-analysis/generations/<generationId>` restent lisibles par le
-renderer Nantes ; ils ne sont ni migrés ni supprimés automatiquement. La
+méthodes restent dans cette génération avec leurs hachages. La
 publication reste transactionnelle.
 
 Pour les méthodes scientifiques, l'adaptateur applicatif reconstruit le design
@@ -412,9 +398,7 @@ actifs résident sous `<campaign>/.eqasim-sa/slurm/`; aucun état ordonnanceur
 n'est dispersé parmi les sorties scientifiques. L'intention est écrite avant de
 contacter l'ordonnanceur : si sa réponse est perdue, elle bloque toute relance
 automatique jusqu'à vérification humaine, ce qui évite les tableaux dupliqués.
-Les hardlinks temporaires interrompus des journaux courants sont récupérés. Les
-journaux historiques `.submitit` sont inspectés sans être modifiés et doivent
-être réconciliés avec la version qui les a créés.
+Le journal récupère les hardlinks temporaires interrompus.
 
 Le code et les tests couvrent la construction et le comportement simulé du
 backend SLURM. Ils ne constituent pas une validation sur un cluster SLURM réel.

@@ -42,7 +42,7 @@ les options d'environnement autorisées dans `execution.overrides`.
 ## Erreur de type dans `parameters`
 
 Cause fréquente : booléen, `null`, niveaux mixtes, float non fini ou domaine
-Morris historique/OAT discret mal ordonné. Remède : conserver un type homogène et des nombres finis.
+OAT discret mal ordonné. Remède : conserver un type homogène et des nombres finis.
 Pour un float requis, écrire `1.0`, pas `1`.
 
 ## Erreurs de facteur structuré nommé
@@ -59,7 +59,7 @@ Pour un float requis, écrire `1.0`, pas `1`.
   chaque charge est une liste non vide de chaînes non vides uniques, et deux
   labels ne peuvent résoudre vers la même liste ordonnée. Les labels sont aussi
   des chaînes non vides sans NUL.
-- `does not support structured factors` : `morris`, `discrete_oat` et
+- `does not support structured factors` : `discrete_oat` et
   `canonical_morris` refusent tous les charges structurées nommées. Utilisez Grid
   pour une démonstration, ou un `multiscramble_sobol` entièrement gouverné si les
   probabilités égales des labels sont scientifiquement justifiées.
@@ -120,11 +120,10 @@ uniques, au moins égaux à 2 et se terminent par `trajectories` ;
 `screening_top_k` ne dépasse pas le nombre de facteurs. Ces diagnostics ne
 certifient pas à eux seuls l'arrêt ou la robustesse de la charte.
 
-## `morris` est refusé par une charte scientifique
+## `method: morris` est refusé
 
-L'ancien `method: morris` reste lisible uniquement comme provenance de
-démonstration. Utilisez `discrete_oat` pour une nouvelle démonstration à niveaux
-adjacents, ou rédigez une campagne de criblage scientifique `canonical_morris`
+La méthode `morris` n'existe plus. Utilisez `discrete_oat` pour une
+démonstration à niveaux adjacents, ou rédigez une campagne de criblage scientifique `canonical_morris`
 propre à l'étude.
 
 ## `duplicate canonical configuration and seed pair`
@@ -192,7 +191,7 @@ stable. Après changement de design ou contexte, choisir une nouvelle racine.
 
 ## Variance Sobol constante ou non représentable numériquement
 
-Pour `sobol` historique, toutes les valeurs d'indicateur peuvent être constantes
+Pour `sobol` de démonstration, toutes les valeurs d'indicateur peuvent être constantes
 ou les rééchantillonnages bootstrap peuvent être dégénérés. Vérifiez
 l'indicateur, les domaines, `N` et la diversité effective des runs. Ne masquez
 pas l'erreur statistique.

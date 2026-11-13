@@ -297,7 +297,6 @@ def _governed_report(
     reasons = []
     if inference_status in {
         "demonstration_noninferential",
-        "legacy_noninferential",
         "pilot_only",
         "incomplete_noninferential",
         "descriptive_noninferential",

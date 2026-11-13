@@ -35,12 +35,10 @@ from eqasim_sa.core.methods.common import (
     _json,
     validate_bootstrap_resamples,
 )
-from eqasim_sa.core.methods.morris_plan import (
+from eqasim_sa.core.methods.discrete_oat_plan import (
     DISCRETE_OAT_DOMAIN,
-    MORRIS_DOMAIN,
     _discrete_oat_positions,
-    _morris_positions,
-    validate_morris_values,
+    validate_discrete_oat_values,
 )
 from eqasim_sa.core.methods.multiscramble_sobol_plan import (
     MULTISCRAMBLE_SOBOL_DOMAIN,
@@ -89,23 +87,6 @@ class GridDesign:
 
 
 @dataclass(frozen=True)
-class MorrisDesign:
-    """Legacy non-inferential Morris design retained for compatibility."""
-
-    base_config: dict
-    factors: dict[str, list]
-    seeds: tuple[int, ...]
-    requirements: dict
-    context_hash: str
-    context_descriptor: dict
-    campaign_root: Path
-    trajectories: int
-    design_seed: int
-    method: str = "morris"
-    structured_factors: dict[str, dict[str, list[str]]] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
 class DiscreteOATDesign:
     """Adjacent-level one-at-a-time demonstration design."""
 
@@ -149,7 +130,7 @@ class CanonicalMorrisDesign:
 
 @dataclass(frozen=True)
 class SobolDesign:
-    """Legacy single-scramble Sobol demonstration design."""
+    """Single-scramble Sobol demonstration design."""
 
     base_config: dict
     factors: dict[str, list]
@@ -231,7 +212,6 @@ def estimate_plan(
         raise ValueError("workers must be a strictly positive integer")
     formulas = {
         "sobol": "N(2D+2)",
-        "morris": "T(D+1)R",
         "discrete_oat": "T(D+1)R",
         "canonical_morris": "T(D+1)R",
         "multiscramble_sobol": "S*N(2D+2)",
@@ -257,17 +237,17 @@ def estimate_plan(
             raise ValueError("multi-scramble Sobol formula inputs D, N and S must be positive integers")
         if design_positions != inputs["S"] * inputs["N"] * (2 * inputs["D"] + 2):
             raise ValueError("multi-scramble Sobol designPositions must equal S*N*(2*D+2)")
-    elif method in {"morris", "discrete_oat", "canonical_morris"}:
+    elif method in {"discrete_oat", "canonical_morris"}:
         if (
             not isinstance(inputs, dict)
             or set(inputs) != {"D", "T", "R"}
             or any(type(value) is not int or value <= 0 for value in inputs.values())
         ):
             raise ValueError(
-                "Morris formula inputs D, T and R must be positive integers"
+                "trajectory formula inputs D, T and R must be positive integers"
             )
         if design_positions != inputs["T"] * (inputs["D"] + 1) * inputs["R"]:
-            raise ValueError("Morris designPositions must equal T*(D+1)*R")
+            raise ValueError("trajectory designPositions must equal T*(D+1)*R")
     elif method != "grid":
         raise ValueError(f"unsupported estimate method: {method}")
     count, runs = len(observations), len(set(run_ids))
@@ -336,7 +316,7 @@ def _validate_scientific_software_binding(
         )
 
 
-Design = GridDesign | MorrisDesign | DiscreteOATDesign | CanonicalMorrisDesign | SobolDesign | MultiScrambleSobolDesign
+Design = GridDesign | DiscreteOATDesign | CanonicalMorrisDesign | SobolDesign | MultiScrambleSobolDesign
 
 
 def _plan_positions(design: Design, names: tuple[str, ...]) -> int:
@@ -344,7 +324,7 @@ def _plan_positions(design: Design, names: tuple[str, ...]) -> int:
         return math.prod(len(design.factors[name]) for name in names) * len(
             design.seeds
         )
-    if design.method in {"morris", "discrete_oat", "canonical_morris"}:
+    if design.method in {"discrete_oat", "canonical_morris"}:
         return design.trajectories * (len(names) + 1) * len(design.seeds)
     if design.method == "sobol":
         return design.base_sample_size * (2 * len(names) + 2)
@@ -372,10 +352,10 @@ def _validate_plan_allocation(design: Design, names: tuple[str, ...]) -> None:
 
 def _validate(design: Design) -> tuple[str, ...]:
     if design.method not in {
-        "grid", "morris", "discrete_oat", "canonical_morris", "sobol", "multiscramble_sobol"
+        "grid", "discrete_oat", "canonical_morris", "sobol", "multiscramble_sobol"
     }:
         raise ValueError(
-            "method must be grid, morris, discrete_oat, canonical_morris, sobol or multiscramble_sobol"
+            "method must be grid, discrete_oat, canonical_morris, sobol or multiscramble_sobol"
         )
     if not isinstance(design.base_config, dict) or not isinstance(
         design.base_config.get("config"), dict
@@ -388,7 +368,7 @@ def _validate(design: Design) -> tuple[str, ...]:
     if set(design.structured_factors) - set(names):
         raise ValueError("structured_factors must name declared factors")
     if design.structured_factors and design.method in {
-        "morris", "discrete_oat", "canonical_morris"
+        "discrete_oat", "canonical_morris"
     }:
         raise ValueError(f"{design.method} does not support structured factors")
     if design.method == "sobol" and "seed" in design.factors:
@@ -407,8 +387,8 @@ def _validate(design: Design) -> tuple[str, ...]:
         values = design.factors[name]
         if not isinstance(values, list) or not values:
             raise ValueError(f"factor {name!r} values must be a non-empty list")
-        if design.method in {"morris", "discrete_oat"}:
-            validate_morris_values(name, values)
+        if design.method == "discrete_oat":
+            validate_discrete_oat_values(name, values)
         for value in values:
             _scalar(name, value)
         if len({type(value) for value in values}) != 1:
@@ -480,7 +460,7 @@ def _validate(design: Design) -> tuple[str, ...]:
     if set(config) & (set(names) | {"random_seed"}):
         raise ValueError("requirements config collides with a factor or random_seed")
     _json(design.requirements)
-    if design.method in {"morris", "discrete_oat"}:
+    if design.method == "discrete_oat":
         if type(design.trajectories) is not int or design.trajectories <= 0:
             raise ValueError("trajectories must be a strictly positive integer")
         if (
@@ -494,7 +474,7 @@ def _validate(design: Design) -> tuple[str, ...]:
         )
         if design.trajectories > candidates:
             raise ValueError(
-                f"trajectories exceeds Morris candidate count {candidates}"
+                f"trajectories exceeds discrete OAT candidate count {candidates}"
             )
     if design.method == "canonical_morris":
         dimensions = len(names)
@@ -702,15 +682,6 @@ def _table(design: Design, names: tuple[str, ...]) -> pa.Table:
             }
         )
     canonical_plan = None
-    if design.method == "morris":
-        morris = {
-            "designSeed": design.design_seed,
-            "trajectories": design.trajectories,
-            "factors": [
-                {"name": name, "values": design.factors[name]} for name in names
-            ],
-        }
-        metadata.update({b"morrisDesignVersion": b"1", b"morrisDesign": _json(morris)})
     if design.method == "discrete_oat":
         discrete_oat = {
             "designSeed": design.design_seed,
@@ -779,8 +750,6 @@ def _table(design: Design, names: tuple[str, ...]) -> pa.Table:
     selected = (
         positions
         if design.method == "grid"
-        else _morris_positions(design, names)
-        if design.method == "morris"
         else _discrete_oat_positions(design, names)
         if design.method == "discrete_oat"
         else _canonical_morris_positions(design, names, *canonical_plan)
@@ -831,8 +800,6 @@ def _table(design: Design, names: tuple[str, ...]) -> pa.Table:
         domain = (
             DOMAIN
             if design.method == "grid"
-            else MORRIS_DOMAIN
-            if design.method == "morris"
             else DISCRETE_OAT_DOMAIN
             if design.method == "discrete_oat"
             else CANONICAL_MORRIS_DOMAIN

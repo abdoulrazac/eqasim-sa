@@ -27,7 +27,6 @@ from eqasim_sa.core.sensitivity import morris_statistics
 from tests.test_analyze import (
     _campaign,
     _custom_indicator,
-    _morris_campaign,
     _write_verified_run,
     root_relative,
 )
@@ -273,12 +272,7 @@ def test_canonical_refuses_metadata_and_row_tampering(
         _analyze_tables(design, damaged, rows)
 
 
-def test_canonical_refuses_historical_and_discrete_oat_plans(tmp_path: Path) -> None:
-    historical = _morris_campaign(tmp_path / "historical")
-    table = pq.read_table(historical / "plan.parquet")
-    with pytest.raises(ValueError, match="canonical Morris.*metadata"):
-        _canonical_morris_tables(table, [], 101, 0.95, (2,), 1)
-
+def test_canonical_refuses_discrete_oat_plans(tmp_path: Path) -> None:
     descriptor, context_hash = _descriptor()
     discrete = replace(
         discrete_design(tmp_path / "discrete"),

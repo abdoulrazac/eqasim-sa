@@ -25,7 +25,7 @@ from eqasim_sa.cli import dispatch
 from eqasim_sa.core.analyze import (
     analyze,
 )
-from eqasim_sa.core.methods.morris import _morris_ranking
+from eqasim_sa.core.methods.discrete_oat import _discrete_oat_effects
 from eqasim_sa.core.methods.multiscramble_sobol import (
     _finite_population_variance,
     _multiscramble_sobol_tables,
@@ -39,7 +39,7 @@ from eqasim_sa.core.indicators import ArtifactSet, PluginIdentity, RegisteredInd
 from eqasim_sa.utils.filesystem import PublicationOutcomeUnknown, write_parquet_atomic
 from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.plan import (
-    MorrisDesign,
+    DiscreteOATDesign,
     SobolDesign,
     build_plan,
     load_run_specs,
@@ -156,8 +156,8 @@ def _campaign(tmp_path: Path) -> tuple[Path, tuple[str, str]]:
     return root, run_ids
 
 
-def _morris_campaign(tmp_path: Path, seeds: tuple[int, ...] = (11, 12)) -> Path:
-    root = tmp_path / "morris"
+def _discrete_oat_campaign(tmp_path: Path, seeds: tuple[int, ...] = (11, 12)) -> Path:
+    root = tmp_path / "discrete_oat"
     descriptor = {
         "eqasimCommit": "a",
         "dataManifestSha256": "b",
@@ -168,7 +168,7 @@ def _morris_campaign(tmp_path: Path, seeds: tuple[int, ...] = (11, 12)) -> Path:
         b"eqasim-sa:context:v2\0"
         + json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
-    design = MorrisDesign(
+    design = DiscreteOATDesign(
         {"config": {"a": 0, "b": -1.0}},
         {"b": [-1.0, 1.0], "a": [0, 2, 5]},
         seeds,
@@ -423,7 +423,7 @@ def test_sobol_analysis_is_deterministic_permutation_invariant_and_has_exact_sch
     assert manifest["version"] == 7
     assert manifest["layout"] == "immutable-generation-v1"
     assert manifest["sensitivityMethod"] == "sobol"
-    assert manifest["inferenceStatus"] == "legacy_noninferential"
+    assert manifest["inferenceStatus"] == "demonstration_noninferential"
     assert manifest["completionRate"] == 1.0
     assert manifest["completed"] == replay.completed
     assert manifest["missing"] == manifest["failed"] == 0
@@ -451,7 +451,7 @@ def test_sobol_sealed_validation_rejects_tampering_and_preserves_outputs(
     root = _sobol_campaign(tmp_path)
     outputs = {
         root / "indicators.parquet": b"old indicators",
-        root / "morris-ranking.parquet": b"old morris",
+        root / "discrete-oat-effects.parquet": b"old effects",
         root / "sobol-indices.parquet": b"old sobol",
         root / "analysis-generation.json": b"old manifest",
     }
@@ -551,7 +551,7 @@ def test_all_scientific_and_oat_plans_are_fully_validated_before_run_state_or_pl
         ),
     }
 
-    with pytest.raises(ValueError, match="canonical Morris|multi-scramble Sobol|Morris"):
+    with pytest.raises(ValueError, match="canonical Morris|multi-scramble Sobol|Discrete OAT"):
         analyze(root, (indicator,), **options)
 
     assert calls == []
@@ -732,11 +732,11 @@ def test_multiscramble_analyzer_rejects_v3_numerical_contract_tampering(
         )
 
 
-def test_sobol_analysis_rejects_legacy_degenerate_hybrid_contrasts(
+def test_sobol_analysis_rejects_unplanned_degenerate_hybrid_contrasts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 
-    root = tmp_path / "legacy-degenerate"
+    root = tmp_path / "degenerate"
     descriptor = {
         "eqasimCommit": "a",
         "dataManifestSha256": "b",
@@ -910,8 +910,8 @@ def test_sobol_constant_output_is_named_and_transaction_restores_stale_views(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root = _sobol_campaign(tmp_path)
-    stale = root / "morris-ranking.parquet"
-    stale.write_bytes(b"old morris")
+    stale = root / "discrete-oat-effects.parquet"
+    stale.write_bytes(b"old effects")
     manifest = root / "analysis-generation.json"
     manifest.write_bytes(b"old manifest")
     with pytest.raises(ValueError, match="constant.*variance"):
@@ -925,7 +925,7 @@ def test_sobol_constant_output_is_named_and_transaction_restores_stale_views(
             confidence_level=0.9,
         )
     assert (
-        stale.read_bytes() == b"old morris" and manifest.read_bytes() == b"old manifest"
+        stale.read_bytes() == b"old effects" and manifest.read_bytes() == b"old manifest"
     )
 
 
@@ -1645,18 +1645,18 @@ def test_analyze_writes_replication_dispersion_for_partial_groups(
     assert (replayed.path.read_bytes(), dispersion.read_bytes()) == first
 
 
-def test_morris_ranking_has_exact_effects_schema_order_and_manifest(
+def test_discrete_oat_ranking_has_exact_effects_schema_order_and_manifest(
     tmp_path: Path,
 ) -> None:
-    root = _morris_campaign(tmp_path)
+    root = _discrete_oat_campaign(tmp_path)
 
     result = _analyze(
-        root, (_custom_indicator(),), completeness_threshold=1.0, method="morris"
+        root, (_custom_indicator(),), completeness_threshold=1.0, method="discrete_oat"
     )
 
     ranking = result.sensitivity_path
-    assert result.sensitivity_method == "morris"
-    assert ranking.name == "morris-ranking.parquet"
+    assert result.sensitivity_method == "discrete_oat"
+    assert ranking.name == "discrete-oat-effects.parquet"
     schema = pq.ParquetFile(ranking).schema_arrow
     assert schema == pa.schema(
         [
@@ -1704,7 +1704,7 @@ def test_morris_ranking_has_exact_effects_schema_order_and_manifest(
     )
     manifest = json.loads((root / "analysis-generation.json").read_text())
     assert manifest["version"] == 7
-    assert manifest["sensitivityMethod"] == "morris"
+    assert manifest["sensitivityMethod"] == "discrete_oat"
     assert (
         manifest["sensitivitySha256"]
         == __import__("hashlib").sha256(ranking.read_bytes()).hexdigest()
@@ -1725,14 +1725,14 @@ def test_morris_ranking_has_exact_effects_schema_order_and_manifest(
         "too-many",
     ],
 )
-def test_morris_ranking_rejects_incoherent_sealed_plan(
+def test_discrete_oat_ranking_rejects_incoherent_sealed_plan(
     tmp_path: Path, damage: str
 ) -> None:
-    root = _morris_campaign(tmp_path)
+    root = _discrete_oat_campaign(tmp_path)
     table = pq.read_table(root / "plan.parquet")
     rows = table.to_pylist()
     metadata = dict(table.schema.metadata)
-    design = json.loads(metadata[b"morrisDesign"])
+    design = json.loads(metadata[b"discreteOatDesign"])
     if damage == "metadata-extra":
         metadata[b"extra"] = b"1"
     elif damage == "metadata-version":
@@ -1752,7 +1752,7 @@ def test_morris_ranking_rejects_incoherent_sealed_plan(
     elif damage == "too-many":
         design["trajectories"] = 10_000
     if damage in {"factor-order", "mixed-domain", "too-many"}:
-        metadata[b"morrisDesign"] = json.dumps(
+        metadata[b"discreteOatDesign"] = json.dumps(
             design, sort_keys=True, separators=(",", ":")
         ).encode()
     table = pa.Table.from_pylist(rows, schema=table.schema.with_metadata(metadata))
@@ -1762,15 +1762,15 @@ def test_morris_ranking_rejects_incoherent_sealed_plan(
     indicator_rows = [(run_id, "value", value) for run_id, value in values.items()]
 
     with pytest.raises(
-        ValueError, match="Morris|metadata|context|design|factor|traject"
+        ValueError, match="Discrete OAT|metadata|context|design|factor|traject"
     ):
-        _morris_ranking(table, indicator_rows)
+        _discrete_oat_effects(table, indicator_rows)
 
 
-def test_morris_ranking_is_independent_of_plan_and_run_order(tmp_path: Path) -> None:
-    root = _morris_campaign(tmp_path)
+def test_discrete_oat_ranking_is_independent_of_plan_and_run_order(tmp_path: Path) -> None:
+    root = _discrete_oat_campaign(tmp_path)
     first = _analyze(
-        root, (_custom_indicator(),), completeness_threshold=1.0, method="morris"
+        root, (_custom_indicator(),), completeness_threshold=1.0, method="discrete_oat"
     )
     expected = first.sensitivity_path.read_bytes()
     plan = pq.read_table(root / "plan.parquet")
@@ -1778,16 +1778,16 @@ def test_morris_ranking_is_independent_of_plan_and_run_order(tmp_path: Path) -> 
     write_parquet_atomic(shuffled, root / "plan.parquet")
 
     replay = _analyze(
-        root, (_custom_indicator(),), completeness_threshold=1.0, method="morris"
+        root, (_custom_indicator(),), completeness_threshold=1.0, method="discrete_oat"
     )
 
     assert replay.sensitivity_path.read_bytes() == expected
 
 
-def test_morris_single_replication_uses_null_sample_statistics(tmp_path: Path) -> None:
-    root = _morris_campaign(tmp_path, (11,))
+def test_discrete_oat_single_replication_uses_null_sample_statistics(tmp_path: Path) -> None:
+    root = _discrete_oat_campaign(tmp_path, (11,))
     result = _analyze(
-        root, (_custom_indicator(),), completeness_threshold=1.0, method="morris"
+        root, (_custom_indicator(),), completeness_threshold=1.0, method="discrete_oat"
     )
     rows = pq.read_table(result.sensitivity_path).to_pylist()
     assert all(row["n"] == 2 and row["sigma"] == 0.0 for row in rows)
@@ -1795,15 +1795,15 @@ def test_morris_single_replication_uses_null_sample_statistics(tmp_path: Path) -
 
 
 @pytest.mark.parametrize("damage", ["role", "rank", "domain", "run"])
-def test_morris_invalid_structure_preserves_all_previous_outputs(
+def test_discrete_oat_invalid_structure_preserves_all_previous_outputs(
     tmp_path: Path,
     damage: str,
 ) -> None:
-    root = _morris_campaign(tmp_path)
+    root = _discrete_oat_campaign(tmp_path)
     outputs = {
         root / "indicators.parquet": b"old indicators",
         root / "replication-dispersion.parquet": b"old dispersion",
-        root / "morris-ranking.parquet": b"old ranking",
+        root / "discrete-oat-effects.parquet": b"old ranking",
         root / "analysis-generation.json": b"old manifest",
     }
     for path, content in outputs.items():
@@ -1823,28 +1823,28 @@ def test_morris_invalid_structure_preserves_all_previous_outputs(
     )
 
     with pytest.raises(
-        ValueError, match="Morris|role|rank|domain|runId|indicator|complet|marker"
+        ValueError, match="Discrete OAT|role|rank|domain|runId|indicator|complet|marker"
     ):
         _analyze(
-            root, (_custom_indicator(),), completeness_threshold=1.0, method="morris"
+            root, (_custom_indicator(),), completeness_threshold=1.0, method="discrete_oat"
         )
     assert {path: path.read_bytes() for path in outputs} == outputs
 
 
-def test_analysis_refuses_grid_morris_method_mismatch_before_publication(
+def test_analysis_refuses_grid_discrete_oat_method_mismatch_before_publication(
     tmp_path: Path,
 ) -> None:
     root, _ = _campaign(tmp_path)
-    with pytest.raises(ValueError, match="grid.*morris"):
-        _analyze(root, (_custom_indicator(),), method="morris")
+    with pytest.raises(ValueError, match="grid.*discrete_oat"):
+        _analyze(root, (_custom_indicator(),), method="discrete_oat")
     assert not (root / "indicators.parquet").exists()
 
-    morris = _morris_campaign(tmp_path)
-    with pytest.raises(ValueError, match="morris.*grid"):
+    discrete_oat = _discrete_oat_campaign(tmp_path)
+    with pytest.raises(ValueError, match="discrete_oat.*grid"):
         _analyze(
-            morris, (_custom_indicator(),), completeness_threshold=1.0, method="grid"
+            discrete_oat, (_custom_indicator(),), completeness_threshold=1.0, method="grid"
         )
-    assert not (morris / "indicators.parquet").exists()
+    assert not (discrete_oat / "indicators.parquet").exists()
 
 
 @pytest.mark.parametrize(
@@ -1854,35 +1854,35 @@ def test_analysis_refuses_grid_morris_method_mismatch_before_publication(
         ((_custom_indicator(),), "factor", "replication"),
     ],
 )
-def test_morris_analysis_requires_indicator_and_replication_seed_role(
+def test_discrete_oat_analysis_requires_indicator_and_replication_seed_role(
     tmp_path: Path,
     indicators,
     seed_role: str,
     message: str,  # type: ignore[no-untyped-def]
 ) -> None:
-    root = _morris_campaign(tmp_path)
+    root = _discrete_oat_campaign(tmp_path)
     with pytest.raises(ValueError, match=message):
         _analyze(
             root,
             indicators,
             completeness_threshold=1.0,
-            method="morris",
+            method="discrete_oat",
             seed_role=seed_role,
         )
     assert not (root / "indicators.parquet").exists()
 
 
-def test_morris_restores_all_views_if_ranking_publication_fails(
+def test_discrete_oat_restores_all_views_if_ranking_publication_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import eqasim_sa.core.analysis_publication as publication_module
 
-    root = _morris_campaign(tmp_path)
+    root = _discrete_oat_campaign(tmp_path)
     outputs = {
         root / "indicators.parquet": b"old indicators",
         root / "replication-dispersion.parquet": b"old dispersion",
-        root / "morris-ranking.parquet": b"old ranking",
+        root / "discrete-oat-effects.parquet": b"old ranking",
         root / "analysis-generation.json": b"old manifest",
     }
     for path, content in outputs.items():
@@ -1892,14 +1892,14 @@ def test_morris_restores_all_views_if_ranking_publication_fails(
     def fail_ranking(
         table: pa.Table, destination: Path, *, staging_directory: Path | None = None
     ) -> Path:
-        if destination.name == "morris-ranking.parquet":
+        if destination.name == "discrete-oat-effects.parquet":
             raise OSError("injected ranking publication failure")
         return real_write(table, destination, staging_directory=staging_directory)
 
     monkeypatch.setattr(publication_module, "write_parquet_exclusive", fail_ranking)
     with pytest.raises(OSError, match="injected ranking"):
         _analyze(
-            root, (_custom_indicator(),), completeness_threshold=1.0, method="morris"
+            root, (_custom_indicator(),), completeness_threshold=1.0, method="discrete_oat"
         )
     assert {path: path.read_bytes() for path in outputs} == outputs
 
@@ -1997,7 +1997,7 @@ def test_manifest_failure_keeps_previous_pointer_and_leaves_only_immutable_orpha
     root, _ = _campaign(tmp_path)
     current = _analyze(root, (_custom_indicator(),))
     pointer = (root / "analysis-generation.json").read_bytes()
-    stale = root / "morris-ranking.parquet"
+    stale = root / "discrete-oat-effects.parquet"
     stale.write_bytes(b"stale ranking")
     monkeypatch.setattr(
         publication_module,
@@ -2163,7 +2163,7 @@ def test_generation_rename_failure_keeps_previous_pointer_and_generation(
     )
 
 
-def test_morris_fake_pipeline_end_to_end_deduplicates_runs_and_ranks(
+def test_discrete_oat_fake_pipeline_end_to_end_deduplicates_runs_and_ranks(
     tmp_path: Path,
 ) -> None:
     root, workdir = tmp_path / "campaign", tmp_path / "workdir"
@@ -2178,7 +2178,7 @@ def test_morris_fake_pipeline_end_to_end_deduplicates_runs_and_ranks(
         b"eqasim-sa:context:v2\0"
         + json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
-    design = MorrisDesign(
+    design = DiscreteOATDesign(
         {"config": {"a": 0}},
         {"a": [0, 1]},
         (7,),
@@ -2200,7 +2200,7 @@ def test_morris_fake_pipeline_end_to_end_deduplicates_runs_and_ranks(
             pq.read_table(artifacts.path("population"))["value"][0].as_py()
         ),
     )
-    analyzed = _analyze(root, (indicator,), completeness_threshold=1.0, method="morris")
+    analyzed = _analyze(root, (indicator,), completeness_threshold=1.0, method="discrete_oat")
 
     assert planned.design_positions == 4 and planned.unique_runs == len(specs) == 2
     assert all(result.status == "completed" for result in results)
@@ -2279,8 +2279,8 @@ def test_cli_analyze_uses_injected_core_path_without_simulation(
             "indicators": 1,
             "values": 2,
             "dispersionPath": "campaign/replication-dispersion.parquet",
-            "sensitivityMethod": "morris",
-            "sensitivityPath": "campaign/morris-ranking.parquet",
+            "sensitivityMethod": "discrete_oat",
+            "sensitivityPath": "campaign/discrete-oat-effects.parquet",
             "error": None,
         }
 
@@ -2291,7 +2291,7 @@ def test_cli_analyze_uses_injected_core_path_without_simulation(
     assert called == [meta]
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "completed"
-    assert payload["sensitivityMethod"] == "morris"
+    assert payload["sensitivityMethod"] == "discrete_oat"
 
 
 def test_adapter_preflights_current_plan_and_uses_committed_generation_paths(
@@ -2676,13 +2676,13 @@ def test_analyze_adapter_passes_requested_method_and_exposes_sensitivity(
         campaign="demo",
         completeness_threshold=1.0,
         seed_role="replication",
-        method="morris",
+        method="discrete_oat",
     )
     result = SimpleNamespace(
         path=root / "indicators.parquet",
         dispersion_path=root / "replication-dispersion.parquet",
-        sensitivity_method="morris",
-        sensitivity_path=root / "morris-ranking.parquet",
+        sensitivity_method="discrete_oat",
+        sensitivity_path=root / "discrete-oat-effects.parquet",
         runs=2,
         indicators=1,
         values=2,
@@ -2707,9 +2707,9 @@ def test_analyze_adapter_passes_requested_method_and_exposes_sensitivity(
     monkeypatch.setattr("eqasim_sa.adapters.application.analyze", capture)
     payload = analyze_from_meta_config(Path("meta.yml"))
 
-    assert seen["method"] == "morris"
+    assert seen["method"] == "discrete_oat"
     assert payload["dispersionPath"] == str(result.dispersion_path)
-    assert payload["sensitivityMethod"] == "morris"
+    assert payload["sensitivityMethod"] == "discrete_oat"
     assert payload["sensitivityPath"] == str(result.sensitivity_path)
 
 

@@ -80,7 +80,7 @@ def design(root: Path, **changes) -> GridDesign:
     return GridDesign(**values)
 
 
-def morris_design(root: Path, **changes):  # type: ignore[no-untyped-def]
+def discrete_oat_design(root: Path, **changes):  # type: ignore[no-untyped-def]
     descriptor, context_hash = _context()
     values = dict(
         base_config=base(),
@@ -94,7 +94,7 @@ def morris_design(root: Path, **changes):  # type: ignore[no-untyped-def]
         design_seed=20260814,
     )
     values.update(changes)
-    return plan_module.MorrisDesign(**values)
+    return plan_module.DiscreteOATDesign(**values)
 
 
 def sobol_design(root: Path, **changes):  # type: ignore[no-untyped-def]
@@ -466,13 +466,13 @@ def test_sobol_meta_config_requires_at_least_two_seed_values_with_specific_messa
         load_meta_config(meta)
 
 
-def _morris_meta(
+def _discrete_oat_meta(
     meta: Path, *, trajectories: int = 2, design_seed: int = 20260814
 ) -> None:
     text = meta.read_text()
     text = text.replace(
         "  method: grid\n  seed_role: replication\n",
-        f"  method: morris\n  seed_role: replication\n  trajectories: {trajectories}\n"
+        f"  method: discrete_oat\n  seed_role: replication\n  trajectories: {trajectories}\n"
         f"  design_seed: {design_seed}\n",
     )
     text = text.replace(
@@ -560,7 +560,7 @@ def test_universal_position_cap_precedes_table_allocation_for_core_methods(
 
     for current in (
         design(tmp_path / "grid"),
-        morris_design(tmp_path / "morris"),
+        discrete_oat_design(tmp_path / "discrete_oat"),
         sobol_design(tmp_path / "sobol"),
     ):
         with pytest.raises(ValueError, match="safe cap of 1 design positions"):
@@ -581,8 +581,8 @@ def test_universal_cell_cap_precedes_grid_table_allocation(
         build_plan(design(tmp_path / "grid"))
 
 
-def test_morris_exact_mixed_radix_factoradic_rows_and_metadata(tmp_path: Path) -> None:
-    current = morris_design(tmp_path / "campaign")
+def test_discrete_oat_exact_mixed_radix_factoradic_rows_and_metadata(tmp_path: Path) -> None:
+    current = discrete_oat_design(tmp_path / "campaign")
     before = copy.deepcopy(current)
 
     result = build_plan(current)
@@ -619,7 +619,7 @@ def test_morris_exact_mixed_radix_factoradic_rows_and_metadata(tmp_path: Path) -
         ],
     }
     encoded = json.dumps(definition, sort_keys=True, separators=(",", ":")).encode()
-    domain = b"eqasim-sa:design:morris:v1\0"
+    domain = b"eqasim-sa:design:discrete-oat:v1\0"
     candidate_count = math.factorial(2) * 4 * 2
     offset = (
         int.from_bytes(hashlib.sha256(domain + encoded + b"\0offset").digest(), "big")
@@ -683,22 +683,22 @@ def test_morris_exact_mixed_radix_factoradic_rows_and_metadata(tmp_path: Path) -
         b"contextDescriptor": json.dumps(
             current.context_descriptor, sort_keys=True, separators=(",", ":")
         ).encode(),
-        b"morrisDesignVersion": b"1",
-        b"morrisDesign": json.dumps(
+        b"discreteOatDesignVersion": b"1",
+        b"discreteOatDesign": json.dumps(
             {**definition, "trajectories": 3}, sort_keys=True, separators=(",", ":")
         ).encode(),
     }
     assert len({tuple(row["role"].split(":")[:2]) for row in rows}) == 3
 
 
-def test_morris_is_deterministic_order_independent_and_design_seed_changes_plan(
+def test_discrete_oat_is_deterministic_order_independent_and_design_seed_changes_plan(
     tmp_path: Path,
 ) -> None:
-    first = morris_design(tmp_path / "first")
-    reordered = morris_design(
+    first = discrete_oat_design(tmp_path / "first")
+    reordered = discrete_oat_design(
         tmp_path / "reordered", factors={"a": [0, 2, 5], "b": [-1.0, 1.0]}
     )
-    changed = morris_design(tmp_path / "changed", design_seed=20260815)
+    changed = discrete_oat_design(tmp_path / "changed", design_seed=20260815)
     build_plan(first)
     build_plan(reordered)
     build_plan(changed)
@@ -710,8 +710,8 @@ def test_morris_is_deterministic_order_independent_and_design_seed_changes_plan(
     assert (first.campaign_root / "plan.parquet").read_bytes() == first_bytes
 
 
-def test_morris_trajectories_are_distinct_adjacent_and_keep_crn(tmp_path: Path) -> None:
-    current = morris_design(tmp_path / "campaign", trajectories=8)
+def test_discrete_oat_trajectories_are_distinct_adjacent_and_keep_crn(tmp_path: Path) -> None:
+    current = discrete_oat_design(tmp_path / "campaign", trajectories=8)
     result = build_plan(current)
     rows = pq.read_table(current.campaign_root / "plan.parquet").to_pylist()
     blocks = [rows[index : index + 3] for index in range(0, len(rows), 3)]
@@ -758,33 +758,49 @@ def test_morris_trajectories_are_distinct_adjacent_and_keep_crn(tmp_path: Path) 
         ({"factors": {"a": [0.0, 5e-324, 1e308]}}, "range|delta|representable"),
     ],
 )
-def test_morris_core_rejects_invalid_contract(
+def test_discrete_oat_core_rejects_invalid_contract(
     tmp_path: Path, changes: dict, message: str
 ) -> None:
     with pytest.raises((TypeError, ValueError), match=message):
-        build_plan(morris_design(tmp_path / "campaign", **changes))
+        build_plan(discrete_oat_design(tmp_path / "campaign", **changes))
 
 
-def test_morris_meta_config_preserves_explicit_design_contract(tmp_path: Path) -> None:
+def test_discrete_oat_meta_config_preserves_explicit_design_contract(tmp_path: Path) -> None:
     meta, _, _, _ = meta_fixture(tmp_path)
-    _morris_meta(meta)
+    _discrete_oat_meta(meta)
 
     loaded = load_meta_config(meta)
 
-    assert loaded.method == "morris"
+    assert loaded.method == "discrete_oat"
     assert loaded.trajectories == 2
     assert loaded.design_seed == 20260814
     assert loaded.seed_role == "replication"
     assert loaded.seeds == (41, 42)
 
 
-def test_morris_meta_config_requires_at_least_one_indicator(tmp_path: Path) -> None:
+def test_discrete_oat_meta_config_requires_at_least_one_indicator(tmp_path: Path) -> None:
     meta, _, _, _ = meta_fixture(tmp_path)
-    _morris_meta(meta)
+    _discrete_oat_meta(meta)
     text = meta.read_text()
     meta.write_text(text[: text.index("artifacts:\n")])
-    with pytest.raises(ValueError, match="Morris.*indicator"):
+    with pytest.raises(ValueError, match="discrete_oat.*indicator"):
         load_meta_config(meta)
+
+
+@pytest.mark.parametrize("method", ["morris", "lhs"])
+def test_meta_config_rejects_unsupported_experiment_method(
+    tmp_path: Path, method: str
+) -> None:
+    meta, _, _, _ = meta_fixture(tmp_path)
+    _discrete_oat_meta(meta)
+    meta.write_text(
+        meta.read_text().replace("method: discrete_oat\n", f"method: {method}\n")
+    )
+    with pytest.raises(ValueError, match="unsupported experiment.method") as error:
+        load_meta_config(meta)
+    assert ("canonical_morris" in str(error.value)) and (
+        ("discrete_oat for an adjacent-level" in str(error.value)) == (method == "morris")
+    )
 
 
 @pytest.mark.parametrize(
@@ -831,9 +847,9 @@ def test_morris_meta_config_requires_at_least_one_indicator(tmp_path: Path) -> N
         ),
     ],
 )
-def test_morris_meta_config_is_strict(tmp_path: Path, change, message: str) -> None:  # type: ignore[no-untyped-def]
+def test_discrete_oat_meta_config_is_strict(tmp_path: Path, change, message: str) -> None:  # type: ignore[no-untyped-def]
     meta, _, _, _ = meta_fixture(tmp_path)
-    _morris_meta(meta)
+    _discrete_oat_meta(meta)
     meta.write_text(change(meta.read_text()))
     with pytest.raises((TypeError, ValueError), match=message):
         load_meta_config(meta)

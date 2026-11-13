@@ -20,7 +20,6 @@ eqasim-sa/
 │   │   ├── run.py
 │   │   ├── ledger.py
 │   │   ├── campaign_snapshot.py
-│   │   ├── durable_publication.py
 │   │   ├── analysis_publication.py
 │   │   ├── analyze.py
 │   │   └── indicators/
@@ -42,7 +41,7 @@ loads YAML, invokes synpp, normalizes artifacts, manages local/SLURM execution,
 and wires the application together. `cli.py` is limited to parsing and JSON
 envelopes.
 
-Filesystem responsibilities are deliberately deep: `durable_publication.py`
+Filesystem responsibilities are deliberately deep: `utils/filesystem.py`
 owns stable capture and crash-conscious file commits;
 `campaign_snapshot.py` owns coherent plan/run/archive cuts;
 `analysis_publication.py` owns immutable analysis generations; and
@@ -156,9 +155,8 @@ or absent) is unaffected.
 - Named structured factors remain a separate label-to-list mapping across the
   adapter/core boundary: plans expose labels, resolution and `runId` use lists,
   and schema v3 seals the canonical mapping.
-- Scientific design v1/v2 readers reconstruct exact historical rows and
-  identities during application preflight, before indicator plugins are loaded
-  and without invoking SALib. They never execute a legacy estimator.
+- Only scientific design v3 is accepted; earlier designs are rejected during
+  application preflight.
 - An analysis must not mutate its sources; the code backs them up and restores them if they differ.
 
 ## Add a custom indicator

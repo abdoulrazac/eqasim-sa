@@ -32,10 +32,7 @@ from eqasim_sa.core.methods.canonical_morris import (
     _replication_allocation,
 )
 from eqasim_sa.core.methods.common import validate_bootstrap_resamples
-from eqasim_sa.core.methods.morris import (
-    _discrete_oat_effects,
-    _morris_ranking,
-)
+from eqasim_sa.core.methods.discrete_oat import _discrete_oat_effects
 from eqasim_sa.core.methods.multiscramble_sobol import (
     _multiscramble_sobol_tables,
 )
@@ -132,7 +129,7 @@ def _analyze_campaign(
 ) -> AnalyzeResult:
     if type(descriptive_only) is not bool:
         raise ValueError("descriptive_only must be boolean")
-    oat_methods = {"morris", "discrete_oat", "canonical_morris"}
+    oat_methods = {"discrete_oat", "canonical_morris"}
     if method in oat_methods and seed_role != "replication":
         raise ValueError(f"{method} requires seed_role replication")
     if method in oat_methods and not indicators:
@@ -218,7 +215,6 @@ def _analyze_campaign(
         or method
         not in {
             "grid",
-            "morris",
             "discrete_oat",
             "canonical_morris",
             "sobol",
@@ -231,7 +227,6 @@ def _analyze_campaign(
             f"plan method {actual} is incompatible with requested method {method}"
         )
     if method in {
-        "morris",
         "discrete_oat",
         "canonical_morris",
         "sobol",
@@ -361,11 +356,7 @@ def _analyze_campaign(
             sensitivity_table = None
             convergence_table = None
             if not descriptive_only:
-                if method == "morris":
-                    outputs["sensitivity"] = AnalysisArtifact(
-                        "morris-ranking.parquet", _morris_ranking(plan_table, rows)
-                    )
-                elif method == "discrete_oat":
+                if method == "discrete_oat":
                     outputs["sensitivity"] = AnalysisArtifact(
                         "discrete-oat-effects.parquet",
                         _discrete_oat_effects(plan_table, rows),
@@ -460,8 +451,6 @@ def _analyze_campaign(
                 inference_status = "incomplete_noninferential"
             elif descriptive_only:
                 inference_status = "descriptive_noninferential"
-            elif method == "sobol":
-                inference_status = "legacy_noninferential"
             elif method not in {"canonical_morris", "multiscramble_sobol"}:
                 inference_status = "demonstration_noninferential"
             criterion_reports = []
@@ -627,9 +616,6 @@ def _validate_frozen_plan(
     """Validate every sealed row before run-state or indicator access."""
     if method == "grid":
         _validate_grid_plan(plan, structured_factors)
-        return None
-    if method == "morris":
-        _morris_ranking(plan, [])
         return None
     if method == "discrete_oat":
         _discrete_oat_effects(plan, [])

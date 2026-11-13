@@ -17,7 +17,6 @@ from eqasim_sa.core.charter import (
 from eqasim_sa.core.plan import (
     CanonicalMorrisDesign,
     DiscreteOATDesign,
-    MorrisDesign,
     _available_scientific_runs,
     _canonical_definition,
     build_plan,
@@ -185,9 +184,9 @@ def canonical_design(root: Path, **changes) -> CanonicalMorrisDesign:
     return CanonicalMorrisDesign(**values)
 
 
-def discrete_design(root: Path, cls=DiscreteOATDesign):  # type: ignore[no-untyped-def]
+def discrete_design(root: Path) -> DiscreteOATDesign:
     descriptor = scientific_context_descriptor()
-    return cls(
+    return DiscreteOATDesign(
         base(),
         {"b": [-1.0, 1.0], "a": [0, 2, 5]},
         (41,),
@@ -225,24 +224,21 @@ def canonical_meta(tmp_path: Path) -> Path:
     return meta
 
 
-def test_discrete_oat_preserves_adjacent_universe_but_has_independent_identity(
+def test_discrete_oat_plan_seals_its_own_adjacent_identity(
     tmp_path: Path,
 ) -> None:
     discrete = discrete_design(tmp_path / "discrete")
-    historical = discrete_design(tmp_path / "historical", MorrisDesign)
     build_plan(discrete)
-    build_plan(historical)
     oat = pq.read_table(discrete.campaign_root / "plan.parquet")
-    morris = pq.read_table(historical.campaign_root / "plan.parquet")
 
-    assert sorted((row["a"], row["b"]) for row in oat.to_pylist()) == sorted(
-        (row["a"], row["b"]) for row in morris.to_pylist()
-    )
+    assert len(oat) == discrete.trajectories * (len(discrete.factors) + 1)
     assert set(oat["method"].to_pylist()) == {"discrete_oat"}
-    assert set(oat["designId"].to_pylist()).isdisjoint(morris["designId"].to_pylist())
+    assert len(set(oat["designId"].to_pylist())) == len(oat)
     assert oat.schema.metadata[b"discreteOatDesignVersion"] == b"1"
-    assert b"morrisDesign" not in oat.schema.metadata
-    assert morris.schema.metadata[b"morrisDesignVersion"] == b"1"
+    assert json.loads(oat.schema.metadata[b"discreteOatDesign"])["trajectories"] == 16
+    assert {
+        key for key in oat.schema.metadata if key.lower().startswith(b"morris")
+    } == set()
 
 
 def test_canonical_exact_delta_grid_mapping_cardinality_crn_and_metadata(

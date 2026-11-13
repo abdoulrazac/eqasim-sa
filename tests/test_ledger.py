@@ -11,7 +11,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from eqasim_sa.core import ledger
-from eqasim_sa.core import durable_publication
+import eqasim_sa.utils.filesystem as durable_publication
 from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
 from eqasim_sa.core.ledger import ArtifactManifestEntry, RunRecord, run_path, write_run
 from eqasim_sa.core.run import RunSpec, compute_run_id, pending_run_specs

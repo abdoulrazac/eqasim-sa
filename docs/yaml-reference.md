@@ -37,7 +37,7 @@ containing that YAML file, not from the current directory.
 | `experiment` | required | mapping |
 | `parameters` | required | mapping |
 | `analysis` | required | mapping |
-| `charter` | optional; missing means legacy demonstration | mapping |
+| `charter` | optional; missing means demonstration | mapping |
 | `execution` | optional | mapping |
 | `calibration` | optional | mapping |
 | `artifacts` | optional, default `{}` | mapping |
@@ -50,8 +50,8 @@ regular directory.
 
 ## `charter`
 
-The optional charter classifies what a campaign may claim. Omitting it preserves
-old YAML as a legacy demonstration. An explicit demonstration has exactly this
+The optional charter classifies what a campaign may claim. Omitting it means a
+demonstration charter. An explicit demonstration has exactly this
 form, with no additional key:
 
 ```yaml
@@ -61,10 +61,9 @@ charter:
 
 A demonstration campaign validates configuration, execution, storage, and
 analysis plumbing. It cannot support inferential or decision claims. Existing
-Grid, historical `morris`, discrete OAT, and Sobol plans remain readable
-demonstration provenance. Historical `morris` is compatibility-only; discrete
-OAT is the current name for new adjacent-level demonstrations. Neither is
-canonical Morris.
+Grid, discrete OAT, and `sobol` are demonstration designs. Discrete OAT is the
+adjacent-level demonstration and is not canonical Morris. The method `morris`
+no longer exists and is rejected.
 
 A scientific charter uses the complete strict schema below:
 
@@ -177,8 +176,8 @@ intrinsic simulator noise is identified.
 The charter is structurally validated by `load_meta_config`. Current scientific
 methods are `canonical_morris` for independent-input `screening` with
 `conditional_mean`, and `multiscramble_sobol` for independent-input `fp` or `ff`
-with `finite_seed_factor`. Historical `morris`, discrete OAT, and historical
-Sobol are rejected by scientific charters.
+with `finite_seed_factor`. Discrete OAT and demonstration
+Sobol (`sobol`) are rejected by scientific charters.
 
 The canonical plan metadata stores a normalized `scientificContract` object for
 analyzers. Its root keys are exactly `charter` and `parameters`. The normalized
@@ -263,24 +262,6 @@ These are exactly the three allowed keys. `seed_role` is `replication`. `seeds`
 is a non-empty, duplicate-free list of signed 64-bit integers. Grid with the seed
 as a factor is not supported.
 
-### Historical `morris`
-
-```yaml
-experiment:
-  method: morris
-  seed_role: replication
-  trajectories: 8
-  design_seed: 20260814
-  replications:
-    seeds: [1301, 1302]
-```
-
-This is the exact old five-key schema. `trajectories` is a strictly positive
-integer no greater than the adjacent-level candidate count, `design_seed` is a
-signed 64-bit integer, and replication seeds follow the Grid contract. It is
-accepted only with a missing or demonstration charter so old plans remain
-readable as legacy demonstration provenance. Do not use it for a new campaign.
-
 ### Discrete OAT
 
 ```yaml
@@ -293,9 +274,10 @@ experiment:
     seeds: [1301, 1302]
 ```
 
-This has exactly the same five-key shape and numeric validation as historical
-`morris`, but has an independent method identity, plan metadata identity, and
-design-ID domain. It requires a demonstration charter. Its trajectories move
+These are exactly the five allowed keys. `trajectories` is a strictly positive
+integer no greater than the adjacent-level candidate count, `design_seed` is a
+signed 64-bit integer, and replication seeds follow the Grid contract. It
+requires a demonstration charter. Its trajectories move
 between adjacent, strictly increasing numeric levels; analysis divides each
 output difference by that local step normalized by the factor's full declared
 range. These are local normalized effects, not canonical Morris effects.
@@ -428,7 +410,7 @@ analysis:
   screening_top_k: 1
 ```
 
-### Historical Sobol
+### Demonstration Sobol
 
 ```yaml
 charter:
@@ -449,8 +431,8 @@ These are exactly the four allowed keys. `base_sample_size` is a power of two
 greater than or equal to 2. `design_seed` is an unsigned 64-bit integer. The seed
 is declared in `parameters.seed`, not in `replications`.
 
-This historical method is demonstration-only and retains its single-scramble
-row bootstrap. Its manifest records `inferenceStatus: legacy_noninferential`.
+This method is demonstration-only and retains its single-scramble
+row bootstrap. Its manifest records `inferenceStatus: demonstration_noninferential`.
 
 ### Multi-scramble Sobol
 
@@ -500,9 +482,9 @@ They are homogeneous within each domain. Booleans, `null`, lists, mappings, NaN,
 and infinities are rejected. The name must be a safe synpp option, an active key
 in `model.config.config`, and a valid, non-reserved factor identifier.
 
-Grid, historical `morris`, and discrete OAT require at least one factor. When the plan is created or
-validated, every Grid domain must be non-empty and homogeneous. Historical
-`morris` and discrete OAT require
+Grid and discrete OAT require at least one factor. When the plan is created or
+validated, every Grid domain must be non-empty and homogeneous. Discrete OAT
+requires
 homogeneous numeric domains with at least two distinct, strictly increasing
 levels. Canonical Morris and Sobol require at least two distinct homogeneous
 scalar values per factor; canonical supports may be numeric or textual because
@@ -575,8 +557,7 @@ non-empty string without NUL. Every payload is a non-empty ordered list of
 unique, non-empty strings without NUL, and two labels may not name the same
 payload. Payload order is preserved. `seed` cannot be structured.
 
-Grid is the recommended first design. Historical Sobol is accepted as
-demonstration provenance. Multi-scramble Sobol is accepted only when the labels
+Grid is the recommended first design. Demonstration Sobol is accepted. Multi-scramble Sobol is accepted only when the labels
 have a defensible scientific distribution; a scientific declaration adds the
 same exact `distribution` sibling used by scalar supports:
 
@@ -594,7 +575,7 @@ parameters:
 
 The label list is the factor support used by the design and scientific contract.
 The plan column and `RunSpec.parameters` retain labels; the resolved payload is
-hashed into `runId`. Historical Morris, discrete OAT, and canonical Morris reject
+hashed into `runId`. Discrete OAT and canonical Morris reject
 structured factors because arbitrary nominal label order cannot define their
 steps. During execution, a changed declared list is written to a per-attempt safe
 YAML snapshot and omitted from CLI overrides; undeclared changed lists or
@@ -602,7 +583,7 @@ mappings remain invalid.
 
 ## `analysis`
 
-Grid, historical `morris`, and discrete OAT require exactly:
+Grid and discrete OAT require exactly:
 
 ```yaml
 analysis:
@@ -610,9 +591,9 @@ analysis:
 ```
 
 The threshold is a finite YAML `float` in `[0, 1]`; `1` is invalid because it
-becomes an integer. Both adjacent-level trajectory methods require `1.0`.
+becomes an integer. Discrete OAT requires `1.0`.
 
-Historical Sobol requires exactly:
+Demonstration Sobol requires exactly:
 
 ```yaml
 analysis:
@@ -727,7 +708,7 @@ Both keys are non-empty strings. `function` must match exactly one installed
 entry point in the `eqasim_sa.indicators` group. The loaded object must be
 callable or provide `compute(artifacts)` and return a finite `float`.
 
-Historical `morris`, discrete OAT, canonical Morris, and Sobol require at least
+Discrete OAT, canonical Morris, and Sobol require at least
 one indicator. Grid accepts an empty list.
 Resolved indicator names and identities must be unique within the analysis.
 
@@ -991,7 +972,7 @@ parameters:
     values: [1, 2]
 ```
 
-Unordered historical-Morris/discrete-OAT domain:
+Unordered discrete-OAT domain:
 
 ```yaml
 parameters:

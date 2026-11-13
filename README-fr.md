@@ -4,7 +4,7 @@
 
 `eqasim-sa` planifie, exécute et analyse des campagnes d'analyse de sensibilité
 pour un pipeline eqasim piloté par synpp. Son vocabulaire actuel est Grid, OAT
-discret, Morris canonique, Sobol historique et Sobol multi-scramble. Il fournit des plans déterministes, une
+discret, Morris canonique, Sobol de démonstration et Sobol multi-scramble. Il fournit des plans déterministes, une
 reprise par run, des indicateurs calculés sur les artefacts Parquet et des
 backends local et SLURM.
 
@@ -14,11 +14,9 @@ valident la configuration, l'exécution, le stockage et la plomberie d'analyse,
 mais ne peuvent soutenir aucune revendication inférentielle ou décisionnelle.
 Aucun starter Morris canonique n'est généré : ses revendications scientifiques,
 son modèle d'incertitude, son estimand, son budget, ses critères de convergence
-et ses contrôles de robustesse doivent être propres à l'étude. L'ancien
-`method: morris` reste lisible uniquement comme provenance de démonstration. Le
-fichier généré `03-sobol.yml` reste lui aussi une démonstration historique : son
-scramble unique et son bootstrap de lignes sont non inférentiels. Ses octets de
-plan, son schéma, ses sorties et son comportement restent inchangés.
+et ses contrôles de robustesse doivent être propres à l'étude. Le
+fichier généré `03-sobol.yml` est une démonstration : son
+scramble unique et son bootstrap de lignes sont non inférentiels.
 
 Les exemples Grid et Sobol générés font varier le sélecteur scalaire
 `matching_age_scheme` d'eqasim-france ; l'OAT discret garde ce facteur catégoriel fixe,
@@ -112,7 +110,7 @@ campagne/racine pour la cible dérivée. Consultez le
 
 - [Registre du protocole scientifique nantais](protocols/nantes-scientific/README.md) (rédigé pour l'étude, non généré par `init`)
 - [Index de la documentation](docs-fr/index.md)
-- Guides des méthodes : [Grid](docs-fr/what-when-how-grid.md), [Morris historique](docs-fr/what-when-how-morris.md), [OAT discret](docs-fr/what-when-how-discrete_oat.md), [Morris canonique](docs-fr/what-when-how-canonical_morris.md), [Sobol historique](docs-fr/what-when-how-sobol.md) et [Sobol multi-scramble](docs-fr/what-when-how-multiscramble_sobol.md)
+- Guides des méthodes : [Grid](docs-fr/what-when-how-grid.md), [OAT discret](docs-fr/what-when-how-discrete_oat.md), [Morris canonique](docs-fr/what-when-how-canonical_morris.md), [Sobol de démonstration](docs-fr/what-when-how-sobol.md) et [Sobol multi-scramble](docs-fr/what-when-how-multiscramble_sobol.md)
 - [Démarrage](docs-fr/getting-started.md)
 - [Tutoriel des configurations structurées nommées](docs-fr/structured-configurations-tutorial.md)
 - [Référence CLI](docs-fr/cli-reference.md)

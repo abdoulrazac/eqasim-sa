@@ -1,4 +1,4 @@
-# Sobol historique : tester l'ancien workflow Sobol
+# Sobol de démonstration : tester le workflow Sobol à un scramble
 
 **Cas pratique : vérifier que la chaîne Sobol générée produit bien ses fichiers d'analyse.**
 
@@ -11,10 +11,10 @@ premier ordre et d'ordre total. Il utilise cependant une seule séquence de Sobo
 randomisée, appelée **scramble**, et un bootstrap des lignes de cette même
 séquence.
 
-Ce design est conservé pour la démonstration et la compatibilité historique. Il
+Ce design est une démonstration non inférentielle. Il
 répond uniquement à la question :
 
-> La planification, l'exécution et l'analyse de l'ancien workflow Sobol fonctionnent-elles ?
+> La planification, l'exécution et l'analyse du workflow Sobol à un scramble fonctionnent-elles ?
 
 Il ne fournit pas la preuve d'incertitude nécessaire à une priorisation ou une
 fixation scientifique. Pour cela, utilisez
@@ -132,8 +132,8 @@ Les fichiers se trouvent sous `campaigns/sobol/`. Le fichier
 
 | Colonne | Signification dans cette démonstration |
 | --- | --- |
-| `first_order` | estimation historique de l'effet du facteur seul |
-| `total_order` | estimation historique incluant les interactions |
+| `first_order` | estimation à scramble unique de l'effet du facteur seul |
+| `total_order` | estimation à scramble unique incluant les interactions |
 | `*_ci_low`, `*_ci_high` | intervalle obtenu par bootstrap des lignes du scramble unique |
 | `rank` | ordre décroissant selon l'indice total |
 
@@ -158,7 +158,7 @@ rééchantillonnage des lignes d'un seul scramble. Ils ne montrent pas comment l
 indices changeraient entre plusieurs séquences Sobol randomisées indépendamment.
 
 Le rapport `governed-report.json` l'indique avec
-`inferenceStatus: legacy_noninferential` et `claimAuthorized: false`.
+`inferenceStatus: demonstration_noninferential` et `claimAuthorized: false`.
 
 ## Adapter la démonstration
 
@@ -173,11 +173,11 @@ paramètre change à la fois les donneurs et les références HTS.
 
 Pour comparer simplement des catégories ou des listes structurées, préférez
 [Grid](what-when-how-grid.md). Il est plus lisible et n'incite pas à interpréter
-des indices historiques comme des preuves.
+ces indices comme des preuves.
 
 ## Ce que vous pouvez conclure
 
-Vous pouvez dire que le starter a validé la chaîne historique et produit les
+Vous pouvez dire que le starter a validé la chaîne et produit les
 fichiers Sobol attendus.
 
 Vous ne pouvez pas faire une revendication scientifique de priorisation ou de
@@ -191,7 +191,7 @@ scrambles indépendants.
 - `seed` est un facteur entier avec au moins deux valeurs distinctes.
 - Les positions et les runs uniques sont distingués.
 - Les indices hors plage éventuels restent visibles.
-- Le résultat est présenté comme `legacy_noninferential`.
+- Le résultat est présenté comme `demonstration_noninferential`.
 
 ## Suite
 

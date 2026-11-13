@@ -55,7 +55,6 @@ OUTPUT_FILENAMES = frozenset(
     {
         "indicators.parquet",
         "replication-dispersion.parquet",
-        "morris-ranking.parquet",
         "discrete-oat-effects.parquet",
         "canonical-morris-ranking.parquet",
         "canonical-morris-convergence.parquet",
@@ -535,7 +534,7 @@ class AnalysisPublication:
             "outputs": output_records,
             "provenance": provenance,
             "provenanceSha256": provenance_sha256,
-            **_legacy_output_fields(output_records),
+            **_flat_output_fields(output_records),
         }
         encoded_manifest = _canonical(manifest)
         fsync_directory(self.generation_staging)
@@ -586,7 +585,7 @@ def _fsync_regular(path: Path) -> None:
         os.close(descriptor)
 
 
-def _legacy_output_fields(outputs: Mapping[str, Mapping[str, object]]) -> dict:
+def _flat_output_fields(outputs: Mapping[str, Mapping[str, object]]) -> dict:
     def path(name: str) -> str | None:
         record = outputs.get(name)
         return None if record is None else str(record["path"])

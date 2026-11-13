@@ -33,7 +33,7 @@ montre la variante FF.
 
 Plusieurs scrambles indépendants montrent comment les estimations changent d'une
 randomisation Sobol à l'autre. Rééchantillonner les lignes d'un seul scramble ne
-fournit pas cette preuve ; c'est pourquoi le [Sobol historique](what-when-how-sobol.md)
+fournit pas cette preuve ; c'est pourquoi le [Sobol de démonstration](what-when-how-sobol.md)
 reste non inférentiel.
 
 ## Prérequis : un criblage terminé
@@ -321,6 +321,6 @@ revendication robuste finale.
 ## Suite
 
 - Étape précédente : [Morris canonique](what-when-how-canonical_morris.md)
-- Ancien workflow seulement : [Sobol historique](what-when-how-sobol.md)
+- Démonstration seulement : [Sobol de démonstration](what-when-how-sobol.md)
 - Protocole complet : [Nantes scientifique](../protocols/nantes-scientific/README.md)
 - Références : [YAML](yaml-reference.md), [paramètres et méthodes](parameters-and-methods.md) et [workflow et résultats](workflow-and-results.md)

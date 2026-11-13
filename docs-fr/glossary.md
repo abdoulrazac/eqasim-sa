@@ -11,7 +11,6 @@
 | **Criblage** | Identifie les facteurs à conserver à l'étude ; il n'estime pas des parts de variance et ne prouve pas qu'un facteur peut être fixé. |
 | **Priorisation des facteurs (FP)** | Identifie le facteur à apprendre plus précisément en premier pour réduire l'incertitude de sortie espérée. |
 | **Fixation des facteurs (FF)** | Identifie un facteur fixable dans une tolérance pratique déclarée, interactions comprises. |
-| **Morris historique** | Provenance historique lisible `method: morris` selon l'ancien schéma à niveaux adjacents ; compatibilité de démonstration uniquement. |
 | **OAT discret** | `method: discrete_oat` ; niveaux numériques adjacents et effets normalisés locaux. C'est une démonstration, pas Morris canonique. |
 | **Morris canonique** | `method: canonical_morris` ; trajectoires dans l'espace de probabilité unitaire, Delta commun et transformations déclarées. Uniquement pour le criblage scientifique. |
 | **Scramble QMC** | Une séquence Sobol à faible discrépance randomisée indépendamment. L'incertitude exige plusieurs scrambles indépendants, pas un bootstrap des lignes d'un seul scramble. |

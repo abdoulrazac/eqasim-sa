@@ -20,7 +20,6 @@ eqasim-sa/
 │   │   ├── run.py
 │   │   ├── ledger.py
 │   │   ├── campaign_snapshot.py
-│   │   ├── durable_publication.py
 │   │   ├── analysis_publication.py
 │   │   ├── analyze.py
 │   │   └── indicators/
@@ -42,7 +41,7 @@ charge le YAML, invoque synpp, normalise les artefacts, gère local/SLURM et câ
 l'application. `cli.py` se limite au parsing et aux enveloppes JSON.
 
 Les responsabilités filesystem sont volontairement profondes :
-`durable_publication.py` possède la capture stable et les commits résistants aux
+`utils/filesystem.py` possède la capture stable et les commits résistants aux
 pannes ; `campaign_snapshot.py` possède les coupes cohérentes plan/runs/archives ;
 `analysis_publication.py` possède les générations d'analyse immuables ; et
 `adapters/eqasim/workspace.py` possède les slots workers jetables et leurs
@@ -156,10 +155,8 @@ la publication atomique (complète ou absente) n'est pas affectée.
 - Les facteurs structurés nommés restent un mapping label-vers-liste séparé à la
   frontière adaptateur/cœur : le plan expose les labels, la résolution et le
   `runId` utilisent les listes, et le schéma v3 scelle le mapping canonique.
-- Les lecteurs des designs scientifiques v1/v2 reconstruisent exactement les
-  lignes et identités historiques pendant le preflight applicatif, avant le
-  chargement des plugins d'indicateur et sans invoquer SALib. Ils n'exécutent
-  jamais d'estimateur legacy.
+- Seul le design scientifique v3 est accepté ; les designs antérieurs sont refusés
+  pendant le preflight applicatif.
 - Une analyse ne doit pas muter ses sources; le code sauvegarde et restaure en cas d'écart.
 
 ## Ajouter un indicateur personnalisé

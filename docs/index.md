@@ -29,10 +29,9 @@ campaign.
 | Guide | Question | Status | Recommended use |
 | --- | --- | --- | --- |
 | [Grid](what-when-how-grid.md) | What happens at every declared combination? | Demonstration | Small readable comparisons and named structured configurations |
-| [Historical Morris](what-when-how-morris.md) | What did an old adjacent-level campaign record? | Legacy demonstration | Read existing provenance only; never start a new campaign |
 | [Discrete OAT](what-when-how-discrete_oat.md) | Which local adjacent numeric changes need attention? | Demonstration | Local descriptive triage for a later study |
 | [Canonical Morris](what-when-how-canonical_morris.md) | Which factors must remain under consideration? | Scientific screening | Study-specific pilot, then separate production |
-| [Historical Sobol](what-when-how-sobol.md) | Does the single-scramble Sobol plumbing work? | Legacy noninferential demonstration | Run the generated starter or read legacy provenance |
+| [Demonstration Sobol](what-when-how-sobol.md) | Does the single-scramble Sobol plumbing work? | Noninferential demonstration | Run the generated starter |
 | [Multi-scramble Sobol](what-when-how-multiscramble_sobol.md) | What should be learned first, or what may be fixed? | Scientific FP or FF | Study-specific factor prioritization or factor fixing |
 
 ## Contributor documentation
@@ -59,7 +58,6 @@ Return to the [home page](../README.md).
 | Method | Role of the seed | Positions | Method-specific output |
 | --- | --- | --- | --- |
 | Grid | replication | product of domain sizes × seeds | `replication-dispersion.parquet` |
-| Historical `morris` | replication | `T(D+1)R` | `morris-ranking.parquet` |
 | Discrete OAT | replication | `T(D+1)R` | `discrete-oat-effects.parquet` |
 | Canonical Morris | derived trajectory-block replication | `T(D+1)R` | ranking, convergence, and rank-reversal Parquet files |
 | Sobol | factor | `N(2D+2)` | `sobol-indices.parquet` |
@@ -73,7 +71,6 @@ same resolved configuration.
 not generate canonical Morris, whose scientific screening contract must be
 authored for the study. It also generates no multi-scramble Sobol starter; its
 scientific FP/FF contract and independent scramble seeds must be study-specific.
-Historical `morris` remains readable but is not recommended.
 
 `init` prepares the files and fingerprints. Only the calibration `run` provides
 the resource observations used by `check` and `estimate`.

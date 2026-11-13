@@ -11,7 +11,6 @@
 | **Screening** | Identifies factors that must remain under consideration; it neither estimates variance shares nor proves that a factor can be fixed. |
 | **Factor prioritization (FP)** | Identifies which factor should be learned more accurately first to reduce expected output uncertainty. |
 | **Factor fixing (FF)** | Identifies a factor that can be fixed within a declared practical tolerance, including all interactions. |
-| **Historical Morris** | Readable `method: morris` legacy provenance using the old adjacent-level schema; demonstration compatibility only. |
 | **Discrete OAT** | `method: discrete_oat`; adjacent numeric levels and local normalized effects. It is a demonstration design, not canonical Morris. |
 | **Canonical Morris** | `method: canonical_morris`; unit-probability trajectories with common Delta and declared transforms. Supported only for scientific screening. |
 | **QMC scramble** | One independently randomized Sobol low-discrepancy sequence. Uncertainty evidence requires several independent scrambles, not row bootstrap within one scramble. |

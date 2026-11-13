@@ -24,7 +24,7 @@ from eqasim_sa.core.methods.multiscramble_sobol import _multiscramble_sobol_tabl
 from eqasim_sa.core.indicators import ArtifactSet, RegisteredIndicator
 from eqasim_sa.utils.filesystem import write_parquet_atomic
 from eqasim_sa.core.ledger import RunRecord
-from eqasim_sa.core.plan import GridDesign, MorrisDesign, SobolDesign, build_plan, load_run_specs
+from eqasim_sa.core.plan import DiscreteOATDesign, GridDesign, SobolDesign, build_plan, load_run_specs
 from eqasim_sa.core.run import RunResult, RunSpec, compute_run_id
 from eqasim_sa.core.software_identity import read_software_identity
 from eqasim_sa.ports.simulator import SimulationError
@@ -222,8 +222,8 @@ def test_scientific_structured_factor_applies_distribution_to_labels(
 
 def test_trajectory_methods_refuse_structured_factors(tmp_path: Path) -> None:
     grid = _grid_design(tmp_path / "unused")
-    for method in ("morris", "discrete_oat", "canonical_morris"):
-        design = MorrisDesign(
+    for method in ("discrete_oat", "canonical_morris"):
+        design = DiscreteOATDesign(
             grid.base_config,
             grid.factors,
             grid.seeds,

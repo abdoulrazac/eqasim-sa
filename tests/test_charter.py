@@ -531,7 +531,7 @@ def test_scientific_requires_an_indicator(tmp_path: Path) -> None:
         _load_scientific(tmp_path, mutate)
 
 
-def test_scientific_legacy_method_guard_creates_no_plan(tmp_path: Path) -> None:
+def test_scientific_demonstration_method_guard_creates_no_plan(tmp_path: Path) -> None:
     meta, _, _, _ = meta_fixture(tmp_path)
     _write(meta, _scientific(meta))
     load_meta_config(meta)
@@ -543,7 +543,7 @@ def test_scientific_legacy_method_guard_creates_no_plan(tmp_path: Path) -> None:
     assert not (tmp_path / "campaign/plan.parquet").exists()
 
 
-def test_scientific_legacy_method_guard_prevents_analysis(
+def test_scientific_demonstration_method_guard_prevents_analysis(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     meta, _, _, _ = meta_fixture(tmp_path)

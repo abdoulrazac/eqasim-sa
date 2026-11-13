@@ -12,7 +12,7 @@ from eqasim_sa.adapters import estimate as estimate_service
 from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.plan import (
     GridDesign,
-    MorrisDesign,
+    DiscreteOATDesign,
     SobolDesign,
     build_plan,
     estimate_plan,
@@ -89,24 +89,24 @@ def test_estimate_plan_exposes_and_validates_sobol_formula() -> None:
         estimate_plan(11, ("a",), 7, ((1.0, 3, 5),), 1, "sobol", {"D": 2, "N": 2})
 
 
-def test_estimate_plan_exposes_morris_formula_and_counts_unique_runs() -> None:
+def test_estimate_plan_exposes_discrete_oat_formula_and_counts_unique_runs() -> None:
     payload = estimate_plan(
-        24, ("a", "a", "b"), 7, ((1.0, 3, 5),), 1, "morris", {"D": 2, "T": 4, "R": 2}
+        24, ("a", "a", "b"), 7, ((1.0, 3, 5),), 1, "discrete_oat", {"D": 2, "T": 4, "R": 2}
     )
     assert payload["formula"] == "T(D+1)R"
     assert payload["formulaInputs"] == {"D": 2, "T": 4, "R": 2}
     assert payload["designPositions"] == 24 and payload["runs"] == 2
     with pytest.raises(ValueError, match="designPositions"):
-        estimate_plan(23, ("a",), 7, ((1.0, 3, 5),), 1, "morris", {"D": 2, "T": 4, "R": 2})
+        estimate_plan(23, ("a",), 7, ((1.0, 3, 5),), 1, "discrete_oat", {"D": 2, "T": 4, "R": 2})
 
 
-def test_application_estimate_passes_morris_formula_inputs(
+def test_application_estimate_passes_discrete_oat_formula_inputs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from eqasim_sa.adapters import application
 
-    target = campaign(tmp_path / "target", morris=True)
+    target = campaign(tmp_path / "target", discrete_oat=True)
     monkeypatch.setattr(estimate_service, "load_meta_config", lambda path: target)
     seen = {}
     original = estimate_service.estimate_plan
@@ -118,7 +118,7 @@ def test_application_estimate_passes_morris_formula_inputs(
     monkeypatch.setattr(estimate_service, "estimate_plan", capture)
     payload = application.estimate_from_meta_config(Path("target.yml"), ())
 
-    assert payload["method"] == "morris"
+    assert payload["method"] == "discrete_oat"
     assert payload["formula"] == "T(D+1)R"
     assert payload["formulaInputs"] == {"D": 1, "T": 2, "R": 1}
 
@@ -192,7 +192,7 @@ def test_application_estimate_passes_sobol_formula_inputs_and_unique_runs(
 
 
 def campaign(
-    root: Path, duration: float = 2.5, morris: bool = False
+    root: Path, duration: float = 2.5, discrete_oat: bool = False
 ) -> SimpleNamespace:
     descriptor = {
         "eqasimCommit": "a",
@@ -203,7 +203,7 @@ def campaign(
     sealed_context_hash = context_hash(descriptor)
     common = (
         {"config": {"rate": 0}},
-        {"rate": [0, 1] if morris else [1, 1]},
+        {"rate": [0, 1] if discrete_oat else [1, 1]},
         (7,),
         {"run": ["synthesis.output", "analysis.synthesis.population"]},
         sealed_context_hash,
@@ -211,8 +211,8 @@ def campaign(
         root,
     )
     design = (
-        MorrisDesign(*common, trajectories=2, design_seed=7)
-        if morris
+        DiscreteOATDesign(*common, trajectories=2, design_seed=7)
+        if discrete_oat
         else GridDesign(*common)
     )
     build_plan(design)

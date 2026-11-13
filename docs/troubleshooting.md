@@ -43,7 +43,7 @@ scientific key; place only permitted environment options in
 ## Type error in `parameters`
 
 Common causes: a boolean, `null`, mixed levels, a non-finite float, or an
-incorrectly ordered historical-Morris/discrete-OAT domain. Remedy: keep the type
+incorrectly ordered discrete-OAT domain. Remedy: keep the type
 homogeneous and numbers finite. Where a float is required, write `1.0`, not `1`.
 
 ## Named structured factor errors
@@ -60,8 +60,8 @@ homogeneous and numbers finite. Where a float is required, write `1.0`, not `1`.
   aliases`: every configuration payload must be a non-empty list of unique,
   non-empty strings, and no two labels may resolve to the same ordered list.
   Labels must also be non-empty strings without NUL.
-- `does not support structured factors`: `morris`, `discrete_oat`, and
-  `canonical_morris` all refuse named structured payloads. Use Grid for a
+- `does not support structured factors`: `discrete_oat` and
+  `canonical_morris` both refuse named structured payloads. Use Grid for a
   demonstration, or a fully chartered `multiscramble_sobol` design where equal
   label probabilities are scientifically justified.
 - `structured plan metadata ...`, `mismatch`, or `unknown label`: schema-v3
@@ -117,11 +117,11 @@ of at least 2 and must end at `trajectories`; `screening_top_k` cannot exceed th
 number of factors. These diagnostics do not themselves certify charter stopping
 or robustness.
 
-## `morris` is rejected by a scientific charter
+## `method: morris` is rejected
 
-Historical `method: morris` is readable only as legacy demonstration provenance.
-Use `discrete_oat` for a new adjacent-level demonstration, or author a
-study-specific `canonical_morris` scientific-screening campaign.
+The method `morris` no longer exists. Use `discrete_oat` for an adjacent-level
+demonstration, or author a study-specific `canonical_morris`
+scientific-screening campaign.
 
 ## `duplicate canonical configuration and seed pair`
 
@@ -189,7 +189,7 @@ design or context change, choose a new root.
 
 ## Constant or numerically unrepresentable Sobol variance
 
-For historical `sobol`, all indicator values may be constant or bootstrap
+For demonstration `sobol`, all indicator values may be constant or bootstrap
 resamples may be degenerate. Check the indicator, domains, `N`, and effective
 run diversity. Do not conceal the statistical error.
 

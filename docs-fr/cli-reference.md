@@ -60,7 +60,7 @@ Sans `--smoke`, les contrôles sont :
 | --- | --- |
 | `metaConfig` | YAML, contexte Git, facteurs et chemins |
 | `sealedPlan` | égalité du plan avec le design recalculé |
-| `uniqueConfigSeedPairs` | absence de doublons Grid; validation scellée pour Morris historique, OAT discret, Morris canonique et Sobol |
+| `uniqueConfigSeedPairs` | absence de doublons Grid; validation scellée pour OAT discret, Morris canonique et Sobol |
 | `eqasimEnvironment` | sonde synpp avec un chemin de configuration inexistant |
 | `diskSpace` | espace durable et scratch d'après les observations disponibles |
 
@@ -124,8 +124,8 @@ d'analyse. Champs JSON : `status`, `path`, `runs`, `indicators`, `values`,
 `replicationAllocationPath`, `outputSummaryPath`, `convergenceEvidencePath`,
 `governedReportPath`, `inferenceStatus`, `error`.
 `rankReversalsPath` est propre à `canonical_morris`; les deux chemins de scramble
-sont propres à `multiscramble_sobol`. L'ancien `morris` reste accepté comme provenance historique ;
-`multiscramble_sobol` est aussi accepté pour une charte scientifique après
+sont propres à `multiscramble_sobol`.
+`multiscramble_sobol` est accepté pour une charte scientifique après
 reconstruction du plan scellé. En production canonique,
 `replicationAllocationPath` est nul; pilote et production exposent respectivement
 `pilot_only`, puis `unstable` ou `conditional`. Le JSON d'analyse expose en option

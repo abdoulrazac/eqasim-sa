@@ -898,12 +898,12 @@ def test_plan_reconstruction_deduplicates_first_occurrence(tmp_path: Path) -> No
     assert specs[0].parameters == {"a": 1, "b": "x"}
 
 
-def test_morris_plan_reconstruction_deduplicates_coincident_structural_positions(
+def test_discrete_oat_plan_reconstruction_deduplicates_coincident_structural_positions(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "campaign"
     descriptor = scientific_context_descriptor()
-    design = plan_module.MorrisDesign(
+    design = plan_module.DiscreteOATDesign(
         {"config": {"a": 0}},
         {"a": [0, 1]},
         (11,),

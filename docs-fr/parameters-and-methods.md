@@ -64,7 +64,7 @@ structurés utilisent le contrat de facteur liste structurée nommé décrit plu
 
 `init` lit le YAML modèle sélectionné sans l'exécuter. Il exige les entrées
 explicites `matching_age_scheme: matching_6` et
-`analysis_age_scheme: analysis_7`. Cela fixe le matching historique pour la
+`analysis_age_scheme: analysis_7`. Cela fixe le schéma de matching pour la
 calibration et l'OAT discret, stabilise les classes de sortie et rend l'identité des
 runs générés explicite. Grid et Sobol remplacent toujours
 `matching_age_scheme` via leur domaine de facteur.
@@ -119,7 +119,7 @@ en premier. Déclarez des payloads de listes nommés et distincts sous
 `configurations` ; le plan varie les labels et l'exécution reçoit la liste
 ordonnée. Commencez par Grid. N'utilisez Sobol multi-scramble que si les
 probabilités égales des labels et leur provenance sont scientifiquement
-défendables. Toutes les formes de Morris refusent ce facteur nominal. Archivez un
+défendables. L'OAT discret et Morris canonique refusent ce facteur nominal. Archivez un
 diagnostic `matched_counts` avant d'interpréter un changement de structure de
 matching ; eqasim-sa ne l'implémente pas. `random_seed` reste propre à la méthode
 et ne peut pas être structurée.
@@ -232,16 +232,13 @@ Exemple : deux taux, trois méthodes de revenu et quatre seeds donnent
 `2 × 3 × 4 = 24` positions. Des configurations identiques après résolution
 peuvent réduire les runs uniques; le `check` Grid les refuse.
 
-## `morris` historique et OAT discret
+## OAT discret
 
-L'ancien `method: morris` conserve exactement l'ancien schéma et l'ancienne
-identité de plan afin que les plans existants restent lisibles comme provenance
-de démonstration. Il n'est pas une méthode inférentielle actuelle et refuse une
-charte scientifique. Les nouvelles démonstrations à niveaux adjacents utilisent
-`method: discrete_oat`, avec la même forme d'expérience mais une identité de
-méthode, un domaine de `designId` et des métadonnées séparés.
+Les démonstrations à niveaux adjacents utilisent `method: discrete_oat`, avec
+l'expérience `method`, `seed_role`, `trajectories`, `design_seed` et
+`replications`. L'ancienne méthode `method: morris` n'existe plus et est refusée.
 
-Les deux acceptent uniquement des facteurs numériques. Chaque domaine contient au
+L'OAT discret accepte uniquement des facteurs numériques. Chaque domaine contient au
 moins deux niveaux du même type, strictement croissants et distincts. L'ordre
 définit les pas adjacents. Chaque effet divise la différence de sortie par la
 fraction locale du pas dans l'étendue numérique déclarée. Ce sont des effets
@@ -330,13 +327,13 @@ du budget hors réserve. Aucun besoin n'est abaissé silencieusement. La sortie
 spécifie une nouvelle campagne/racine de production immuable, avec provenance du
 pilote non vide et exactement le nombre de seeds sélectionné.
 
-## Sobol historique
+## Sobol de démonstration
 
-Le `method: sobol` généré est une provenance historique de démonstration : un
+Le `method: sobol` généré est une démonstration non inférentielle : un
 scramble, `N(2D+2)` positions et un bootstrap déterministe des lignes. Le fichier
 inchangé `sobol-indices.parquet` classe l'ordre total décroissant et fournit les
 intervalles bootstrap. Son manifeste déclare
-`inferenceStatus: legacy_noninferential`.
+`inferenceStatus: demonstration_noninferential`.
 
 Chaque domaine Sobol contient au moins deux valeurs distinctes, homogènes, de
 type `int`, `float` ou `string`. L'ordre des modalités est significatif. Pour un

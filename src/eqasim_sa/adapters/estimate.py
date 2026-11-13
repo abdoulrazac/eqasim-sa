@@ -94,7 +94,7 @@ def _estimate_state(
         (
             {"D": len(target.factors), "T": target.trajectories, "R": len(target.seeds)}
             if getattr(target, "method", "grid")
-            in {"morris", "discrete_oat", "canonical_morris"}
+            in {"discrete_oat", "canonical_morris"}
             else {"D": len(target.factors) + 1, "N": target.base_sample_size}
             if getattr(target, "method", "grid") == "sobol"
             else {

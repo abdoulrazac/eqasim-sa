@@ -33,7 +33,7 @@ the FF variant.
 
 Several independent scrambles show how estimates change from one Sobol
 randomization to another. Resampling rows from a single scramble does not provide
-this evidence; this is why [historical Sobol](what-when-how-sobol.md) remains
+this evidence; this is why [demonstration Sobol](what-when-how-sobol.md) remains
 non-inferential.
 
 ## Prerequisite: completed screening
@@ -320,6 +320,6 @@ authorized as a robust final claim.
 ## Next steps
 
 - Previous step: [Canonical Morris](what-when-how-canonical_morris.md)
-- Legacy workflow only: [Historical Sobol](what-when-how-sobol.md)
+- Demonstration only: [Demonstration Sobol](what-when-how-sobol.md)
 - Complete protocol: [Scientific Nantes](../protocols/nantes-scientific/README.md)
 - References: [YAML](yaml-reference.md), [parameters and methods](parameters-and-methods.md), and [workflow and results](workflow-and-results.md)

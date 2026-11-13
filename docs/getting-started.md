@@ -152,8 +152,8 @@ scientific recommendation, and `init` deliberately generates no canonical
 Morris starter. Consult [Parameters and methods](parameters-and-methods.md)
 before expanding domains or authoring a study-specific scientific campaign.
 Use the short guides for [Grid](what-when-how-grid.md),
-[historical Morris](what-when-how-morris.md), [discrete OAT](what-when-how-discrete_oat.md),
-[canonical Morris](what-when-how-canonical_morris.md), [historical Sobol](what-when-how-sobol.md),
+[discrete OAT](what-when-how-discrete_oat.md),
+[canonical Morris](what-when-how-canonical_morris.md), [demonstration Sobol](what-when-how-sobol.md),
 and [multi-scramble Sobol](what-when-how-multiscramble_sobol.md) to choose the
 correct method and claim boundary.
 
@@ -189,7 +189,7 @@ campaign, `run` returns `status: completed` and `total: 0`.
 - `analyze` reports `status: completed` and the expected completion rate.
 - The schemas and columns of the artifact Parquet files match the YAML declarations.
 - The Grid, discrete OAT, and Sobol demonstration outputs have been inspected, not merely created.
-- The generated Sobol campaign is historical and noninferential. A scientific
+- The generated Sobol campaign is a noninferential demonstration. A scientific
   multi-scramble Sobol campaign must be authored separately; there is no starter.
 - The model, data, lockfile, and `eqasim-sa` version are archived or traceable.
 

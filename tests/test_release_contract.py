@@ -35,7 +35,7 @@ from tests.test_nantes_scientific_protocol import (
     _render_command,
 )
 from tests.test_plan import design as grid_design
-from tests.test_plan import meta_fixture, morris_design, sobol_design
+from tests.test_plan import meta_fixture, sobol_design
 from tests.test_structured_configurations import _grid_design as structured_grid_design
 from tests.provenance_helpers import execution_evidence, scientific_registered_indicator
 
@@ -70,7 +70,6 @@ def test_release_version_and_plan_schema_matrix(tmp_path: Path) -> None:
 
     cases = (
         ("grid", grid_design(tmp_path / "grid"), b"1", None),
-        ("morris", morris_design(tmp_path / "morris"), b"1", b"morrisDesignVersion"),
         (
             "discrete_oat",
             discrete_design(tmp_path / "discrete"),
@@ -180,9 +179,9 @@ def test_release_analysis_status_and_governed_report_matrix(tmp_path: Path) -> N
     assert demonstration_result.inference_status == "demonstration_noninferential"
     assert demonstration_report["claimAuthorized"] is False
 
-    legacy = _sobol_campaign(tmp_path / "legacy", n=8)
-    legacy_result = analyze(
-        legacy,
+    sobol = _sobol_campaign(tmp_path / "sobol", n=8)
+    sobol_result = analyze(
+        sobol,
         (_custom_indicator(),),
         campaign="test",
         completeness_threshold=1.0,
@@ -191,8 +190,8 @@ def test_release_analysis_status_and_governed_report_matrix(tmp_path: Path) -> N
         bootstrap_resamples=7,
         confidence_level=0.9,
     )
-    assert legacy_result.inference_status == "legacy_noninferential"
-    assert json.loads(legacy_result.governed_report_path.read_text())[
+    assert sobol_result.inference_status == "demonstration_noninferential"
+    assert json.loads(sobol_result.governed_report_path.read_text())[
         "claimAuthorized"
     ] is False
 
@@ -304,14 +303,14 @@ def test_release_refuses_method_contract_substitution(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="canonical_morris.*scientific"):
         load_meta_config(canonical_path)
 
-    for method in ("morris", "sobol"):
-        root = tmp_path / f"legacy-{method}"
+    for method in ("discrete_oat", "sobol"):
+        root = tmp_path / f"demonstration-{method}"
         root.mkdir()
         meta, _, _, _ = meta_fixture(root)
         document = _scientific(meta)
-        if method == "morris":
+        if method == "discrete_oat":
             document["experiment"] = {
-                "method": "morris",
+                "method": "discrete_oat",
                 "seed_role": "replication",
                 "trajectories": 2,
                 "design_seed": 1,

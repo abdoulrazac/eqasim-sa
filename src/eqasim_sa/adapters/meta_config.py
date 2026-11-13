@@ -52,7 +52,7 @@ from eqasim_sa.core.plan import (
     canonical_morris_distance_terms,
     validate_bootstrap_resamples,
     validate_canonical_morris_bootstrap_work,
-    validate_morris_values,
+    validate_discrete_oat_values,
 )
 from eqasim_sa.core.methods.multiscramble_sobol_plan import MAX_MULTISCRAMBLE_DESIGN_POSITIONS, MAX_MULTISCRAMBLE_TABLE_CELLS
 from eqasim_sa.core.methods.sobol_plan import validate_sobol_bootstrap_work
@@ -64,6 +64,13 @@ from eqasim_sa.core.software_identity import (
 )
 from eqasim_sa.ports.simulator import IndicatorRequirement
 
+EXPERIMENT_METHODS = (
+    "grid",
+    "discrete_oat",
+    "canonical_morris",
+    "sobol",
+    "multiscramble_sobol",
+)
 SCALARIZERS = {
     "tv_distance": lambda artifact, reference: TotalVariationIndicator(
         artifact, reference
@@ -583,6 +590,17 @@ def load_meta_config(
     experiment = _mapping(document["experiment"], "experiment")
     analysis = _mapping(document["analysis"], "analysis")
     method = experiment.get("method")
+    if method not in EXPERIMENT_METHODS:
+        hint = (
+            "; use discrete_oat for an adjacent-level demonstration or "
+            "canonical_morris for scientific Morris screening"
+            if method == "morris"
+            else ""
+        )
+        raise ValueError(
+            f"unsupported experiment.method {method!r}; expected one of "
+            f"{', '.join(EXPERIMENT_METHODS)}{hint}"
+        )
     analysis_keys = (
         {
             "completeness_threshold",
@@ -619,7 +637,7 @@ def load_meta_config(
         raise ValueError("seed cannot be a structured factor")
     status = charter_status(document.get("charter"))
     if (
-        method in {"morris", "discrete_oat", "sobol"}
+        method in {"discrete_oat", "sobol"}
         and status is not CharterStatus.DEMONSTRATION
     ):
         raise ValueError(f"{method} requires charter.status demonstration")
@@ -668,11 +686,12 @@ def load_meta_config(
         else {"method", "seed_role", "trajectories", "design_seed", "replications"}
     )
     if seed_role == "replication" and (
-        method not in {"grid", "morris", "discrete_oat", "canonical_morris"}
+        method not in {"grid", "discrete_oat", "canonical_morris"}
         or set(experiment) != expected_experiment
     ):
         raise ValueError(
-            "seed_role replication experiment keys must match grid or Morris trajectories/design_seed contract"
+            "seed_role replication experiment keys must match the grid contract or the "
+            "discrete_oat/canonical_morris trajectories/design_seed contract"
         )
     trajectories, design_seed = (
         experiment.get("trajectories"),
@@ -683,7 +702,7 @@ def load_meta_config(
     base_sample_size = experiment.get("base_sample_size")
     raw_base_sample_sizes = experiment.get("base_sample_sizes")
     raw_scramble_seeds = experiment.get("scramble_seeds")
-    if method in {"morris", "discrete_oat"}:
+    if method == "discrete_oat":
         if type(trajectories) is not int or trajectories <= 0:
             raise ValueError(
                 "experiment.trajectories must be a strictly positive integer"
@@ -914,7 +933,7 @@ def load_meta_config(
         if structured:
             if name == "seed":
                 raise ValueError("seed cannot be a structured factor")
-            if method in {"morris", "discrete_oat", "canonical_morris"}:
+            if method in {"discrete_oat", "canonical_morris"}:
                 raise ValueError(f"{method} does not support structured factors")
             configurations = _mapping(
                 declaration["configurations"], f"factor {name!r} configurations"
@@ -977,8 +996,8 @@ def load_meta_config(
                 f"scientific factor {name!r} discrete-uniform support must contain "
                 "at least two distinct values"
             )
-        if method in {"morris", "discrete_oat"}:
-            validate_morris_values(name, values)
+        if method == "discrete_oat":
+            validate_discrete_oat_values(name, values)
         if method in {"sobol", "canonical_morris", "multiscramble_sobol"}:
             if len(values) < 2 or len(set(values)) != len(values):
                 raise ValueError(
@@ -993,15 +1012,15 @@ def load_meta_config(
                     f"factor {name!r} values must be homogeneous scalars"
                 )
         factors[name] = values
-    if method in {"morris", "discrete_oat", "canonical_morris"} and not factors:
+    if method in {"discrete_oat", "canonical_morris"} and not factors:
         raise ValueError("trajectory design requires at least one factor")
-    if method in {"morris", "discrete_oat"}:
+    if method == "discrete_oat":
         candidates = math.factorial(len(factors)) * math.prod(
             2 * (len(values) - 1) for values in factors.values()
         )
         if trajectories > candidates:
             raise ValueError(
-                f"experiment.trajectories exceeds Morris candidate count {candidates}"
+                f"experiment.trajectories exceeds discrete OAT candidate count {candidates}"
             )
     if method == "canonical_morris":
         universe = math.factorial(len(factors)) * levels ** len(factors)
@@ -1073,8 +1092,6 @@ def load_meta_config(
         else ()
     )
     artifacts, indicators, indicator_requirements = _indicator_blocks(document)
-    if method == "morris" and not indicators:
-        raise ValueError("Morris requires at least one indicator")
     if method in {"discrete_oat", "canonical_morris"} and not indicators:
         raise ValueError(f"{method} requires at least one indicator")
     if method in {"sobol", "multiscramble_sobol"} and not indicators:

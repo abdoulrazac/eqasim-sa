@@ -1,4 +1,4 @@
-# Legacy Sobol demonstration: 32 positions, not inferential evidence.
+# Single-scramble Sobol demonstration: 32 positions, not inferential evidence.
 campaign: @PROJECT_NAME@-sobol
 campaign_root: ../campaigns/sobol
 charter:

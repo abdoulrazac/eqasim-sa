@@ -50,7 +50,7 @@ def test_core_reports_repeated_canonical_configuration_seed_pairs(
     assert unique_config_seed_pairs(design(tmp_path, {"rate": [1, 2]}))
 
 
-@pytest.mark.parametrize("method", ["morris", "sobol"])
+@pytest.mark.parametrize("method", ["discrete_oat", "sobol"])
 def test_static_check_accepts_sealed_structural_coincidences_but_grid_still_rejects_them(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -99,7 +99,7 @@ def test_static_check_accepts_sealed_structural_coincidences_but_grid_still_reje
     }
 
 
-def test_morris_position_check_fails_when_sealed_plan_validation_failed(
+def test_discrete_oat_position_check_fails_when_sealed_plan_validation_failed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -114,7 +114,7 @@ def test_morris_position_check_fails_when_sealed_plan_validation_failed(
         model_document={"config": {"rate": 0}},
         factors={"rate": [0, 1]},
         seeds=(1,),
-        method="morris",
+        method="discrete_oat",
         trajectories=1,
         design_seed=7,
         context_hash="c" * 64,

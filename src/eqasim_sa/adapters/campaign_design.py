@@ -6,7 +6,6 @@ from eqasim_sa.core.plan import (
     CanonicalMorrisDesign,
     DiscreteOATDesign,
     GridDesign,
-    MorrisDesign,
     MultiScrambleSobolDesign,
     SobolDesign,
 )
@@ -15,14 +14,9 @@ from eqasim_sa.core.plan import (
 def _validate_scientific_method(meta) -> None:  # type: ignore[no-untyped-def]
     status = getattr(getattr(meta, "charter", None), "status", "demonstration")
     if status == "scientific" and meta.method not in {"canonical_morris", "multiscramble_sobol"}:
-        classification = (
-            "a legacy inferential method"
-            if meta.method in {"morris", "sobol"}
-            else "demonstration-only"
-        )
         raise ValueError(
             "no current method satisfies the scientific contract; "
-            f"{meta.method} is {classification}"
+            f"{meta.method} is demonstration-only"
         )
 
 
@@ -40,13 +34,6 @@ def _design(meta, requirements=None):  # type: ignore[no-untyped-def]
         meta.context_descriptor,
         meta.campaign_root,
     )
-    if getattr(meta, "method", "grid") == "morris":
-        return MorrisDesign(
-            *common,
-            meta.trajectories,
-            meta.design_seed,
-            structured_factors=structured_factors,
-        )
     if getattr(meta, "method", "grid") == "discrete_oat":
         return DiscreteOATDesign(
             *common,

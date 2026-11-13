@@ -155,8 +155,8 @@ constituent pas une recommandation scientifique et `init` ne génère délibér�
 aucun starter Morris canonique. Consultez [Paramètres et méthodes](parameters-and-methods.md)
 avant d'étendre les domaines ou de rédiger une campagne scientifique propre à l'étude.
 Utilisez les guides courts de [Grid](what-when-how-grid.md),
-[Morris historique](what-when-how-morris.md), [OAT discret](what-when-how-discrete_oat.md),
-[Morris canonique](what-when-how-canonical_morris.md), [Sobol historique](what-when-how-sobol.md)
+[OAT discret](what-when-how-discrete_oat.md),
+[Morris canonique](what-when-how-canonical_morris.md), [Sobol de démonstration](what-when-how-sobol.md)
 et [Sobol multi-scramble](what-when-how-multiscramble_sobol.md) pour choisir la
 bonne méthode et la limite des revendications.
 
@@ -192,7 +192,7 @@ renvoie pour `run` `status: completed` et `total: 0`.
 - `analyze` annonce `status: completed` et le taux de complétude attendu.
 - Les schémas et colonnes des Parquet d'artefacts correspondent aux déclarations YAML.
 - Les sorties de démonstration Grid, OAT discret et Sobol ont été inspectées, pas seulement créées.
-- Le Sobol généré reste historique et non inférentiel. Une campagne scientifique
+- Le Sobol généré est une démonstration non inférentielle. Une campagne scientifique
   multi-scramble doit être rédigée séparément; aucun starter n'est fourni.
 - Le modèle, les données, le lockfile et la version d'`eqasim-sa` sont archivés ou traçables.
 

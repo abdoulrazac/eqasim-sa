@@ -63,7 +63,7 @@ Without `--smoke`, the checks are:
 | --- | --- |
 | `metaConfig` | YAML, Git context, factors, and paths |
 | `sealedPlan` | equality of the plan with the recomputed design |
-| `uniqueConfigSeedPairs` | no Grid duplicates; sealed validation for historical Morris, discrete OAT, canonical Morris, and Sobol |
+| `uniqueConfigSeedPairs` | no Grid duplicates; sealed validation for discrete OAT, canonical Morris, and Sobol |
 | `eqasimEnvironment` | synpp probe with a nonexistent configuration path |
 | `diskSpace` | durable and scratch space based on available observations |
 
@@ -128,8 +128,8 @@ outputs. JSON fields: `status`, `path`, `runs`, `indicators`, `values`,
 `replicationAllocationPath`, `outputSummaryPath`, `convergenceEvidencePath`,
 `governedReportPath`, `inferenceStatus`, `error`.
 `rankReversalsPath` is specific to `canonical_morris`; the two scramble paths are
-specific to `multiscramble_sobol`. Historical `morris` remains accepted for legacy provenance;
-scientific analysis also accepts `multiscramble_sobol` after reconstructing the
+specific to `multiscramble_sobol`.
+scientific analysis accepts `multiscramble_sobol` after reconstructing the
 current meta-configuration and sealed plan. Canonical production has a null
 `replicationAllocationPath`; pilot and production report `pilot_only` and
 `unstable` or `conditional`, respectively. Analyze JSON adds optional

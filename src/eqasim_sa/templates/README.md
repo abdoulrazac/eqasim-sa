@@ -16,8 +16,8 @@ results. Every command below is an explicit manual step.
 
 All four starters are demonstration campaigns. They validate configuration,
 execution, and storage plumbing, but cannot support inferential or decision
-claims. Discrete OAT is explicitly a demonstration design. The Sobol starter is
-a legacy inferential plan; neither is scientific evidence.
+claims. Discrete OAT and the single-scramble Sobol starter are explicitly
+demonstration designs; neither is scientific evidence.
 
 A separately authored scientific campaign must include an exact `stochastic`
 charter: `conditional_mean` with pilot/production replication allocation for
@@ -105,7 +105,7 @@ parameters:
 Keep the copied Grid's two replication seeds, indicators, execution, and
 calibration blocks. This produces 6 positions and 6 expected unique runs. The
 labels are readable aliases; execution and `runId` use the resolved ordered
-lists. All Morris forms reject structured factors. This remains a demonstration,
+lists. Discrete OAT and canonical Morris reject structured factors. This remains a demonstration,
 not a variance-share analysis.
 
 The complete walkthrough is `docs/structured-configurations-tutorial.md` in the

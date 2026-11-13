@@ -32,7 +32,7 @@ from eqasim_sa.utils.filesystem import path_state, resolve_root
 from eqasim_sa.utils import platform
 
 SEALED_SENSITIVITY_METHODS = frozenset(
-    {"morris", "discrete_oat", "canonical_morris", "sobol", "multiscramble_sobol"}
+    {"discrete_oat", "canonical_morris", "sobol", "multiscramble_sobol"}
 )
 
 WINDOWS_PATH_LIMIT = 260

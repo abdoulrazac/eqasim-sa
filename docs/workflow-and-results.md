@@ -39,8 +39,8 @@ carries the seed separately. More precisely, the excluded binaries are
 is `java_memory`. `output_prefix` is not excluded, so its value affects `runId`.
 
 `designId` identifies a statistical position, not an execution. It includes
-level and replication indices for Grid, or the sealed design role for historical
-Morris, discrete OAT, canonical Morris, and Sobol. Two distinct `designId` values
+level and replication indices for Grid, or the sealed design role for
+discrete OAT, canonical Morris, and Sobol. Two distinct `designId` values
 can therefore share a `runId`.
 
 ## Positions and Unique Runs
@@ -50,18 +50,17 @@ can therefore share a `runId`.
 | Column | Type | Meaning |
 | --- | --- | --- |
 | `designId` | string | position identity |
-| `method` | string | `grid`, legacy `morris`, `discrete_oat`, `canonical_morris`, or `sobol` |
+| `method` | string | `grid`, `discrete_oat`, `canonical_morris`, or `sobol` |
 | `role` | string | `point`, trajectory step, or Sobol matrix |
 | `runId` | string | deduplicated execution identity |
 | `seed` | int64 | eqasim seed |
 | `contextHash` | string | scientific context |
 | `<factor>` | domain type | projected value of each factor other than seed |
 
-Historical `morris` is readable legacy demonstration provenance only. New
-adjacent-level demonstrations use `discrete_oat`; scientific screening uses
+Adjacent-level demonstrations use `discrete_oat`; scientific screening uses
 `canonical_morris`. Unstructured canonical Morris plans have `planSchemaVersion: 2` and seal
 the normalized scientific contract and complete design/analysis definition.
-Other unstructured current and legacy plans use plan schema v1. Any supported
+Other unstructured plans use plan schema v1. Any supported
 design with named structured-list factors uses schema v3 and seals canonical
 structured metadata v1; its factor column stores labels while `runId` hashes the
 resolved ordered list.
@@ -148,9 +147,8 @@ only transactional work and is empty after a normal command completes.
 `.eqasim-sa/` contains durable technical coordination local to this campaign:
 module-private leases, same-filesystem run transactions, and Submitit state.
 It is not scratch, but it disappears with the campaign and is never created in
-the campaign parent. Historical `.eqasim-sa-tmp`, `.eqasim-sa-run-locks`,
-`.submitit`, and parent lock files are accepted by `init` when safe but are not
-created by current commands.
+the campaign parent. `init` refuses a campaign containing
+`.submitit`, `.eqasim-sa-tmp`, or `.eqasim-sa-run-locks`.
 
 ```text
 scratch/eqasim-sa/<campaign>/workers/<slot>/
@@ -214,17 +212,9 @@ and `maximum`. Values are joined back to every row of `plan.parquet`, so
 structurally duplicated design positions retain their design weight instead of
 being collapsed to unique run IDs.
 
-### `morris-ranking.parquet` (historical compatibility)
-
-Columns: `indicator`, `factor`, `rank`, `trajectories`, `replications`, `n`,
-`mu`, `mu_star`, `sigma`, `seed_std`. Ranking is ordered by descending `mu_star`,
-then by factor name. This output belongs only to readable legacy `method: morris`
-provenance and is not recommended for a new campaign.
-
 ### `discrete-oat-effects.parquet`
 
-Produced for `method: discrete_oat`. It has the same columns as the historical
-adjacent-level table: `indicator`, `factor`, integer `rank`, `trajectories`,
+Produced for `method: discrete_oat`. It has the columns `indicator`, `factor`, integer `rank`, `trajectories`,
 `replications`, `n`, `mu`, `mu_star`, nullable `sigma`, and nullable `seed_std`.
 Effects use adjacent numeric levels and each local step normalized by the full
 declared factor range. This demonstration output is not canonical Morris, does
@@ -298,9 +288,9 @@ Columns: `indicator`, `factor`, `rank`, `base_sample_size`,
 `total_order_ci_low`, `total_order_ci_high`. Ranking follows descending total
 order; ties are broken by ascending factor name.
 
-This file belongs to historical `method: sobol`, whose row bootstrap remains a
+This file belongs to demonstration `method: sobol`, whose row bootstrap remains a
 demonstration-only uncertainty calculation. Its analysis manifest contains
-`inferenceStatus: legacy_noninferential`.
+`inferenceStatus: demonstration_noninferential`.
 
 ### Multi-scramble Sobol outputs
 
@@ -349,8 +339,8 @@ incomplete, or non-finite evidence fails closed.
 `governed-report.json` records the sealed decision, evidence hashes, exclusions,
 non-actionable factors, objective-compatible factor evidence, criterion states,
 pending robustness checks, inference status, reason codes, and
-`claimAuthorized`. Demonstrations report `demonstration_noninferential`,
-historical Sobol reports `legacy_noninferential`, and canonical pilots report
+`claimAuthorized`. Demonstrations, including demonstration Sobol, report
+`demonstration_noninferential`, and canonical pilots report
 `pilot_only`. Scientific production reports `unstable` until stopping passes,
 then `conditional` while robustness remains pending. Under the current contract
 no report is `robust` and `claimAuthorized` remains false. FF evidence is limited
@@ -362,9 +352,7 @@ The version 7 manifest is the atomically replaced pointer to the current
 immutable generation. Its `layout` remains `immutable-generation-v1`;
 `generationPath` selects `analysis/generations/<generationId>` and every output
 record carries its relative path, size, and SHA-256. Method-specific artifacts
-remain in that generation with their hashes. Historical version 7 manifests
-that point to `.eqasim-sa-analysis/generations/<generationId>` remain readable
-by the Nantes renderer; they are neither migrated nor deleted automatically.
+remain in that generation with their hashes.
 Publication remains transactional.
 
 For scientific methods, the application adapter recomputes the design from the
@@ -412,10 +400,8 @@ Submitit files and the active-job journal live under
 `<campaign>/.eqasim-sa/slurm/`; no scheduler files are written beside scientific
 campaign outputs. A durable submission intent is written before contacting the
 scheduler. If the scheduler reply is lost, that intent blocks automatic retry
-until an operator verifies the scheduler, preventing duplicate arrays. Current
-journals recover interrupted temporary hard links. Historical `.submitit`
-journals are inspected read-only and must be reconciled with the version that
-created them.
+until an operator verifies the scheduler, preventing duplicate arrays. The
+journal recovers interrupted temporary hard links.
 
 The code and tests cover construction and simulated behavior of the SLURM
 backend. They do not constitute validation on a real SLURM cluster.

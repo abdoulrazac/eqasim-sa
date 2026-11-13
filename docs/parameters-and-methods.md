@@ -64,7 +64,7 @@ structured recodings use the named structured-list factor contract below.
 
 `init` reads the selected model YAML without executing it. It requires explicit
 `matching_age_scheme: matching_6` and `analysis_age_scheme: analysis_7` entries.
-This fixes historical matching for calibration and discrete OAT, keeps output classes
+This fixes the matching scheme for calibration and discrete OAT, keeps output classes
 stable, and gives generated runs explicit selector identity. Grid and Sobol still
 replace `matching_age_scheme` through their factor domains.
 
@@ -116,8 +116,8 @@ so new starters do not declare it as a second reference.
 attribute is relaxed first. Declare named, distinct list payloads under
 `configurations`; the plan varies their labels while execution receives the
 ordered list. Start with Grid. Use multi-scramble Sobol only when equal label
-probabilities and their provenance are scientifically defensible. All Morris
-forms refuse this nominal factor. Archive a `matched_counts` diagnostic before
+probabilities and their provenance are scientifically defensible. Discrete OAT and canonical Morris
+refuse this nominal factor. Archive a `matched_counts` diagnostic before
 interpreting changes in matching structure; eqasim-sa does not implement that
 diagnostic. `random_seed` remains method-specific and cannot be structured.
 
@@ -229,16 +229,13 @@ Example: two rates, three income methods, and four seeds give
 `2 × 3 × 4 = 24` positions. Configurations that are identical after resolution
 may reduce the number of unique runs; the Grid `check` rejects them.
 
-## Historical `morris` and discrete OAT
+## Discrete OAT
 
-Historical `method: morris` preserves the exact old schema and old plan identity
-so existing plans remain readable as demonstration provenance. It is not a
-current inferential method and cannot be combined with a scientific charter.
-New adjacent-level demonstrations use `method: discrete_oat`, with the same
-experiment shape (`method`, `seed_role`, `trajectories`, `design_seed`, and
-`replications`) but a separate method, design-ID domain, and metadata identity.
+Adjacent-level demonstrations use `method: discrete_oat`, with the experiment
+shape `method`, `seed_role`, `trajectories`, `design_seed`, and `replications`.
+The former `method: morris` no longer exists and is rejected.
 
-Both accept only numeric factors. Each domain contains at least two levels
+Discrete OAT accepts only numeric factors. Each domain contains at least two levels
 of the same type, strictly increasing and distinct. The order is therefore
 operationally meaningful: it defines adjacent steps. Each effect divides the
 output difference by that step's local fraction of the full declared numeric
@@ -312,8 +309,7 @@ straddling the cutoff shares the remaining slots equally, and factors below it
 receive 0. Bootstrap top-k probabilities average these weights. Pair outputs
 report bootstrap tie frequency separately as `tie_probability`; point ties have
 `point_order: 0` and a null `reversal_probability`. Ranking and convergence
-outputs call the number of effects `elementary_effects` (`T*R`), while historical
-Morris retains `n`.
+outputs call the number of effects `elementary_effects` (`T*R`).
 
 The trajectory bootstrap supplies finite-design uncertainty evidence conditional
 on the declared and sealed contract. It does not by itself provide calibrated
@@ -339,13 +335,13 @@ The result never lowers the requirement silently. It specifies a new immutable
 production campaign/root; production cites non-empty pilot provenance and uses
 exactly the selected seed count.
 
-## Historical Sobol
+## Demonstration Sobol
 
-The generated `method: sobol` plan is historical demonstration provenance. It
+The generated `method: sobol` plan is a noninferential demonstration. It
 uses one scramble, `N(2D+2)` positions, and deterministic row bootstrap. Its
 unchanged `sobol-indices.parquet` ranks decreasing total-order indices and reports
 bootstrap intervals. The analysis manifest records
-`inferenceStatus: legacy_noninferential`; do not reinterpret these outputs as
+`inferenceStatus: demonstration_noninferential`; do not reinterpret these outputs as
 multi-scramble evidence.
 
 Each Sobol domain contains at least two distinct, homogeneous values of type
@@ -354,7 +350,7 @@ quasi-random draw `u` in `[0,1)` and a domain of length `L`, the selected
 modality is the one at index `floor(u × L)`. The seed is always a special integer
 factor.
 
-For historical Sobol, with `D` total factors including seed and
+For demonstration Sobol, with `D` total factors including seed and
 `N = base_sample_size`:
 
 `positions = N(2D+2)`

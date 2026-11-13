@@ -28,10 +28,9 @@ multi-scramble seulement si vous préparez une campagne scientifique déclarée.
 | Guide | Question | Statut | Usage recommandé |
 | --- | --- | --- | --- |
 | [Grid](what-when-how-grid.md) | Que se passe-t-il pour chaque combinaison déclarée ? | Démonstration | Petites comparaisons lisibles et configurations structurées nommées |
-| [Morris historique](what-when-how-morris.md) | Que contient une ancienne campagne à niveaux adjacents ? | Démonstration historique | Lire une provenance existante seulement ; ne jamais créer une nouvelle campagne |
 | [OAT discret](what-when-how-discrete_oat.md) | Quels changements numériques locaux demandent de l'attention ? | Démonstration | Tri descriptif local pour préparer une étude ultérieure |
 | [Morris canonique](what-when-how-canonical_morris.md) | Quels facteurs doivent rester à l'étude ? | Criblage scientifique | Pilote propre à l'étude, puis production séparée |
-| [Sobol historique](what-when-how-sobol.md) | La plomberie Sobol à un scramble fonctionne-t-elle ? | Démonstration historique non inférentielle | Exécuter le starter généré ou lire une provenance historique |
+| [Sobol de démonstration](what-when-how-sobol.md) | La plomberie Sobol à un scramble fonctionne-t-elle ? | Démonstration non inférentielle | Exécuter le starter généré |
 | [Sobol multi-scramble](what-when-how-multiscramble_sobol.md) | Que faut-il apprendre d'abord, ou que peut-on fixer ? | FP ou FF scientifique | Priorisation ou fixation des facteurs propre à l'étude |
 
 ## Documentation contributeur
@@ -58,7 +57,6 @@ Retour à la [page d'accueil](../README-fr.md).
 | Méthode | Rôle de la seed | Positions | Sortie spécifique |
 | --- | --- | --- | --- |
 | Grid | réplication | produit des tailles de domaines × seeds | `replication-dispersion.parquet` |
-| `morris` historique | réplication | `T(D+1)R` | `morris-ranking.parquet` |
 | OAT discret | réplication | `T(D+1)R` | `discrete-oat-effects.parquet` |
 | Morris canonique | réplication dérivée par bloc de trajectoire | `T(D+1)R` | Parquet de classement, convergence et inversions de rang |
 | Sobol | facteur | `N(2D+2)` | `sobol-indices.parquet` |
@@ -71,7 +69,7 @@ même configuration résolue.
 `init` génère des starters de démonstration Grid, OAT discret et Sobol. Il ne
 génère ni starter Sobol multi-scramble, dont la charte FP/FF et les seeds de
 scrambles doivent être propres à l'étude, ni Morris canonique, dont le contrat de criblage scientifique doit être
-propre à l'étude. L'ancien `morris` reste lisible mais n'est pas recommandé.
+propre à l'étude.
 
 `init` prépare les fichiers et les empreintes. Seul le `run` de calibration
 fournit les observations de ressources utilisées par `check` et `estimate`.

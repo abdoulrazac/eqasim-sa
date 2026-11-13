@@ -1,4 +1,4 @@
-# Historical Sobol: test the old Sobol workflow
+# Demonstration Sobol: test the single-scramble Sobol workflow
 
 **Practical example: check that the generated Sobol pipeline produces its analysis files.**
 
@@ -10,10 +10,10 @@ The `sobol` starter varies several inputs, then calculates first-order and
 total-order indices. However, it uses only one randomized Sobol sequence, called
 a **scramble**, and bootstraps rows from that same sequence.
 
-This design is retained for demonstration and historical compatibility. It
+This design is a noninferential demonstration. It
 answers only this question:
 
-> Do the planning, execution, and analysis steps of the old Sobol workflow work?
+> Do the planning, execution, and analysis steps of the single-scramble Sobol workflow work?
 
 It does not provide the uncertainty evidence needed for scientific factor
 prioritization or factor fixing. For that, use
@@ -131,8 +131,8 @@ The files are stored under `campaigns/sobol/`. For each factor and indicator,
 
 | Column | Meaning in this demonstration |
 | --- | --- |
-| `first_order` | historical estimate of the factor's effect alone |
-| `total_order` | historical estimate including interactions |
+| `first_order` | single-scramble estimate of the factor's effect alone |
+| `total_order` | single-scramble estimate including interactions |
 | `*_ci_low`, `*_ci_high` | interval obtained by bootstrapping rows from the single scramble |
 | `rank` | descending order by total-order index |
 
@@ -156,7 +156,7 @@ one scramble. They do not show how the indices would vary across several
 independently randomized Sobol sequences.
 
 The `governed-report.json` report records this as
-`inferenceStatus: legacy_noninferential` and `claimAuthorized: false`.
+`inferenceStatus: demonstration_noninferential` and `claimAuthorized: false`.
 
 ## Adapt the demonstration
 
@@ -171,11 +171,11 @@ HTS references.
 
 To compare categories or structured lists directly, prefer
 [Grid](what-when-how-grid.md). It is easier to read and does not invite you to
-interpret historical indices as evidence.
+interpret these indices as evidence.
 
 ## What you can conclude
 
-You can say that the starter validated the historical pipeline and produced the
+You can say that the starter validated the pipeline and produced the
 expected Sobol files.
 
 You cannot make a scientific factor-prioritization or factor-fixing claim, or
@@ -189,7 +189,7 @@ scrambles.
 - `seed` is an integer factor with at least two distinct values.
 - Positions and unique runs are distinguished.
 - Any out-of-range indices remain visible.
-- The result is presented as `legacy_noninferential`.
+- The result is presented as `demonstration_noninferential`.
 
 ## Continue
 

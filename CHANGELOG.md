@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- BREAKING: drops all backward compatibility (dev phase, no existing campaigns).
+  Removed: reading legacy scientific plans (`canonical_morris` and
+  `multiscramble_sobol` design v1/v2; only design v3 is accepted);
+  completion markers without a version or at v1 (`legacy_unbound`; only v2
+  markers bound to an archive manifest); execution evidence schema v1; the
+  SLURM active-job journal v1 and the `<campaign>/.submitit` directory; the
+  `.eqasim-sa-analysis` analysis state directory (only `analysis/` remains);
+  flat analysis outputs at the campaign root and their cleanup; analysis
+  generation manifest v6 (only v7 with immutable generations); `init` no longer
+  tolerates `.submitit`, `.eqasim-sa-tmp`, or `.eqasim-sa-run-locks` in a
+  campaign; and the `charter.legacy` flag (a missing charter still means a
+  demonstration charter).
+- BREAKING: removes `method: morris` ("historical Morris") and its
+  `morris-ranking.parquet` output; a configuration using it is rejected. Use
+  `discrete_oat` (adjacent-level demonstration) or `canonical_morris`
+  (scientific screening).
+- BREAKING: plain `method: sobol` stays as a noninferential demonstration (the
+  generated `03-sobol.yml`); its inference status is renamed
+  `legacy_noninferential` -> `demonstration_noninferential`, and "historical
+  Sobol" is now "demonstration Sobol" in the documentation.
+
 - Supports Windows 10+, macOS 13+, and Linux natively (Python 3.13 via uv, no
   administrator rights) with the `local` backend; verification on Windows and
   macOS is pending (see `docs/platform-verification.md`); the `slurm` backend remains
@@ -24,19 +45,18 @@
   identities, and the `model.config` Git check); `init` writes a
   `.gitattributes`.
 - Bumps the context, software identity, indicator definition, and plugin
-  distribution hash domains to `v2` (no backward compatibility; legacy v1 plans
-  remain descriptive only).
+  distribution hash domains to `v2` (no backward compatibility).
 - Adds a multi-OS CI workflow and `docs/platform-verification.md`.
 - Declares the project under GPL-2.0-only and adds bilingual contribution
   guidance and package README metadata.
-- Adds generic named structured-list factors for Grid, historical Sobol, and
+- Adds generic named structured-list factors for Grid, demonstration Sobol, and
   multi-scramble Sobol. Plans store readable labels while resolved ordered lists
   determine `runId` and execution snapshots; aliases and malformed payloads are
   rejected.
 - Adds plan schema v3 only when a plan seals canonical
   `structuredFactorsVersion: 1` and `structuredFactors` metadata. Unstructured
   plans retain their existing v1/v2 identities and byte behavior.
-- Refuses structured factors for historical Morris, discrete OAT, and canonical
+- Refuses structured factors for discrete OAT and canonical
   Morris because their nominal configuration order has no defensible adjacent or
   probability-space meaning.
 
