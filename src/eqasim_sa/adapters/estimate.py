@@ -59,7 +59,6 @@ def _estimate_state(
                 root,
                 plan,
                 meta.campaign,
-                allow_legacy_unbound=True,
                 inspected_plan=plan_snapshot,
             )
         except RuntimeError as error:

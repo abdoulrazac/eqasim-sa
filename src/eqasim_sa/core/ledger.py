@@ -53,8 +53,6 @@ ARTIFACT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.parquet$")
 COMPLETION_MARKER_VERSION = b"completionMarkerVersion"
 ARTIFACT_MANIFEST = b"artifactManifest"
 EXECUTION_EVIDENCE = b"executionEvidence"
-LEGACY_UNBOUND = "legacy_unbound"
-VERIFIED = "verified"
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _BINARY = getattr(os, "O_BINARY", 0)
 _READ_FLAGS = os.O_RDONLY | _NOFOLLOW | getattr(os, "O_NONBLOCK", 0) | _BINARY
@@ -90,12 +88,11 @@ class CompletionState:
 
     duration: float
     scratch_bytes: int
-    archive_integrity: str
     artifacts: tuple[ArtifactManifestEntry, ...]
     execution_evidence: ExecutionEvidence | None
     marker: StableFile
-    archive: Path | None
-    archive_state: FileState | None
+    archive: Path
+    archive_state: FileState
     captured_artifacts: tuple[StableFile, ...]
 
 
@@ -346,41 +343,23 @@ def completion_state(
             version = metadata.get(COMPLETION_MARKER_VERSION)
             manifest_payload = metadata.get(ARTIFACT_MANIFEST)
             evidence_payload = metadata.get(EXECUTION_EVIDENCE)
-            if version is None:
-                if manifest_payload is not None or evidence_payload is not None:
-                    raise ValueError("completion metadata has no marker version")
-                integrity = LEGACY_UNBOUND
-                artifacts: tuple[ArtifactManifestEntry, ...] = ()
-                evidence = None
-            elif version == b"1":
-                if manifest_payload is not None or evidence_payload is not None:
-                    raise ValueError("legacy marker must not bind v2 metadata")
-                integrity = LEGACY_UNBOUND
-                artifacts = ()
-                evidence = None
-            elif version == b"2":
-                if manifest_payload is None:
-                    raise ValueError("v2 marker is missing its artifact manifest")
-                base_metadata = {
-                    COMPLETION_MARKER_VERSION,
-                    ARTIFACT_MANIFEST,
-                }
-                expected_metadata = base_metadata | (
-                    {EXECUTION_EVIDENCE} if evidence_payload is not None else set()
-                )
-                if set(metadata) != expected_metadata:
-                    raise ValueError("v2 marker metadata is not canonical")
-                artifacts = _parse_manifest(manifest_payload)
-                evidence = (
-                    ExecutionEvidence.from_bytes(evidence_payload)
-                    if evidence_payload is not None
-                    else None
-                )
-                if evidence is not None and evidence.context_hash != expected.context_hash:
-                    raise ValueError("execution evidence contextHash does not match marker")
-                integrity = VERIFIED
-            else:
+            if version != b"2":
                 raise ValueError(f"unsupported completion marker version: {version!r}")
+            if manifest_payload is None:
+                raise ValueError("v2 marker is missing its artifact manifest")
+            expected_metadata = {COMPLETION_MARKER_VERSION, ARTIFACT_MANIFEST} | (
+                {EXECUTION_EVIDENCE} if evidence_payload is not None else set()
+            )
+            if set(metadata) != expected_metadata:
+                raise ValueError("v2 marker metadata is not canonical")
+            artifacts = _parse_manifest(manifest_payload)
+            evidence = (
+                ExecutionEvidence.from_bytes(evidence_payload)
+                if evidence_payload is not None
+                else None
+            )
+            if evidence is not None and evidence.context_hash != expected.context_hash:
+                raise ValueError("execution evidence contextHash does not match marker")
             schema_record = RunRecord(
                 expected.run_id,
                 expected.campaign,
@@ -421,14 +400,9 @@ def completion_state(
                 raise ValueError("scratchBytes must be a non-negative integer")
             if codecs != {"ZSTD"}:
                 raise ValueError("compression must be zstd")
-            if integrity == VERIFIED:
-                archive, archive_state, captured_artifacts = _verify_archive(
-                    campaign_root, campaign, expected.run_id, artifacts
-                )
-            else:
-                archive = None
-                archive_state = None
-                captured_artifacts = ()
+            archive, archive_state, captured_artifacts = _verify_archive(
+                campaign_root, campaign, expected.run_id, artifacts
+            )
             marker_sha256 = descriptor_sha256(descriptor)
             final = os.fstat(descriptor)
             if not campaign.is_current():
@@ -443,7 +417,6 @@ def completion_state(
             return CompletionState(
                 duration,
                 scratch_bytes,
-                integrity,
                 artifacts,
                 evidence,
                 StableFile(path, file_state(initial), initial.st_size, marker_sha256),
@@ -904,21 +877,15 @@ def validate_run_record(record: RunRecord) -> None:
 def write_run(
     campaign_root: Path,
     record: RunRecord,
-    artifact_manifest: Sequence[ArtifactManifestEntry] | None = None,
+    artifact_manifest: Sequence[ArtifactManifestEntry],
     execution_evidence: bytes | ExecutionEvidence | None = None,
 ) -> Path:
-    """Publish one immutable completion marker with optional provenance."""
+    """Publish one immutable v2 completion marker bound to its archive."""
 
     validate_run_record(record)
     validate_parameters(record.parameters)
     evidence = _validated_execution_evidence(execution_evidence, record.context_hash)
-    if evidence is not None and artifact_manifest is None:
-        raise ValueError("execution evidence requires a v2 artifact manifest")
-    table = (
-        _run_table(record)
-        if artifact_manifest is None
-        else _run_table_with_metadata(record, artifact_manifest, evidence)
-    )
+    table = _run_table_with_metadata(record, artifact_manifest, evidence)
     campaign = secure_directory(campaign_root, create=True)
     runs = secure_directory(campaign / "runs", create=True)
     technical = secure_directory(campaign / ".eqasim-sa", create=True)

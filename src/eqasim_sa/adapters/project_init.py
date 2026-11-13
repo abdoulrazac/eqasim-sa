@@ -20,7 +20,6 @@ from eqasim_sa.adapters.eqasim.workspace import WorkerWorkspace
 from eqasim_sa.adapters.templates import render_project
 from eqasim_sa.core.analysis_publication import (
     ANALYSIS_STATE_DIRECTORY,
-    LEGACY_ANALYSIS_STATE_DIRECTORY,
     OUTPUT_FILENAMES,
 )
 from eqasim_sa.utils import platform
@@ -224,48 +223,25 @@ def _init_campaign_allowed(
 ) -> None:
     derived = INIT_DERIVED["grid" if method == "calibration" else method]
     allowed = {
-        "plan.parquet", "runs", "archives", "logs", ".eqasim-sa-tmp",
-        ".eqasim-sa-run-locks", ".submitit", ".eqasim-sa", ANALYSIS_STATE_DIRECTORY,
-        LEGACY_ANALYSIS_STATE_DIRECTORY, *derived,
+        "plan.parquet", "runs", "archives", "logs", ".eqasim-sa",
+        ANALYSIS_STATE_DIRECTORY, *derived,
     }
     temporary = re.compile(r"\.([0-9a-f]{32})\.parquet\.([A-Za-z0-9_-]+)\.tmp")
     backup = re.compile(r"\.([0-9a-f]{32})\.parquet\.([A-Za-z0-9_-]+)\.backup")
     for entry in root.iterdir():
         if platform.is_link(entry) or entry.name not in allowed:
             raise FileExistsError(f"foreign content in init campaign: {entry.name}")
-        if entry.name in {
-            ANALYSIS_STATE_DIRECTORY,
-            LEGACY_ANALYSIS_STATE_DIRECTORY,
-        }:
+        if entry.name == ANALYSIS_STATE_DIRECTORY:
             _analysis_state_allowed(entry, method)
             continue
         if entry.name == ".eqasim-sa":
             _technical_state_allowed(entry, expected_ids, method)
-            continue
-        if entry.name == ".submitit":
-            _owned_technical_tree(entry, f"campaigns/{method}/.submitit")
             continue
         if entry.name == "plan.parquet" or entry.name in derived:
             _regular(entry, f"campaigns/{method}/{entry.name}")
             continue
         if not entry.is_dir():
             raise FileExistsError(f"foreign content in init campaign: {entry.name}")
-        if entry.name in {".eqasim-sa-tmp", ".eqasim-sa-run-locks"}:
-            for child in entry.iterdir():
-                match = temporary.fullmatch(child.name)
-                valid = child.stem in expected_ids and child.suffix == ".lock"
-                if entry.name == ".eqasim-sa-tmp":
-                    valid = match is not None and match.group(1) in expected_ids
-                if not valid:
-                    raise FileExistsError(
-                        f"foreign content in init campaign: {entry.name}/{child.name}"
-                    )
-                _regular(
-                    child,
-                    f"campaigns/{method}/{entry.name}/{child.name}",
-                    private=True,
-                )
-            continue
         for child in entry.iterdir():
             if entry.name == "runs" and (match := temporary.fullmatch(child.name)):
                 if match.group(1) not in expected_ids:

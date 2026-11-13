@@ -453,7 +453,6 @@ def test_static_check_never_touches_referenced_data(
 def test_smoke_applies_run_overrides_and_computes_every_indicator(
     tmp_path: Path, monkeypatch, indicator_case: str | None
 ) -> None:
-    from eqasim_sa.adapters import application
     from eqasim_sa.adapters.eqasim import execution as eqasim_execution
     from eqasim_sa.core.run import RunSpec
 

@@ -13,6 +13,7 @@ import pytest
 
 import eqasim_sa.core.plan as plan_module
 import eqasim_sa.utils.filesystem as durable_publication
+from eqasim_sa.core.methods.common import MAX_BOOTSTRAP_RESAMPLES
 from eqasim_sa.adapters.application import plan_from_meta_config
 from eqasim_sa.adapters.eqasim.config import load_yaml_document
 from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator, eqasim_requirements
@@ -433,7 +434,7 @@ def test_sobol_bootstrap_caps_precede_indicator_plugin_resolution(
     _sobol_meta(
         meta,
         bootstrap_resamples=(
-            plan_module.MAX_BOOTSTRAP_RESAMPLES + 1
+            MAX_BOOTSTRAP_RESAMPLES + 1
             if limit == "resamples"
             else 19
         ),

@@ -121,16 +121,15 @@ def _load_scientific(tmp_path: Path, mutate=None):  # type: ignore[no-untyped-de
     return load_meta_config(meta)
 
 
-def test_missing_charter_is_legacy_and_explicit_demonstration_preserves_plan_bytes(
+def test_missing_and_explicit_demonstration_charters_give_the_same_plan_bytes(
     tmp_path: Path,
 ) -> None:
     meta, _, _, _ = meta_fixture(tmp_path)
     loaded = load_meta_config(meta)
     assert loaded.charter.status is CharterStatus.DEMONSTRATION
-    assert loaded.charter.legacy is True
     assert loaded.distributions == {}
     plan_from_meta_config(meta)
-    legacy = (tmp_path / "campaign/plan.parquet").read_bytes()
+    implicit = (tmp_path / "campaign/plan.parquet").read_bytes()
     shutil.rmtree(tmp_path / "campaign")
 
     document = _document(meta)
@@ -138,9 +137,8 @@ def test_missing_charter_is_legacy_and_explicit_demonstration_preserves_plan_byt
     _write(meta, document)
     explicit = load_meta_config(meta)
     assert explicit.charter.status is CharterStatus.DEMONSTRATION
-    assert explicit.charter.legacy is False
     plan_from_meta_config(meta)
-    assert (tmp_path / "campaign/plan.parquet").read_bytes() == legacy
+    assert (tmp_path / "campaign/plan.parquet").read_bytes() == implicit
 
 
 @pytest.mark.parametrize(

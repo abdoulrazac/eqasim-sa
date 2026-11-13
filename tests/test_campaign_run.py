@@ -100,9 +100,8 @@ def test_meta_config_stores_runner_source_digest_and_states(tmp_path: Path) -> N
     loaded = load_meta_config(meta)
 
     assert loaded.eqasim_sa_sha256 == loaded.software_identity.sha256
-    assert loaded.eqasim_sa_source_states == loaded.software_identity.source_states
     assert "eqasimSaSha256" not in loaded.context_descriptor
-    assert loaded.eqasim_sa_source_states
+    assert loaded.software_identity.source_states
 
 
 def test_data_path_override_is_hashed_and_passed_as_the_same_absolute_path(
@@ -552,7 +551,8 @@ def test_slurm_campaign_resumes_only_missing_runs_and_complete_campaign_is_noop(
 ) -> None:
     from eqasim_sa.adapters import application
     from eqasim_sa.adapters.application import plan_from_meta_config
-    from eqasim_sa.core.ledger import RunRecord, write_run
+    from eqasim_sa.core.ledger import RunRecord
+    from tests.provenance_helpers import write_verified_run
     from eqasim_sa.core.run import compute_run_id
 
     meta, _, _, _ = meta_fixture(tmp_path)
@@ -579,7 +579,7 @@ def test_slurm_campaign_resumes_only_missing_runs_and_complete_campaign_is_noop(
         loaded.campaign_root / "plan.parquet", design, loaded.campaign
     )
     completed_id = compute_run_id(specs[0].resolved_config, specs[0].seed)
-    write_run(
+    write_verified_run(
         loaded.campaign_root,
         RunRecord(
             completed_id,
@@ -621,7 +621,7 @@ def test_slurm_campaign_resumes_only_missing_runs_and_complete_campaign_is_noop(
     assert [item.seed for item in submitted] == [42]
 
     missing = specs[1]
-    write_run(
+    write_verified_run(
         loaded.campaign_root,
         RunRecord(
             compute_run_id(missing.resolved_config, missing.seed),
@@ -1394,7 +1394,8 @@ def test_campaign_resume_filters_before_simulator_backend_and_preflight(
 
     from eqasim_sa.adapters import application
     from eqasim_sa.adapters.application import plan_from_meta_config
-    from eqasim_sa.core.ledger import RunRecord, write_run
+    from eqasim_sa.core.ledger import RunRecord
+    from tests.provenance_helpers import write_verified_run
     from eqasim_sa.core.run import compute_run_id
 
     meta, _, _, _ = meta_fixture(tmp_path)
@@ -1422,7 +1423,7 @@ def test_campaign_resume_filters_before_simulator_backend_and_preflight(
     )
     for spec in specs:
         run_id = compute_run_id(spec.resolved_config, spec.seed)
-        write_run(
+        write_verified_run(
             loaded.campaign_root,
             RunRecord(
                 run_id,
@@ -1690,15 +1691,6 @@ def test_empty_campaign_has_no_constraint() -> None:
 
     require_same_machine({}, _evidence())
     require_same_machine({"r": None}, _evidence())
-
-
-def test_legacy_evidence_compares_only_its_own_fields() -> None:
-    from eqasim_sa.core.run import require_same_machine
-
-    legacy = replace(_evidence(), schema_version=1, eqasim_sa_sha256=None)
-    require_same_machine({"r": legacy}, _evidence())
-    with pytest.raises(ValueError, match="differing: environment_sha256"):
-        require_same_machine({"r": legacy}, replace(_evidence(), environment_sha256="0" * 64))
 
 
 def test_run_refuses_resume_on_another_machine_before_execution(

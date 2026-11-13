@@ -74,10 +74,9 @@ class ParameterDistribution:
 
 @dataclass(frozen=True)
 class DemonstrationCharter:
-    """Non-inferential charter used by generated examples and legacy inputs."""
+    """Non-inferential charter used when no scientific charter is declared."""
 
     status: CharterStatus = CharterStatus.DEMONSTRATION
-    legacy: bool = False
 
 
 @dataclass(frozen=True)
@@ -655,7 +654,7 @@ def parse_charter(
 
     status = charter_status(value)
     if status is CharterStatus.DEMONSTRATION:
-        return DemonstrationCharter(legacy=value is None)
+        return DemonstrationCharter()
     if not indicator_names:
         raise ValueError("scientific charter requires at least one indicator")
     document = _mapping(value, "charter")
@@ -777,7 +776,7 @@ def validate_scientific_contract(
     )
     if charter["status"] != CharterStatus.SCIENTIFIC.value:
         raise ValueError("scientific_contract charter status must be scientific")
-    stochastic = parse_stochastic(
+    parse_stochastic(
         charter["stochastic"], "scientific_contract.charter.stochastic"
     )
 

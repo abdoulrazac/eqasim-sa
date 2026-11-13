@@ -10,8 +10,6 @@ from typing import Mapping
 
 
 CONTEXT_DOMAIN = b"eqasim-sa:context:v2\0"
-# Plans sealed before line-ending-independent identities; legacy readers only.
-LEGACY_CONTEXT_DOMAIN_V1 = b"eqasim-sa:context:v1\0"
 CONTEXT_KEYS = frozenset(
     {
         "eqasimCommit",
@@ -31,9 +29,7 @@ class ExecutionContextIdentity:
     sha256: str
 
     @classmethod
-    def from_descriptor(
-        cls, value: object, domain: bytes = CONTEXT_DOMAIN
-    ) -> "ExecutionContextIdentity":
+    def from_descriptor(cls, value: object) -> "ExecutionContextIdentity":
         if (
             not isinstance(value, dict)
             or set(value) != CONTEXT_KEYS
@@ -53,7 +49,7 @@ class ExecutionContextIdentity:
         return cls(
             MappingProxyType(descriptor),
             canonical,
-            hashlib.sha256(domain + canonical).hexdigest(),
+            hashlib.sha256(CONTEXT_DOMAIN + canonical).hexdigest(),
         )
 
     @classmethod

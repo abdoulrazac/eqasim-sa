@@ -41,16 +41,87 @@ def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+EVIDENCE_FIELDS = {
+    "replication-allocation.json": (
+        "replicationAllocation",
+        "replicationAllocationPath",
+        "replicationAllocationSha256",
+    ),
+    "governed-report.json": (
+        "governedReport",
+        "governedReportPath",
+        "governedReportSha256",
+    ),
+}
+
+
+def _generation_id(filename: str) -> str:
+    return hashlib.sha256(f"test-generation:{filename}".encode()).hexdigest()
+
+
+def _evidence_path(root: Path, filename: str) -> Path:
+    """Return the evidence file inside its v7 immutable analysis generation."""
+
+    return root / "analysis" / "generations" / _generation_id(filename) / filename
+
+
+def _reseal_evidence(root: Path, filename: str) -> None:
+    """Rebind the v7 manifest output record and digest to the evidence bytes."""
+
+    logical_name, path_field, digest_field = EVIDENCE_FIELDS[filename]
+    manifest_path = root / "analysis-generation.json"
+    manifest = json.loads(manifest_path.read_text())
+    evidence = _evidence_path(root, filename)
+    relative = evidence.relative_to(root).as_posix()
+    digest = _digest(evidence)
+    manifest.update(
+        {
+            "outputs": {
+                logical_name: {
+                    "path": relative,
+                    "size": evidence.stat().st_size,
+                    "sha256": digest,
+                }
+            },
+            path_field: relative,
+            digest_field: digest,
+        }
+    )
+    _write_json(manifest_path, manifest)
+
+
+def _write_generation_evidence(
+    root: Path, filename: str, document: dict, manifest_fields: dict
+) -> Path:
+    """Write ``document`` and a v7 analysis-generation manifest selecting it."""
+
+    evidence = _evidence_path(root, filename)
+    evidence.parent.mkdir(parents=True, exist_ok=True)
+    _write_json(evidence, document)
+    generation_id = _generation_id(filename)
+    _write_json(
+        root / "analysis-generation.json",
+        {
+            "version": 7,
+            "layout": "immutable-generation-v1",
+            "generationId": generation_id,
+            "generationPath": f"analysis/generations/{generation_id}",
+            **manifest_fields,
+        },
+    )
+    _reseal_evidence(root, filename)
+    return evidence
+
+
 def _write_pilot_evidence(
     root: Path,
     *,
     selected: int = 4,
     status: str = "recommended",
-) -> None:
-    root.mkdir(parents=True, exist_ok=True)
-    allocation = root / "replication-allocation.json"
-    _write_json(
-        allocation,
+) -> Path:
+    return _write_generation_evidence(
+        root,
+        "replication-allocation.json",
         {
             "version": 1,
             "status": status,
@@ -67,15 +138,9 @@ def _write_pilot_evidence(
             "withinTarget": selected == 2,
             "seedPolicy": "canonical-morris-derived-crn-v1",
         },
-    )
-    _write_json(
-        root / "analysis-generation.json",
         {
-            "version": 6,
             "inferenceStatus": "pilot_only",
             "sensitivityMethod": "canonical_morris",
-            "replicationAllocationPath": allocation.name,
-            "replicationAllocationSha256": _digest(allocation),
         },
     )
 
@@ -85,9 +150,7 @@ def _write_screening_evidence(
     *,
     include_convergence: bool = True,
     claim_authorized: bool = False,
-) -> None:
-    root.mkdir(parents=True, exist_ok=True)
-    report = root / "governed-report.json"
+) -> Path:
     document = {
             "version": 1,
             "method": "canonical_morris",
@@ -123,57 +186,12 @@ def _write_screening_evidence(
         }
     if include_convergence:
         document["convergence"] = {"status": "met", "converged": True}
-    _write_json(report, document)
-    _write_json(
-        root / "analysis-generation.json",
-        {
-            "version": 6,
-            "inferenceStatus": "conditional",
-            "governedReportPath": report.name,
-            "governedReportSha256": _digest(report),
-        },
+    return _write_generation_evidence(
+        root,
+        "governed-report.json",
+        document,
+        {"inferenceStatus": "conditional"},
     )
-
-
-def _promote_evidence_to_v7(
-    root: Path,
-    filename: str,
-    logical_name: str,
-    path_field: str,
-    digest_field: str,
-    state_directory: str = "analysis",
-) -> Path:
-    manifest_path = root / "analysis-generation.json"
-    manifest = json.loads(manifest_path.read_text())
-    source = root / filename
-    generation_id = hashlib.sha256(
-        f"test-generation:{filename}".encode()
-    ).hexdigest()
-    generation = root / state_directory / "generations" / generation_id
-    generation.mkdir(parents=True)
-    destination = generation / filename
-    source.rename(destination)
-    relative = destination.relative_to(root).as_posix()
-    digest = _digest(destination)
-    manifest.update(
-        {
-            "version": 7,
-            "layout": "immutable-generation-v1",
-            "generationId": generation_id,
-            "generationPath": generation.relative_to(root).as_posix(),
-            "outputs": {
-                logical_name: {
-                    "path": relative,
-                    "size": destination.stat().st_size,
-                    "sha256": digest,
-                }
-            },
-            path_field: relative,
-            digest_field: digest,
-        }
-    )
-    _write_json(manifest_path, manifest)
-    return destination
 
 
 def _fixture_paths(
@@ -343,8 +361,12 @@ def test_renderer_outputs_loadable_buildable_protocols_with_exact_contract(
     assert len(set(roots)) == len(TEMPLATES)
     pilot = load_meta_config(rendered / TEMPLATES[0])
     production = load_meta_config(rendered / TEMPLATES[1])
-    allocation_digest = _digest(paths["pilot"] / "replication-allocation.json")
-    screening_digest = _digest(paths["screening"] / "governed-report.json")
+    allocation_digest = _digest(
+        _evidence_path(paths["pilot"], "replication-allocation.json")
+    )
+    screening_digest = _digest(
+        _evidence_path(paths["screening"], "governed-report.json")
+    )
     assert pilot.trajectories == production.trajectories == 24
     assert pilot.seeds == tuple(SEED_POOL[:2])
     assert pilot.convergence_checkpoints == (8, 16, 24)
@@ -357,37 +379,11 @@ def test_renderer_outputs_loadable_buildable_protocols_with_exact_contract(
     assert screening_digest in (rendered / TEMPLATES[3]).read_text()
 
 
-@pytest.mark.parametrize("state_directory", ["analysis", ".eqasim-sa-analysis"])
-def test_renderer_accepts_v6_and_v7_immutable_generation_evidence(
-    tmp_path: Path, state_directory: str,
-) -> None:
+def test_renderer_accepts_v7_immutable_generation_evidence(tmp_path: Path) -> None:
     paths = _fixture_paths(tmp_path)
+    allocation = _evidence_path(paths["pilot"], "replication-allocation.json")
+    report = _evidence_path(paths["screening"], "governed-report.json")
 
-    # The fixture's first successful renders consume the legacy v6 flat layout.
-    v6 = _render(
-        TEMPLATES[1],
-        tmp_path / "production-v6.yml",
-        paths,
-        tmp_path / "production-v6",
-    )
-    assert load_meta_config(v6).method == "canonical_morris"
-
-    allocation = _promote_evidence_to_v7(
-        paths["pilot"],
-        "replication-allocation.json",
-        "replicationAllocation",
-        "replicationAllocationPath",
-        "replicationAllocationSha256",
-        state_directory,
-    )
-    report = _promote_evidence_to_v7(
-        paths["screening"],
-        "governed-report.json",
-        "governedReport",
-        "governedReportPath",
-        "governedReportSha256",
-        state_directory,
-    )
     production = _render(
         TEMPLATES[1],
         tmp_path / "production-v7.yml",
@@ -400,23 +396,39 @@ def test_renderer_accepts_v6_and_v7_immutable_generation_evidence(
         paths,
         tmp_path / "fp-v7",
     )
+    assert load_meta_config(production).method == "canonical_morris"
     assert _digest(allocation) in production.read_text()
     assert _digest(report) in prioritization.read_text()
 
 
-def test_renderer_rejects_unrecognized_v7_generation_parent(tmp_path: Path) -> None:
+def test_renderer_rejects_v6_analysis_generation_manifest(tmp_path: Path) -> None:
     paths = _fixture_paths(tmp_path)
-    _promote_evidence_to_v7(
-        paths["pilot"],
-        "replication-allocation.json",
-        "replicationAllocation",
-        "replicationAllocationPath",
-        "replicationAllocationSha256",
+    manifest_path = paths["pilot"] / "analysis-generation.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["version"] = 6
+    _write_json(manifest_path, manifest)
+
+    output = tmp_path / "production.yml"
+    result = subprocess.run(
+        _render_command(TEMPLATES[1], output, paths, tmp_path / "campaign"),
+        capture_output=True,
+        text=True,
     )
+
+    assert result.returncode != 0
+    assert "version must be 7" in result.stderr
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("parent", ["results", ".eqasim-sa-analysis"])
+def test_renderer_rejects_unrecognized_v7_generation_parent(
+    tmp_path: Path, parent: str
+) -> None:
+    paths = _fixture_paths(tmp_path)
     manifest_path = paths["pilot"] / "analysis-generation.json"
     manifest = json.loads(manifest_path.read_text())
     generation_id = manifest["generationId"]
-    unsupported_parent = f"results/generations/{generation_id}"
+    unsupported_parent = f"{parent}/generations/{generation_id}"
     unsupported_path = f"{unsupported_parent}/replication-allocation.json"
     manifest["generationPath"] = unsupported_parent
     manifest["replicationAllocationPath"] = unsupported_path
@@ -440,13 +452,6 @@ def test_renderer_rejects_unsafe_v7_evidence_paths(
     tmp_path: Path, unsafe: str
 ) -> None:
     paths = _fixture_paths(tmp_path)
-    _promote_evidence_to_v7(
-        paths["pilot"],
-        "replication-allocation.json",
-        "replicationAllocation",
-        "replicationAllocationPath",
-        "replicationAllocationSha256",
-    )
     manifest_path = paths["pilot"] / "analysis-generation.json"
     manifest = json.loads(manifest_path.read_text())
     manifest["replicationAllocationPath"] = unsafe
@@ -466,13 +471,7 @@ def test_renderer_rejects_unsafe_v7_evidence_paths(
 
 def test_renderer_rejects_symlinked_v7_generation_component(tmp_path: Path) -> None:
     paths = _fixture_paths(tmp_path)
-    evidence = _promote_evidence_to_v7(
-        paths["pilot"],
-        "replication-allocation.json",
-        "replicationAllocation",
-        "replicationAllocationPath",
-        "replicationAllocationSha256",
-    )
+    evidence = _evidence_path(paths["pilot"], "replication-allocation.json")
     generation = evidence.parent
     actual = generation.with_name("actual-generation")
     generation.rename(actual)
@@ -523,7 +522,9 @@ def test_renderer_uses_exact_full_seed_prefix_at_upper_bound(tmp_path: Path) -> 
 def test_renderer_rejects_tampered_evidence(tmp_path: Path) -> None:
     paths = _fixture_paths(tmp_path)
     output = tmp_path / "production.yml"
-    with (paths["pilot"] / "replication-allocation.json").open("a") as stream:
+    with _evidence_path(paths["pilot"], "replication-allocation.json").open(
+        "a"
+    ) as stream:
         stream.write(" ")
     result = subprocess.run(
         _render_command(TEMPLATES[1], output, paths, tmp_path / "campaign"),
@@ -629,12 +630,9 @@ def test_renderer_rejects_same_or_equivalent_evidence_root(
 
 def test_renderer_rejects_nonfinite_json_number(tmp_path: Path) -> None:
     paths = _fixture_paths(tmp_path)
-    allocation = paths["pilot"] / "replication-allocation.json"
+    allocation = _evidence_path(paths["pilot"], "replication-allocation.json")
     allocation.write_text(allocation.read_text().replace("0.0004", "1e999"))
-    manifest = paths["pilot"] / "analysis-generation.json"
-    document = json.loads(manifest.read_text())
-    document["replicationAllocationSha256"] = _digest(allocation)
-    _write_json(manifest, document)
+    _reseal_evidence(paths["pilot"], "replication-allocation.json")
     output = tmp_path / "production.yml"
     result = subprocess.run(
         _render_command(TEMPLATES[1], output, paths, tmp_path / "campaign"),
@@ -704,7 +702,7 @@ def test_renderer_requires_pending_robustness_follow_up(
     tmp_path: Path, mutation: str, message: str
 ) -> None:
     paths = _fixture_paths(tmp_path)
-    report = paths["screening"] / "governed-report.json"
+    report = _evidence_path(paths["screening"], "governed-report.json")
     document = json.loads(report.read_text())
     if mutation == "robustness_status":
         document["robustness"]["status"] = "met"
@@ -715,10 +713,7 @@ def test_renderer_requires_pending_robustness_follow_up(
     else:
         document["reasonCodes"] = []
     _write_json(report, document)
-    manifest = paths["screening"] / "analysis-generation.json"
-    generation = json.loads(manifest.read_text())
-    generation["governedReportSha256"] = _digest(report)
-    _write_json(manifest, generation)
+    _reseal_evidence(paths["screening"], "governed-report.json")
     output = tmp_path / "fp.yml"
     result = subprocess.run(
         _render_command(TEMPLATES[2], output, paths, tmp_path / "campaign"),
@@ -732,8 +727,8 @@ def test_renderer_requires_pending_robustness_follow_up(
 
 def test_renderer_rejects_symlinked_evidence_file(tmp_path: Path) -> None:
     paths = _fixture_paths(tmp_path)
-    allocation = paths["pilot"] / "replication-allocation.json"
-    target = paths["pilot"] / "actual-allocation.json"
+    allocation = _evidence_path(paths["pilot"], "replication-allocation.json")
+    target = allocation.with_name("actual-allocation.json")
     allocation.rename(target)
     make_symlink(allocation, target.name)
     output = tmp_path / "production.yml"

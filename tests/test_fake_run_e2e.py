@@ -575,7 +575,6 @@ def test_run_file_is_published_last_and_archive_failure_is_incomplete(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import eqasim_sa.core.run as run_module
 
     events: list[str] = []
     original_rename = ledger.platform.rename_with_retry
@@ -632,7 +631,6 @@ def test_partial_publication_replays_without_cleanup(
 ) -> None:
     import errno
 
-    import eqasim_sa.core.run as run_module
 
     campaign, work = tmp_path / "campaign", tmp_path / "work"
     (campaign / "plan.parquet").parent.mkdir(parents=True)

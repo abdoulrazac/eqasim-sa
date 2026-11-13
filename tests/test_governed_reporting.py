@@ -136,12 +136,10 @@ def test_demonstration_publishes_noninferential_governed_artifacts_and_hashes(
         ).hexdigest()
 
 
-def test_demonstration_removes_stale_scientific_convergence_evidence(
+def test_demonstration_publishes_no_scientific_convergence_evidence(
     tmp_path: Path,
 ) -> None:
     root = _grid_with_duplicate_positions(tmp_path)
-    stale = root / "convergence-evidence.parquet"
-    stale.write_bytes(b"stale scientific evidence")
 
     result = analyze(
         root,
@@ -151,7 +149,6 @@ def test_demonstration_removes_stale_scientific_convergence_evidence(
     )
 
     assert result.convergence_evidence_path is None
-    assert not stale.exists()
 
 
 def test_rank_stability_formula_and_consecutive_checks() -> None:

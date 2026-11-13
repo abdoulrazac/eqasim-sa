@@ -467,63 +467,47 @@ def _manifest_evidence(
     argument: str,
 ) -> tuple[dict[str, Any], dict[str, Any], Path, str]:
     manifest, _ = _json_file(root, "analysis-generation.json", argument)
-    version = manifest.get("version")
     selected_path = manifest.get(path_field)
-    if version == 6:
-        _exact(selected_path, evidence_name, f"manifest.{path_field}")
-        path = _safe_evidence_file(root, evidence_name, argument)
-        expected_size = None
-    elif version == 7:
-        _exact(manifest.get("layout"), "immutable-generation-v1", "manifest.layout")
-        generation_id = manifest.get("generationId")
-        if type(generation_id) is not str or DIGEST.fullmatch(generation_id) is None:
-            raise ValueError("manifest.generationId must be a lowercase SHA-256 digest")
-        if type(selected_path) is not str:
-            raise ValueError(f"manifest.{path_field} must be a relative path")
-        allowed_parents = {
-            PurePosixPath(
-                state, "generations", generation_id
-            ).as_posix(): PurePosixPath(state, "generations", generation_id)
-            for state in ("analysis", ".eqasim-sa-analysis")
-        }
-        generation_path = manifest.get("generationPath")
-        if (
-            type(generation_path) is not str
-            or generation_path not in allowed_parents
-        ):
-            raise ValueError(
-                "manifest.generationPath must select an explicitly supported "
-                "immutable generation"
-            )
-        expected_parent = allowed_parents[generation_path]
-        selected = PurePosixPath(selected_path)
-        if selected.parent != expected_parent or selected.name != evidence_name:
-            raise ValueError(
-                f"manifest.{path_field} must select {evidence_name} in its immutable generation"
-            )
-        outputs = manifest.get("outputs")
-        if not isinstance(outputs, dict):
-            raise ValueError("manifest.outputs must be an object")
-        matches = [
-            record
-            for record in outputs.values()
-            if isinstance(record, dict) and record.get("path") == selected_path
-        ]
-        if len(matches) != 1 or set(matches[0]) != {"path", "size", "sha256"}:
-            raise ValueError(f"manifest.outputs must contain {selected_path!r} exactly once")
-        record = matches[0]
-        if type(record["size"]) is not int or record["size"] < 0:
-            raise ValueError("manifest output size must be a non-negative integer")
-        expected_size = record["size"]
-        path = _safe_evidence_file(root, selected_path, argument)
-    else:
-        raise ValueError("analysis generation manifest version must be 6 or 7")
+    if manifest.get("version") != 7:
+        raise ValueError("analysis generation manifest version must be 7")
+    _exact(manifest.get("layout"), "immutable-generation-v1", "manifest.layout")
+    generation_id = manifest.get("generationId")
+    if type(generation_id) is not str or DIGEST.fullmatch(generation_id) is None:
+        raise ValueError("manifest.generationId must be a lowercase SHA-256 digest")
+    if type(selected_path) is not str:
+        raise ValueError(f"manifest.{path_field} must be a relative path")
+    expected_parent = PurePosixPath("analysis", "generations", generation_id)
+    if manifest.get("generationPath") != expected_parent.as_posix():
+        raise ValueError(
+            "manifest.generationPath must select an explicitly supported "
+            "immutable generation"
+        )
+    selected = PurePosixPath(selected_path)
+    if selected.parent != expected_parent or selected.name != evidence_name:
+        raise ValueError(
+            f"manifest.{path_field} must select {evidence_name} in its immutable generation"
+        )
+    outputs = manifest.get("outputs")
+    if not isinstance(outputs, dict):
+        raise ValueError("manifest.outputs must be an object")
+    matches = [
+        record
+        for record in outputs.values()
+        if isinstance(record, dict) and record.get("path") == selected_path
+    ]
+    if len(matches) != 1 or set(matches[0]) != {"path", "size", "sha256"}:
+        raise ValueError(f"manifest.outputs must contain {selected_path!r} exactly once")
+    record = matches[0]
+    if type(record["size"]) is not int or record["size"] < 0:
+        raise ValueError("manifest output size must be a non-negative integer")
+    expected_size = record["size"]
+    path = _safe_evidence_file(root, selected_path, argument)
     recorded_digest = manifest.get(digest_field)
     if type(recorded_digest) is not str or DIGEST.fullmatch(recorded_digest) is None:
         raise ValueError(f"manifest.{digest_field} must be a lowercase SHA-256 digest")
-    if version == 7 and matches[0]["sha256"] != recorded_digest:
+    if matches[0]["sha256"] != recorded_digest:
         raise ValueError(f"manifest.outputs digest does not match manifest.{digest_field}")
-    if expected_size is not None and path.stat().st_size != expected_size:
+    if path.stat().st_size != expected_size:
         raise ValueError(f"manifest output size does not match {evidence_name}")
     evidence = _read_json_file(path)
     actual_digest = _sha256(path)

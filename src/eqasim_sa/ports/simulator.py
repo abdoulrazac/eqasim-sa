@@ -15,10 +15,7 @@ ResolvedConfig: TypeAlias = dict[str, JsonValue]
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 GIT_COMMIT = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 CHILD_ENVIRONMENT_DOMAIN = b"eqasim-sa:child-environment:v1\0"
-EXECUTION_EVIDENCE_V1_DOMAIN = b"eqasim-sa:execution-evidence:v1\0"
 EXECUTION_EVIDENCE_V2_DOMAIN = b"eqasim-sa:execution-evidence:v2\0"
-# Retained as the current writer domain for callers that import the public constant.
-EXECUTION_EVIDENCE_DOMAIN = EXECUTION_EVIDENCE_V2_DOMAIN
 
 
 @dataclass(frozen=True)
@@ -66,12 +63,9 @@ class ExecutionEvidence:
             or GIT_COMMIT.fullmatch(self.model_commit) is None
         ):
             raise ValueError("execution evidence contains an invalid model commit")
-        if type(self.schema_version) is not int or self.schema_version not in {1, 2}:
+        if type(self.schema_version) is not int or self.schema_version != 2:
             raise ValueError("unsupported execution evidence schema version")
-        if self.schema_version == 1:
-            if self.eqasim_sa_sha256 is not None:
-                raise ValueError("legacy execution evidence must not bind eqasim_sa")
-        elif (
+        if (
             not isinstance(self.eqasim_sa_sha256, str)
             or SHA256.fullmatch(self.eqasim_sa_sha256) is None
         ):
@@ -107,9 +101,8 @@ class ExecutionEvidence:
             "modelCommit": self.model_commit,
             "modelConfigSha256": self.model_config_sha256,
             "schemaVersion": self.schema_version,
+            "eqasimSaSha256": self.eqasim_sa_sha256,
         }
-        if self.schema_version == 2:
-            descriptor["eqasimSaSha256"] = self.eqasim_sa_sha256
         return descriptor
 
     def canonical_bytes(self) -> bytes:
@@ -120,12 +113,9 @@ class ExecutionEvidence:
             ensure_ascii=True,
             allow_nan=False,
         ).encode("ascii")
-        domain = (
-            EXECUTION_EVIDENCE_V1_DOMAIN
-            if self.schema_version == 1
-            else EXECUTION_EVIDENCE_V2_DOMAIN
-        )
-        evidence_sha256 = hashlib.sha256(domain + descriptor).hexdigest()
+        evidence_sha256 = hashlib.sha256(
+            EXECUTION_EVIDENCE_V2_DOMAIN + descriptor
+        ).hexdigest()
         return json.dumps(
             {**self._descriptor(), "evidenceSha256": evidence_sha256},
             sort_keys=True,
@@ -152,10 +142,9 @@ class ExecutionEvidence:
                 "modelCommit",
                 "modelConfigSha256",
                 "schemaVersion",
+                "eqasimSaSha256",
             }
-            if schema_version == 2:
-                expected.add("eqasimSaSha256")
-            if schema_version not in {1, 2} or set(document) != expected:
+            if schema_version != 2 or set(document) != expected:
                 raise ValueError
             if not isinstance(document["environmentVariables"], list) or not isinstance(
                 document["invocation"], list

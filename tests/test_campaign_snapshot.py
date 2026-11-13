@@ -8,7 +8,6 @@ import eqasim_sa.core.ledger as ledger_module
 from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
 from eqasim_sa.core.ledger import RunRecord, archive_transaction
 from eqasim_sa.core.run import RunSpec, compute_run_id
-from tests.conftest import make_symlink
 
 
 def spec(value: int) -> RunSpec:
@@ -134,42 +133,3 @@ def test_snapshot_hashes_each_selected_marker_and_artifact_once(
 
     assert len(snapshot.runs[next(iter(snapshot.completed_ids))].artifacts) == 1
     assert calls == 2
-
-
-def _legacy_campaign(tmp_path: Path) -> Path:
-    specs = (spec(1),)
-    root = tmp_path / "campaign"
-    plan_path = plan(root, specs)
-    complete(root, specs[0], 10)
-    run_id = compute_run_id(specs[0].resolved_config, specs[0].seed)
-    marker = root / "runs" / f"{run_id}.parquet"
-    table = pq.read_table(marker).replace_schema_metadata(
-        {ledger_module.COMPLETION_MARKER_VERSION: b"1"}
-    )
-    pq.write_table(table, marker, compression="zstd")
-    return plan_path
-
-
-def test_legacy_snapshot_reads_archive_below_campaign(tmp_path: Path) -> None:
-    plan_path = _legacy_campaign(tmp_path)
-
-    snapshot = CampaignSnapshot.capture(
-        plan_path.parent, plan_path, "demo", allow_legacy_unbound=True
-    )
-
-    assert len(snapshot.completed_ids) == 1
-
-
-def test_legacy_snapshot_rejects_symlinked_archives_directory(
-    tmp_path: Path,
-) -> None:
-    plan_path = _legacy_campaign(tmp_path)
-    archives = plan_path.parent / "archives"
-    external = tmp_path / "external-archives"
-    archives.rename(external)
-    make_symlink(archives, external, target_is_directory=True)
-
-    with pytest.raises(ValueError, match="must not traverse a symlink"):
-        CampaignSnapshot.capture(
-            plan_path.parent, plan_path, "demo", allow_legacy_unbound=True
-        )

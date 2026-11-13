@@ -72,7 +72,7 @@ def _normalize(
         resolved_source = source.resolve(strict=True)
         resolved_output = output.resolve(strict=True)
         resolved_attempt = normalized.parent.resolve(strict=True)
-    except FileNotFoundError as error:
+    except FileNotFoundError:
         raise FileNotFoundError(f"missing eqasim artifact: {name}")
     if resolved_output == resolved_attempt or not resolved_output.is_relative_to(
         resolved_attempt

@@ -15,17 +15,17 @@ from eqasim_sa.core.charter import (
     serialize_scientific_contract,
 )
 from eqasim_sa.core.plan import (
-    MAX_BOOTSTRAP_RESAMPLES,
     CanonicalMorrisDesign,
     DiscreteOATDesign,
     MorrisDesign,
     _available_scientific_runs,
     _canonical_definition,
-    _discrete_uniform_generalized_inverse_index,
     build_plan,
     estimate_plan,
     load_run_specs,
 )
+from eqasim_sa.core.methods.canonical_morris_plan import _discrete_uniform_generalized_inverse_index
+from eqasim_sa.core.methods.common import MAX_BOOTSTRAP_RESAMPLES
 from eqasim_sa.core.sensitivity import engine_descriptor, morris_unit_trajectories
 from tests.test_charter import _scientific
 from tests.test_plan import base, meta_fixture

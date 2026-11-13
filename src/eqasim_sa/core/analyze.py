@@ -32,7 +32,6 @@ from eqasim_sa.core.methods.canonical_morris import (
     _replication_allocation,
 )
 from eqasim_sa.core.methods.common import validate_bootstrap_resamples
-from eqasim_sa.core.methods.legacy import _validate_legacy_scientific_plan
 from eqasim_sa.core.methods.morris import (
     _discrete_oat_effects,
     _morris_ranking,
@@ -267,7 +266,6 @@ def _analyze_campaign(
         campaign_root,
         plan,
         campaign,
-        allow_legacy_unbound=descriptive_only,
         inspected_plan=plan_snapshot,
     )
     inspected_expected = set(snapshot.expected_ids)
@@ -627,40 +625,6 @@ def _validate_frozen_plan(
     descriptive_only: bool,
 ) -> dict | None:
     """Validate every sealed row before run-state or indicator access."""
-    metadata = plan.schema.metadata or {}
-    legacy = [
-        (legacy_method, metadata[key])
-        for legacy_method, key in (
-            ("canonical_morris", b"canonicalMorrisDesignVersion"),
-            ("multiscramble_sobol", b"multiScrambleSobolDesignVersion"),
-        )
-        if metadata.get(key) in {b"1", b"2"}
-    ]
-    if len(legacy) > 1:
-        raise ValueError("plan declares multiple legacy scientific methods")
-    if legacy:
-        legacy_method, legacy_version_bytes = legacy[0]
-        legacy_version = int(legacy_version_bytes)
-        if method != legacy_method:
-            raise ValueError(
-                f"legacy {legacy_method} plan does not match requested method {method}"
-            )
-        if not descriptive_only:
-            raise ValueError(
-                f"{method} design v{legacy_version} is legacy and cannot support inference; "
-                "replan the campaign with the current SALib design v3"
-            )
-        _validate_legacy_scientific_plan(
-            plan,
-            method,
-            bootstrap_resamples,
-            confidence_level,
-            convergence_checkpoints,
-            screening_top_k,
-            structured_factors,
-            legacy_version,
-        )
-        return None
     if method == "grid":
         _validate_grid_plan(plan, structured_factors)
         return None

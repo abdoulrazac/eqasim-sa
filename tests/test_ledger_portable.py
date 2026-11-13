@@ -107,7 +107,8 @@ def test_republish_existing_archive_replaces_it(tmp_path: Path) -> None:
     assert _archive_entries(campaign) == [RUN_ID]
     assert _archived_value(campaign) == [{"value": 2}]
     state = ledger.completion_state(campaign, _record())
-    assert state is not None and state.archive_integrity == ledger.VERIFIED
+    assert state is not None
+    assert [entry.name for entry in state.artifacts] == ["output.parquet"]
 
 
 def test_commit_rolls_back_when_marker_write_fails(tmp_path: Path) -> None:
@@ -181,7 +182,8 @@ def test_reader_accepts_links_among_campaign_ancestors(tmp_path: Path) -> None:
 
     state = ledger.completion_state(tmp_path / "alias" / "campaign", _record())
 
-    assert state is not None and state.archive_integrity == ledger.VERIFIED
+    assert state is not None
+    assert [entry.name for entry in state.artifacts] == ["output.parquet"]
 
 
 def test_transaction_accepts_links_among_campaign_ancestors(
@@ -197,7 +199,8 @@ def test_transaction_accepts_links_among_campaign_ancestors(
     assert marker == campaign / "runs" / f"{RUN_ID}.parquet"
     assert (real / "campaign" / "archives" / RUN_ID / "output.parquet").is_file()
     state = ledger.completion_state(campaign, _record())
-    assert state is not None and state.archive_integrity == ledger.VERIFIED
+    assert state is not None
+    assert [entry.name for entry in state.artifacts] == ["output.parquet"]
 
 
 def test_close_removes_staging_that_could_not_be_anchored(

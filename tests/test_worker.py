@@ -7,9 +7,9 @@ from eqasim_sa.adapters.worker import (
     Indexed,
     execute_batch,
     ordered_results,
-    run_lease,
     worker_batches,
 )
+from eqasim_sa.core.ledger import run_lease
 
 
 def test_round_robin_batches_are_deterministic_and_bounded() -> None:

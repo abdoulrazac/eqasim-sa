@@ -1,4 +1,3 @@
-import hashlib
 import json
 import math
 import statistics
@@ -20,7 +19,7 @@ from eqasim_sa.core.methods.canonical_morris import (
     _canonical_morris_tables,
     _replication_allocation,
 )
-from eqasim_sa.core.indicators import ArtifactSet, RegisteredIndicator
+from eqasim_sa.core.indicators import ArtifactSet
 from eqasim_sa.utils.filesystem import write_parquet_atomic
 from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.plan import build_plan
@@ -761,8 +760,6 @@ def test_canonical_production_publishes_noise_without_allocation(tmp_path: Path)
         provenance="pilot/root replication-allocation.json sha256:abc",
     )
     design, indicator = _completed_campaign(tmp_path, scientific_contract=contract)
-    stale = design.campaign_root / "replication-allocation.json"
-    stale.write_text("stale")
     result = analyze(
         design.campaign_root,
         (indicator,),
@@ -777,7 +774,6 @@ def test_canonical_production_publishes_noise_without_allocation(tmp_path: Path)
     assert result.noise_floor_path.is_file()
     assert result.replication_allocation_path is None
     assert result.inference_status == "conditional"
-    assert not stale.exists()
     manifest = json.loads((design.campaign_root / "analysis-generation.json").read_text())
     assert manifest["inferenceStatus"] == "conditional"
     assert manifest["replicationAllocationPath"] is None
@@ -863,24 +859,32 @@ def test_canonical_allocation_failure_rolls_back_new_outputs(
     assert allocation.read_bytes() == b"old-allocation"
 
 
-def test_other_method_removes_all_stale_canonical_outputs(tmp_path: Path) -> None:
+def test_other_method_publishes_no_canonical_outputs(tmp_path: Path) -> None:
     root, _ = _campaign(tmp_path)
-    stale = [
-        root / "canonical-morris-ranking.parquet",
-        root / "canonical-morris-convergence.parquet",
-        root / "canonical-morris-rank-reversals.parquet",
-        root / "noise-floor.parquet",
-        root / "replication-allocation.json",
-    ]
-    for path in stale:
-        path.write_bytes(b"stale")
-    analyze(
+    result = analyze(
         root,
         (_custom_indicator(),),
         campaign="test",
         completeness_threshold=0.0,
     )
-    assert not any(path.exists() for path in stale)
+    manifest = json.loads((root / "analysis-generation.json").read_text())
+    assert result.noise_floor_path is None
+    assert result.replication_allocation_path is None
+    for field in (
+        "sensitivityPath",
+        "convergencePath",
+        "rankReversalsPath",
+        "noiseFloorPath",
+        "replicationAllocationPath",
+    ):
+        assert manifest[field] is None
+    assert sorted(manifest["outputs"]) == [
+        "capturedRunSet",
+        "dispersion",
+        "governedReport",
+        "indicators",
+        "outputSummary",
+    ]
 
 
 def test_application_passes_sealed_canonical_analysis_and_exposes_extra_paths(

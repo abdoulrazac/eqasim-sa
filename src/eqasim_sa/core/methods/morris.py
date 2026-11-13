@@ -81,7 +81,7 @@ def _adjacent_oat_ranking(
         )
     except Exception as error:
         raise ValueError("Morris metadata is invalid") from error
-    descriptor = context_identity.as_dict()
+    context_identity.as_dict()
     context_hash = context_identity.sha256
     if set(design) != {"designSeed", "trajectories", "factors"}:
         raise ValueError("Morris design metadata keys are invalid")

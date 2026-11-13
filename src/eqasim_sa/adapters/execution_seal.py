@@ -388,5 +388,3 @@ def create_execution_seal(
         software_identity=meta.software_identity,
     )
 
-
-seal_execution = create_execution_seal

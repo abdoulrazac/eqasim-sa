@@ -2,7 +2,6 @@
 
 import hashlib
 import importlib.metadata
-import json
 import math
 import os
 import subprocess
@@ -40,7 +39,6 @@ from eqasim_sa.core.indicators import (
     ArtifactDeclaration,
     CustomDeclaration,
     PairDeclaration,
-    PluginIdentity,
     ProductDeclaration,
     RegisteredIndicatorFactory,
     TotalVariationIndicator,
@@ -51,14 +49,13 @@ from eqasim_sa.core.indicators import (
 from eqasim_sa.core.plan import (
     MAX_CANONICAL_MORRIS_CANDIDATES,
     MAX_CANONICAL_MORRIS_DISTANCE_TERMS,
-    MAX_MULTISCRAMBLE_DESIGN_POSITIONS,
-    MAX_MULTISCRAMBLE_TABLE_CELLS,
     canonical_morris_distance_terms,
     validate_bootstrap_resamples,
     validate_canonical_morris_bootstrap_work,
     validate_morris_values,
-    validate_sobol_bootstrap_work,
 )
+from eqasim_sa.core.methods.multiscramble_sobol_plan import MAX_MULTISCRAMBLE_DESIGN_POSITIONS, MAX_MULTISCRAMBLE_TABLE_CELLS
+from eqasim_sa.core.methods.sobol_plan import validate_sobol_bootstrap_work
 from eqasim_sa.core.run import EXCLUDED_PATHS
 from eqasim_sa.core.software_identity import (
     SoftwareIdentity,
@@ -147,10 +144,6 @@ class MetaConfig:
     @property
     def eqasim_sa_sha256(self) -> str:
         return self.software_identity.sha256
-
-    @property
-    def eqasim_sa_source_states(self):  # type: ignore[no-untyped-def]
-        return self.software_identity.source_states
 
 
 def _mapping(value: object, name: str) -> dict:

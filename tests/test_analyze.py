@@ -16,23 +16,14 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from scipy.stats import qmc, sobol_indices, t as student_t
+from scipy.stats import sobol_indices, t as student_t
 
+from eqasim_sa.core.methods.common import MAX_BOOTSTRAP_RESAMPLES
 from eqasim_sa.adapters.application import analyze_from_meta_config
 from eqasim_sa.adapters.fake.simulator import FakeSimulator
 from eqasim_sa.cli import dispatch
 from eqasim_sa.core.analyze import (
-    _validate_frozen_plan,
     analyze,
-)
-from eqasim_sa.core.methods.legacy import (
-    LEGACY_CANONICAL_MORRIS_DOMAIN,
-    LEGACY_MULTISCRAMBLE_SOBOL_DOMAIN,
-    _legacy_canonical_selection,
-)
-from eqasim_sa.core.context_identity import (
-    LEGACY_CONTEXT_DOMAIN_V1,
-    ExecutionContextIdentity,
 )
 from eqasim_sa.core.methods.morris import _morris_ranking
 from eqasim_sa.core.methods.multiscramble_sobol import (
@@ -45,16 +36,11 @@ from eqasim_sa.core.methods.sobol import (
     _sobol_ranking,
 )
 from eqasim_sa.core.indicators import ArtifactSet, PluginIdentity, RegisteredIndicator
-from eqasim_sa.utils.filesystem import write_parquet_atomic
-from eqasim_sa.core.ledger import (
-    ArtifactManifestEntry,
-    RunRecord,
-    write_run,
-)
+from eqasim_sa.utils.filesystem import PublicationOutcomeUnknown, write_parquet_atomic
+from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.plan import (
     MorrisDesign,
     SobolDesign,
-    _canonical_replication_seed,
     build_plan,
     load_run_specs,
 )
@@ -67,6 +53,7 @@ from tests.provenance_helpers import (
     execution_evidence,
     scientific_context_descriptor,
     scientific_registered_indicator,
+    write_verified_run,
 )
 from tests.conftest import make_symlink
 
@@ -83,21 +70,7 @@ def _constant_indicator(artifacts: ArtifactSet) -> float:
     return 1.0
 
 
-def _write_verified_run(
-    root: Path,
-    record: RunRecord,
-    evidence=None,  # type: ignore[no-untyped-def]
-) -> Path:
-    archive = root / "archives" / record.run_id
-    entries = tuple(
-        ArtifactManifestEntry(
-            path.name,
-            path.stat().st_size,
-            hashlib.sha256(path.read_bytes()).hexdigest(),
-        )
-        for path in sorted(archive.iterdir(), key=lambda item: os.fsencode(item.name))
-    )
-    return write_run(root, record, entries, execution_evidence=evidence)
+_write_verified_run = write_verified_run
 
 
 def _scientific_indicator() -> RegisteredIndicator:
@@ -117,245 +90,6 @@ def _canonical_json(value: object) -> bytes:
         ensure_ascii=False,
         allow_nan=False,
     ).encode()
-
-
-def _legacy_scientific_campaign(
-    root: Path, method: str, version: int = 2
-) -> tuple[Path, dict[str, object]]:
-    if version == 1:
-        fixture_name = {
-            "canonical_morris": "canonical-morris-v1-706f0bc.parquet",
-            "multiscramble_sobol": "multiscramble-sobol-v1-706f0bc.parquet",
-        }[method]
-        root.mkdir(parents=True)
-        path = root / "plan.parquet"
-        path.write_bytes(Path(__file__).with_name(fixture_name).read_bytes())
-        table = pq.read_table(path)
-        design_key = (
-            b"canonicalMorrisDesign"
-            if method == "canonical_morris"
-            else b"multiScrambleSobolDesign"
-        )
-        sealed = json.loads(table.schema.metadata[design_key])
-        options = {
-            "campaign": "test",
-            "completeness_threshold": 1.0,
-            "seed_role": "replication" if method == "canonical_morris" else "factor",
-            "method": method,
-            "confidence_level": sealed["confidenceLevel"],
-        }
-        if method == "canonical_morris":
-            options.update(
-                bootstrap_resamples=sealed["bootstrapResamples"],
-                convergence_checkpoints=tuple(sealed["convergenceCheckpoints"]),
-                screening_top_k=sealed["screeningTopK"],
-            )
-        return root, options
-
-    if method == "canonical_morris":
-        design = canonical_design(root)
-        design_key = b"canonicalMorrisDesign"
-        version_key = b"canonicalMorrisDesignVersion"
-        options = {
-            "campaign": "test",
-            "completeness_threshold": 1.0,
-            "seed_role": "replication",
-            "method": method,
-            "bootstrap_resamples": design.bootstrap_resamples,
-            "confidence_level": design.confidence_level,
-            "convergence_checkpoints": design.convergence_checkpoints,
-            "screening_top_k": design.screening_top_k,
-        }
-    else:
-        design = multiscramble_design(root)
-        design_key = b"multiScrambleSobolDesign"
-        version_key = b"multiScrambleSobolDesignVersion"
-        options = {
-            "campaign": "test",
-            "completeness_threshold": 1.0,
-            "seed_role": "factor",
-            "method": method,
-            "confidence_level": design.confidence_level,
-        }
-    build_plan(design)
-    path = root / "plan.parquet"
-    table = pq.read_table(path)
-    metadata = dict(table.schema.metadata or {})
-    sealed = json.loads(metadata[design_key])
-    descriptor = json.loads(metadata[b"contextDescriptor"])
-    descriptor["eqasimSaVersion"] = f"0.{version}.0"
-    sealed["scientificContract"]["software"] = {
-        "eqasimSaVersion": f"0.{version}.0",
-        "eqasimSaSha256": "d" * 64,
-    }
-    # Legacy plans were sealed with the v1 context domain.
-    legacy_context = ExecutionContextIdentity.from_descriptor(
-        descriptor, LEGACY_CONTEXT_DOMAIN_V1
-    ).sha256
-    if method == "canonical_morris":
-        sealed.pop("numericalEngine")
-        pool, selected_pairs = _legacy_canonical_selection(
-            sealed["candidateDefinition"], sealed["trajectories"]
-        )
-        selected = [
-            {
-                "candidateId": candidate_id,
-                "matrix": matrix,
-                "selectionOrder": index,
-            }
-            for index, (candidate_id, matrix) in enumerate(selected_pairs)
-        ]
-        sealed.update(
-            {
-                "candidatePoolIdentities": [identity for identity, _ in pool],
-                "selectedTrajectories": selected,
-                "selectionAlgorithm": "greedy-sum-pairwise-squared-distance",
-                "selectionVersion": 1,
-            }
-        )
-        rows = []
-        names = tuple(item["name"] for item in sealed["factors"])
-        supports = {item["name"]: item["support"] for item in sealed["factors"]}
-        for trajectory, selected_trajectory in enumerate(selected):
-            matrix = selected_trajectory["matrix"]
-            changed = [
-                next(
-                    index
-                    for index, (before, after) in enumerate(zip(left, right))
-                    if before != after
-                )
-                for left, right in zip(matrix, matrix[1:])
-            ]
-            mapped = [
-                tuple(
-                    supports[name][
-                        0
-                        if grid_index == 0
-                        else min(
-                            (len(supports[name]) * grid_index - 1)
-                            // (sealed["p"] - 1),
-                            len(supports[name]) - 1,
-                        )
-                    ]
-                    for name, grid_index in zip(names, point)
-                )
-                for point in matrix
-            ]
-            for replication, base_seed in enumerate(sealed["replicationBaseSeeds"]):
-                seed = _canonical_replication_seed(
-                    sealed["candidateDefinition"]["designSeed"],
-                    base_seed,
-                    selected_trajectory["candidateId"],
-                    replication,
-                )
-                for rank, values in enumerate(mapped):
-                    role = (
-                        f"trajectory:{trajectory}:rank:0:start"
-                        if rank == 0
-                        else f"trajectory:{trajectory}:rank:{rank}:factor:{names[changed[rank - 1]]}"
-                    )
-                    design_id = hashlib.sha256(
-                        LEGACY_CANONICAL_MORRIS_DOMAIN
-                        + _canonical_json(
-                            {
-                                "design": sealed,
-                                "replicationIndex": replication,
-                                "role": role,
-                            }
-                        )
-                    ).hexdigest()[:32]
-                    run_id = hashlib.sha256(
-                        _canonical_json({"seed": seed, "values": values})
-                    ).hexdigest()[:32]
-                    rows.append(
-                        {
-                            "designId": design_id,
-                            "method": method,
-                            "role": role,
-                            "runId": run_id,
-                            "seed": seed,
-                            "contextHash": legacy_context,
-                            **dict(zip(names, values)),
-                        }
-                    )
-    else:
-        sealed.pop("numericalEngine")
-        sealed["scrambleSeeds"] = [5, 6, 9, 11]
-        sealed["qmc"] = {
-            "bits": 64,
-            "engine": "scipy.stats.qmc.Sobol",
-            "optimization": None,
-            "scramble": True,
-        }
-        sealed["saltelliEstimator"] = "symmetric-ab-ba-v1"
-        rows = []
-        names = tuple(item["name"] for item in sealed["factors"])
-        supports = {item["name"]: item["support"] for item in sealed["factors"]}
-        maximum = sealed["maximumBaseSampleSize"]
-        for scramble, scramble_seed in enumerate(sealed["scrambleSeeds"]):
-            sample = qmc.Sobol(
-                d=2 * len(names),
-                scramble=True,
-                bits=64,
-                rng=scramble_seed,
-                optimization=None,
-            ).random_base2(m=maximum.bit_length() - 1)
-            for row_index, point in enumerate(sample):
-                indices = tuple(
-                    math.floor(float(value) * len(supports[name]))
-                    for name, value in zip(names * 2, point)
-                )
-                a, b = indices[: len(names)], indices[len(names) :]
-                positions = [
-                    (f"scramble:{scramble}:A:row:{row_index}", a),
-                    (f"scramble:{scramble}:B:row:{row_index}", b),
-                ]
-                for index, name in enumerate(names):
-                    ab, ba = list(a), list(b)
-                    ab[index], ba[index] = b[index], a[index]
-                    positions.extend(
-                        (
-                            (
-                                f"scramble:{scramble}:AB:factor:{name}:row:{row_index}",
-                                tuple(ab),
-                            ),
-                            (
-                                f"scramble:{scramble}:BA:factor:{name}:row:{row_index}",
-                                tuple(ba),
-                            ),
-                        )
-                    )
-                for role, selected_indices in positions:
-                    values = tuple(
-                        supports[name][index]
-                        for name, index in zip(names, selected_indices)
-                    )
-                    design_id = hashlib.sha256(
-                        LEGACY_MULTISCRAMBLE_SOBOL_DOMAIN
-                        + _canonical_json({"design": sealed, "role": role})
-                    ).hexdigest()[:32]
-                    run_id = hashlib.sha256(
-                        _canonical_json({"values": values})
-                    ).hexdigest()[:32]
-                    logical = dict(zip(names, values))
-                    rows.append(
-                        {
-                            "designId": design_id,
-                            "method": method,
-                            "role": role,
-                            "runId": run_id,
-                            "seed": logical.pop("seed"),
-                            "contextHash": legacy_context,
-                            **logical,
-                        }
-                    )
-
-    metadata[version_key] = str(version).encode()
-    metadata[design_key] = _canonical_json(sealed)
-    metadata[b"contextDescriptor"] = _canonical_json(descriptor)
-    legacy = pa.Table.from_pylist(rows, schema=table.schema.with_metadata(metadata))
-    write_parquet_atomic(legacy, path)
-    return root, options
 
 
 def root_relative(root: Path, path: Path) -> str:
@@ -831,7 +565,6 @@ def test_sobol_bootstrap_caps_precede_qmc_artifact_capture_and_plugins(
     monkeypatch: pytest.MonkeyPatch,
     limit: str,
 ) -> None:
-    import eqasim_sa.core.plan as plan_module
 
     root = _sobol_campaign(tmp_path)
     before = _tree_snapshot(root)
@@ -843,7 +576,7 @@ def test_sobol_bootstrap_caps_precede_qmc_artifact_capture_and_plugins(
     )
     bootstrap_resamples = 31
     if limit == "resamples":
-        bootstrap_resamples = plan_module.MAX_BOOTSTRAP_RESAMPLES + 1
+        bootstrap_resamples = MAX_BOOTSTRAP_RESAMPLES + 1
     else:
         monkeypatch.setattr(
             "eqasim_sa.core.methods.sobol_plan.MAX_BOOTSTRAP_WORK_CELLS", 1
@@ -944,258 +677,6 @@ def test_multiscramble_descriptive_only_publishes_partial_campaign_without_infer
 
 
 @pytest.mark.parametrize(
-    ("name", "version_key", "sha256"),
-    [
-        (
-            "canonical-morris-v1-706f0bc.parquet",
-            b"canonicalMorrisDesignVersion",
-            "3e36a12d2efe89c924e7a6e01b357c8f85ef2e589754c180c8b3d4e57171a604",
-        ),
-        (
-            "multiscramble-sobol-v1-706f0bc.parquet",
-            b"multiScrambleSobolDesignVersion",
-            "0cf49034f8482d20d5e37066a0b0bdf52fc7ad41771412f371d8eea4ab2503ab",
-        ),
-    ],
-)
-def test_legacy_v1_fixtures_are_immutable_baseline_plans(
-    name: str, version_key: bytes, sha256: str
-) -> None:
-    path = Path(__file__).with_name(name)
-
-    assert hashlib.sha256(path.read_bytes()).hexdigest() == sha256
-    assert pq.read_table(path).schema.metadata[version_key] == b"1"
-
-
-@pytest.mark.parametrize("method", ["canonical_morris", "multiscramble_sobol"])
-@pytest.mark.parametrize("version", [1, 2])
-def test_legacy_scientific_is_descriptive_only_without_salib_reinterpretation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    method: str,
-    version: int,
-) -> None:
-    import importlib
-
-    method_module = importlib.import_module(
-        "eqasim_sa.core.methods."
-        + ("canonical_morris" if method == "canonical_morris" else "multiscramble_sobol")
-    )
-    root, options = _legacy_scientific_campaign(
-        tmp_path / f"{method}-v{version}", method, version
-    )
-    names = (
-        ("engine_descriptor", "morris_unit_trajectories")
-        if method == "canonical_morris"
-        else ("engine_descriptor", "sobol_unit_positions")
-    )
-    for name in names:
-        monkeypatch.setattr(
-            method_module,
-            name,
-            lambda *args, **kwargs: (_ for _ in ()).throw(
-                AssertionError("legacy validation invoked SALib")
-            ),
-        )
-
-    result = analyze(
-        root,
-        (_custom_indicator(),),
-        descriptive_only=True,
-        **options,
-    )
-
-    assert result.completed == 0
-    assert result.inference_status == "incomplete_noninferential"
-    assert result.sensitivity_method is None
-    assert result.sensitivity_path is None
-    assert result.convergence_path is None
-    report = json.loads(result.governed_report_path.read_text())
-    assert report["claimAuthorized"] is False
-    assert "scientificContract" not in report
-    manifest = json.loads((root / "analysis-generation.json").read_text())
-    assert manifest["provenance"]["numericalEngine"] is None
-
-
-def test_legacy_scientific_v2_descriptive_accepts_legacy_completion_marker(
-    tmp_path: Path,
-) -> None:
-    root, options = _legacy_scientific_campaign(
-        tmp_path / "legacy-completion", "canonical_morris"
-    )
-    plan = pq.read_table(root / "plan.parquet")
-    row = plan.to_pylist()[0]
-    archive = root / "archives" / row["runId"]
-    archive.mkdir(parents=True)
-    write_parquet_atomic(pa.table({"synthetic": [1.5]}), archive / "age.parquet")
-    write_run(
-        root,
-        RunRecord(
-            row["runId"],
-            "test",
-            row["seed"],
-            row["contextHash"],
-            "node",
-            1.0,
-            {name: row[name] for name in ("a", "b")},
-        ),
-    )
-
-    result = analyze(
-        root,
-        (_custom_indicator(),),
-        descriptive_only=True,
-        **options,
-    )
-
-    assert result.completed == 1
-    assert result.inference_status == "incomplete_noninferential"
-    assert pq.read_table(result.path)["value"].to_pylist() == [1.5]
-
-
-@pytest.mark.parametrize("method", ["canonical_morris", "multiscramble_sobol"])
-@pytest.mark.parametrize("version", [1, 2])
-def test_legacy_scientific_refuses_inference_before_runs_or_indicator_runtime(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    method: str,
-    version: int,
-) -> None:
-    import importlib
-
-    analyze_module = importlib.import_module("eqasim_sa.core.analyze")
-    root, options = _legacy_scientific_campaign(
-        tmp_path / f"{method}-v{version}", method, version
-    )
-    monkeypatch.setattr(
-        analyze_module.CampaignSnapshot,
-        "capture",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("runs inspected")),
-    )
-    monkeypatch.setattr(
-        analyze_module,
-        "verify_indicator_runtime_identity",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("indicator runtime inspected")
-        ),
-    )
-
-    with pytest.raises(
-        ValueError, match=rf"v{version} is legacy.*replan.*SALib.*v3"
-    ):
-        analyze(root, (_custom_indicator(),), **options)
-
-    assert not (root / "analysis").exists()
-    assert not (root / "analysis-generation.json").exists()
-
-
-@pytest.mark.parametrize("method", ["canonical_morris", "multiscramble_sobol"])
-@pytest.mark.parametrize("version", [1, 2])
-@pytest.mark.parametrize("tamper", ["noncanonical", "distribution", "design_id", "role"])
-def test_legacy_scientific_descriptive_reader_rejects_tampering(
-    tmp_path: Path,
-    method: str,
-    version: int,
-    tamper: str,
-) -> None:
-    root, options = _legacy_scientific_campaign(
-        tmp_path / f"{method}-v{version}-{tamper}", method, version
-    )
-    path = root / "plan.parquet"
-    table = pq.read_table(path)
-    metadata = dict(table.schema.metadata or {})
-    design_key = (
-        b"canonicalMorrisDesign"
-        if method == "canonical_morris"
-        else b"multiScrambleSobolDesign"
-    )
-    rows = table.to_pylist()
-    if tamper == "noncanonical":
-        metadata[design_key] += b" "
-    elif tamper == "distribution":
-        sealed = json.loads(metadata[design_key])
-        if method == "canonical_morris":
-            sealed["distributions"][0]["provenance"] = "tampered"
-        else:
-            sealed["factors"][0]["distribution"]["provenance"] = "tampered"
-        metadata[design_key] = _canonical_json(sealed)
-    elif tamper == "design_id":
-        rows[1]["designId"] = "f" * 32
-    else:
-        rows[0]["role"] = "invalid"
-    write_parquet_atomic(
-        pa.Table.from_pylist(rows, schema=table.schema.with_metadata(metadata)),
-        path,
-    )
-
-    with pytest.raises(ValueError, match="legacy|scientific_contract"):
-        analyze(
-            root,
-            (_custom_indicator(),),
-            descriptive_only=True,
-            **options,
-        )
-
-    assert not (root / "analysis").exists()
-
-
-@pytest.mark.parametrize(
-    ("fixture_name", "requested_method"),
-    [
-        ("canonical-morris-v1-706f0bc.parquet", "multiscramble_sobol"),
-        ("multiscramble-sobol-v1-706f0bc.parquet", "canonical_morris"),
-    ],
-)
-def test_legacy_plan_method_mismatch_is_rejected_before_method_engine(
-    fixture_name: str, requested_method: str
-) -> None:
-    plan = pq.read_table(Path(__file__).with_name(fixture_name))
-
-    with pytest.raises(ValueError, match="does not match requested method"):
-        _validate_frozen_plan(
-            plan,
-            requested_method,
-            None,
-            None,
-            None,
-            None,
-            {},
-            True,
-        )
-
-
-@pytest.mark.parametrize("tamper", ["tolerance", "budget"])
-def test_legacy_v1_contract_rejects_impossible_decision_or_budget(
-    tmp_path: Path, tamper: str
-) -> None:
-    root, options = _legacy_scientific_campaign(
-        tmp_path / tamper, "multiscramble_sobol", 1
-    )
-    path = root / "plan.parquet"
-    table = pq.read_table(path)
-    metadata = dict(table.schema.metadata or {})
-    sealed = json.loads(metadata[b"multiScrambleSobolDesign"])
-    if tamper == "tolerance":
-        sealed["scientificContract"]["charter"]["decision"].update(
-            objective="ff", practical_tolerance=-1.0
-        )
-    else:
-        sealed["scientificContract"]["charter"]["budget"].update(
-            maximum_runs=1, reserve_fraction=0.0
-        )
-    metadata[b"multiScrambleSobolDesign"] = _canonical_json(sealed)
-    write_parquet_atomic(table.replace_schema_metadata(metadata), path)
-
-    with pytest.raises(ValueError, match="tolerance|budget"):
-        analyze(
-            root,
-            (_custom_indicator(),),
-            descriptive_only=True,
-            **options,
-        )
-
-
-@pytest.mark.parametrize(
     ("field", "value", "message"),
     [
         ("metric", "rank_stability", "ci_width"),
@@ -1254,7 +735,6 @@ def test_multiscramble_analyzer_rejects_v3_numerical_contract_tampering(
 def test_sobol_analysis_rejects_legacy_degenerate_hybrid_contrasts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import eqasim_sa.core.plan as plan_module
 
     root = tmp_path / "legacy-degenerate"
     descriptor = {
@@ -1595,7 +1075,6 @@ def test_multiscramble_output_variance_handles_float64_limits_explicitly() -> No
 def test_multiscramble_table_cell_cap_precedes_analyzer_salib_allocation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import eqasim_sa.core.analyze as analyze_module
 
     design = multiscramble_design(tmp_path / "multiscramble")
     build_plan(design)
@@ -2170,8 +1649,6 @@ def test_morris_ranking_has_exact_effects_schema_order_and_manifest(
     tmp_path: Path,
 ) -> None:
     root = _morris_campaign(tmp_path)
-    stale_sobol = root / "sobol-indices.parquet"
-    stale_sobol.write_bytes(b"stale sobol")
 
     result = _analyze(
         root, (_custom_indicator(),), completeness_threshold=1.0, method="morris"
@@ -2232,7 +1709,6 @@ def test_morris_ranking_has_exact_effects_schema_order_and_manifest(
         manifest["sensitivitySha256"]
         == __import__("hashlib").sha256(ranking.read_bytes()).hexdigest()
     )
-    assert not stale_sobol.exists()
 
 
 @pytest.mark.parametrize(
@@ -2332,7 +1808,6 @@ def test_morris_invalid_structure_preserves_all_previous_outputs(
     }
     for path, content in outputs.items():
         path.write_bytes(content)
-    before = _tree_snapshot(root)
     plan = pq.read_table(root / "plan.parquet")
     rows = plan.to_pylist()
     if damage == "role":
@@ -2501,25 +1976,17 @@ def test_analysis_publication_rejects_owned_role_and_never_overwrites_owned_docu
         _analyze(root, (_custom_indicator(),))
 
 
-def test_grid_analysis_transactionally_removes_stale_morris_ranking(
+def test_grid_analysis_manifest_records_no_sensitivity_output(
     tmp_path: Path,
 ) -> None:
     root, _ = _campaign(tmp_path)
-    stale = root / "morris-ranking.parquet"
-    stale.write_bytes(b"stale ranking")
-    stale_sobol = root / "sobol-indices.parquet"
-    stale_sobol.write_bytes(b"stale sobol")
-    arbitrary = root / "research-notes.txt"
-    arbitrary.write_text("keep\n")
 
     _analyze(root, (_custom_indicator(),))
 
-    assert not stale.exists()
-    assert not stale_sobol.exists()
-    assert arbitrary.read_text() == "keep\n"
     manifest = json.loads((root / "analysis-generation.json").read_text())
     assert manifest["sensitivityMethod"] is None
     assert manifest["sensitivitySha256"] is None
+    assert "sensitivity" not in manifest["outputs"]
 
 
 def test_manifest_failure_keeps_previous_pointer_and_leaves_only_immutable_orphan(
@@ -2626,7 +2093,6 @@ def test_manifest_failed_rollback_raises_distinct_outcome_unknown_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import eqasim_sa.core.analysis_publication as publication_module
     import eqasim_sa.utils.filesystem as durable_module
 
     root, _ = _campaign(tmp_path)
@@ -2658,7 +2124,7 @@ def test_manifest_failed_rollback_raises_distinct_outcome_unknown_error(
     monkeypatch.setattr(durable_module.os, "fsync", fail_new_pointer)
     monkeypatch.setattr(durable_module.os, "replace", fail_rollback)
 
-    with pytest.raises(publication_module.AnalysisManifestOutcomeUnknown):
+    with pytest.raises(PublicationOutcomeUnknown):
         _analyze(
             root,
             (RegisteredIndicator("alternate", "age", _artifact_value),),
@@ -2666,25 +2132,6 @@ def test_manifest_failed_rollback_raises_distinct_outcome_unknown_error(
 
     assert fsync_failed
     assert tuple((root / "analysis/staging").glob(".b????????"))
-
-
-def test_legacy_cleanup_failure_does_not_fail_committed_analysis(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import eqasim_sa.core.analysis_publication as publication_module
-
-    root, _ = _campaign(tmp_path)
-    monkeypatch.setattr(
-        publication_module,
-        "_clean_legacy_outputs",
-        lambda path: (_ for _ in ()).throw(OSError("injected cleanup failure")),
-    )
-
-    result = _analyze(root, (_custom_indicator(),))
-
-    manifest = json.loads((root / "analysis-generation.json").read_text())
-    assert result.path == root / manifest["outputs"]["indicators"]["path"]
 
 
 def test_generation_rename_failure_keeps_previous_pointer_and_generation(
@@ -2901,17 +2348,6 @@ def test_analyze_rejects_invalid_completion_marker_without_publication(
         _analyze(root, (_custom_indicator(),))
 
     assert not (root / "indicators.parquet").exists()
-
-
-def test_analyze_rejects_legacy_unbound_completion_marker(tmp_path: Path) -> None:
-    root, run_ids = _campaign(tmp_path)
-    (root / "runs" / f"{run_ids[0]}.parquet").unlink()
-    write_run(root, RunRecord(run_ids[0], "test", 1, "hash", "node", 1.0, {}))
-
-    with pytest.raises(ValueError, match="verified v2 completion marker"):
-        _analyze(root, (_custom_indicator(),))
-
-    assert not (root / "analysis-generation.json").exists()
 
 
 def test_analyze_rejects_foreign_and_full_contract_invalid_markers(
@@ -3275,116 +2711,6 @@ def test_analyze_adapter_passes_requested_method_and_exposes_sensitivity(
     assert payload["dispersionPath"] == str(result.dispersion_path)
     assert payload["sensitivityMethod"] == "morris"
     assert payload["sensitivityPath"] == str(result.sensitivity_path)
-
-
-@pytest.mark.parametrize(
-    ("method", "fixture_name"),
-    [
-        ("canonical_morris", "canonical-morris-v1-706f0bc.parquet"),
-        ("multiscramble_sobol", "multiscramble-sobol-v1-706f0bc.parquet"),
-    ],
-)
-def test_analyze_adapter_routes_legacy_plan_without_current_design_preflight(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    method: str,
-    fixture_name: str,
-) -> None:
-    root = tmp_path / "campaign"
-    root.mkdir()
-    (root / "plan.parquet").write_bytes(
-        Path(__file__).with_name(fixture_name).read_bytes()
-    )
-    meta = SimpleNamespace(
-        campaign_root=root,
-        indicators=(),
-        campaign="test",
-        completeness_threshold=1.0,
-        seed_role="replication" if method == "canonical_morris" else "factor",
-        method=method,
-    )
-    result = SimpleNamespace(
-        path=root / "indicators.parquet",
-        dispersion_path=None,
-        sensitivity_method=None,
-        sensitivity_path=None,
-        runs=0,
-        indicators=0,
-        values=0,
-        completion_rate=0.0,
-        expected=1,
-        completed=0,
-        missing=1,
-        failed=0,
-    )
-    seen = {}
-    monkeypatch.setattr(
-        "eqasim_sa.adapters.application.load_meta_config", lambda path, **kwargs: meta
-    )
-    monkeypatch.setattr(
-        "eqasim_sa.adapters.application._design",
-        lambda current: (_ for _ in ()).throw(
-            AssertionError("legacy adapter invoked current design")
-        ),
-    )
-    monkeypatch.setattr(
-        "eqasim_sa.adapters.application.load_run_specs",
-        lambda *args: (_ for _ in ()).throw(
-            AssertionError("legacy adapter invoked current plan validation")
-        ),
-    )
-    monkeypatch.setattr(
-        "eqasim_sa.adapters.application.analyze",
-        lambda *args, **kwargs: seen.update(kwargs) or result,
-    )
-
-    payload = analyze_from_meta_config(Path("meta.yml"), descriptive_only=True)
-
-    assert seen["descriptive_only"] is True
-    assert seen["method"] == method
-    assert payload["sensitivityMethod"] is None
-
-
-def test_analyze_adapter_refuses_legacy_inference_before_loading_plugins(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    root = tmp_path / "campaign"
-    root.mkdir()
-    (root / "plan.parquet").write_bytes(
-        Path(__file__).with_name("canonical-morris-v1-706f0bc.parquet").read_bytes()
-    )
-    meta_path = tmp_path / "meta.yml"
-    meta_path.write_text(
-        f"campaign_root: {root}\nexperiment:\n  method: canonical_morris\n"
-    )
-    monkeypatch.setattr(
-        "eqasim_sa.adapters.application.load_meta_config",
-        lambda path: (_ for _ in ()).throw(AssertionError("plugins were loaded")),
-    )
-
-    with pytest.raises(ValueError, match="legacy.*replan.*SALib.*v3"):
-        analyze_from_meta_config(meta_path)
-
-
-def test_analyze_adapter_rejects_legacy_method_mismatch_before_loading_plugins(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    root = tmp_path / "campaign"
-    root.mkdir()
-    (root / "plan.parquet").write_bytes(
-        Path(__file__).with_name("canonical-morris-v1-706f0bc.parquet").read_bytes()
-    )
-    meta_path = tmp_path / "meta.yml"
-    meta_path.write_text(
-        f"campaign_root: {root}\nexperiment:\n  method: multiscramble_sobol\n"
-    )
-    monkeypatch.setattr(
-        "eqasim_sa.adapters.application.load_meta_config",
-        lambda path: (_ for _ in ()).throw(AssertionError("plugins were loaded")),
-    )
-
-    with pytest.raises(ValueError, match="does not match declared method"):
-        analyze_from_meta_config(meta_path, descriptive_only=True)
 
 
 def test_analyze_adapter_requires_boolean_descriptive_mode() -> None:

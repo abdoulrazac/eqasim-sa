@@ -23,7 +23,7 @@ from eqasim_sa.core.analyze import analyze
 from eqasim_sa.core.methods.multiscramble_sobol import _multiscramble_sobol_tables
 from eqasim_sa.core.indicators import ArtifactSet, RegisteredIndicator
 from eqasim_sa.utils.filesystem import write_parquet_atomic
-from eqasim_sa.core.ledger import RunRecord, write_run
+from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.plan import GridDesign, MorrisDesign, SobolDesign, build_plan, load_run_specs
 from eqasim_sa.core.run import RunResult, RunSpec, compute_run_id
 from eqasim_sa.core.software_identity import read_software_identity
@@ -31,6 +31,7 @@ from eqasim_sa.ports.simulator import SimulationError
 from tests.test_multiscramble_sobol_plan import multiscramble_meta_document
 from tests.test_multiscramble_sobol_plan import multiscramble_design
 from tests.test_plan import git, meta_fixture
+from tests.provenance_helpers import write_verified_run
 
 
 CONFIGURATIONS = {
@@ -458,7 +459,7 @@ def _structured_sobol_campaign(root: Path) -> Path:
             pa.table({"synthetic": [value]}),
             root / "archives" / row["runId"] / "age.parquet",
         )
-        write_run(
+        write_verified_run(
             root,
             RunRecord(
                 row["runId"],
@@ -473,7 +474,7 @@ def _structured_sobol_campaign(root: Path) -> Path:
     return root
 
 
-def test_historical_sobol_cli_preflight_rejects_payload_only_tampering(
+def test_structured_sobol_cli_preflight_rejects_payload_only_tampering(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     meta = structured_meta(tmp_path)
@@ -514,7 +515,7 @@ def _artifact_value(artifacts: ArtifactSet) -> float:
 
 
 @pytest.mark.parametrize("tamper", ["unrelated", "missing", "extra", "reordered"])
-def test_historical_sobol_analysis_rejects_structured_support_tampering(
+def test_structured_sobol_analysis_rejects_structured_support_tampering(
     tmp_path: Path, tamper: str
 ) -> None:
     root = _structured_sobol_campaign(tmp_path / "sobol")
@@ -553,7 +554,7 @@ def test_historical_sobol_analysis_rejects_structured_support_tampering(
 
 
 @pytest.mark.parametrize("target", ["generic", "method", "both"])
-def test_historical_sobol_direct_analysis_rejects_payload_only_tampering(
+def test_structured_sobol_direct_analysis_rejects_payload_only_tampering(
     tmp_path: Path, target: str
 ) -> None:
     root = _structured_sobol_campaign(tmp_path / "sobol")

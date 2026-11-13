@@ -15,7 +15,6 @@ from eqasim_sa.adapters.data_manifest import load_data_manifest
 from eqasim_sa.adapters.eqasim.config import (
     EqasimSettings,
     load_config,
-    load_yaml_document,
 )
 from eqasim_sa.adapters.eqasim.execution import (
     EqasimBatchExecutor,
@@ -82,7 +81,7 @@ def plan_from_meta_config(path: Path) -> PlanResult:
             meta.context_descriptor
         )
         context_identity.require_sha256(meta.context_hash)
-    except ValueError as error:
+    except ValueError:
         raise ValueError("context descriptor does not match contextHash")
     verify_software_source_states(meta.software_identity)
     requirements = dict(eqasim_requirements(meta.indicator_requirements))
@@ -218,94 +217,16 @@ def run_from_meta_config(path: Path) -> dict:
     )
 
 
-def _legacy_scientific_plan(path: Path) -> tuple[str, int] | None:
-    try:
-        metadata = pq.ParquetFile(path).schema_arrow.metadata or {}
-    except FileNotFoundError:
-        return None
-    found = []
-    for method, version_key, design_key in (
-        (
-            "canonical_morris",
-            b"canonicalMorrisDesignVersion",
-            b"canonicalMorrisDesign",
-        ),
-        (
-            "multiscramble_sobol",
-            b"multiScrambleSobolDesignVersion",
-            b"multiScrambleSobolDesign",
-        ),
-    ):
-        version_present = version_key in metadata
-        design_present = design_key in metadata
-        if version_present != design_present:
-            raise ValueError(f"plan has incomplete {method} version metadata")
-        if not version_present:
-            continue
-        version = metadata[version_key]
-        if version not in {b"1", b"2", b"3"}:
-            raise ValueError(f"plan has unsupported {method} design version")
-        found.append((method, int(version)))
-    if len(found) > 1:
-        raise ValueError("plan declares multiple scientific methods")
-    return found[0] if found and found[0][1] in {1, 2} else None
-
-
-def _legacy_plan_from_meta_path(path: Path) -> tuple[str, tuple[str, int]] | None:
-    try:
-        source = path.resolve(strict=True)
-        document = load_yaml_document(source)
-    except FileNotFoundError:
-        return None
-    if not isinstance(document, dict):
-        return None
-    campaign_root = document.get("campaign_root")
-    experiment = document.get("experiment")
-    if not isinstance(campaign_root, str) or not isinstance(experiment, dict):
-        return None
-    method = experiment.get("method")
-    if not isinstance(method, str):
-        return None
-    legacy = _legacy_scientific_plan(
-        source.parent / campaign_root / "plan.parquet"
-    )
-    return (method, legacy) if legacy is not None else None
-
-
 def analyze_from_meta_config(path: Path, descriptive_only: bool = False) -> dict:
-    """Analyze a campaign after enforcing current or legacy plan constraints."""
+    """Analyze a campaign after enforcing its sealed plan constraints."""
 
     if type(descriptive_only) is not bool:
         raise TypeError("descriptive_only must be a bool")
-    early = _legacy_plan_from_meta_path(path)
-    if early is not None:
-        declared_method, (legacy_method, legacy_version) = early
-        if declared_method != legacy_method:
-            raise ValueError(
-                f"legacy {legacy_method} plan does not match declared method {declared_method}"
-            )
-        if not descriptive_only:
-            raise ValueError(
-                f"{legacy_method} design v{legacy_version} is legacy and cannot support "
-                "inference; replan the campaign with the current SALib design v3"
-            )
     meta = load_meta_config(path, verify_data=False)
     _validate_scientific_method(meta)
     plan_path = meta.campaign_root / "plan.parquet"
-    legacy = _legacy_scientific_plan(plan_path)
-    if legacy is not None and legacy[0] != meta.method:
-        raise ValueError(
-            f"legacy {legacy[0]} plan does not match declared method {meta.method}"
-        )
-    if legacy is not None and not descriptive_only:
-        raise ValueError(
-            f"{legacy[0]} design v{legacy[1]} is legacy and cannot support inference; "
-            "replan the campaign with the current SALib design v3"
-        )
-    if legacy is None:
-        # Full-context run identity is an adapter preflight: core analysis has no base config.
-        design = _design(meta)
-        load_run_specs(plan_path, design, meta.campaign)
+    # Full-context run identity is an adapter preflight: core analysis has no base config.
+    load_run_specs(plan_path, _design(meta), meta.campaign)
     result = analyze(
         meta.campaign_root,
         meta.indicators,

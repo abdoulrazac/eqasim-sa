@@ -10,7 +10,6 @@ import pytest
 from eqasim_sa.adapters.eqasim.workspace import (
     CAMPAIGN_MAX,
     SLOT_MAX,
-    WORKSPACE_PREFIX_BUDGET,
     workspace_prefix_length,
     WorkerWorkspace,
 )
@@ -244,6 +243,7 @@ def test_campaign_length_is_bounded(tmp_path: Path) -> None:
 
 
 def test_budget_matches_layout() -> None:
-    assert WORKSPACE_PREFIX_BUDGET == len("/esa//w/a") + CAMPAIGN_MAX + SLOT_MAX + 12
-    assert workspace_prefix_length("c" * CAMPAIGN_MAX) == WORKSPACE_PREFIX_BUDGET
+    assert workspace_prefix_length("c" * CAMPAIGN_MAX) == (
+        len("/esa//w/a") + CAMPAIGN_MAX + SLOT_MAX + 12
+    )
     assert workspace_prefix_length("demo") == len("/esa/demo/w9999/a") + 12

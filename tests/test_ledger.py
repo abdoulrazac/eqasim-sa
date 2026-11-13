@@ -13,10 +13,14 @@ import pytest
 from eqasim_sa.core import ledger
 from eqasim_sa.core import durable_publication
 from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
-from eqasim_sa.core.ledger import RunRecord, run_path, write_run
+from eqasim_sa.core.ledger import ArtifactManifestEntry, RunRecord, run_path, write_run
 from eqasim_sa.core.run import RunSpec, compute_run_id, pending_run_specs
-from eqasim_sa.ports.simulator import EXECUTION_EVIDENCE_DOMAIN, ExecutionEvidence
+from eqasim_sa.ports.simulator import EXECUTION_EVIDENCE_V2_DOMAIN, ExecutionEvidence
 from tests.conftest import make_symlink
+from tests.provenance_helpers import write_archive, write_verified_run
+
+# Any well-formed manifest: record validation must fail before it is used.
+UNUSED_MANIFEST = (ArtifactManifestEntry("output.parquet", 1, "0" * 64),)
 
 
 def is_complete(campaign_root: Path, current: RunSpec) -> bool:
@@ -36,7 +40,7 @@ def test_writes_one_row_zstd_ledger_at_exact_path(tmp_path: Path) -> None:
     spec = run_spec(42, rate=0.1)
     run_id = compute_run_id(spec.resolved_config, spec.seed)
     record = RunRecord(run_id, "demo", 42, "c" * 64, "node", 1.25, {"rate": 0.1})
-    destination = write_run(tmp_path, record)
+    destination = write_verified_run(tmp_path, record)
     assert destination == tmp_path / "runs" / f"{run_id}.parquet"
     assert is_complete(tmp_path, spec)
     assert run_path(tmp_path, record.run_id) == destination
@@ -72,11 +76,23 @@ def test_writes_one_row_zstd_ledger_at_exact_path(tmp_path: Path) -> None:
 
 def test_rejects_reserved_parameter_and_invalid_scalar(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="reserved"):
-        write_run(tmp_path, RunRecord("a" * 32, "c", 1, "x", "n", 0.0, {"seed": 3}))
+        write_run(
+            tmp_path,
+            RunRecord("a" * 32, "c", 1, "x", "n", 0.0, {"seed": 3}),
+            UNUSED_MANIFEST,
+        )
     with pytest.raises(TypeError):
-        write_run(tmp_path, RunRecord("a" * 32, "c", 1, "x", "n", 0.0, {"x": [1]}))
+        write_run(
+            tmp_path,
+            RunRecord("a" * 32, "c", 1, "x", "n", 0.0, {"x": [1]}),
+            UNUSED_MANIFEST,
+        )
     with pytest.raises(TypeError):
-        write_run(tmp_path, RunRecord("a" * 32, "c", 1, "x", "n", 0.0, {"x": None}))
+        write_run(
+            tmp_path,
+            RunRecord("a" * 32, "c", 1, "x", "n", 0.0, {"x": None}),
+            UNUSED_MANIFEST,
+        )
 
 
 @pytest.mark.parametrize(
@@ -101,7 +117,7 @@ def test_rejects_invalid_duration_and_scratch_before_write(
 ) -> None:
     record = RunRecord("a" * 32, "demo", 1, "ctx", "node", 1.0, {})
     with pytest.raises(ValueError, match=message):
-        write_run(tmp_path, replace(record, **changes))
+        write_run(tmp_path, replace(record, **changes), UNUSED_MANIFEST)
     assert not (tmp_path / "runs").exists()
 
 
@@ -239,6 +255,7 @@ def test_write_run_rechecks_every_pinned_publication_directory(
     directory: str,
 ) -> None:
     record = RunRecord("a" * 32, "demo", 1, "ctx", "node", 1.0, {})
+    manifest = write_archive(tmp_path, record.run_id)
     real_write = ledger.pq.write_table
     moved = False
 
@@ -262,18 +279,18 @@ def test_write_run_rechecks_every_pinned_publication_directory(
     monkeypatch.setattr(ledger.pq, "write_table", replace_directory_after_staging)
 
     with pytest.raises(RuntimeError, match="directories changed"):
-        write_run(tmp_path, record)
+        write_run(tmp_path, record, manifest)
 
     assert not (tmp_path / "runs" / f"{record.run_id}.parquet").exists()
 
 
 def test_write_run_is_strictly_no_clobber(tmp_path: Path) -> None:
     record = RunRecord("a" * 32, "demo", 1, "ctx", "node", 1.0, {})
-    destination = write_run(tmp_path, record)
+    destination = write_verified_run(tmp_path, record)
     before = destination.read_bytes()
 
     with pytest.raises(FileExistsError):
-        write_run(tmp_path, replace(record, duration=2.0))
+        write_verified_run(tmp_path, replace(record, duration=2.0))
 
     assert destination.read_bytes() == before
     assert not tuple((tmp_path / ".eqasim-sa/transactions").iterdir())
@@ -291,7 +308,7 @@ def test_write_run_does_not_delegate_ledger_proof_to_generic_path_writer(
     )
     record = RunRecord("a" * 32, "demo", 1, "ctx", "node", 1.0, {})
 
-    assert write_run(tmp_path, record).is_file()
+    assert write_verified_run(tmp_path, record).is_file()
 
 
 def run_spec(seed: int = 42, **parameters: object) -> RunSpec:
@@ -300,19 +317,7 @@ def run_spec(seed: int = 42, **parameters: object) -> RunSpec:
 
 
 def complete(root: Path, spec: RunSpec) -> Path:
-    run_id = compute_run_id(spec.resolved_config, spec.seed)
-    return write_run(
-        root,
-        RunRecord(
-            run_id,
-            spec.campaign,
-            spec.seed,
-            spec.expected_context_hash,
-            "node",
-            1.0,
-            spec.parameters,
-        ),
-    )
+    return complete_v2(root, spec)[0]
 
 
 def execution_evidence(context_hash: str = "c" * 64) -> ExecutionEvidence:
@@ -366,7 +371,18 @@ def test_archive_transaction_never_replaces_a_competing_marker(
     with ledger.archive_transaction(
         tmp_path, record.run_id, (("output.parquet", source),)
     ) as publication:
-        marker = write_run(tmp_path, record)
+        source_bytes = source.read_bytes()
+        marker = write_run(
+            tmp_path,
+            record,
+            (
+                ArtifactManifestEntry(
+                    "output.parquet",
+                    len(source_bytes),
+                    hashlib.sha256(source_bytes).hexdigest(),
+                ),
+            ),
+        )
         before = marker.read_bytes()
         with pytest.raises(FileExistsError, match="completion marker"):
             publication.commit(record)
@@ -444,7 +460,8 @@ def test_archive_transaction_marker_race_is_no_clobber_and_self_consistent(
     assert len(committed) == 1, [repr(error) for error in errors]
     assert len(errors) == 1 and isinstance(errors[0], FileExistsError)
     completion = ledger.completion_state(tmp_path, expected_record(spec))
-    assert completion is not None and completion.archive_integrity == ledger.VERIFIED
+    assert completion is not None
+    assert completion.archive == tmp_path / "archives" / record.run_id
     archive = tmp_path / "archives" / record.run_id / "output.parquet"
     assert pq.read_table(archive).to_pylist() == [{"value": committed[0]}]
     assert not tuple((tmp_path / "archives").glob(".b????????"))
@@ -518,7 +535,15 @@ def test_v2_marker_has_canonical_manifest_and_copies_zstd_bytes(
     ]
     assert artifact.read_bytes() == source_bytes
     state = ledger.completion_state(tmp_path, expected_record(spec))
-    assert state is not None and state.archive_integrity == ledger.VERIFIED
+    assert state is not None
+    assert state.artifacts == (
+        ArtifactManifestEntry(
+            "output.parquet",
+            len(source_bytes),
+            hashlib.sha256(source_bytes).hexdigest(),
+        ),
+    )
+    assert state.archive == artifact.parent
     assert is_complete(tmp_path, spec)
 
 
@@ -534,7 +559,7 @@ def test_v2_marker_binds_canonical_execution_evidence(tmp_path: Path) -> None:
     descriptor = json.dumps(
         document, sort_keys=True, separators=(",", ":")
     ).encode()
-    assert digest == hashlib.sha256(EXECUTION_EVIDENCE_DOMAIN + descriptor).hexdigest()
+    assert digest == hashlib.sha256(EXECUTION_EVIDENCE_V2_DOMAIN + descriptor).hexdigest()
     state = ledger.completion_state(tmp_path, expected_record(spec))
     assert state is not None and state.execution_evidence == expected
 
@@ -666,32 +691,14 @@ def test_v2_reader_rejects_symlinked_archive_directory(tmp_path: Path) -> None:
         is_complete(tmp_path, spec)
 
 
-@pytest.mark.parametrize("explicit", [False, True])
-def test_v1_marker_is_read_as_legacy_unbound_without_migration(
-    tmp_path: Path, explicit: bool
+@pytest.mark.parametrize("version", [None, b"1", b"99"])
+def test_unknown_completion_marker_version_is_rejected(
+    tmp_path: Path, version: bytes | None
 ) -> None:
     spec = run_spec(rate=1)
     marker = complete(tmp_path, spec)
-    if explicit:
-        table = pq.read_table(marker).replace_schema_metadata(
-            {ledger.COMPLETION_MARKER_VERSION: b"1"}
-        )
-        pq.write_table(table, marker, compression="zstd")
-    before = marker.read_bytes()
-
-    state = ledger.completion_state(tmp_path, expected_record(spec))
-
-    assert state is not None
-    assert state.archive_integrity == ledger.LEGACY_UNBOUND
-    assert state.artifacts == ()
-    assert marker.read_bytes() == before
-
-
-def test_unknown_completion_marker_version_is_rejected(tmp_path: Path) -> None:
-    spec = run_spec(rate=1)
-    marker = complete(tmp_path, spec)
     table = pq.read_table(marker).replace_schema_metadata(
-        {ledger.COMPLETION_MARKER_VERSION: b"99"}
+        None if version is None else {ledger.COMPLETION_MARKER_VERSION: version}
     )
     pq.write_table(table, marker, compression="zstd")
 
@@ -723,7 +730,7 @@ def test_marker_writer_rejects_symlinked_parent_directory(tmp_path: Path) -> Non
     record = RunRecord("a" * 32, "demo", 1, "ctx", "node", 1.0, {})
 
     with pytest.raises(ValueError, match="non-symlink"):
-        write_run(campaign, record)
+        write_run(campaign, record, UNUSED_MANIFEST)
     assert not tuple(outside.iterdir())
 
 

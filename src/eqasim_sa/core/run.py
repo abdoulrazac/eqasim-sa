@@ -335,11 +335,7 @@ def require_same_machine(
             differing.add("execution evidence unavailable")
             continue
         for field in MACHINE_FIELDS:
-            recorded = getattr(evidence, field)
-            # Schema v1 evidence predates eqasim_sa binding: compare what it has.
-            if recorded is None and field == "eqasim_sa_sha256":
-                continue
-            if recorded != getattr(current, field):
+            if getattr(evidence, field) != getattr(current, field):
                 differing.add(field)
     if differing:
         causes = sorted({MACHINE_FIELD_CAUSES.get(field, field) for field in differing})

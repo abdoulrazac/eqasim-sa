@@ -14,12 +14,10 @@ import yaml
 
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.core.analyze import analyze
-from eqasim_sa.core.indicators import RegisteredIndicator
 from eqasim_sa.utils.filesystem import write_parquet_atomic
 from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.plan import build_plan
 from tests.test_analyze import (
-    _artifact_value,
     _custom_indicator,
     _sobol_campaign,
     _write_verified_run,
@@ -32,6 +30,7 @@ from tests.test_init import initialize
 from tests.test_multiscramble_sobol_plan import multiscramble_design
 from tests.test_nantes_scientific_protocol import (
     TEMPLATES,
+    _evidence_path,
     _fixture_paths,
     _render_command,
 )
@@ -396,7 +395,7 @@ def test_release_nantes_gates_refuse_without_output(tmp_path: Path) -> None:
     paths = _fixture_paths(tmp_path)
     pilot_plan = paths["pilot"] / "plan.parquet"
     plan_bytes = pilot_plan.read_bytes()
-    allocation = paths["pilot"] / "replication-allocation.json"
+    allocation = _evidence_path(paths["pilot"], "replication-allocation.json")
     allocation_bytes = allocation.read_bytes()
 
     pilot_plan.unlink()

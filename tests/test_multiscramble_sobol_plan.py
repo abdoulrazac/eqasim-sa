@@ -358,7 +358,6 @@ def test_multiscramble_ff_tolerance_above_one_is_rejected_by_core(tmp_path: Path
 def test_multiscramble_table_cell_cap_precedes_salib_allocation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import eqasim_sa.core.plan as plan_module
 
     factors = {f"f{index:05d}": [0, 1] for index in range(10_599)}
     design = multiscramble_design(
@@ -401,7 +400,6 @@ def test_multiscramble_estimate_formula() -> None:
 def test_multiscramble_budget_uses_structural_positions_not_unique_runs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import eqasim_sa.core.plan as plan_module
 
     permissive = multiscramble_design(tmp_path / "permissive")
     result = build_plan(permissive)

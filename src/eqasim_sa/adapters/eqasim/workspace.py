@@ -25,21 +25,18 @@ from eqasim_sa.utils.names import validate_portable_name
 CAMPAIGN_MAX = 64
 SLOT_MAX = 4
 _PREFIX_HEX = 12
-# Longest relative path eqasim-sa adds below the scratch directory:
-# /esa/<campaign>/w<slot>/a<12 hex> (the cache directory c<12 hex> has the same
-# length and eqasim runs inside the attempt directory).
-WORKSPACE_PREFIX_BUDGET = (
-    len("/esa//w/a") + CAMPAIGN_MAX + SLOT_MAX + _PREFIX_HEX
-)
 
 
 def workspace_prefix_length(campaign: str) -> int:
-    """Longest relative path eqasim-sa adds below scratch for ``campaign``."""
+    """Longest relative path eqasim-sa adds below scratch for ``campaign``.
+
+    Layout: /esa/<campaign>/w<slot>/a<12 hex>. The cache directory c<12 hex>
+    has the same length and eqasim runs inside the attempt directory.
+    """
     return len("/esa//w/a") + len(campaign) + SLOT_MAX + _PREFIX_HEX
 
 _CAMPAIGN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _CONTEXT = re.compile(r"^[0-9a-f]{64}$")
-_SLOT = re.compile(r"^(0|[1-9][0-9]{0,3})$")
 _SLOT_DIRECTORY = re.compile(r"^w(0|[1-9][0-9]{0,3})$")
 _ATTEMPT = re.compile(r"^a[0-9a-f]{12}$")
 _CACHE = re.compile(r"^c[0-9a-f]{12}$")

@@ -9,7 +9,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from eqasim_sa.adapters import estimate as estimate_service
-from eqasim_sa.core.ledger import RunRecord, write_run
+from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.plan import (
     GridDesign,
     MorrisDesign,
@@ -20,7 +20,7 @@ from eqasim_sa.core.plan import (
 )
 from eqasim_sa.core.run import compute_run_id
 from eqasim_sa.ports.simulator import IndicatorRequirement
-from tests.provenance_helpers import context_hash
+from tests.provenance_helpers import context_hash, write_verified_run
 from tests.conftest import make_symlink
 
 
@@ -151,7 +151,7 @@ def test_application_estimate_passes_sobol_formula_inputs_and_unique_runs(
     built = build_plan(design)
     spec = load_run_specs(root / "plan.parquet", design, "demo")[0]
     run_id = compute_run_id(spec.resolved_config, spec.seed)
-    marker = write_run(
+    marker = write_verified_run(
         root,
         RunRecord(
             run_id,
@@ -163,9 +163,6 @@ def test_application_estimate_passes_sobol_formula_inputs_and_unique_runs(
             spec.parameters,
         ),
     )
-    archive = root / "archives" / run_id
-    archive.mkdir(parents=True)
-    pq.write_table(pa.table({"value": [1]}), archive / "output.parquet")
     target = SimpleNamespace(
         campaign="demo",
         campaign_root=root,
@@ -221,7 +218,7 @@ def campaign(
     build_plan(design)
     spec = load_run_specs(root / "plan.parquet", design, "demo")[0]
     run_id = compute_run_id(spec.resolved_config, spec.seed)
-    marker = write_run(
+    marker = write_verified_run(
         root,
         RunRecord(
             run_id,
@@ -234,9 +231,6 @@ def campaign(
             100,
         ),
     )
-    archive = root / "archives" / run_id
-    archive.mkdir(parents=True)
-    pq.write_table(pa.table({"value": [1]}), archive / "output.parquet")
     return SimpleNamespace(
         campaign="demo",
         campaign_root=root,
@@ -347,28 +341,25 @@ def test_application_estimate_rejects_archive_mutation(
     monkeypatch.setattr(
         "eqasim_sa.adapters.estimate.load_meta_config", lambda path: meta
     )
-    original = pq.ParquetFile
+    from eqasim_sa.core import campaign_snapshot
+
+    original = campaign_snapshot.completion_state
     mutated = False
 
-    def mutate_after_open(path: Path):  # type: ignore[no-untyped-def]
+    def mutate_after_verification(campaign_root, record):  # type: ignore[no-untyped-def]
         nonlocal mutated
-        result = original(path)
-        if (
-            isinstance(path, (str, Path))
-            and Path(path).parent.parent.name == "archives"
-            and not mutated
-        ):
+        result = original(campaign_root, record)
+        if result is not None and not mutated:
             mutated = True
-            pq.write_table(
-                pa.table({"value": [2]}), Path(path).with_name("added.parquet")
-            )
+            pq.write_table(pa.table({"value": [2]}), result.archive / "added.parquet")
         return result
 
     monkeypatch.setattr(
-        "eqasim_sa.core.campaign_snapshot.pq.ParquetFile", mutate_after_open
+        campaign_snapshot, "completion_state", mutate_after_verification
     )
     with pytest.raises(RuntimeError, match="mutated"):
         estimate_from_meta_config(Path("meta.yml"), ())
+    assert mutated
 
 
 def test_application_estimate_rejects_target_plan_mutation(

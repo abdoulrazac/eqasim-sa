@@ -229,7 +229,7 @@ def test_slurm_backend_reconciles_leftover_journal_before_new_submission(
         "700_0": FakeJob(job_id="700_0"),
         "700_1": FakeJob(job_id="700_1"),
     }
-    slurm._write_journal(journal, tuple(jobs))
+    slurm._write_journal(journal, slurm.ActiveJobs(tuple(jobs), "d" * 32))
     reconstructed = []
 
     def factory(folder: Path, job_id: str) -> FakeJob:
@@ -254,48 +254,6 @@ def test_slurm_backend_reconciles_leftover_journal_before_new_submission(
     assert FakeExecutor.instances == []
 
 
-def test_slurm_backend_treats_legacy_journal_as_read_only_and_refuses_submit(
-    tmp_path: Path,
-) -> None:
-    legacy_journal = tmp_path / ".submitit" / slurm.ACTIVE_JOB_JOURNAL
-    legacy_journal.parent.mkdir()
-    slurm._write_journal(legacy_journal, ("750",))
-    before = legacy_journal.read_bytes(), legacy_journal.stat().st_mtime_ns
-    reconstructed = []
-
-    def factory(folder: Path, job_id: str) -> FakeJob:
-        reconstructed.append((folder, job_id))
-        return FakeJob(job_id=job_id)
-
-    backend = SlurmBackend(
-        tmp_path,
-        1,
-        {},
-        executor_factory=FakeExecutor,
-        job_factory=factory,
-    )
-
-    with pytest.raises(RuntimeError, match="read-only"):
-        list(backend.map(str, (1,)))
-
-    assert not reconstructed and not FakeExecutor.instances
-    assert (legacy_journal.read_bytes(), legacy_journal.stat().st_mtime_ns) == before
-
-
-def test_slurm_backend_rejects_symlinked_legacy_state_before_submit(
-    tmp_path: Path,
-) -> None:
-    external = tmp_path / "external-submitit"
-    external.mkdir()
-    make_symlink(tmp_path / ".submitit", external, target_is_directory=True)
-    backend = SlurmBackend(tmp_path, 1, {}, executor_factory=FakeExecutor)
-
-    with pytest.raises(ValueError, match="directory"):
-        list(backend.map(str, (1,)))
-
-    assert FakeExecutor.instances == []
-
-
 def test_slurm_backend_preserves_leftover_journal_when_recovery_is_unconfirmed(
     tmp_path: Path,
 ) -> None:
@@ -305,7 +263,7 @@ def test_slurm_backend_preserves_leftover_journal_when_recovery_is_unconfirmed(
         job_id="800",
         wait_error=RuntimeError("scheduler unavailable"),
     )
-    slurm._write_journal(journal, (job.job_id,))
+    slurm._write_journal(journal, slurm.ActiveJobs((job.job_id,), "d" * 32))
     backend = SlurmBackend(
         tmp_path,
         1,
@@ -402,7 +360,7 @@ def test_slurm_recovers_interrupted_journal_publication(
 ) -> None:
     state = slurm_state(tmp_path)
     state.mkdir(parents=True)
-    journal = slurm.ActiveJobs(("920",))
+    journal = slurm.ActiveJobs(("920",), "d" * 32)
     temporary = state / (".t" + "b" * 8)
     temporary.write_bytes(slurm._journal_bytes(journal))
     if linked:

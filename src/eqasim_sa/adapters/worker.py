@@ -4,7 +4,6 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Generic, TypeVar, cast
 
-from eqasim_sa.core.ledger import run_lease
 
 T = TypeVar("T")
 R = TypeVar("R")

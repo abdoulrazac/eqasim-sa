@@ -15,7 +15,6 @@ from types import MappingProxyType
 from typing import Callable, Mapping, Sequence
 
 import pyarrow as pa
-import pyarrow.parquet as pq
 
 from eqasim_sa.core.campaign_snapshot import (
     CampaignSnapshot,
@@ -24,7 +23,6 @@ from eqasim_sa.core.campaign_snapshot import (
 )
 from eqasim_sa.utils import platform
 from eqasim_sa.utils.filesystem import (
-    PublicationOutcomeUnknown,
     file_lease,
     owned_by_current_user,
     fsync_directory,
@@ -44,7 +42,6 @@ from eqasim_sa.ports.simulator import ExecutionEvidence
 
 ANALYSIS_LAYOUT = "immutable-generation-v1"
 ANALYSIS_STATE_DIRECTORY = "analysis"
-LEGACY_ANALYSIS_STATE_DIRECTORY = ".eqasim-sa-analysis"
 GENERATION_DOMAIN = b"eqasim-sa:analysis-generation:immutable-v1\0"
 PROVENANCE_DOMAIN = b"eqasim-sa:analysis-provenance:v1\0"
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -76,10 +73,6 @@ OUTPUT_FILENAMES = frozenset(
         "captured-run-set.json",
     }
 )
-LEGACY_FLAT_OUTPUTS = tuple(sorted(OUTPUT_FILENAMES))
-
-
-AnalysisManifestOutcomeUnknown = PublicationOutcomeUnknown
 
 
 @dataclass(frozen=True)
@@ -223,9 +216,9 @@ def validate_scientific_execution_evidence(
     common: bytes | None = None
     for run_id in sorted(evidence_by_run, key=os.fsencode):
         evidence = evidence_by_run[run_id]
-        if evidence is None or evidence.schema_version != 2:
+        if evidence is None:
             raise ValueError(
-                f"scientific run {run_id} requires non-null schema-v2 execution evidence"
+                f"scientific run {run_id} requires execution evidence"
             )
         if evidence.context_hash != expected[run_id].context_hash:
             raise ValueError(
@@ -568,10 +561,6 @@ class AnalysisPublication:
             staging_directory=self.staging,
         )
         self._published = True
-        try:
-            _clean_legacy_outputs(self.campaign_root)
-        except Exception:
-            pass
         final_paths = MappingProxyType(
             {
                 name: self.campaign_root / record["path"]
@@ -656,17 +645,3 @@ def _validate_existing_generation(
         ):
             raise ValueError("content-addressed analysis generation is corrupted")
 
-
-def _clean_legacy_outputs(campaign_root: Path) -> None:
-    changed = False
-    for filename in LEGACY_FLAT_OUTPUTS:
-        path = campaign_root / filename
-        try:
-            info = path.lstat()
-        except FileNotFoundError:
-            continue
-        if stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
-            platform.remove_file(path)
-            changed = True
-    if changed:
-        fsync_directory(campaign_root)

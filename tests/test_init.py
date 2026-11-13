@@ -302,7 +302,7 @@ def test_init_rejects_malformed_or_inconsistent_project_manifest(tmp_path: Path)
         init_from_inputs("my-study", root, model, data, None, invocation())
 
 
-@pytest.mark.parametrize("analysis_state_name", ["analysis", ".eqasim-sa-analysis"])
+@pytest.mark.parametrize("analysis_state_name", ["analysis"])
 def test_init_rerun_accepts_user_created_campaign_state(
     tmp_path: Path, analysis_state_name: str,
 ) -> None:
@@ -401,7 +401,7 @@ def test_init_rerun_private_mode_check_is_posix_only(
     assert run_lock.is_file()
 
 
-@pytest.mark.parametrize("analysis_state_name", ["analysis", ".eqasim-sa-analysis"])
+@pytest.mark.parametrize("analysis_state_name", ["analysis"])
 def test_init_reports_the_inspected_analysis_state_name(
     tmp_path: Path, analysis_state_name: str,
 ) -> None:

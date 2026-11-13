@@ -16,7 +16,6 @@ import pyarrow.parquet as pq
 
 from eqasim_sa.utils import platform
 from eqasim_sa.utils.filesystem import (
-    reject_links_below,
     FileState,
     StableFile,
     capture_stable_file,
@@ -27,9 +26,7 @@ from eqasim_sa.utils.filesystem import (
 )
 from eqasim_sa.core.indicators import ArtifactSet
 from eqasim_sa.core.ledger import (
-    LEGACY_UNBOUND,
     RUN_ID,
-    VERIFIED,
     CompletionState,
     RunRecord,
     completion_marker_names,
@@ -111,7 +108,6 @@ class CampaignSnapshot:
         plan: Path,
         campaign: str,
         *,
-        allow_legacy_unbound: bool = False,
         inspected_plan: PlanSnapshot | None = None,
     ) -> "CampaignSnapshot":
         inspected = inspected_plan or cls.inspect_plan(plan)
@@ -137,42 +133,10 @@ class CampaignSnapshot:
             completion = completion_state(campaign_root, record)
             if completion is None:
                 raise RuntimeError("captured completion marker disappeared")
-            if completion.archive_integrity != VERIFIED and not (
-                allow_legacy_unbound
-                and completion.archive_integrity == LEGACY_UNBOUND
-            ):
-                raise ValueError(
-                    f"run {run_id} requires a verified v2 completion marker for analysis"
-                )
             marker = completion.marker
-            if completion.archive_integrity == VERIFIED:
-                if completion.archive is None or completion.archive_state is None:
-                    raise RuntimeError("verified completion did not capture its archive")
-                archive = completion.archive
-                archive_state = completion.archive_state
-                artifacts = completion.captured_artifacts
-            else:
-                archive = campaign_root / "archives" / run_id
-                try:
-                    reject_links_below(campaign_root, archive, "analysis archive")
-                except ValueError as error:
-                    raise ValueError(
-                        f"invalid archive for {run_id}: {error}"
-                    ) from error
-                archive_state = directory_state(archive)
-                artifacts_list = []
-                for path, _, _ in _artifact_sources(archive, completion):
-                    try:
-                        reject_links_below(campaign_root, path, "archive artifact")
-                        captured = stable_file(path)
-                        pq.ParquetFile(path).metadata
-                        _verify_stable_state(captured)
-                    except Exception as error:
-                        raise ValueError(
-                            f"invalid archive for {run_id}: {error}"
-                        ) from error
-                    artifacts_list.append(captured)
-                artifacts = tuple(artifacts_list)
+            archive = completion.archive
+            archive_state = completion.archive_state
+            artifacts = completion.captured_artifacts
             descriptor = completion_descriptor(run_id, completion)
             if (
                 directory_state(archive) != archive_state
@@ -351,7 +315,6 @@ class CampaignSnapshot:
                     "contextHash": selected.expected.context_hash,
                     "parameters": selected.expected.parameters,
                     "markerSha256": selected.marker.sha256,
-                    "archiveIntegrity": descriptor["archiveIntegrity"],
                     "artifacts": captured_artifacts,
                     "executionEvidenceSha256": descriptor[
                         "executionEvidenceSha256"
@@ -451,7 +414,6 @@ def completion_descriptor(run_id: str, completion: CompletionState) -> dict:
     evidence_bytes = evidence.canonical_bytes() if evidence is not None else None
     return {
         "runId": run_id,
-        "archiveIntegrity": completion.archive_integrity,
         "artifacts": [
             {"name": item.name, "size": item.size, "sha256": item.sha256}
             for item in completion.artifacts
@@ -504,29 +466,6 @@ def _stable_marker_names(campaign_root: Path) -> tuple[str, ...]:
             ):
                 raise
     raise RuntimeError("could not capture a stable completion marker set")
-
-
-def _artifact_sources(
-    archive: Path, completion: CompletionState
-) -> tuple[tuple[Path, int | None, str | None], ...]:
-    if completion.archive_integrity == VERIFIED:
-        return tuple(
-            (archive / item.name, item.size, item.sha256)
-            for item in completion.artifacts
-        )
-    entries = tuple(sorted(archive.iterdir(), key=lambda path: os.fsencode(path.name)))
-    if not entries or any(
-        entry.suffix != ".parquet" or platform.is_link(entry) or not entry.is_file()
-        for entry in entries
-    ):
-        raise ValueError(
-            f"legacy archive for run {archive.name} must contain only parquet artifacts"
-        )
-    if len({entry.stem for entry in entries}) != len(entries):
-        raise ValueError(
-            f"legacy archive for run {archive.name} has duplicate artifact names"
-        )
-    return tuple((entry, None, None) for entry in entries)
 
 
 def _domain_digest(domain: bytes, value: object) -> str:

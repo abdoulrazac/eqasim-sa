@@ -3,7 +3,6 @@
 import copy
 import hashlib
 import itertools
-import json
 import math
 import os
 import re
@@ -23,20 +22,14 @@ from eqasim_sa.core.charter import (
 from eqasim_sa.core.context_identity import ExecutionContextIdentity
 from eqasim_sa.core.methods.canonical_morris_plan import (
     CANONICAL_MORRIS_DOMAIN,
-    CANONICAL_MORRIS_SEED_DOMAIN,
     MAX_CANONICAL_MORRIS_CANDIDATES,
     MAX_CANONICAL_MORRIS_DISTANCE_TERMS,
     _canonical_definition,
     _canonical_morris_positions,
-    _canonical_replication_seed,
-    _discrete_uniform_generalized_inverse_index,
     canonical_morris_distance_terms,
-    changed_factor,
     validate_canonical_morris_bootstrap_work,
 )
 from eqasim_sa.core.methods.common import (
-    MAX_BOOTSTRAP_RESAMPLES,
-    MAX_BOOTSTRAP_WORK_CELLS,
     MAX_PLAN_CELLS,
     MAX_PLAN_POSITIONS,
     _json,
@@ -50,8 +43,6 @@ from eqasim_sa.core.methods.morris_plan import (
     validate_morris_values,
 )
 from eqasim_sa.core.methods.multiscramble_sobol_plan import (
-    MAX_MULTISCRAMBLE_DESIGN_POSITIONS,
-    MAX_MULTISCRAMBLE_TABLE_CELLS,
     MULTISCRAMBLE_SOBOL_DOMAIN,
     _multiscramble_definition,
     _multiscramble_sobol_positions,
@@ -60,16 +51,11 @@ from eqasim_sa.core.methods.multiscramble_sobol_plan import (
 from eqasim_sa.core.methods.sobol_plan import (
     SOBOL_DOMAIN,
     _sobol_positions,
-    validate_sobol_bootstrap_work,
-    validate_sobol_effective_hybrid_contrasts,
 )
 from eqasim_sa.core.methods.structured import (
     FIXED,
     NAME,
     _structured_json,
-    validate_structured_factor_supports,
-    validate_structured_plan_metadata,
-    validate_structured_plan_rows,
 )
 from eqasim_sa.core.ledger import RESERVED_COLUMNS
 from eqasim_sa.core.run import RunSpec, compute_run_id
@@ -484,7 +470,7 @@ def _validate(design: Design) -> tuple[str, ...]:
         context_identity = ExecutionContextIdentity.from_descriptor(
             design.context_descriptor
         )
-    except ValueError as error:
+    except ValueError:
         raise ValueError("context_descriptor must contain exactly four string keys")
     if context_identity.sha256 != design.context_hash:
         raise ValueError("context_hash does not match context_descriptor")

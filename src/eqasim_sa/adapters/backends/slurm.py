@@ -34,7 +34,6 @@ SUBMISSION_INTENT = "submission-intent.json"
 JOB_ID = re.compile(r"^[0-9]+(?:_[0-9]+)?$")
 SUBMISSION_ID = re.compile(r"^[0-9a-f]{32}$")
 JOURNAL_VERSION = 2
-LEGACY_JOURNAL_VERSION = 1
 INTENT_VERSION = 1
 # Short staging names produced by utils.filesystem.write_exclusive.
 _STAGED_TEMPORARY = re.compile(r"^\.t[0-9a-f]{8}$")
@@ -46,7 +45,7 @@ class ActiveJobs:
     """Durable identity of jobs submitted as one recoverable SLURM batch."""
 
     job_ids: tuple[str, ...]
-    submission_id: str | None = None
+    submission_id: str
 
 
 @dataclass(frozen=True)
@@ -65,22 +64,11 @@ def _validate_submission_id(value: object) -> str:
 
 def _journal_bytes(journal: ActiveJobs) -> bytes:
     document: dict[str, object] = {
-        "version": (
-            JOURNAL_VERSION
-            if journal.submission_id is not None
-            else LEGACY_JOURNAL_VERSION
-        ),
+        "version": JOURNAL_VERSION,
         "jobIds": list(journal.job_ids),
+        "submissionId": _validate_submission_id(journal.submission_id),
     }
-    if journal.submission_id is not None:
-        document["submissionId"] = _validate_submission_id(journal.submission_id)
-    return json.dumps(
-        document,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-        allow_nan=False,
-    ).encode("ascii")
+    return json.dumps(document, sort_keys=True, separators=(",", ":")).encode("ascii")
 
 
 def _intent_bytes(intent: SubmissionIntent) -> bytes:
@@ -163,21 +151,15 @@ def _parse_journal(content: bytes) -> ActiveJobs:
         document = json.loads(content)
         if not isinstance(document, dict):
             raise ValueError
-        version = document.get("version")
-        expected = (
-            {"version", "jobIds"}
-            if version == LEGACY_JOURNAL_VERSION
-            else {"version", "jobIds", "submissionId"}
-            if version == JOURNAL_VERSION
-            else set()
-        )
-        if set(document) != expected or type(document.get("jobIds")) is not list:
+        if (
+            document.get("version") != JOURNAL_VERSION
+            or set(document) != {"version", "jobIds", "submissionId"}
+            or type(document.get("jobIds")) is not list
+        ):
             raise ValueError
         journal = ActiveJobs(
             _validate_job_ids(document["jobIds"]),
-            None
-            if version == LEGACY_JOURNAL_VERSION
-            else _validate_submission_id(document["submissionId"]),
+            _validate_submission_id(document["submissionId"]),
         )
         if content != _journal_bytes(journal):
             raise ValueError
@@ -310,10 +292,9 @@ def _read_intent(path: Path) -> SubmissionIntent | None:
     return _read_document(path, _parse_intent)
 
 
-def _write_journal(path: Path, journal: ActiveJobs | tuple[str, ...]) -> None:
-    value = journal if isinstance(journal, ActiveJobs) else ActiveJobs(journal)
+def _write_journal(path: Path, journal: ActiveJobs) -> None:
     content = _journal_bytes(
-        ActiveJobs(_validate_job_ids(value.job_ids), value.submission_id)
+        ActiveJobs(_validate_job_ids(journal.job_ids), journal.submission_id)
     )
     write_bytes_exclusive(content, path)
 
@@ -437,15 +418,6 @@ class SlurmBackend:
         _terminal_barrier(jobs, cancel_unfinished=True)
 
     def _reconcile(self) -> None:
-        legacy = self.campaign_root / ".submitit"
-        if legacy.exists() or legacy.is_symlink():
-            secure_directory(legacy)
-            legacy_journal = _read_journal(legacy / ACTIVE_JOB_JOURNAL)
-            if legacy_journal is not None:
-                raise RuntimeError(
-                    "legacy SLURM active-job journal is read-only; reconcile it "
-                    "with the eqasim-sa version that created it"
-                )
         _recover_exclusive_document(self.intent_path, _parse_intent)
         _recover_exclusive_document(self.journal_path, _parse_journal)
         state = open_directory(self.journal_path.parent)
@@ -547,7 +519,7 @@ class EqasimSlurmJob:
                 meta.context_descriptor
             )
             context_identity.require_sha256(meta.context_hash)
-        except ValueError as error:
+        except ValueError:
             raise ValueError("context descriptor does not match contextHash")
         if (
             meta.context_hash != self.expected_context_hash

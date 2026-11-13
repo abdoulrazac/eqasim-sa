@@ -8,7 +8,6 @@ import pytest
 from eqasim_sa.adapters import application
 from eqasim_sa.core.software_identity import read_software_identity
 from eqasim_sa.ports.simulator import (
-    EXECUTION_EVIDENCE_V1_DOMAIN,
     EXECUTION_EVIDENCE_V2_DOMAIN,
     ExecutionEvidence,
 )
@@ -92,28 +91,9 @@ V1_PAYLOAD = (
 )
 
 
-def test_execution_evidence_strictly_parses_schema_v1() -> None:
-    evidence = ExecutionEvidence.from_bytes(V1_PAYLOAD)
-
-    assert evidence.schema_version == 1
-    assert evidence.eqasim_sa_sha256 is None
-    assert evidence.canonical_bytes() == V1_PAYLOAD
-
-    document = json.loads(V1_PAYLOAD)
-    document["eqasimSaSha256"] = "6" * 64
-    descriptor = {key: value for key, value in document.items() if key != "evidenceSha256"}
-    encoded = json.dumps(
-        descriptor, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-    ).encode("ascii")
-    document["evidenceSha256"] = hashlib.sha256(
-        EXECUTION_EVIDENCE_V1_DOMAIN + encoded
-    ).hexdigest()
-    tampered = json.dumps(
-        document, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-    ).encode("ascii")
-
+def test_execution_evidence_rejects_schema_v1() -> None:
     with pytest.raises(ValueError, match="invalid or noncanonical"):
-        ExecutionEvidence.from_bytes(tampered)
+        ExecutionEvidence.from_bytes(V1_PAYLOAD)
 
 
 def test_execution_evidence_schema_v2_binds_runner_digest() -> None:
