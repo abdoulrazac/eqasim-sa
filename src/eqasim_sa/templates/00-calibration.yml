@@ -1,21 +1,10 @@
 # Three real runs calibrate compute time and storage, not scientific parameters.
 campaign: @PROJECT_NAME@-calibration
-campaign_root: ../campaigns/calibration
-charter:
-  status: demonstration
-model:
-  config: @MODEL_CONFIG@
-  root: @MODEL_ROOT@
-  data_manifest: @DATA_MANIFEST@
-  lockfile: @LOCKFILE@
-analysis:
-  completeness_threshold: 1.0
 experiment:
   method: grid
   seeds: [1101]
 parameters:
-  sampling_rate:
-    values: [0.001, 0.002, 0.003]
+  sampling_rate: [0.001, 0.002, 0.003]
 outputs:
   age:
     category: Age class
@@ -29,17 +18,14 @@ outputs:
     category: Number of vehicles class
     simulated: Proportion_EQASIM
     references: [HTS]
-indicators:
-  - tv_distance:
-      output: age
-      reference: INSEE
-  - tv_distance:
-      outputs: [distance, nbr_vehicle]
+# --- Rempli par eqasim-sa init : à modifier seulement si la machine change ---
+model:
+  root: @MODEL_ROOT@
+  config: @MODEL_CONFIG@
+  data_manifest: @DATA_MANIFEST@
 execution:
-  backend: local
   workers: 2
   scratch: @SCRATCH@
-  invocation: @INVOCATION@
-  machine_options:
+@INVOCATION_LINE@  machine_options:
     data_path: @DATA_PATH@
     processes: 1

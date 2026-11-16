@@ -1,23 +1,11 @@
 # Discrete adjacent-level OAT demonstration: eight positions, not Morris inference.
 campaign: @PROJECT_NAME@-discrete_oat
-campaign_root: ../campaigns/discrete_oat
-charter:
-  status: demonstration
-model:
-  config: @MODEL_CONFIG@
-  root: @MODEL_ROOT@
-  data_manifest: @DATA_MANIFEST@
-  lockfile: @LOCKFILE@
-analysis:
-  completeness_threshold: 1.0
 experiment:
   method: discrete_oat
-  trajectories: 2
-  design_seed: 20260817
   seeds: [1301, 1302]
+  trajectories: 2
 parameters:
-  sampling_rate:
-    values: [0.001, 0.002, 0.003]
+  sampling_rate: [0.001, 0.002, 0.003]
 outputs:
   age:
     category: Age class
@@ -31,19 +19,16 @@ outputs:
     category: Number of vehicles class
     simulated: Proportion_EQASIM
     references: [HTS]
-indicators:
-  - tv_distance:
-      output: age
-      reference: INSEE
-  - tv_distance:
-      outputs: [distance, nbr_vehicle]
-execution:
-  backend: local
-  workers: 2
-  scratch: @SCRATCH@
-  invocation: @INVOCATION@
-  machine_options:
-    data_path: @DATA_PATH@
-    processes: 1
 calibration:
   meta_configs: [00-calibration.yml]
+# --- Rempli par eqasim-sa init : à modifier seulement si la machine change ---
+model:
+  root: @MODEL_ROOT@
+  config: @MODEL_CONFIG@
+  data_manifest: @DATA_MANIFEST@
+execution:
+  workers: 2
+  scratch: @SCRATCH@
+@INVOCATION_LINE@  machine_options:
+    data_path: @DATA_PATH@
+    processes: 1

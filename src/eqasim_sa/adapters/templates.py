@@ -6,6 +6,7 @@ import re
 import shlex
 from pathlib import Path
 
+from eqasim_sa.adapters.meta_config_defaults import DEFAULT_INVOCATION
 from eqasim_sa.templates import project_templates
 
 
@@ -40,9 +41,12 @@ def render_project(
         "@MODEL_CONFIG@": json.dumps(_relative(model_root / model_config, configs)),
         "@MODEL_ROOT@": json.dumps(_relative(model_root, configs)),
         "@DATA_MANIFEST@": json.dumps("../manifest.json"),
-        "@LOCKFILE@": json.dumps(_relative(model_root / "uv.lock", configs)),
         "@SCRATCH@": json.dumps(_relative(scratch, configs)),
-        "@INVOCATION@": json.dumps(list(invocation)),
+        "@INVOCATION_LINE@": (
+            ""
+            if tuple(invocation) == DEFAULT_INVOCATION
+            else f"  invocation: {json.dumps(list(invocation))}\n"
+        ),
         "@DATA_PATH@": json.dumps(_relative(data, configs)),
         "@RUNNER@": _runner(),
     }

@@ -112,7 +112,7 @@ def test_installed_metadata_and_commands(tmp_path: Path) -> None:
         for name in ("00-calibration.yml", "01-grid.yml", "02-discrete-oat.yml", "03-sobol.yml")
     )
     assert "method: discrete_oat" in resources["02-discrete-oat.yml"].read_text()
-    assert "design_seed: 20260817" in resources["02-discrete-oat.yml"].read_text()
+    assert "design_seed" not in resources["02-discrete-oat.yml"].read_text()
     assert "method: sobol" in resources["03-sobol.yml"].read_text()
     assert "base_sample_size: 4" in resources["03-sobol.yml"].read_text()
     assert "matching_age_scheme" in resources["01-grid.yml"].read_text()

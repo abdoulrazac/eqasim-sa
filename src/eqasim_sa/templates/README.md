@@ -25,6 +25,17 @@ canonical Morris, or non-actionable `finite_seed_factor` for multi-scramble
 Sobol. A canonical pilot is immutable and may only recommend a new production
 campaign/root; never convert one of these generated demonstrations in place.
 
+Each starter is short on purpose. `outputs` names the model outputs and their
+references; `seeds` lists the replication seeds; `parameters` lists the values
+tried per parameter (`name: [a, b]`). Omitted keys take defaults: the campaign
+folder is `../campaigns/<campaign>`, the model lockfile is `<model root>/uv.lock`,
+the design seed is derived from the campaign name, the analysis uses
+`completeness_threshold: 1.0` (and 999 bootstrap resamples at confidence 0.95 for
+Sobol and Morris), execution is local with one worker, and when `indicators` is
+absent every output with references gets a total-variation indicator. The block
+under the "Rempli par eqasim-sa init" comment holds machine-specific paths; edit
+it only when the machine changes.
+
 Run all commands from this directory. This generated array uses the source
 checkout runner when available and the installed command otherwise.
 
@@ -74,7 +85,7 @@ optional afterward.
 ```
 
 Never edit a `plan.parquet` or completion marker. Rerunning the same campaign
-command executes only missing work. Use a new `campaign` and `campaign_root` for
+command executes only missing work. Use a new `campaign` (and so a new campaign folder) for
 a changed design, and a new project when the sealed model or data context changes.
 
 Grid and Sobol vary the scalar `matching_age_scheme` between `matching_6` and
@@ -88,12 +99,11 @@ Grid can also compare named ordered lists. The tracked model YAML must already
 contain the active `config.matching_attributes` key as a list of strings; `init`
 does not add or modify it. Commit that YAML and verify that the complete model
 repository is clean before initializing or planning. Copy `configs/01-grid.yml`, give the copy a new
-`campaign` and empty `campaign_root`, and replace its `parameters` block, for
+`campaign` (its `campaign_root` follows by default), and replace its `parameters` block, for
 example:
 
 ```yaml
 campaign: @PROJECT_NAME@-grid-structured
-campaign_root: ../campaigns/grid-structured
 parameters:
   matching_attributes:
     configurations:
@@ -102,8 +112,8 @@ parameters:
       age_priority: [age_class, any_cars, sex, socioprofessional_class, departement_id]
 ```
 
-Keep the copied Grid's two replication seeds, indicators, execution, and
-calibration blocks. This produces 6 positions and 6 expected unique runs. The
+Keep the copied Grid's two replication seeds, execution, and calibration
+blocks. This produces 6 positions and 6 expected unique runs. The
 labels are readable aliases; execution and `runId` use the resolved ordered
 lists. Discrete OAT and canonical Morris reject structured factors. This remains a demonstration,
 not a variance-share analysis.
@@ -113,7 +123,7 @@ eqasim-sa source repository. It includes model preparation, commands, plan
 inspection, interpretation, scientific caveats, and safe recovery.
 
 Every generated configuration starts with exactly three total-variation
-signals: age against INSEE, distance against HTS, and number of vehicles against
+signals (the default indicators): age against INSEE, distance against HTS, and number of vehicles against
 HTS. eqasim-france still archives `HTS adjust with INSEE population weights`
 for compatibility, but that column is a global rescaling of HTS and therefore
 has the same normalized TV value; it is intentionally not declared here.
@@ -128,7 +138,7 @@ The Nantes model also exposes optional scalar factors:
 
 Adding `matching_minimum_observations` to the generated Grid gives 24 positions:
 two rates by two matching schemes by three thresholds by two replication seeds.
-Use a new `campaign` and `campaign_root` for that modified design. The starter
+Use a new `campaign` for that modified design. The starter
 indicators do not measure income directly. The `households` artifact already
 contains household income; register a custom scalar indicator on it before
 interpreting `income_assignation_method`. Note that `bhepop2` can fall back to

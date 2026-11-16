@@ -13,6 +13,8 @@ import pytest
 
 import eqasim_sa.adapters.project_init as project_init_module
 from eqasim_sa.adapters.application import init_from_inputs
+from eqasim_sa.adapters.meta_config import load_meta_config
+from eqasim_sa.adapters.meta_config_defaults import DEFAULT_INVOCATION
 from eqasim_sa.cli import dispatch, parser
 from tests.conftest import make_symlink
 
@@ -108,17 +110,16 @@ def test_init_is_a_pure_atomic_template_generator(
         assert "data_manifest: \"../manifest.json\"" in text
         expected_campaign = "discrete_oat" if method == "discrete-oat" else method
         assert f"campaign: project-{expected_campaign}" in text
-        assert "charter:\n  status: demonstration\n" in text
         assert "HTS adjust with INSEE population weights" not in text
         assert text.count("references: [INSEE]") == 1
         assert text.count("references: [HTS]") == 2
-    assert "matching_age_scheme:\n    values: [matching_6, analysis_7]" in (
+    assert "  matching_age_scheme: [matching_6, analysis_7]" in (
         root / "configs/01-grid.yml"
     ).read_text()
     assert "matching_age_scheme" not in (
         root / "configs/02-discrete-oat.yml"
     ).read_text()
-    assert "matching_age_scheme:\n    values: [matching_6, analysis_7]" in (
+    assert "  matching_age_scheme: [matching_6, analysis_7]" in (
         root / "configs/03-sobol.yml"
     ).read_text()
     readme = (root / "README.md").read_text()
@@ -623,3 +624,37 @@ def test_init_rejects_nested_scratch_through_link_below_project(
         init_from_inputs(
             "project", root, model, data, root / "work" / "scratch", invocation()
         )
+
+
+def test_rendered_grid_starter_is_short_and_loads(tmp_path: Path) -> None:
+    model, data = inputs(tmp_path)
+    _commit_model(model)
+    project = tmp_path / "study"
+    init_from_inputs("study", project, model, data, None, DEFAULT_INVOCATION)
+    text = (project / "configs/01-grid.yml").read_text()
+    for absent in (
+        "campaign_root", "lockfile", "seed_role", "backend", "invocation", "analysis:",
+        "@",
+    ):
+        assert absent not in text
+    body = [line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    assert len(body) <= 32
+    loaded = load_meta_config(project / "configs/01-grid.yml")
+    assert loaded.campaign_root == (project / "campaigns" / "study-grid").resolve()
+
+
+def test_custom_invocation_is_written(tmp_path: Path) -> None:
+    _, root, model, _ = initialize(tmp_path)
+    _commit_model(model)
+    path = root / "configs/01-grid.yml"
+    assert 'invocation: ["python", "-m", "synpp"]' in path.read_text()
+    assert tuple(load_meta_config(path).execution.invocation) == invocation()
+
+
+def _commit_model(model: Path) -> None:
+    for command in (
+        ["init", "-q"],
+        ["add", "."],
+        ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "m"],
+    ):
+        subprocess.run(["git", *command], cwd=model, check=True)

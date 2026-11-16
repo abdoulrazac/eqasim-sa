@@ -155,7 +155,7 @@ def test_release_init_and_package_boundaries(tmp_path: Path) -> None:
         "sobol",
     }
     for relative in result["metaConfigs"].values():
-        assert "charter:\n  status: demonstration\n" in (initialized / relative).read_text()
+        assert "charter" not in (initialized / relative).read_text()
     assert not tuple(initialized.rglob("plan.parquet"))
     assert not tuple(initialized.rglob("render_protocol.py"))
     assert all(not (package_templates / name).exists() for name in TEMPLATES)

@@ -1,27 +1,12 @@
 # Single-scramble Sobol demonstration: 32 positions, not inferential evidence.
 campaign: @PROJECT_NAME@-sobol
-campaign_root: ../campaigns/sobol
-charter:
-  status: demonstration
-model:
-  config: @MODEL_CONFIG@
-  root: @MODEL_ROOT@
-  data_manifest: @DATA_MANIFEST@
-  lockfile: @LOCKFILE@
-analysis:
-  completeness_threshold: 1.0
-  bootstrap_resamples: 99
-  confidence_level: 0.95
 experiment:
   method: sobol
   seeds: [1401, 1402]
   base_sample_size: 4
-  design_seed: 20260814
 parameters:
-  sampling_rate:
-    values: [0.001, 0.002]
-  matching_age_scheme:
-    values: [matching_6, analysis_7]
+  sampling_rate: [0.001, 0.002]
+  matching_age_scheme: [matching_6, analysis_7]
 outputs:
   age:
     category: Age class
@@ -35,19 +20,18 @@ outputs:
     category: Number of vehicles class
     simulated: Proportion_EQASIM
     references: [HTS]
-indicators:
-  - tv_distance:
-      output: age
-      reference: INSEE
-  - tv_distance:
-      outputs: [distance, nbr_vehicle]
-execution:
-  backend: local
-  workers: 2
-  scratch: @SCRATCH@
-  invocation: @INVOCATION@
-  machine_options:
-    data_path: @DATA_PATH@
-    processes: 1
+analysis:
+  bootstrap_resamples: 99
 calibration:
   meta_configs: [00-calibration.yml]
+# --- Rempli par eqasim-sa init : à modifier seulement si la machine change ---
+model:
+  root: @MODEL_ROOT@
+  config: @MODEL_CONFIG@
+  data_manifest: @DATA_MANIFEST@
+execution:
+  workers: 2
+  scratch: @SCRATCH@
+@INVOCATION_LINE@  machine_options:
+    data_path: @DATA_PATH@
+    processes: 1
