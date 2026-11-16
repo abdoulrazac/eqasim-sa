@@ -150,9 +150,10 @@ uniques, au moins égaux à 2 et se terminent par `trajectories` ;
 `screening_top_k` ne dépasse pas le nombre de facteurs. Ces diagnostics ne
 certifient pas à eux seuls l'arrêt ou la robustesse de la charte.
 
-## `method: morris` est refusé
+## `unsupported experiment.method`
 
-La méthode `morris` n'existe plus. Utilisez `discrete_oat` pour une
+Les méthodes prises en charge sont `grid`, `discrete_oat`, `canonical_morris`,
+`sobol` et `multiscramble_sobol`. Utilisez `discrete_oat` pour une
 démonstration à niveaux adjacents, ou rédigez une campagne de criblage scientifique `canonical_morris`
 propre à l'étude.
 

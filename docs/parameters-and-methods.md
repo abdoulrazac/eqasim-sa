@@ -223,7 +223,6 @@ may reduce the number of unique runs; the Grid `check` rejects them.
 
 Adjacent-level demonstrations use `method: discrete_oat`, with the experiment
 keys `method`, `seeds`, `trajectories`, and the optional `design_seed`.
-The former `method: morris` no longer exists and is rejected.
 
 Discrete OAT accepts only numeric factors. Each domain contains at least two levels
 of the same type, strictly increasing and distinct. The order is therefore

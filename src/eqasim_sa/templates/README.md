@@ -9,7 +9,7 @@ results. Every command below is an explicit manual step.
 - `manifest.json`: hash manifest of the selected input data tree.
 - `configs/00-calibration.yml`: three resource-calibration positions.
 - `configs/01-grid.yml`: Grid target, 8 positions and 8 unique runs.
-- `configs/02-discrete-oat.yml`: adjacent-level discrete OAT target configuration.
+- `configs/02-discrete-oat.yml`: adjacent-level discrete OAT target, 8 positions and 6 unique runs.
 - `configs/03-sobol.yml`: Sobol target, 32 positions and 8 unique runs.
 - `campaigns/`: initially empty; manual `plan` commands create campaign state.
 - `scratch/`: initially empty and disposable unless `--scratch` selected another path.
@@ -29,7 +29,8 @@ Each starter is short on purpose. `outputs` names the model outputs and their
 references; `seeds` lists the replication seeds; `parameters` lists the values
 tried per parameter (`name: [a, b]`). Omitted keys take defaults: the campaign
 folder is `../campaigns/<campaign>`, the model lockfile is `<model root>/uv.lock`,
-the design seed is derived from the campaign name, the analysis uses
+the Sobol design seed is derived from the campaign name (the discrete OAT
+starter writes its own), the analysis uses
 `completeness_threshold: 1.0` (and 999 bootstrap resamples at confidence 0.95 for
 Sobol and Morris), execution is local with one worker, and when `indicators` is
 absent every output with references gets a total-variation indicator. The block
@@ -139,8 +140,9 @@ The Nantes model also exposes optional scalar factors:
 Adding `matching_minimum_observations` to the generated Grid gives 24 positions:
 two rates by two matching schemes by three thresholds by two replication seeds.
 Use a new `campaign` for that modified design. The starter
-indicators do not measure income directly. The `households` artifact already
-contains household income; register a custom scalar indicator on it before
+indicators do not measure income directly. The `households` output already
+contains household income; declare it under `outputs` and register a custom
+indicator on it (`custom: {function: ..., output: households}`) before
 interpreting `income_assignation_method`. Note that `bhepop2` can fall back to
 `uniform` for municipalities with invalid Filosofi distributions, and the
 current output does not retain the applied method.

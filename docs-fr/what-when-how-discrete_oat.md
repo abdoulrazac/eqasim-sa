@@ -58,6 +58,7 @@ experiment:
   method: discrete_oat
   seeds: [1301, 1302]
   trajectories: 2
+  design_seed: 20260817
 parameters:
   sampling_rate: [0.001, 0.002, 0.003]
 ```
@@ -65,8 +66,9 @@ parameters:
 Les autres blocs du fichier rendu déclarent les trois sorties (et donc, par
 défaut, les trois indicateurs), le fichier de calibration, le modèle et ses
 données, et l'exécution locale. Sans bloc `charter`, la campagne est une
-démonstration, ce qu'exige l'OAT discret. La graine de design n'est pas écrite :
-elle est dérivée du nom de campagne (`show-config` affiche sa valeur). Le fichier source
+démonstration, ce qu'exige l'OAT discret. `design_seed` est écrite explicitement
+pour que le starter choisisse les mêmes trajectoires quel que soit le nom du
+projet. Le fichier source
 `src/eqasim_sa/templates/02-discrete-oat.yml` contient des placeholders ; c'est
 la copie créée dans votre projet par `init` qu'il faut exécuter.
 
@@ -83,11 +85,10 @@ Le fichier déclare :
 - `R = 2` seeds de réplication.
 
 Le plan contient donc `T(D+1)R = 2 × 2 × 2 = 8` positions. Certaines positions
-peuvent désigner exactement le même réglage et la même seed. Pour le projet
-`mon-analyse-sa`, le starter produit ainsi **8 positions statistiques mais 6 runs
-uniques**. Avec un autre nom de projet, la graine de design dérivée choisit
-d'autres trajectoires, et le starter peut produire 4 ou 6 runs uniques. Le
-simulateur n'exécute pas deux fois un même `runId`.
+peuvent désigner exactement le même réglage et la même seed. Le starter produit
+ainsi **8 positions statistiques mais 6 runs uniques**. Le simulateur n'exécute
+pas deux fois un même `runId`. Si vous retirez `design_seed`, sa valeur par
+défaut est dérivée du nom de campagne et le nombre de runs uniques peut changer.
 
 ### 4. Comprendre les pas comparés
 

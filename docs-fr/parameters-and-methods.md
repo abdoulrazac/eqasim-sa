@@ -227,7 +227,7 @@ peuvent réduire les runs uniques; le `check` Grid les refuse.
 
 Les démonstrations à niveaux adjacents utilisent `method: discrete_oat`, avec
 les clés d'expérience `method`, `seeds`, `trajectories` et la clé facultative
-`design_seed`. L'ancienne méthode `method: morris` n'existe plus et est refusée.
+`design_seed`.
 
 L'OAT discret accepte uniquement des facteurs numériques. Chaque domaine contient au
 moins deux niveaux du même type, strictement croissants et distincts. L'ordre

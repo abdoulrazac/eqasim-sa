@@ -836,8 +836,9 @@ charter:
 A demonstration campaign validates configuration, execution, storage, and
 analysis plumbing. It cannot support inferential or decision claims. Existing
 Grid, discrete OAT, and `sobol` are demonstration designs. Discrete OAT is the
-adjacent-level demonstration and is not canonical Morris. The method `morris`
-no longer exists and is rejected.
+adjacent-level demonstration and is not canonical Morris. The supported methods
+are `grid`, `discrete_oat`, `canonical_morris`, `sobol`, and
+`multiscramble_sobol`.
 
 A scientific charter uses the complete strict schema below:
 
@@ -1062,12 +1063,13 @@ calibration:
 ### Discrete OAT
 
 ```yaml
-# Discrete adjacent-level OAT demonstration: eight positions, not Morris inference.
+# Discrete adjacent-level OAT demonstration: eight positions and six unique runs, not Morris inference.
 campaign: mon-analyse-sa-discrete_oat
 experiment:
   method: discrete_oat
   seeds: [1301, 1302]
   trajectories: 2
+  design_seed: 20260817
 parameters:
   sampling_rate: [0.001, 0.002, 0.003]
 outputs:

@@ -864,7 +864,8 @@ Une campagne de démonstration valide la configuration, l'exécution, le stockag
 et la plomberie d'analyse. Elle ne peut soutenir aucune revendication
 inférentielle ou décisionnelle. Grid, l'OAT discret et `sobol` sont des designs de
 démonstration. L'OAT discret est la démonstration à niveaux adjacents et n'est
-pas Morris canonique. La méthode `morris` n'existe plus et est refusée.
+pas Morris canonique. Les méthodes prises en charge sont `grid`, `discrete_oat`,
+`canonical_morris`, `sobol` et `multiscramble_sobol`.
 
 Une charte scientifique emploie le schéma strict complet suivant :
 
@@ -1089,12 +1090,13 @@ calibration:
 ### OAT discret
 
 ```yaml
-# Discrete adjacent-level OAT demonstration: eight positions, not Morris inference.
+# Discrete adjacent-level OAT demonstration: eight positions and six unique runs, not Morris inference.
 campaign: mon-analyse-sa-discrete_oat
 experiment:
   method: discrete_oat
   seeds: [1301, 1302]
   trajectories: 2
+  design_seed: 20260817
 parameters:
   sampling_rate: [0.001, 0.002, 0.003]
 outputs:

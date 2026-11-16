@@ -190,14 +190,13 @@ automatiquement cette cible.
 ## Checkpoints minimaux des modèles générés
 
 Les commandes `plan` renvoient un objet JSON avec `status`, `designPositions` et
-`uniqueRuns`. Avec les modèles non modifiés issus d'`init` pour le projet
-`mon-analyse-sa`, vérifiez :
+`uniqueRuns`. Avec les modèles non modifiés issus d'`init`, vérifiez :
 
 | Étape | JSON minimal à la première exécution | Fichiers attendus après `run`/`analyze` |
 | --- | --- | --- |
 | Calibration | `plan`: `created`, 3 positions, 3 runs uniques; `run`: `completed`, 3 complétés | `campaigns/mon-analyse-sa-calibration/plan.parquet`, 3 marqueurs sous `runs/`, 3 archives |
 | Grid | `plan`: `created`, 8 positions, 8 runs uniques; `run`: 8 complétés; `analyze`: `completed` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `replication-dispersion.parquet`, `output-summary.parquet`, `governed-report.json` |
-| OAT discret | `plan`: `created`, 8 positions, 6 runs uniques (4 ou 6 pour un autre nom de projet, dont la graine de design dérivée choisit d'autres trajectoires) ; `run` : autant de complétés ; `analyze`: sensibilité `discrete_oat` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `replication-dispersion.parquet`, `discrete-oat-effects.parquet`, `output-summary.parquet`, `governed-report.json` |
+| OAT discret | `plan`: `created`, 8 positions, 6 runs uniques; `run`: 6 complétés; `analyze`: sensibilité `discrete_oat` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `replication-dispersion.parquet`, `discrete-oat-effects.parquet`, `output-summary.parquet`, `governed-report.json` |
 | Sobol | `plan`: `created`, 32 positions, 8 runs uniques; `run`: 8 complétés; `analyze`: sensibilité `sobol` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `sobol-indices.parquet`, `output-summary.parquet`, `governed-report.json` |
 
 Une relance identique de `plan` renvoie `unchanged`. Une campagne déjà complète

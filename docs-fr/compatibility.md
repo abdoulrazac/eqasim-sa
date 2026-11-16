@@ -70,7 +70,6 @@ actionnable et exclue des rangs de decision FP/FF.
 | Facteur structure avec `discrete_oat` ou `canonical_morris` | rejete car l'ordre nominal des labels est arbitraire |
 | Metadonnees scellees d'un plan scientifique absentes, non prises en charge, non canoniques, alterees ou incompatibles avec le contexte | rejete avant publication par les analyseurs Morris canonique et Sobol multi-scramble |
 | Design scientifique v1/v2 | rejete ; replanifier avec le design scientifique v3 |
-| `method: morris` | rejete ; utiliser `discrete_oat` ou `canonical_morris` |
 | Plan Grid presente a l'analyse | l'analyse coeur directe valide methode, marqueurs, completude, forme et labels v3 ; le preflight applicatif reconstruit le plan pour lier les payloads au modele et a la meta-configuration |
 | Positions scientifiques au-dessus du budget declare apres reserve | rejete avant publication du plan |
 | Analyse OAT ou Sobol incomplete | rejetee car la completude doit valoir `1.0` |

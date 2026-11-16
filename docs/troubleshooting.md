@@ -145,9 +145,10 @@ of at least 2 and must end at `trajectories`; `screening_top_k` cannot exceed th
 number of factors. These diagnostics do not themselves certify charter stopping
 or robustness.
 
-## `method: morris` is rejected
+## `unsupported experiment.method`
 
-The method `morris` no longer exists. Use `discrete_oat` for an adjacent-level
+The supported methods are `grid`, `discrete_oat`, `canonical_morris`, `sobol`,
+and `multiscramble_sobol`. Use `discrete_oat` for an adjacent-level
 demonstration, or author a study-specific `canonical_morris`
 scientific-screening campaign.
 

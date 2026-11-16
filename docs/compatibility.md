@@ -70,7 +70,6 @@ excluded from FP/FF decision ranks.
 | Structured factor with `discrete_oat` or `canonical_morris` | rejected because nominal label order is arbitrary |
 | Missing, unsupported, noncanonical, tampered, or context-incompatible sealed scientific plan metadata | rejected before analysis publication by the canonical Morris and multi-scramble Sobol analyzers |
 | Scientific design v1/v2 | rejected; replan with scientific design v3 |
-| `method: morris` | rejected; use `discrete_oat` or `canonical_morris` |
 | Grid plan presented for analysis | direct core analysis validates method, run-marker identity, completeness, and schema-v3 shape/labels; application preflight reconstructs the plan to bind payloads to the model/meta-configuration |
 | Scientific positions above the declared budget after reserve | rejected before plan publication |
 | Incomplete OAT or Sobol analysis | rejected because completeness must equal `1.0` |

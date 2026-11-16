@@ -1,9 +1,10 @@
-# Discrete adjacent-level OAT demonstration: eight positions, not Morris inference.
+# Discrete adjacent-level OAT demonstration: eight positions and six unique runs, not Morris inference.
 campaign: @PROJECT_NAME@-discrete_oat
 experiment:
   method: discrete_oat
   seeds: [1301, 1302]
   trajectories: 2
+  design_seed: 20260817
 parameters:
   sampling_rate: [0.001, 0.002, 0.003]
 outputs:
