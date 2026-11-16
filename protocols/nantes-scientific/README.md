@@ -127,8 +127,8 @@ robustness check.
 | `matching_minimum_observations` | varied | `eqasim-france/config_local_nantes.yml`; `eqasim-france/synthesis/population/matched.py` | Actionable numerical threshold screened on `[5, 20, 50]` and retained for FP/FF. |
 | `matching_minimum_age` | varied | `eqasim-france/config_local_nantes.yml`; `eqasim-france/synthesis/population/matched.py` | Actionable numerical threshold screened on `[0, 5, 12]` and retained for FP/FF. |
 | `sampling_rate` | fixed | `eqasim-france/config_local_nantes.yml` | Sealed at `0.001`; alternative rates are numerical robustness checks, not attribution factors. |
-| Simulator `random_seed` / `seed` | stochastic | `eqasim-france/config_local_nantes.yml`; `charter.stochastic` and `experiment.replications` in these protocol files | Morris integrates a conditional mean with CRN; Sobol uses a declared finite non-actionable nuisance support. |
-| `processes` / process count | robustness-only | `eqasim-france/config_local_nantes.yml`; `execution.overrides.processes` in these protocol files | Sealed to one for campaigns; separate identical-seed runs must test process-count determinism. |
+| Simulator `random_seed` / `seed` | stochastic | `eqasim-france/config_local_nantes.yml`; `charter.stochastic` and `experiment.seeds` in these protocol files | Morris integrates a conditional mean with CRN; Sobol uses a declared finite non-actionable nuisance support. |
+| `processes` / process count | robustness-only | `eqasim-france/config_local_nantes.yml`; `execution.machine_options.processes` in these protocol files | Sealed to one for campaigns; separate identical-seed runs must test process-count determinism. |
 | `analysis_age_scheme` | fixed | `eqasim-france/config_local_nantes.yml`; `eqasim-france/analysis/synthesis/population.py` | `analysis_7` defines the primary output and must remain comparable across the main campaigns. |
 | `matching_age_scheme` | robustness-only | `eqasim-france/config_local_nantes.yml`; `eqasim-france/synthesis/population/matched.py` | `matching_6` is sealed; alternatives change matching structure and require separate checks. |
 | `income_assignation_method` | robustness-only | `eqasim-france/config_local_nantes.yml`; `eqasim-france/synthesis/population/income/uniform.py` | Uniform assignment is sealed; alternative income models are structural checks. |
@@ -141,7 +141,7 @@ robustness check.
 | `mode_choice` and policy scenario | excluded | `eqasim-france/config_local_nantes.yml`; `eqasim-france/matsim/` | Mode choice is disabled in the sealed synthesis baseline; policy or mode-choice scenarios require distinct confirmation campaigns. |
 | Synthetic/HTS distance definition | robustness-only | `eqasim-france/analysis/synthesis/mode_distances.py`; `eqasim-france/analysis/reference/hts/mode_distances.py` | Synthetic Euclidean and survey routed distances are asymmetric and must be disclosed and checked separately. |
 | Department/region geography | fixed | `departments`, `regions`, and `iris_path` in `eqasim-france/config_local_nantes.yml` | Department 44 and its declared IRIS geography define the decision setting. |
-| External geography/data paths | fixed | `data_path`, `gtfs_path`, `osm_path`, `ban_path`, `bdtopo_path`, `bpe_path`, and `iris_path` in `eqasim-france/config_local_nantes.yml`; rendered `context.data_manifest` | Inputs are machine-specific but sealed by the data-manifest digest; changing them creates a different evidence context. |
+| External geography/data paths | fixed | `data_path`, `gtfs_path`, `osm_path`, `ban_path`, `bdtopo_path`, `bpe_path`, and `iris_path` in `eqasim-france/config_local_nantes.yml`; rendered `model.data_manifest` | Inputs are machine-specific but sealed by the data-manifest digest; changing them creates a different evidence context. |
 
 ## Scientific Contract
 

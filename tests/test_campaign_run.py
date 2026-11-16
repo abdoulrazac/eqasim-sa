@@ -56,10 +56,9 @@ def meta_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     meta = tmp_path / "meta.yml"
     meta.write_text(
         "campaign: demo\ncampaign_root: campaign\nmodel:\n  config: model/config.yml\n  root: model\n"
-        "context:\n  data_manifest: manifest.json\n  lockfile: model/lock.yml\n"
-        "analysis:\n  completeness_threshold: 1.0\n"
-        "experiment:\n  method: grid\n  seed_role: replication\n  replications:\n    seeds: [41, 42]\n"
-        "parameters:\n  a:\n    values: [1, 2]\n  b:\n    values: [x, y]\n"
+        "  data_manifest: manifest.json\n  lockfile: model/lock.yml\n"
+        "experiment:\n  method: grid\n  seeds: [41, 42]\n"
+        "parameters:\n  a: [1, 2]\n  b: [x, y]\n"
     )
     return meta, model, config, manifest
 
@@ -118,8 +117,8 @@ def test_data_path_override_is_hashed_and_passed_as_the_same_absolute_path(
     meta.write_text(
         meta.read_text()
         .replace("seeds: [41, 42]", "seeds: [41]")
-        .replace("values: [1, 2]", "values: [1]")
-        .replace("values: [x, y]", "values: [x]")
+        .replace("a: [1, 2]", "a: [1]")
+        .replace("b: [x, y]", "b: [x]")
     )
     plan_from_meta_config(meta)
     scratch = tmp_path / "scratch"
@@ -131,7 +130,7 @@ def test_data_path_override_is_hashed_and_passed_as_the_same_absolute_path(
         scratch,
         workers=1,
         invocation=[sys.executable, str(Path(__file__).with_name("eqasim_spy.py"))],
-        overrides={"data_path": "alternate-data"},
+        machine_options={"data_path": "alternate-data"},
     )
 
     loaded = load_meta_config(meta)
@@ -183,7 +182,7 @@ def test_execution_rejects_worker_cap_and_nonpositive_local_processes(
     meta, _, _, _ = meta_fixture(process_root)
     scratch = process_root / "scratch"
     scratch.mkdir()
-    add_execution(meta, scratch, backend="local", overrides={"processes": 0})
+    add_execution(meta, scratch, backend="local", machine_options={"processes": 0})
     with pytest.raises(ValueError, match="processes"):
         load_meta_config(meta)
 
@@ -210,7 +209,7 @@ def test_slurm_execution_resources_are_optional_strict_and_do_not_affect_plan(
     before = (tmp_path / "campaign" / "plan.parquet").read_bytes()
     scratch = tmp_path / "scratch"
     scratch.mkdir()
-    add_execution(meta, scratch, backend="slurm", overrides={"processes": 1})
+    add_execution(meta, scratch, backend="slurm", machine_options={"processes": 1})
     execution = load_meta_config(meta).execution
     assert execution is not None
     assert execution.processes == 1
@@ -304,7 +303,7 @@ def test_slurm_rejects_non_positive_or_non_integer_processes(
         )
     scratch = tmp_path / "scratch"
     scratch.mkdir()
-    add_execution(meta, scratch, backend="slurm", overrides={"processes": processes})
+    add_execution(meta, scratch, backend="slurm", machine_options={"processes": processes})
     with pytest.raises((TypeError, ValueError), match="processes"):
         load_meta_config(meta)
 
@@ -455,13 +454,13 @@ def test_slurm_campaign_composes_remote_job_without_local_simulator(
     meta, _, _, _ = meta_fixture(tmp_path)
     meta.write_text(
         meta.read_text()
-        .replace("values: [1, 2]", "values: [1]")
-        .replace("values: [x, y]", "values: [x]")
+        .replace("a: [1, 2]", "a: [1]")
+        .replace("b: [x, y]", "b: [x]")
     )
     plan_from_meta_config(meta)
     scratch = tmp_path / "scratch"
     scratch.mkdir()
-    add_execution(meta, scratch, backend="slurm", workers=7, overrides={"processes": 3})
+    add_execution(meta, scratch, backend="slurm", workers=7, machine_options={"processes": 3})
     observed = {}
 
     class Backend:
@@ -525,8 +524,8 @@ def test_slurm_backend_rejects_unsafe_owned_submitit_directory(
     meta, _, _, _ = meta_fixture(tmp_path)
     meta.write_text(
         meta.read_text()
-        .replace("values: [1, 2]", "values: [1]")
-        .replace("values: [x, y]", "values: [x]")
+        .replace("a: [1, 2]", "a: [1]")
+        .replace("b: [x, y]", "b: [x]")
     )
     plan_from_meta_config(meta)
     scratch = tmp_path / "scratch"
@@ -558,8 +557,8 @@ def test_slurm_campaign_resumes_only_missing_runs_and_complete_campaign_is_noop(
     meta, _, _, _ = meta_fixture(tmp_path)
     meta.write_text(
         meta.read_text()
-        .replace("values: [1, 2]", "values: [1]")
-        .replace("values: [x, y]", "values: [x]")
+        .replace("a: [1, 2]", "a: [1]")
+        .replace("b: [x, y]", "b: [x]")
     )
     plan_from_meta_config(meta)
     scratch = tmp_path / "scratch"
@@ -659,8 +658,8 @@ def test_remote_jobs_survive_workdir_loss_and_resume_only_from_runs(
     meta, _, _, _ = meta_fixture(tmp_path)
     meta.write_text(
         meta.read_text()
-        .replace("values: [1, 2]", "values: [1]")
-        .replace("values: [x, y]", "values: [x]")
+        .replace("a: [1, 2]", "a: [1]")
+        .replace("b: [x, y]", "b: [x]")
     )
     plan_from_meta_config(meta)
     scratch = tmp_path / "node-scratch"
@@ -876,7 +875,7 @@ def test_plan_reconstruction_deduplicates_first_occurrence(tmp_path: Path) -> No
     from eqasim_sa.adapters.application import plan_from_meta_config
 
     meta, _, _, _ = meta_fixture(tmp_path)
-    text = meta.read_text().replace("values: [1, 2]", "values: [1, 1]")
+    text = meta.read_text().replace("a: [1, 2]", "a: [1, 1]")
     meta.write_text(text)
     plan_from_meta_config(meta)
     loaded = load_meta_config(meta)
@@ -1303,8 +1302,8 @@ def test_local_campaign_hashes_data_once_and_persists_execution_evidence(
     meta, _, _, _ = meta_fixture(tmp_path)
     meta.write_text(
         meta.read_text()
-        .replace("values: [1, 2]", "values: [1]")
-        .replace("values: [x, y]", "values: [x]")
+        .replace("a: [1, 2]", "a: [1]")
+        .replace("b: [x, y]", "b: [x]")
     )
     plan_from_meta_config(meta)
     scratch = tmp_path / "scratch"
@@ -1353,8 +1352,8 @@ def test_real_subprocess_campaign_deduplicates_and_reports_partial_failure(
     meta, _, _, _ = meta_fixture(tmp_path)
     meta.write_text(
         meta.read_text()
-        .replace("values: [1, 2]", "values: [1, 1]")
-        .replace("values: [x, y]", "values: [x]")
+        .replace("a: [1, 2]", "a: [1, 1]")
+        .replace("b: [x, y]", "b: [x]")
     )
     plan_from_meta_config(meta)
     scratch = tmp_path / "scratch"
@@ -1401,8 +1400,8 @@ def test_campaign_resume_filters_before_simulator_backend_and_preflight(
     meta, _, _, _ = meta_fixture(tmp_path)
     meta.write_text(
         meta.read_text()
-        .replace("values: [1, 2]", "values: [1]")
-        .replace("values: [x, y]", "values: [x]")
+        .replace("a: [1, 2]", "a: [1]")
+        .replace("b: [x, y]", "b: [x]")
     )
     plan_from_meta_config(meta)
     scratch = tmp_path / "scratch"
@@ -1480,8 +1479,8 @@ def _start_interruptible_spy_run(
     meta, _, _, _ = meta_fixture(tmp_path)
     meta.write_text(
         meta.read_text()
-        .replace("values: [1, 2]", "values: [1]")
-        .replace("values: [x, y]", "values: [x]")
+        .replace("a: [1, 2]", "a: [1]")
+        .replace("b: [x, y]", "b: [x]")
     )
     plan_from_meta_config(meta)
     scratch = tmp_path / "scratch"
@@ -1577,8 +1576,8 @@ def _completed_spy_campaign(
     meta, _, _, _ = meta_fixture(tmp_path)
     meta.write_text(
         meta.read_text()
-        .replace("values: [1, 2]", "values: [1]")
-        .replace("values: [x, y]", "values: [x]")
+        .replace("a: [1, 2]", "a: [1]")
+        .replace("b: [x, y]", "b: [x]")
     )
     plan_from_meta_config(meta)
     scratch = tmp_path / "scratch"

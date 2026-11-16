@@ -18,6 +18,7 @@ from eqasim_sa.adapters.eqasim.config import (
     validate_eqasim_document,
 )
 from eqasim_sa.adapters.eqasim.workspace import CAMPAIGN_MAX
+from eqasim_sa.adapters.meta_config_defaults import resolve_meta_config_document
 from eqasim_sa.adapters.eqasim.simulator import DEDICATED, validate_transport
 from eqasim_sa.core.charter import (
     AllocationPhase,
@@ -76,6 +77,44 @@ SCALARIZERS = {
         artifact, reference
     ),
 }
+ROOT_KEYS = (
+    "campaign",
+    "campaign_root",
+    "charter",
+    "model",
+    "experiment",
+    "parameters",
+    "analysis",
+    "outputs",
+    "indicators",
+    "execution",
+    "calibration",
+)
+ROOT_REQUIRED = {"campaign", "model", "experiment", "parameters"}
+MODEL_KEYS = ("root", "config", "data_manifest", "lockfile")
+EXECUTION_KEYS = ("backend", "workers", "scratch", "invocation", "machine_options", "slurm")
+EXPERIMENT_KEYS = {
+    "grid": ("method", "seeds"),
+    "discrete_oat": ("method", "seeds", "trajectories", "design_seed"),
+    "canonical_morris": (
+        "method",
+        "seeds",
+        "levels",
+        "trajectories",
+        "candidate_trajectories",
+        "design_seed",
+    ),
+    "sobol": ("method", "seeds", "base_sample_size", "design_seed"),
+    "multiscramble_sobol": (
+        "method",
+        "seeds",
+        "base_sample_sizes",
+        "scramble_seeds",
+        "seeds_provenance",
+    ),
+}
+OUTPUT_KEYS = ("category", "simulated", "references")
+SEED_FACTOR_METHODS = {"sobol", "multiscramble_sobol"}
 
 
 @dataclass(frozen=True)
@@ -157,6 +196,20 @@ def _mapping(value: object, name: str) -> dict:
     if not isinstance(value, dict):
         raise TypeError(f"{name} must be a mapping")
     return value
+
+
+def _require_keys(
+    document: dict, name: str, allowed: tuple[str, ...], required: set[str]
+) -> None:
+    missing = sorted(required - set(document))
+    unknown = sorted(str(key) for key in document if key not in allowed)
+    if missing or unknown:
+        problems = (
+            [f"missing required: {', '.join(missing)}"] if missing else []
+        ) + ([f"unknown: {', '.join(unknown)}"] if unknown else [])
+        raise ValueError(
+            f"{name} keys must be among {', '.join(allowed)}; {'; '.join(problems)}"
+        )
 
 
 def _file(path: Path, name: str) -> Path:
@@ -273,12 +326,12 @@ def _execution(
     verify_data: bool = True,
 ) -> Execution:
     document = _mapping(value, "execution")
-    required = {"backend", "workers", "scratch", "invocation"}
-    optional = {"overrides", "slurm"}
-    if not required <= set(document) or set(document) - required - optional:
-        raise ValueError(
-            "execution keys must be exactly backend, workers, scratch, invocation, with optional overrides and slurm"
-        )
+    _require_keys(
+        document,
+        "execution",
+        EXECUTION_KEYS,
+        {"backend", "workers", "scratch", "invocation"},
+    )
     backend, workers = document["backend"], document["workers"]
     scratch, invocation = document["scratch"], document["invocation"]
     if backend not in {"local", "slurm"}:
@@ -306,7 +359,9 @@ def _execution(
         raise ValueError(
             "execution.invocation must be a non-empty list of non-empty strings without NUL"
         )
-    overrides = _mapping(document.get("overrides", {}), "execution.overrides")
+    overrides = _mapping(
+        document.get("machine_options", {}), "execution.machine_options"
+    )
     model_config = _mapping(model_document.get("config"), "model config")
     validated = {}
     for name, value in overrides.items():
@@ -315,15 +370,19 @@ def _execution(
             or f"config.{name}" not in EXCLUDED_PATHS
             or name in DEDICATED
         ):
-            raise ValueError(f"override {name!r} is not an allowed environment option")
+            raise ValueError(
+                f"machine_options {name!r} is not an allowed environment option"
+            )
         if name not in model_config:
-            raise ValueError(f"override {name!r} is absent from the sealed YAML")
+            raise ValueError(f"machine_options {name!r} is absent from the sealed YAML")
         if type(value) is not type(model_config[name]):
-            raise TypeError(f"override {name!r} must preserve the sealed YAML type")
+            raise TypeError(
+                f"machine_options {name!r} must preserve the sealed YAML type"
+            )
         validate_transport(name, value)
         if name == "data_path":
             validated[name] = _resolved_directory(
-                base / value, "override 'data_path'", must_exist=verify_data
+                base / value, "machine_options 'data_path'", must_exist=verify_data
             )
         else:
             validated[name] = value
@@ -437,78 +496,96 @@ def _indicator_blocks(
 ) -> tuple[
     dict[str, ArtifactDeclaration], tuple[object, ...], tuple[IndicatorRequirement, ...]
 ]:
-    raw_artifacts = _mapping(document.get("artifacts", {}), "artifacts")
-    for name in raw_artifacts:
+    raw_outputs = _mapping(document.get("outputs", {}), "outputs")
+    for name in raw_outputs:
         if isinstance(name, str):
-            validate_portable_name(name, "artifact")
+            validate_portable_name(name, "output")
     reject_case_collisions(
-        [name for name in raw_artifacts if isinstance(name, str)], "artifact"
+        [name for name in raw_outputs if isinstance(name, str)], "output"
     )
     artifacts = {}
-    for name, value in raw_artifacts.items():
-        declaration = _mapping(value, f"artifact {name!r}")
+    for name, value in raw_outputs.items():
+        declaration = _mapping(value, f"output {name!r}")
         if (
             not isinstance(name, str)
             or not name
-            or set(declaration) != {"class", "synthetic", "references"}
+            or set(declaration) != set(OUTPUT_KEYS)
         ):
             raise ValueError(
-                f"artifact {name!r} keys must be exactly class, synthetic, references"
+                f"output {name!r} keys must be exactly {', '.join(OUTPUT_KEYS)}"
+            )
+        category, simulated = declaration["category"], declaration["simulated"]
+        if not all(isinstance(item, str) and item for item in (category, simulated)):
+            raise ValueError(
+                f"output {name!r} category and simulated must be non-empty strings"
             )
         references = _strings(
-            declaration["references"], f"artifact {name!r} references", True
+            declaration["references"], f"output {name!r} references", True
         )
+        if category == simulated or set(references) & {category, simulated}:
+            raise ValueError(
+                f"output {name!r} category, simulated and references must be distinct"
+            )
         artifacts[name] = ArtifactDeclaration(
-            declaration["class"],
-            declaration["synthetic"],
+            category,
+            simulated,
             references,
             ARTIFACT_STAGE.get(name),
         )
     raw_indicators = document.get("indicators", [])
     if not isinstance(raw_indicators, list):
         raise TypeError("indicators must be a list")
+    kinds = (*SCALARIZERS, "custom")
     declarations = []
     custom_names = set()
     for index, value in enumerate(raw_indicators):
-        indicator = _mapping(value, f"indicator {index}")
-        if len(indicator) != 1 or next(iter(indicator), None) not in {
-            "pair",
-            "product",
-            "custom",
-        }:
+        if (
+            not isinstance(value, dict)
+            or len(value) != 1
+            or next(iter(value)) not in kinds
+        ):
             raise ValueError(
-                f"indicator {index} must contain exactly pair, product, or custom"
+                f"indicator {index} must contain exactly one key: one of {', '.join(kinds)}"
             )
-        kind, raw = next(iter(indicator.items()))
+        kind, raw = next(iter(value.items()))
         declaration = _mapping(raw, f"indicator {index}.{kind}")
-        if kind == "pair":
-            if set(declaration) != {"scalarizer", "artifact", "reference"}:
+        keys = set(declaration)
+        if kind == "custom":
+            if keys != {"function", "output"}:
                 raise ValueError(
-                    "pair keys must be exactly scalarizer, artifact, reference"
+                    f"indicator {index}.custom keys must be exactly function, output"
                 )
-            declarations.append(
-                PairDeclaration(
-                    declaration["scalarizer"],
-                    declaration["artifact"],
-                    declaration["reference"],
+            function, output = declaration["function"], declaration["output"]
+            if not all(isinstance(item, str) and item for item in (function, output)):
+                raise ValueError(
+                    f"indicator {index}.custom function and output must be non-empty strings"
                 )
+            declarations.append(CustomDeclaration(function, output))
+            custom_names.add(function)
+            continue
+        if keys not in ({"output", "reference"}, {"output"}, {"outputs"}):
+            raise ValueError(
+                f"indicator {index}.{kind} keys must be exactly output and reference, "
+                "output, or outputs"
             )
-        elif kind == "product":
-            if set(declaration) != {"scalarizers", "artifacts"}:
-                raise ValueError("product keys must be exactly scalarizers, artifacts")
+        if keys == {"outputs"}:
             declarations.append(
                 ProductDeclaration(
-                    _strings(declaration["scalarizers"], "product scalarizers"),
-                    _strings(declaration["artifacts"], "product artifacts"),
+                    (kind,),
+                    _strings(declaration["outputs"], f"indicator {index}.{kind} outputs"),
                 )
             )
-        else:
-            if set(declaration) != {"function", "artifact"}:
-                raise ValueError("custom keys must be exactly function, artifact")
-            declarations.append(
-                CustomDeclaration(declaration["function"], declaration["artifact"])
+            continue
+        selected = [declaration[key] for key in sorted(keys)]
+        if not all(isinstance(item, str) and item for item in selected):
+            raise ValueError(
+                f"indicator {index}.{kind} {' and '.join(sorted(keys))} must be non-empty strings"
             )
-            custom_names.add(declaration["function"])
+        declarations.append(
+            PairDeclaration(kind, declaration["output"], declaration["reference"])
+            if "reference" in keys
+            else ProductDeclaration((kind,), (declaration["output"],))
+        )
     custom = {}
     entries = importlib.metadata.entry_points()
     selected = entries.select(group="eqasim_sa.indicators")
@@ -562,45 +639,31 @@ def load_meta_config(
     source_state = path_state(source)
     source_sha256 = _digest(source, deadline)
     base = source.parent
-    document = _mapping(load_yaml_document(source), "meta-config root")
-    required = {
-        "campaign",
-        "campaign_root",
-        "model",
-        "context",
-        "experiment",
-        "parameters",
-        "analysis",
-    }
-    optional = {"execution", "calibration", "artifacts", "indicators", "charter"}
-    if not required <= set(document) or set(document) - required - optional:
-        raise ValueError(
-            f"meta-config keys must include exactly {sorted(required)} plus supported optional blocks"
-        )
+    document = _mapping(
+        resolve_meta_config_document(load_yaml_document(source)), "meta-config root"
+    )
+    _require_keys(document, "meta-config", ROOT_KEYS, ROOT_REQUIRED)
     campaign = document["campaign"]
     if not isinstance(campaign, str) or not CAMPAIGN.fullmatch(campaign):
         raise ValueError("campaign must be one safe path segment")
     if len(campaign) > CAMPAIGN_MAX:
         raise ValueError(f"campaign must have at most {CAMPAIGN_MAX} characters")
     validate_portable_name(campaign, "campaign")
-    model, context = (
-        _mapping(document["model"], "model"),
-        _mapping(document["context"], "context"),
-    )
+    model = _mapping(document["model"], "model")
     experiment = _mapping(document["experiment"], "experiment")
     analysis = _mapping(document["analysis"], "analysis")
     method = experiment.get("method")
-    if method not in EXPERIMENT_METHODS:
-        hint = (
-            "; use discrete_oat for an adjacent-level demonstration or "
-            "canonical_morris for scientific Morris screening"
-            if method == "morris"
-            else ""
-        )
+    if not isinstance(method, str) or method not in EXPERIMENT_METHODS:
         raise ValueError(
             f"unsupported experiment.method {method!r}; expected one of "
-            f"{', '.join(EXPERIMENT_METHODS)}{hint}"
+            f"{', '.join(EXPERIMENT_METHODS)}"
         )
+    if set(experiment) != set(EXPERIMENT_KEYS[method]):
+        raise ValueError(
+            f"experiment keys for {method} must be exactly "
+            f"{', '.join(EXPERIMENT_KEYS[method])}"
+        )
+    seed_role = "factor" if method in SEED_FACTOR_METHODS else "replication"
     analysis_keys = (
         {
             "completeness_threshold",
@@ -621,6 +684,8 @@ def load_meta_config(
             f"analysis keys must be exactly {', '.join(sorted(analysis_keys))}"
         )
     completeness_threshold = analysis["completeness_threshold"]
+    if type(completeness_threshold) is int and completeness_threshold in (0, 1):
+        completeness_threshold = float(completeness_threshold)
     if (
         type(completeness_threshold) is not float
         or not math.isfinite(completeness_threshold)
@@ -630,11 +695,8 @@ def load_meta_config(
             "analysis.completeness_threshold must be a finite float in [0,1]"
         )
     raw_parameters = _mapping(document["parameters"], "parameters")
-    if (
-        isinstance(raw_parameters.get("seed"), dict)
-        and "configurations" in raw_parameters["seed"]
-    ):
-        raise ValueError("seed cannot be a structured factor")
+    if "seed" in raw_parameters:
+        raise ValueError("declare simulation seeds in experiment.seeds, not parameters.seed")
     status = charter_status(document.get("charter"))
     if (
         method in {"discrete_oat", "sobol"}
@@ -643,56 +705,7 @@ def load_meta_config(
         raise ValueError(f"{method} requires charter.status demonstration")
     if method in {"canonical_morris", "multiscramble_sobol"} and status is not CharterStatus.SCIENTIFIC:
         raise ValueError(f"{method} requires charter.status scientific")
-    if "replications" in experiment and "seed" in raw_parameters:
-        raise ValueError(
-            "le seed est soit un facteur, soit une réplication, jamais les deux"
-        )
-    if set(model) != {"config", "root"} or set(context) != {
-        "data_manifest",
-        "lockfile",
-    }:
-        raise ValueError("model/context keys do not match the Story 1.4 contract")
-    seed_role = experiment.get("seed_role")
-    if seed_role not in {"replication", "factor"}:
-        raise ValueError("experiment.seed_role must be replication or factor")
-    if seed_role == "factor":
-        if method == "grid":
-            raise ValueError("grid seed factor is not supported yet")
-        if (
-            method not in {"sobol", "multiscramble_sobol"}
-            or set(experiment) != (
-                {"method", "seed_role", "base_sample_size", "design_seed"}
-                if method == "sobol"
-                else {"method", "seed_role", "base_sample_sizes", "scramble_seeds"}
-            )
-            or "seed" not in raw_parameters
-        ):
-            raise ValueError(
-                "Sobol factor experiments require their exact sampling keys and parameters.seed"
-            )
-    expected_experiment = (
-        {"method", "seed_role", "replications"}
-        if method == "grid"
-        else {
-            "method",
-            "seed_role",
-            "levels",
-            "trajectories",
-            "candidate_trajectories",
-            "design_seed",
-            "replications",
-        }
-        if method == "canonical_morris"
-        else {"method", "seed_role", "trajectories", "design_seed", "replications"}
-    )
-    if seed_role == "replication" and (
-        method not in {"grid", "discrete_oat", "canonical_morris"}
-        or set(experiment) != expected_experiment
-    ):
-        raise ValueError(
-            "seed_role replication experiment keys must match the grid contract or the "
-            "discrete_oat/canonical_morris trajectories/design_seed contract"
-        )
+    _require_keys(model, "model", MODEL_KEYS, {"root", "config", "data_manifest"})
     trajectories, design_seed = (
         experiment.get("trajectories"),
         experiment.get("design_seed"),
@@ -768,8 +781,6 @@ def load_meta_config(
             or len(set(raw_scramble_seeds)) != len(raw_scramble_seeds)
         ):
             raise ValueError("experiment.scramble_seeds must contain at least four unique uint64 integers")
-        if design_seed is not None:
-            raise ValueError("multiscramble_sobol does not permit design_seed")
         if completeness_threshold != 1.0:
             raise ValueError("multi-scramble Sobol analysis.completeness_threshold must equal 1.0")
         base_sample_sizes = tuple(raw_base_sample_sizes)
@@ -793,9 +804,7 @@ def load_meta_config(
             raise ValueError(
                 "analysis.confidence_level must be a finite float in (0,1)"
             )
-        if method in {"sobol", "multiscramble_sobol"}:
-            seeds = _mapping(raw_parameters["seed"], "parameters.seed").get("values")
-        else:
+        if method == "canonical_morris":
             raw_checkpoints = analysis["convergence_checkpoints"]
             if (
                 not isinstance(raw_checkpoints, list)
@@ -809,30 +818,24 @@ def load_meta_config(
                 )
             convergence_checkpoints = tuple(raw_checkpoints)
             screening_top_k = analysis["screening_top_k"]
-            replications = _mapping(experiment["replications"], "experiment.replications")
-            if set(replications) != {"seeds"} or not isinstance(
-                replications["seeds"], list
-            ):
-                raise ValueError("experiment.replications.seeds must be a list")
-            seeds = replications["seeds"]
     else:
         bootstrap_resamples = confidence_level = None
-        replications = _mapping(experiment["replications"], "experiment.replications")
-        if set(replications) != {"seeds"} or not isinstance(
-            replications["seeds"], list
-        ):
-            raise ValueError("experiment.replications.seeds must be a list")
-        seeds = replications["seeds"]
-    if method in {"sobol", "multiscramble_sobol"} and (not isinstance(seeds, list) or len(seeds) < 2):
-        raise ValueError("Sobol parameters.seed.values requires at least two values")
+    seeds = experiment["seeds"]
+    if not isinstance(seeds, list):
+        raise ValueError("experiment.seeds must be a list")
+    if method in SEED_FACTOR_METHODS and len(seeds) < 2:
+        raise ValueError(f"experiment.seeds requires at least two values for {method}")
     if not seeds or any(
         type(seed) is not int or not -(2**63) <= seed < 2**63 for seed in seeds
     ):
-        raise ValueError(
-            "experiment.replications.seeds must be non-empty signed int64 values"
-        )
+        raise ValueError("experiment.seeds must be non-empty signed int64 values")
     if len(set(seeds)) != len(seeds):
-        raise ValueError("experiment.replications.seeds must not contain duplicates")
+        raise ValueError("experiment.seeds must not contain duplicates")
+    seeds_provenance = experiment.get("seeds_provenance")
+    if method == "multiscramble_sobol" and (
+        not isinstance(seeds_provenance, str) or not seeds_provenance.strip()
+    ):
+        raise ValueError("experiment.seeds_provenance must be a non-empty string")
     root_value, config_value = model["root"], model["config"]
     if not isinstance(root_value, str) or not isinstance(config_value, str):
         raise TypeError("model paths must be strings")
@@ -855,9 +858,9 @@ def load_meta_config(
     ):
         raise ValueError("model Git repository must be clean")
     commit = _git(root, "rev-parse", "--verify", "HEAD", deadline=deadline)
-    manifest_value, lock_value = context["data_manifest"], context["lockfile"]
+    manifest_value, lock_value = model["data_manifest"], model.get("lockfile")
     if not isinstance(manifest_value, str) or not isinstance(lock_value, str):
-        raise TypeError("context paths must be strings")
+        raise TypeError("model.data_manifest and model.lockfile must be strings")
     config_bytes = config.read_bytes()
     # --path applies the repository's eol/autocrlf filters, so a CRLF
     # checkout of an LF blob still matches its sealed Git blob.
@@ -914,6 +917,15 @@ def load_meta_config(
             else {"values"}
         )
         if (
+            status is CharterStatus.SCIENTIFIC
+            and isinstance(declaration, dict)
+            and set(declaration) == {"values"}
+        ):
+            raise ValueError(
+                f"factor {name!r} requires a distribution under a scientific charter "
+                "(use the long form with values and distribution)"
+            )
+        if (
             not isinstance(name, str)
             or not isinstance(declaration, dict)
             or set(declaration) != expected_parameter_keys
@@ -931,8 +943,6 @@ def load_meta_config(
         if status is CharterStatus.SCIENTIFIC:
             distributions[name] = parse_distribution(declaration["distribution"], name)
         if structured:
-            if name == "seed":
-                raise ValueError("seed cannot be a structured factor")
             if method in {"discrete_oat", "canonical_morris"}:
                 raise ValueError(f"{method} does not support structured factors")
             configurations = _mapping(
@@ -979,8 +989,6 @@ def load_meta_config(
             values = list(validated)
         else:
             values = declaration["values"]
-        if method in {"sobol", "multiscramble_sobol"} and name == "seed":
-            continue
         if validate_factors and name not in model_document["config"]:
             raise ValueError(f"unknown factor: {name!r}")
         if f"config.{name}" in EXCLUDED_PATHS or name in DEDICATED:
@@ -1012,6 +1020,15 @@ def load_meta_config(
                     f"factor {name!r} values must be homogeneous scalars"
                 )
         factors[name] = values
+    if method == "multiscramble_sobol":
+        distributions["seed"] = parse_distribution(
+            {
+                "family": "discrete_uniform",
+                "transform": "identity",
+                "provenance": seeds_provenance,
+            },
+            "seed",
+        )
     if method in {"discrete_oat", "canonical_morris"} and not factors:
         raise ValueError("trajectory design requires at least one factor")
     if method == "discrete_oat":
@@ -1092,13 +1109,14 @@ def load_meta_config(
         else ()
     )
     artifacts, indicators, indicator_requirements = _indicator_blocks(document)
-    if method in {"discrete_oat", "canonical_morris"} and not indicators:
-        raise ValueError(f"{method} requires at least one indicator")
-    if method in {"sobol", "multiscramble_sobol"} and not indicators:
-        raise ValueError("Sobol requires at least one indicator")
+    if method != "grid" and not indicators:
+        raise ValueError(
+            f"{method} requires at least one indicator; "
+            "declare outputs (and optionally indicators)"
+        )
     charter = parse_charter(
         document.get("charter"),
-        set(raw_parameters),
+        set(raw_parameters) | ({"seed"} if method in SEED_FACTOR_METHODS else set()),
         {item.name for item in indicators},
         {item.name: analysis_identity(item) for item in indicators},
     )

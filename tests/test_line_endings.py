@@ -63,10 +63,9 @@ def _project(root: Path, model: Path, data: Path, *, crlf: bool) -> Path:
         "campaign: demo\ncampaign_root: campaign\n"
         f"model:\n  config: {json.dumps(str(model / 'config.yml'))}\n"
         f"  root: {json.dumps(str(model))}\n"
-        "context:\n  data_manifest: manifest.json\n  lockfile: uv.lock\n"
+        "  data_manifest: manifest.json\n  lockfile: uv.lock\n"
         "analysis:\n  completeness_threshold: 1.0\n"
-        "experiment:\n  method: grid\n  seed_role: replication\n"
-        "  replications:\n    seeds: [41, 42]\n"
+        "experiment:\n  method: grid\n  seeds: [41, 42]\n"
         "parameters:\n  a:\n    values: [1, 2]\n  b:\n    values: [x, y]\n",
         encoding="utf-8",
     )

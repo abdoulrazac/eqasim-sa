@@ -327,9 +327,9 @@ def test_installed_plan_creates_replays_and_refuses_conflict(tmp_path: Path) -> 
     meta = tmp_path / "meta.yml"
     template = (
         "campaign: demo\ncampaign_root: {root}\nmodel:\n  config: model/config.yml\n  root: model\n"
-        "context:\n  data_manifest: manifest.json\n  lockfile: model/lock.yml\n"
+        "  data_manifest: manifest.json\n  lockfile: model/lock.yml\n"
         "analysis:\n  completeness_threshold: 1.0\n"
-        "experiment:\n  method: grid\n  seed_role: replication\n  replications:\n    seeds: [41, 42]\n"
+        "experiment:\n  method: grid\n  seeds: [41, 42]\n"
         "parameters:\n  rate:\n    values: [{values}]\n"
     )
     meta.write_text(template.format(root="campaign", values="0.1, 0.2"))
@@ -521,9 +521,9 @@ def test_installed_campaign_interrupts_resumes_then_is_noop(tmp_path: Path) -> N
     meta = tmp_path / "meta.yml"
     meta.write_text(
         "campaign: demo\ncampaign_root: campaign\nmodel:\n  config: model/config.yml\n  root: model\n"
-        "context:\n  data_manifest: manifest.json\n  lockfile: model/lock.yml\n"
+        "  data_manifest: manifest.json\n  lockfile: model/lock.yml\n"
         "analysis:\n  completeness_threshold: 1.0\n"
-        "experiment:\n  method: grid\n  seed_role: replication\n  replications:\n    seeds: [41]\nparameters:\n  rate:\n    values: [0.1]\n"
+        "experiment:\n  method: grid\n  seeds: [41]\nparameters:\n  rate:\n    values: [0.1]\n"
         f"execution:\n  backend: local\n  workers: 1\n  scratch: {scratch}\n"
         f"  invocation: [{sys.executable}, {Path(__file__).with_name('eqasim_spy.py')}]\n"
     )

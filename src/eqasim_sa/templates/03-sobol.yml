@@ -6,7 +6,6 @@ charter:
 model:
   config: @MODEL_CONFIG@
   root: @MODEL_ROOT@
-context:
   data_manifest: @DATA_MANIFEST@
   lockfile: @LOCKFILE@
 analysis:
@@ -15,7 +14,7 @@ analysis:
   confidence_level: 0.95
 experiment:
   method: sobol
-  seed_role: factor
+  seeds: [1401, 1402]
   base_sample_size: 4
   design_seed: 20260814
 parameters:
@@ -23,35 +22,31 @@ parameters:
     values: [0.001, 0.002]
   matching_age_scheme:
     values: [matching_6, analysis_7]
-  seed:
-    values: [1401, 1402]
-artifacts:
+outputs:
   age:
-    class: Age class
-    synthetic: Proportion_EQASIM
+    category: Age class
+    simulated: Proportion_EQASIM
     references: [INSEE]
   distance:
-    class: Distance class
-    synthetic: Proportion_EQASIM
+    category: Distance class
+    simulated: Proportion_EQASIM
     references: [HTS]
   nbr_vehicle:
-    class: Number of vehicles class
-    synthetic: Proportion_EQASIM
+    category: Number of vehicles class
+    simulated: Proportion_EQASIM
     references: [HTS]
 indicators:
-  - pair:
-      scalarizer: tv_distance
-      artifact: age
+  - tv_distance:
+      output: age
       reference: INSEE
-  - product:
-      scalarizers: [tv_distance]
-      artifacts: [distance, nbr_vehicle]
+  - tv_distance:
+      outputs: [distance, nbr_vehicle]
 execution:
   backend: local
   workers: 2
   scratch: @SCRATCH@
   invocation: @INVOCATION@
-  overrides:
+  machine_options:
     data_path: @DATA_PATH@
     processes: 1
 calibration:

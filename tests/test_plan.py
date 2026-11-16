@@ -129,18 +129,14 @@ def _sobol_meta(meta: Path, **changes: object) -> None:
         f"  confidence_level: {values['confidence_level']}\n",
     )
     text = text.replace(
-        "  method: grid\n  seed_role: replication\n  replications:\n    seeds: [41, 42]\n",
-        "  method: sobol\n  seed_role: factor\n"
+        "  method: grid\n  seeds: [41, 42]\n",
+        "  method: sobol\n  seeds: [101, 102, 103]\n"
         f"  base_sample_size: {values['base_sample_size']}\n"
         f"  design_seed: {values['design_seed']}\n",
     )
-    text = text.replace(
-        "parameters:\n",
-        "parameters:\n  seed:\n    values: [101, 102, 103]\n",
-    )
     text += (
-        "artifacts:\n  age: {class: c, synthetic: s, references: [ref]}\n"
-        "indicators:\n  - pair: {scalarizer: tv_distance, artifact: age, reference: ref}\n"
+        "outputs:\n  age: {category: c, simulated: s, references: [ref]}\n"
+        "indicators:\n  - tv_distance: {output: age, reference: ref}\n"
     )
     meta.write_text(text)
 
@@ -339,6 +335,24 @@ def test_sobol_meta_config_preserves_seed_factor_and_analysis_contract(
     assert loaded.bootstrap_resamples == 19 and loaded.confidence_level == 0.95
 
 
+def test_sobol_meta_config_defaults_design_seed_and_analysis(tmp_path: Path) -> None:
+    from eqasim_sa.adapters.meta_config_defaults import default_design_seed
+
+    meta, _, _, _ = meta_fixture(tmp_path)
+    _sobol_meta(meta)
+    text = meta.read_text()
+    for line in (
+        "  design_seed: 20260814\n",
+        "  bootstrap_resamples: 19\n",
+        "  confidence_level: 0.95\n",
+    ):
+        text = text.replace(line, "")
+    meta.write_text(text)
+    loaded = load_meta_config(meta)
+    assert loaded.design_seed == default_design_seed("demo")
+    assert loaded.bootstrap_resamples == 999 and loaded.confidence_level == 0.95
+
+
 @pytest.mark.parametrize(
     "change,message",
     [
@@ -347,22 +361,14 @@ def test_sobol_meta_config_preserves_seed_factor_and_analysis_contract(
             "base_sample_size|keys",
         ),
         (
-            lambda text: text.replace("  design_seed: 20260814\n", ""),
-            "design_seed|keys",
+            lambda text: text.replace("  design_seed: 20260814\n", "  design_seed: -1\n"),
+            "design_seed",
         ),
         (
             lambda text: text.replace(
                 "  design_seed: 20260814\n", "  design_seed: 1\n  extra: 2\n"
             ),
             "keys",
-        ),
-        (
-            lambda text: text.replace("  bootstrap_resamples: 19\n", ""),
-            "bootstrap_resamples|analysis",
-        ),
-        (
-            lambda text: text.replace("  confidence_level: 0.95\n", ""),
-            "confidence_level|analysis",
         ),
         (
             lambda text: text.replace(
@@ -383,15 +389,15 @@ def test_sobol_meta_config_preserves_seed_factor_and_analysis_contract(
             "1.0",
         ),
         (
-            lambda text: text.replace("values: [101, 102, 103]", "values: [101, 101]"),
+            lambda text: text.replace("seeds: [101, 102, 103]", "seeds: [101, 101]"),
             "seed.*distinct|duplicate",
         ),
         (
-            lambda text: text.replace("values: [101, 102, 103]", "values: [101, x]"),
+            lambda text: text.replace("seeds: [101, 102, 103]", "seeds: [101, x]"),
             "seed.*int64",
         ),
         (
-            lambda text: text.replace("  seed:\n    values: [101, 102, 103]\n", ""),
+            lambda text: text.replace("  seeds: [101, 102, 103]\n", ""),
             "seed",
         ),
         (lambda text: text.replace("values: [x, y]", "values: [x, x]"), "distinct"),
@@ -458,10 +464,10 @@ def test_sobol_meta_config_requires_at_least_two_seed_values_with_specific_messa
     meta, _, _, _ = meta_fixture(tmp_path)
     _sobol_meta(meta)
     meta.write_text(
-        meta.read_text().replace("values: [101, 102, 103]", "values: [101]")
+        meta.read_text().replace("seeds: [101, 102, 103]", "seeds: [101]")
     )
     with pytest.raises(
-        ValueError, match="Sobol parameters.seed.values requires at least two"
+        ValueError, match="experiment.seeds requires at least two values for sobol"
     ):
         load_meta_config(meta)
 
@@ -471,8 +477,9 @@ def _discrete_oat_meta(
 ) -> None:
     text = meta.read_text()
     text = text.replace(
-        "  method: grid\n  seed_role: replication\n",
-        f"  method: discrete_oat\n  seed_role: replication\n  trajectories: {trajectories}\n"
+        "  method: grid\n  seeds: [41, 42]\n",
+        "  method: discrete_oat\n  seeds: [41, 42]\n"
+        f"  trajectories: {trajectories}\n"
         f"  design_seed: {design_seed}\n",
     )
     text = text.replace(
@@ -482,8 +489,8 @@ def _discrete_oat_meta(
     meta.write_text(
         text
         + (
-            "artifacts:\n  age: {class: c, synthetic: s, references: [ref]}\n"
-            "indicators:\n  - pair: {scalarizer: tv_distance, artifact: age, reference: ref}\n"
+            "outputs:\n  age: {category: c, simulated: s, references: [ref]}\n"
+            "indicators:\n  - tv_distance: {output: age, reference: ref}\n"
         )
     )
 
@@ -782,7 +789,7 @@ def test_discrete_oat_meta_config_requires_at_least_one_indicator(tmp_path: Path
     meta, _, _, _ = meta_fixture(tmp_path)
     _discrete_oat_meta(meta)
     text = meta.read_text()
-    meta.write_text(text[: text.index("artifacts:\n")])
+    meta.write_text(text[: text.index("outputs:\n")])
     with pytest.raises(ValueError, match="discrete_oat.*indicator"):
         load_meta_config(meta)
 
@@ -798,8 +805,9 @@ def test_meta_config_rejects_unsupported_experiment_method(
     )
     with pytest.raises(ValueError, match="unsupported experiment.method") as error:
         load_meta_config(meta)
-    assert ("canonical_morris" in str(error.value)) and (
-        ("discrete_oat for an adjacent-level" in str(error.value)) == (method == "morris")
+    assert str(error.value) == (
+        f"unsupported experiment.method {method!r}; expected one of grid, "
+        "discrete_oat, canonical_morris, sobol, multiscramble_sobol"
     )
 
 
@@ -807,12 +815,17 @@ def test_meta_config_rejects_unsupported_experiment_method(
     "change,message",
     [
         (lambda text: text.replace("  trajectories: 2\n", ""), "trajectories"),
-        (lambda text: text.replace("  design_seed: 20260814\n", ""), "design_seed"),
+        (
+            lambda text: text.replace(
+                "  design_seed: 20260814\n", "  design_seed: 9223372036854775808\n"
+            ),
+            "design_seed",
+        ),
         (
             lambda text: text.replace(
                 "  design_seed: 20260814\n", "  design_seed: 1\n  extra: 2\n"
             ),
-            "keys|replication",
+            "keys",
         ),
         (
             lambda text: text.replace(
@@ -1307,9 +1320,9 @@ def meta_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     meta = tmp_path / "meta.yml"
     meta.write_text(
         "campaign: demo\ncampaign_root: campaign\nmodel:\n  config: model/config.yml\n  root: model\n"
-        "context:\n  data_manifest: manifest.json\n  lockfile: model/lock.yml\n"
+        "  data_manifest: manifest.json\n  lockfile: model/lock.yml\n"
         "analysis:\n  completeness_threshold: 1.0\n"
-        "experiment:\n  method: grid\n  seed_role: replication\n  replications:\n    seeds: [41, 42]\n"
+        "experiment:\n  method: grid\n  seeds: [41, 42]\n"
         "parameters:\n  a:\n    values: [1, 2]\n  b:\n    values: [x, y]\n"
     )
     return meta, model, config, manifest
@@ -1317,10 +1330,30 @@ def meta_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
 
 @pytest.mark.parametrize(
     "value",
-    ["missing", "true", "1", ".nan", ".inf", "-0.1", "1.1"],
+    ["true", "2", ".nan", ".inf", "-0.1", "1.1"],
 )
 def test_meta_config_requires_finite_float_completeness_threshold(
     tmp_path: Path, value: str
+) -> None:
+    meta, _, _, _ = meta_fixture(tmp_path)
+    meta.write_text(
+        meta.read_text().replace(
+            "completeness_threshold: 1.0", f"completeness_threshold: {value}"
+        )
+    )
+    with pytest.raises(
+        (TypeError, ValueError),
+        match="completeness_threshold|analysis|JSON-compatible",
+    ):
+        load_meta_config(meta)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("0.0", 0.0), ("0.5", 0.5), ("1.0", 1.0), ("0", 0.0), ("1", 1.0), ("missing", 1.0)],
+)
+def test_meta_config_accepts_boundary_completeness_threshold(
+    tmp_path: Path, value: str, expected: float
 ) -> None:
     meta, _, _, _ = meta_fixture(tmp_path)
     text = meta.read_text()
@@ -1331,40 +1364,14 @@ def test_meta_config_requires_finite_float_completeness_threshold(
             "completeness_threshold: 1.0", f"completeness_threshold: {value}"
         )
     meta.write_text(text)
-    with pytest.raises(
-        (TypeError, ValueError),
-        match="completeness_threshold|analysis|JSON-compatible",
-    ):
-        load_meta_config(meta)
+    assert load_meta_config(meta).completeness_threshold == expected
 
 
-@pytest.mark.parametrize("value", ["0.0", "0.5", "1.0"])
-def test_meta_config_accepts_boundary_completeness_threshold(
-    tmp_path: Path, value: str
-) -> None:
-    meta, _, _, _ = meta_fixture(tmp_path)
-    meta.write_text(
-        meta.read_text().replace(
-            "completeness_threshold: 1.0", f"completeness_threshold: {value}"
-        )
-    )
-    assert load_meta_config(meta).completeness_threshold == float(value)
-
-
-@pytest.mark.parametrize("replacement", ["", "  seed_role: noise\n"])
-def test_meta_config_requires_valid_explicit_seed_role(
-    tmp_path: Path, replacement: str
-) -> None:
-    meta, _, _, _ = meta_fixture(tmp_path)
-    meta.write_text(meta.read_text().replace("  seed_role: replication\n", replacement))
-    with pytest.raises(ValueError, match="seed_role"):
-        load_meta_config(meta)
-
-
-def test_seed_factor_and_replication_conflict_uses_normative_rule(
+def test_grid_seed_role_is_derived_and_seed_parameter_is_refused(
     tmp_path: Path,
 ) -> None:
     meta, _, _, _ = meta_fixture(tmp_path)
+    assert load_meta_config(meta).seed_role == "replication"
     meta.write_text(
         meta.read_text().replace(
             "parameters:\n",
@@ -1373,20 +1380,8 @@ def test_seed_factor_and_replication_conflict_uses_normative_rule(
     )
     with pytest.raises(
         ValueError,
-        match="^le seed est soit un facteur, soit une réplication, jamais les deux$",
+        match=r"^declare simulation seeds in experiment\.seeds, not parameters\.seed$",
     ):
-        load_meta_config(meta)
-
-
-def test_grid_seed_factor_is_unambiguous_but_not_supported_yet(tmp_path: Path) -> None:
-    meta, _, _, _ = meta_fixture(tmp_path)
-    text = meta.read_text().replace(
-        "  seed_role: replication\n", "  seed_role: factor\n"
-    )
-    text = text.replace("  replications:\n    seeds: [41, 42]\n", "")
-    text = text.replace("parameters:\n", "parameters:\n  seed:\n    values: [11, 12]\n")
-    meta.write_text(text)
-    with pytest.raises(ValueError, match="grid.*seed factor.*not supported"):
         load_meta_config(meta)
 
 
@@ -1552,13 +1547,13 @@ def test_meta_config_parses_strict_artifacts_and_three_indicator_forms(
     meta.write_text(
         meta.read_text()
         + (
-            "artifacts:\n"
-            "  age:\n    class: Age class\n    synthetic: Proportion_EQASIM\n    references: [INSEE]\n"
-            "  distance:\n    class: Distance class\n    synthetic: Proportion_EQASIM\n    references: [HTS]\n"
+            "outputs:\n"
+            "  age:\n    category: Age class\n    simulated: Proportion_EQASIM\n    references: [INSEE]\n"
+            "  distance:\n    category: Distance class\n    simulated: Proportion_EQASIM\n    references: [HTS]\n"
             "indicators:\n"
-            "  - pair: {scalarizer: tv_distance, artifact: age, reference: INSEE}\n"
-            "  - product: {scalarizers: [tv_distance], artifacts: [distance]}\n"
-            "  - custom: {function: extension, artifact: age}\n"
+            "  - tv_distance: {output: age, reference: INSEE}\n"
+            "  - tv_distance: {outputs: [distance]}\n"
+            "  - custom: {function: extension, output: age}\n"
         )
     )
     loaded = load_meta_config(meta)
@@ -1573,10 +1568,11 @@ def test_meta_config_parses_strict_artifacts_and_three_indicator_forms(
 @pytest.mark.parametrize(
     "addition",
     [
-        "artifacts: []\nindicators: []\n",
-        "artifacts:\n  age: {class: c, synthetic: s, references: [], extra: x}\nindicators: []\n",
-        "artifacts:\n  age: {class: c, synthetic: s, references: []}\nindicators:\n  - pair: {scalarizer: tv_distance, artifact: age}\n",
-        "artifacts:\n  age: {class: c, synthetic: s, references: []}\nindicators:\n  - pair: {}\n    custom: {}\n",
+        "outputs: []\nindicators: []\n",
+        "outputs:\n  age: {category: c, simulated: s, references: [], extra: x}\nindicators: []\n",
+        "outputs:\n  age: {category: c, simulated: s, references: []}\nindicators:\n  - tv_distance: {reference: x}\n",
+        "outputs:\n  age: {category: c, simulated: s, references: []}\nindicators:\n  - tv_distance: {output: age}\n",
+        "outputs:\n  age: {category: c, simulated: s, references: []}\nindicators:\n  - tv_distance: {}\n    custom: {}\n",
     ],
 )
 def test_meta_config_rejects_malformed_artifacts_and_indicators(
@@ -1584,7 +1580,7 @@ def test_meta_config_rejects_malformed_artifacts_and_indicators(
 ) -> None:
     meta, _, _, _ = meta_fixture(tmp_path)
     meta.write_text(meta.read_text() + addition)
-    with pytest.raises((TypeError, ValueError), match="artifact|indicator|pair"):
+    with pytest.raises((TypeError, ValueError), match="output|indicator"):
         load_meta_config(meta)
 
 
@@ -1600,8 +1596,8 @@ def test_custom_indicator_must_be_registered_by_entry_point(
     meta.write_text(
         meta.read_text()
         + (
-            "artifacts:\n  age: {class: c, synthetic: s, references: []}\n"
-            "indicators:\n  - custom: {function: missing, artifact: age}\n"
+            "outputs:\n  age: {category: c, simulated: s, references: []}\n"
+            "indicators:\n  - custom: {function: missing, output: age}\n"
         )
     )
     with pytest.raises(ValueError, match="missing.*eqasim_sa.indicators"):
@@ -1640,8 +1636,8 @@ def test_custom_indicator_entry_point_class_is_instantiated_without_arguments(
     meta.write_text(
         meta.read_text()
         + (
-            "artifacts:\n  age: {class: c, synthetic: s, references: []}\n"
-            "indicators:\n  - custom: {function: extension, artifact: age}\n"
+            "outputs:\n  age: {category: c, simulated: s, references: []}\n"
+            "indicators:\n  - custom: {function: extension, output: age}\n"
         )
     )
     loaded = load_meta_config(meta)
@@ -1684,8 +1680,8 @@ def test_custom_indicator_entry_point_class_requiring_arguments_is_rejected(
     meta.write_text(
         meta.read_text()
         + (
-            "artifacts:\n  age: {class: c, synthetic: s, references: []}\n"
-            "indicators:\n  - custom: {function: extension, artifact: age}\n"
+            "outputs:\n  age: {category: c, simulated: s, references: []}\n"
+            "indicators:\n  - custom: {function: extension, output: age}\n"
         )
     )
     loaded = load_meta_config(meta)

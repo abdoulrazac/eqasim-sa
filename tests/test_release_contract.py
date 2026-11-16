@@ -311,26 +311,17 @@ def test_release_refuses_method_contract_substitution(tmp_path: Path) -> None:
         if method == "discrete_oat":
             document["experiment"] = {
                 "method": "discrete_oat",
-                "seed_role": "replication",
+                "seeds": [41, 42],
                 "trajectories": 2,
                 "design_seed": 1,
-                "replications": {"seeds": [41, 42]},
             }
             document["analysis"] = {"completeness_threshold": 1.0}
         else:
             document["experiment"] = {
                 "method": "sobol",
-                "seed_role": "factor",
+                "seeds": [41, 42],
                 "base_sample_size": 4,
                 "design_seed": 1,
-            }
-            document["parameters"]["seed"] = {
-                "values": [41, 42],
-                "distribution": {
-                    "family": "discrete_uniform",
-                    "transform": "identity",
-                    "provenance": "test",
-                },
             }
             document["analysis"] = {
                 "completeness_threshold": 1.0,

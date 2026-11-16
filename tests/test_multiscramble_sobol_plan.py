@@ -140,7 +140,6 @@ def multiscramble_meta_document(meta: Path, objective: str = "fp", tolerance=Non
         "transform": "identity",
         "provenance": "finite simulator-seed support",
     }
-    document["parameters"]["seed"] = {"values": [10, 20], "distribution": distribution}
     decision = document["charter"]["decision"]
     decision["objective"] = objective
     if tolerance is not None:
@@ -155,7 +154,8 @@ def multiscramble_meta_document(meta: Path, objective: str = "fp", tolerance=Non
     )
     document["experiment"] = {
         "method": "multiscramble_sobol",
-        "seed_role": "factor",
+        "seeds": [10, 20],
+        "seeds_provenance": distribution["provenance"],
         "base_sample_sizes": [2, 4],
         "scramble_seeds": [16, 20, 21, 27],
     }
@@ -448,7 +448,6 @@ def test_multiscramble_meta_serializes_seed_as_scientific_factor(
         "transform": "identity",
         "provenance": "finite simulator-seed support",
     }
-    document["parameters"]["seed"] = {"values": [10, 20], "distribution": distribution}
     document["charter"]["decision"]["objective"] = "fp"
     document["charter"]["stopping"]["criteria"] = [
         {"metric": "ci_width", "threshold": 0.1, "consecutive_checks": 2}
@@ -463,7 +462,8 @@ def test_multiscramble_meta_serializes_seed_as_scientific_factor(
     )
     document["experiment"] = {
         "method": "multiscramble_sobol",
-        "seed_role": "factor",
+        "seeds": [10, 20],
+        "seeds_provenance": distribution["provenance"],
         "base_sample_sizes": [2, 4],
         "scramble_seeds": [16, 20, 21, 27],
     }
@@ -516,7 +516,6 @@ def test_application_refuses_multiscramble_contract_substitution_before_analyze(
         "transform": "identity",
         "provenance": "finite simulator-seed support",
     }
-    document["parameters"]["seed"] = {"values": [10, 20], "distribution": distribution}
     document["charter"]["decision"]["objective"] = "fp"
     document["charter"]["stopping"]["criteria"] = [
         {"metric": "ci_width", "threshold": 0.1, "consecutive_checks": 2}
@@ -526,7 +525,8 @@ def test_application_refuses_multiscramble_contract_substitution_before_analyze(
     )
     document["experiment"] = {
         "method": "multiscramble_sobol",
-        "seed_role": "factor",
+        "seeds": [10, 20],
+        "seeds_provenance": distribution["provenance"],
         "base_sample_sizes": [2, 4],
         "scramble_seeds": [16, 20, 21, 27],
     }

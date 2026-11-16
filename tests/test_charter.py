@@ -38,18 +38,10 @@ def _scientific(path: Path) -> dict:
             "transform": "identity",
             "provenance": "Declared design domain",
         }
-    document["artifacts"] = {
-        "age": {"class": "c", "synthetic": "s", "references": ["ref"]}
+    document["outputs"] = {
+        "age": {"category": "c", "simulated": "s", "references": ["ref"]}
     }
-    document["indicators"] = [
-        {
-            "pair": {
-                "scalarizer": "tv_distance",
-                "artifact": "age",
-                "reference": "ref",
-            }
-        }
-    ]
+    document["indicators"] = [{"tv_distance": {"output": "age", "reference": "ref"}}]
     item = lambda name, status: {
         "name": name,
         "status": status,
@@ -525,7 +517,7 @@ def test_robustness_contract(tmp_path: Path, mutate, message: str) -> None:  # t
 def test_scientific_requires_an_indicator(tmp_path: Path) -> None:
     def mutate(document):  # type: ignore[no-untyped-def]
         document.pop("indicators")
-        document.pop("artifacts")
+        document.pop("outputs")
 
     with pytest.raises(ValueError, match="scientific.*indicator"):
         _load_scientific(tmp_path, mutate)

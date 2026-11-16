@@ -481,22 +481,19 @@ def test_structured_sobol_cli_preflight_rejects_payload_only_tampering(
     document = yaml.safe_load(meta.read_text())
     document["experiment"] = {
         "method": "sobol",
-        "seed_role": "factor",
+        "seeds": [101, 102, 103],
         "base_sample_size": 4,
         "design_seed": 20260814,
     }
-    document["parameters"]["seed"] = {"values": [101, 102, 103]}
     document["analysis"] = {
         "completeness_threshold": 1.0,
         "bootstrap_resamples": 19,
         "confidence_level": 0.95,
     }
-    document["artifacts"] = {
-        "age": {"class": "c", "synthetic": "s", "references": ["ref"]}
+    document["outputs"] = {
+        "age": {"category": "c", "simulated": "s", "references": ["ref"]}
     }
-    document["indicators"] = [
-        {"pair": {"scalarizer": "tv_distance", "artifact": "age", "reference": "ref"}}
-    ]
+    document["indicators"] = [{"tv_distance": {"output": "age", "reference": "ref"}}]
     meta.write_text(yaml.safe_dump(document, sort_keys=False))
     plan_from_meta_config(meta)
     loaded = load_meta_config(meta)

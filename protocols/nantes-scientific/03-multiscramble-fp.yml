@@ -95,7 +95,6 @@ charter:
 model:
   config: "__MACHINE_MODEL_CONFIG__"
   root: "__MACHINE_MODEL_ROOT__"
-context:
   data_manifest: "__MACHINE_DATA_MANIFEST__"
   lockfile: "__MACHINE_LOCKFILE__"
 analysis:
@@ -103,7 +102,8 @@ analysis:
   confidence_level: 0.95
 experiment:
   method: multiscramble_sobol
-  seed_role: factor
+  seeds: [44011, 44012, 44013, 44014]
+  seeds_provenance: Declared finite simulator-seed nuisance support; screening sha256:__BLOCKED_SCREENING_PROVENANCE_SHA256__
   base_sample_sizes: [8, 16, 32]
   scramble_seeds: [44101, 44102, 44103, 44104]
 parameters:
@@ -119,24 +119,18 @@ parameters:
       family: discrete_uniform
       transform: identity
       provenance: Production screening report sha256:__BLOCKED_SCREENING_PROVENANCE_SHA256__
-  seed:
-    values: [44011, 44012, 44013, 44014]
-    distribution:
-      family: discrete_uniform
-      transform: identity
-      provenance: Declared finite simulator-seed nuisance support; screening sha256:__BLOCKED_SCREENING_PROVENANCE_SHA256__
-artifacts:
-  age: {class: Age class, synthetic: Proportion_EQASIM, references: [INSEE]}
-  distance: {class: Distance class, synthetic: Proportion_EQASIM, references: [HTS]}
-  nbr_vehicle: {class: Number of vehicles class, synthetic: Proportion_EQASIM, references: [HTS]}
+outputs:
+  age: {category: Age class, simulated: Proportion_EQASIM, references: [INSEE]}
+  distance: {category: Distance class, simulated: Proportion_EQASIM, references: [HTS]}
+  nbr_vehicle: {category: Number of vehicles class, simulated: Proportion_EQASIM, references: [HTS]}
 indicators:
-  - pair: {scalarizer: tv_distance, artifact: age, reference: INSEE}
-  - product: {scalarizers: [tv_distance], artifacts: [distance, nbr_vehicle]}
+  - tv_distance: {output: age, reference: INSEE}
+  - tv_distance: {outputs: [distance, nbr_vehicle]}
 execution:
   backend: local
   workers: 1
   scratch: "__MACHINE_SCRATCH__"
   invocation: [uv, run, --locked, python, -m, synpp]
-  overrides:
+  machine_options:
     data_path: "__MACHINE_DATA_PATH__"
     processes: 1

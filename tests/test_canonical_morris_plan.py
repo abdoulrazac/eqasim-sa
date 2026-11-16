@@ -206,12 +206,11 @@ def canonical_meta(tmp_path: Path) -> Path:
     document["charter"]["stopping"]["criteria"][0]["consecutive_checks"] = 1
     document["experiment"] = {
         "method": "canonical_morris",
-        "seed_role": "replication",
+        "seeds": [41, 42],
         "levels": 4,
         "trajectories": 3,
         "candidate_trajectories": 8,
         "design_seed": 20260820,
-        "replications": {"seeds": [41, 42]},
     }
     document["analysis"] = {
         "completeness_threshold": 1.0,
