@@ -60,7 +60,8 @@ def test_design_seed_fits_signed_int64_and_is_stable():
 
 @pytest.mark.parametrize("document", [
     "grid", None, [],
-    {**MINIMAL, "experiment": "grid"}, {**MINIMAL, "outputs": ["age"]},
+    {**MINIMAL, "experiment": "grid"}, {**MINIMAL, "experiment": {"method": []}},
+    {**MINIMAL, "experiment": {"method": {}}}, {**MINIMAL, "outputs": ["age"]},
     {**MINIMAL, "execution": None}, {**MINIMAL, "model": "x"}, {**MINIMAL, "parameters": 3},
 ])
 def test_unexpected_types_pass_through_without_crashing(document):

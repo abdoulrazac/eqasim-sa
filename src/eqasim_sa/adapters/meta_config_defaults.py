@@ -36,6 +36,8 @@ def resolve_meta_config_document(document: object) -> object:
 
     experiment = resolved.get("experiment")
     method = experiment.get("method") if isinstance(experiment, dict) else None
+    if not isinstance(method, str):
+        method = None
     if isinstance(experiment, dict) and method in _SEEDED_METHODS and isinstance(campaign, str):
         experiment.setdefault("design_seed", default_design_seed(campaign))
 
