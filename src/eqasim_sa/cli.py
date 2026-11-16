@@ -3,6 +3,7 @@
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +67,11 @@ def parser() -> argparse.ArgumentParser:
             "(default: uv run --locked python -m synpp)"
         ),
     )
+    show = commands.add_parser(
+        "show-config",
+        help="show the complete meta-config with defaults applied",
+    )
+    show.add_argument("meta_config", type=Path)
     plan = commands.add_parser("plan", help="seal a deterministic experiment plan")
     plan.add_argument("--meta-config", type=Path, required=True)
     run = commands.add_parser("run", help="execute every unique run in a sealed plan")
@@ -121,6 +127,7 @@ def dispatch(
     check_factory: Any = None,
     init_factory: Any = None,
     analyze_factory: Any = None,
+    show_config_factory: Any = None,
 ) -> int:
     """Dispatch one parsed command and emit its stable JSON response."""
 
@@ -128,6 +135,17 @@ def dispatch(
     if arguments.command is None:
         parser().print_help()
         return 0
+    if arguments.command == "show-config":
+        try:
+            if show_config_factory is None:
+                raise RuntimeError("show-config adapter is not configured")
+            print(show_config_factory(arguments.meta_config), end="")
+            return 0
+        except Exception as error:
+            print(
+                str(error).strip() or error.__class__.__name__, file=sys.stderr
+            )
+            return 1
     if arguments.command == "init":
         empty = {
             "status": "failed",

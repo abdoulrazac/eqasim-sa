@@ -7,6 +7,7 @@ from argparse import Namespace
 from pathlib import Path
 
 import pyarrow.parquet as pq
+import yaml
 
 from eqasim_sa.adapters.backends.local import LocalBackend
 from eqasim_sa.adapters.campaign_design import _design, _validate_scientific_method
@@ -15,6 +16,7 @@ from eqasim_sa.adapters.data_manifest import load_data_manifest
 from eqasim_sa.adapters.eqasim.config import (
     EqasimSettings,
     load_config,
+    load_yaml_document,
 )
 from eqasim_sa.adapters.eqasim.execution import (
     EqasimBatchExecutor,
@@ -29,6 +31,7 @@ from eqasim_sa.adapters.eqasim.simulator import (
 from eqasim_sa.adapters.fake.simulator import FakeSimulator
 from eqasim_sa.adapters.estimate import estimate_from_meta_config
 from eqasim_sa.adapters.meta_config import load_meta_config
+from eqasim_sa.adapters.meta_config_defaults import resolve_meta_config_document
 from eqasim_sa.adapters.project_init import init_from_inputs
 from eqasim_sa.adapters.worker import ordered_results, worker_batches
 from eqasim_sa.cli import dispatch
@@ -291,6 +294,14 @@ def analyze_from_meta_config(path: Path, descriptive_only: bool = False) -> dict
     }
 
 
+def show_config_from_meta_config(path: Path) -> str:
+    """Validate a meta-config and render it with every default applied."""
+
+    load_meta_config(path, verify_data=False)
+    resolved = resolve_meta_config_document(load_yaml_document(path))
+    return yaml.safe_dump(resolved, sort_keys=False, allow_unicode=True)
+
+
 def main() -> int:
     """Run the production CLI and translate user interruption to exit code 130."""
 
@@ -305,6 +316,7 @@ def main() -> int:
             check_from_meta_config,
             init_from_inputs,
             analyze_from_meta_config,
+            show_config_from_meta_config,
         )
     except KeyboardInterrupt:
         return 130
