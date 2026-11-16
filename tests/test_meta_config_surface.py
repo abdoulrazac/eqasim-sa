@@ -343,3 +343,39 @@ def test_machine_options_errors_use_the_new_name(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="machine_options 'random_seed'"):
         load_meta_config(meta)
+
+
+def test_default_indicators_skip_outputs_without_references(tmp_path: Path) -> None:
+    meta, _, _, _ = meta_fixture(tmp_path)
+
+    def change(document: dict) -> None:
+        _with_outputs(document, age=["INSEE"], custom_only=[])
+        document.pop("indicators", None)
+
+    _edit(meta, change)
+    loaded = load_meta_config(meta)
+
+    assert {item.name for item in loaded.indicators} == {"tv_distance(age, ref=INSEE)"}
+    assert set(loaded.artifacts) == {"age", "custom_only"}
+
+
+def test_factor_transport_errors_name_the_factor(tmp_path: Path) -> None:
+    meta, _, _, _ = meta_fixture(tmp_path)
+    _edit(meta, lambda d: d["parameters"].update(a=[1, True]))
+
+    with pytest.raises(TypeError) as caught:
+        load_meta_config(meta)
+    assert "factor 'a' is not faithfully representable" in str(caught.value)
+    assert "override" not in str(caught.value)
+
+
+def test_machine_options_transport_errors_use_the_new_name(tmp_path: Path) -> None:
+    meta, _, _, _ = meta_fixture(tmp_path)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    add_execution(meta, scratch, machine_options={"data_path": "bad\u0000path"})
+
+    with pytest.raises(ValueError) as caught:
+        load_meta_config(meta)
+    assert "machine_options 'data_path'" in str(caught.value)
+    assert "override" not in str(caught.value)

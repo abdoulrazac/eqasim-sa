@@ -59,10 +59,21 @@ def resolve_meta_config_document(document: object) -> object:
 
     if "indicators" not in resolved:
         outputs = resolved.get("outputs")
-        if isinstance(outputs, dict) and outputs:
-            resolved["indicators"] = [{"tv_distance": {"outputs": list(outputs)}}]
-        else:
-            resolved["indicators"] = []
+        referenced = (
+            [
+                name
+                for name, output in outputs.items()
+                if isinstance(output, dict)
+                and isinstance(output.get("references"), list)
+                and output["references"]
+            ]
+            if isinstance(outputs, dict)
+            else []
+        )
+        # An output without references has no output x reference pair.
+        resolved["indicators"] = (
+            [{"tv_distance": {"outputs": referenced}}] if referenced else []
+        )
 
     execution = resolved.get("execution")
     if isinstance(execution, dict):

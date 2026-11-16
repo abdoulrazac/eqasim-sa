@@ -66,3 +66,15 @@ def test_design_seed_fits_signed_int64_and_is_stable():
 ])
 def test_unexpected_types_pass_through_without_crashing(document):
     resolve_meta_config_document(document)  # no exception
+
+
+def test_default_indicators_skip_outputs_without_references():
+    outputs = {
+        "age": {"category": "C", "simulated": "S", "references": ["R"]},
+        "custom_only": {"category": "C", "simulated": "S", "references": []},
+    }
+    resolved = resolve_meta_config_document({**MINIMAL, "outputs": outputs})
+    assert resolved["indicators"] == [{"tv_distance": {"outputs": ["age"]}}]
+    only_empty = {"custom_only": outputs["custom_only"]}
+    resolved = resolve_meta_config_document({**MINIMAL, "outputs": only_empty})
+    assert resolved["indicators"] == []

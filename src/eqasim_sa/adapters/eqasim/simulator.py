@@ -149,7 +149,7 @@ class EqasimSimulator:
                     for payload in configurations.values()
                 ):
                     raise ValueError(
-                        f"structured override {key!r} is not a declared configuration"
+                        f"structured factor {key!r} value is not a declared configuration"
                     )
                 structured_changes.add(key)
         if structured_changes:
@@ -308,24 +308,27 @@ def probe_environment(
         )
 
 
-def validate_transport(name: str, value: object) -> None:
-    """Validate a scalar override that can cross the synpp CLI boundary."""
+def validate_transport(name: str, value: object, label: str | None = None) -> None:
+    """Validate a scalar value that can cross the synpp CLI boundary.
+
+    ``label`` names the value in errors as the user declared it (for example
+    ``factor 'a'`` or ``machine_options 'processes'``).
+    """
 
     if not OPTION.fullmatch(name) or name in DEDICATED:
         raise ValueError(f"invalid or dedicated synpp option: {name!r}")
-    _scalar_argument(name, value)
+    _scalar_argument(name, value, label)
 
 
-def _scalar_argument(key: str, value: object) -> str:
+def _scalar_argument(key: str, value: object, label: str | None = None) -> str:
+    subject = label or f"synpp option {key!r}"
     if isinstance(value, bool) or not isinstance(value, (int, float, str)):
-        raise TypeError(
-            f"override {key!r} is not faithfully representable by synpp 1.6.2"
-        )
+        raise TypeError(f"{subject} is not faithfully representable by synpp 1.6.2")
     if isinstance(value, float) and not math.isfinite(value):
-        raise ValueError(f"override {key!r} must be finite")
+        raise ValueError(f"{subject} must be finite")
     argument = str(value)
     if "\0" in argument:
-        raise ValueError(f"override {key!r} contains a NUL character")
+        raise ValueError(f"{subject} contains a NUL character")
     return argument
 
 

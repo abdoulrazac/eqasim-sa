@@ -379,7 +379,7 @@ def _execution(
             raise TypeError(
                 f"machine_options {name!r} must preserve the sealed YAML type"
             )
-        validate_transport(name, value)
+        validate_transport(name, value, f"machine_options {name!r}")
         if name == "data_path":
             validated[name] = _resolved_directory(
                 base / value, "machine_options 'data_path'", must_exist=verify_data
@@ -996,7 +996,7 @@ def load_meta_config(
         if not isinstance(values, list):
             raise TypeError(f"factor {name!r} values must be a list")
         for value in values:
-            validate_transport(name, value)
+            validate_transport(name, value, f"factor {name!r}")
         if status is CharterStatus.SCIENTIFIC and (
             len(values) < 2 or len(values) != len(set(values))
         ):
