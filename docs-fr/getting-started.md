@@ -113,6 +113,23 @@ court, comme `C:\esa`, et lancez `check` avant `run` : il signale ce cas avant
 tout run long. Voir le
 [dépannage](troubleshooting.md#le-contrôle-path_length-échoue-sous-windows).
 
+## Lire une configuration générée
+
+Chaque fichier de `configs/` est court : le nom de la campagne, la méthode et ses
+graines, les valeurs de paramètres à essayer, les sorties du modèle à comparer
+aux données de référence et, sous une ligne de commentaire, les chemins
+qu'`init` a remplis pour cette machine. Tout le reste prend une valeur par
+défaut. La [référence YAML](yaml-reference.md#un-premier-fichier) lit le modèle
+Grid ligne par ligne. Pour voir la configuration complète qu'eqasim-sa
+utilisera, toutes valeurs par défaut écrites :
+
+```bash
+"${SA[@]}" show-config configs/01-grid.yml
+```
+
+`show-config` affiche du YAML, pas du JSON. Si le fichier est invalide, la
+commande écrit l'erreur sur la sortie d'erreur et se termine avec le code 1.
+
 ## Première calibration des ressources
 
 Depuis `mon-analyse-sa/`, sceller puis exécuter la calibration :
@@ -146,9 +163,9 @@ TARGET=configs/01-grid.yml
 `check` sans `--smoke` valide la méta-configuration, le plan, l'environnement et
 l'espace estimé. `check --smoke` ajoute deux vrais runs temporaires et doit donc
 être réservé à une validation explicite du pipeline. Il ne reprend pas
-`execution.overrides` : il part du YAML modèle scellé, force
+`execution.machine_options` : il part du YAML modèle scellé, force
 `sampling_rate: 0.001` et les deux premières seeds. En particulier, son
-`data_path` est celui du modèle, pas `execution.overrides.data_path`.
+`data_path` est celui du modèle, pas `execution.machine_options.data_path`.
 
 Les modèles fournis sont de petites campagnes de démonstration. Leurs tailles ne
 constituent pas une recommandation scientifique et `init` ne génère délibérément
@@ -173,13 +190,14 @@ automatiquement cette cible.
 ## Checkpoints minimaux des modèles générés
 
 Les commandes `plan` renvoient un objet JSON avec `status`, `designPositions` et
-`uniqueRuns`. Avec les modèles non modifiés issus d'`init`, vérifiez :
+`uniqueRuns`. Avec les modèles non modifiés issus d'`init` pour le projet
+`mon-analyse-sa`, vérifiez :
 
 | Étape | JSON minimal à la première exécution | Fichiers attendus après `run`/`analyze` |
 | --- | --- | --- |
-| Calibration | `plan`: `created`, 3 positions, 3 runs uniques; `run`: `completed`, 3 complétés | `campaigns/calibration/plan.parquet`, 3 marqueurs sous `runs/`, 3 archives |
+| Calibration | `plan`: `created`, 3 positions, 3 runs uniques; `run`: `completed`, 3 complétés | `campaigns/mon-analyse-sa-calibration/plan.parquet`, 3 marqueurs sous `runs/`, 3 archives |
 | Grid | `plan`: `created`, 8 positions, 8 runs uniques; `run`: 8 complétés; `analyze`: `completed` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `replication-dispersion.parquet`, `output-summary.parquet`, `governed-report.json` |
-| OAT discret | `plan`: `created`, 8 positions, 6 runs uniques; `run`: 6 complétés; `analyze`: sensibilité `discrete_oat` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `replication-dispersion.parquet`, `discrete-oat-effects.parquet`, `output-summary.parquet`, `governed-report.json` |
+| OAT discret | `plan`: `created`, 8 positions, 6 runs uniques (4 ou 6 pour un autre nom de projet, dont la graine de design dérivée choisit d'autres trajectoires) ; `run` : autant de complétés ; `analyze`: sensibilité `discrete_oat` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `replication-dispersion.parquet`, `discrete-oat-effects.parquet`, `output-summary.parquet`, `governed-report.json` |
 | Sobol | `plan`: `created`, 32 positions, 8 runs uniques; `run`: 8 complétés; `analyze`: sensibilité `sobol` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `sobol-indices.parquet`, `output-summary.parquet`, `governed-report.json` |
 
 Une relance identique de `plan` renvoie `unchanged`. Une campagne déjà complète
@@ -190,7 +208,7 @@ renvoie pour `run` `status: completed` et `total: 0`.
 - Les quatre plans correspondent aux cardinalités attendues ou à votre design documenté.
 - Chaque `runId` attendu possède un marqueur valide et une archive lisible.
 - `analyze` annonce `status: completed` et le taux de complétude attendu.
-- Les schémas et colonnes des Parquet d'artefacts correspondent aux déclarations YAML.
+- Les schémas et colonnes des Parquet de sorties correspondent aux déclarations `outputs`.
 - Les sorties de démonstration Grid, OAT discret et Sobol ont été inspectées, pas seulement créées.
 - Le Sobol généré est une démonstration non inférentielle. Une campagne scientifique
   multi-scramble doit être rédigée séparément; aucun starter n'est fourni.

@@ -151,7 +151,7 @@ la publication atomique (complète ou absente) n'est pas affectée.
 - Les écritures durables sont atomiques et les liens symboliques sont largement refusés.
 - La coordination durable d'une campagne reste confinée à `.eqasim-sa/`; les
   tentatives et caches contextualisés jetables restent confinés au scratch.
-- Les overrides d'infrastructure ne modifient pas `runId`.
+- Les options machine (`execution.machine_options`) ne modifient pas `runId`.
 - Les facteurs structurés nommés restent un mapping label-vers-liste séparé à la
   frontière adaptateur/cœur : le plan expose les labels, la résolution et le
   `runId` utilisent les listes, et le schéma v3 scelle le mapping canonique.

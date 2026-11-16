@@ -22,8 +22,8 @@ paramètre ? » et ne prouve pas qu'un paramètre est important dans tous les ca
 
 - Un **paramètre** est une entrée que l'on fait varier, ici `sampling_rate`.
 - Une **seed** est un entier qui contrôle un tirage aléatoire du simulateur.
-- Un **artefact** est une table produite par eqasim, par exemple la distribution des âges.
-- Un **indicateur** résume un artefact par un nombre que l'on peut comparer entre runs.
+- Une **sortie** est une table produite par eqasim, par exemple la distribution des âges.
+- Un **indicateur** résume une sortie par un nombre que l'on peut comparer entre runs.
 
 Dans ce guide, l'indicateur est une distance de variation totale, notée TV. Elle
 compare une distribution synthétique à une référence : `0` signifie qu'elles
@@ -68,7 +68,7 @@ des placeholders ; ne l'exécutez pas directement.
 ### 3. Déclarer le paramètre et les réplications
 
 Pour isoler l'effet de `sampling_rate`, dérivez une nouvelle campagne à partir
-du fichier généré et donnez-lui un nouveau nom et une nouvelle racine :
+du fichier généré et donnez-lui un nouveau nom :
 
 ```bash
 cp configs/01-grid.yml configs/01-grid-sampling-rate.yml
@@ -78,22 +78,19 @@ Dans `configs/01-grid-sampling-rate.yml`, remplacez les blocs correspondants par
 
 ```yaml
 campaign: mon-analyse-sa-grid-sampling-rate
-campaign_root: ../campaigns/grid-sampling-rate
-
 experiment:
   method: grid
-  seed_role: replication
-  replications:
-    seeds: [1201, 1202, 1203]
-
+  seeds: [1201, 1202, 1203]
 parameters:
-  sampling_rate:
-    values: [0.001, 0.002]
+  sampling_rate: [0.001, 0.002]
 ```
 
 Supprimez donc `matching_age_scheme` du bloc `parameters` copié. Le reste du
-fichier généré, notamment `model`, `context`, `analysis`, `artifacts`,
-`indicators`, `execution` et `calibration`, reste inchangé.
+fichier généré, notamment `outputs`, `calibration`, `model` et `execution`,
+reste inchangé. Le nouveau nom de `campaign` donne aussi à la campagne son
+propre dossier, `campaigns/mon-analyse-sa-grid-sampling-rate/`. Pour vérifier la
+configuration complète, valeurs par défaut comprises, lancez
+`"${SA[@]}" show-config configs/01-grid-sampling-rate.yml`.
 
 Le modèle scellé doit déjà contenir `config.sampling_rate`. Les seeds ne sont pas
 des valeurs de `sampling_rate` : elles répètent chaque taux pour rendre visible
@@ -105,34 +102,28 @@ la variabilité aléatoire. Le plan contient ici :
 
 ### 4. Choisir ce que l'on mesure
 
-Le fichier généré contient déjà ce bloc :
+Le fichier généré déclare déjà trois sorties du modèle et les données de
+référence auxquelles chacune est comparée :
 
 ```yaml
-artifacts:
+outputs:
   age:
-    class: Age class
-    synthetic: Proportion_EQASIM
+    category: Age class
+    simulated: Proportion_EQASIM
     references: [INSEE]
   distance:
-    class: Distance class
-    synthetic: Proportion_EQASIM
+    category: Distance class
+    simulated: Proportion_EQASIM
     references: [HTS]
   nbr_vehicle:
-    class: Number of vehicles class
-    synthetic: Proportion_EQASIM
+    category: Number of vehicles class
+    simulated: Proportion_EQASIM
     references: [HTS]
-
-indicators:
-  - pair:
-      scalarizer: tv_distance
-      artifact: age
-      reference: INSEE
-  - product:
-      scalarizers: [tv_distance]
-      artifacts: [distance, nbr_vehicle]
 ```
 
-Il crée trois nombres par run :
+Il n'y a pas de bloc `indicators` : eqasim-sa calcule donc par défaut la
+distance de variation totale (`tv_distance`) de chaque sortie contre chacune de
+ses références. On obtient trois nombres par run :
 
 | Nom produit | Ce qu'il compare |
 | --- | --- |
@@ -144,7 +135,9 @@ Pour Nantes/EDGT 44, la comparaison de distance est un diagnostic secondaire
 asymétrique : les classes synthétiques utilisent la distance euclidienne entre
 activités, tandis que HTS utilise la distance routée.
 
-Choisir un paramètre sans choisir un indicateur ne suffit pas : on ne peut pas
+Pour n'en garder que certains, ajoutez un bloc `indicators` (voir la
+[référence YAML](yaml-reference.md#indicators)). Choisir un paramètre sans
+choisir un indicateur ne suffit pas : on ne peut pas
 parler de « l'effet de `sampling_rate` » sans préciser **sur quelle sortie**.
 
 ### 5. Calibrer les ressources, planifier et exécuter
@@ -180,7 +173,7 @@ temporaires de validation.
 
 ### 6. Lire les résultats
 
-L'état de campagne se trouve sous `campaigns/grid-sampling-rate/` :
+L'état de campagne se trouve sous `campaigns/mon-analyse-sa-grid-sampling-rate/` :
 
 - `plan.parquet` relie chaque `runId` à son taux et à sa seed ;
 - `analysis-generation.json` désigne la génération immuable courante sous
@@ -202,7 +195,7 @@ from statistics import fmean
 
 import pyarrow.parquet as pq
 
-root = Path("campaigns/grid-sampling-rate")
+root = Path("campaigns/mon-analyse-sa-grid-sampling-rate")
 manifest = json.loads((root / "analysis-generation.json").read_text())
 plan = {row["runId"]: row for row in pq.read_table(root / "plan.parquet").to_pylist()}
 groups = defaultdict(list)
@@ -242,7 +235,7 @@ Grid n'explore que les combinaisons écrites dans le fichier.
 
 ## Adapter ce cas
 
-- Pour comparer des seuils de matching, remplacez le paramètre par `matching_minimum_observations: {values: [5, 20, 50]}`.
+- Pour comparer des seuils de matching, remplacez le paramètre par `matching_minimum_observations: [5, 20, 50]`.
 - Pour croiser deux paramètres, ajoutez le second sous `parameters` et multipliez les tailles de domaines par le nombre de seeds.
 - Pour comparer des listes `matching_attributes`, suivez le [tutoriel des configurations structurées](structured-configurations-tutorial.md).
 - Pour un tri numérique local, continuez avec [OAT discret](what-when-how-discrete_oat.md).
@@ -252,9 +245,9 @@ Grid n'explore que les combinaisons écrites dans le fichier.
 
 - La question nomme le paramètre, les valeurs et chaque sortie étudiée.
 - Chaque clé de paramètre existe déjà sous `config:` dans le modèle scellé.
-- Les seeds sont dans `experiment.replications.seeds`, jamais dans `parameters.random_seed`.
+- Les seeds sont dans `experiment.seeds`, jamais sous `parameters`.
 - Le nombre de positions reste compatible avec le budget.
-- Une campagne modifiée possède un nouveau `campaign` et un nouveau `campaign_root`.
+- Une campagne modifiée possède un nouveau nom `campaign`, donc un nouveau dossier.
 - Les résultats sont décrits comme une démonstration, pas comme une preuve scientifique.
 
 ## Suite

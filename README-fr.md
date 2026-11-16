@@ -5,7 +5,7 @@
 `eqasim-sa` planifie, exécute et analyse des campagnes d'analyse de sensibilité
 pour un pipeline eqasim piloté par synpp. Son vocabulaire actuel est Grid, OAT
 discret, Morris canonique, Sobol de démonstration et Sobol multi-scramble. Il fournit des plans déterministes, une
-reprise par run, des indicateurs calculés sur les artefacts Parquet et des
+reprise par run, des indicateurs calculés sur les sorties Parquet et des
 backends local et SLURM.
 
 Tous les starters générés, dont calibration, Grid, OAT discret et Sobol, sont
@@ -34,7 +34,8 @@ recommandation comme provenance et ne prolonge jamais le plan pilote.
 La méthode `multiscramble_sobol`, rédigée pour une étude, est exclusivement
 scientifique. Elle exige une dépendance `independent`, un objectif `fp` ou `ff`
 et au moins quatre seeds explicites de scrambles QMC indépendants. `init` ne la
-génère pas. Le support fini de `parameters.seed` est un facteur de nuisance
+génère pas. Le support fini de son facteur `seed`, écrit dans `experiment.seeds`
+avec un `experiment.seeds_provenance` obligatoire, est un facteur de nuisance
 déclaré, ni une entrée contrôlable ni un modèle du bruit stochastique intrinsèque.
 Ses indices restent diagnostiques, mais il est non actionnable et exclu des rangs
 FP/FF et de la classification de tolérance. Les tables de
@@ -80,6 +81,51 @@ cd "$ROOT/mon-etude"
 des données. Il ne crée aucun plan et n'exécute ni synpp, ni campagne, ni
 analyse.
 
+## Le fichier de configuration
+
+Chaque expérience tient dans un court fichier YAML. Le fichier généré
+`configs/01-grid.yml` commence par ce que vous choisissez : la méthode et ses
+graines, les valeurs de paramètres à essayer, et les sorties du modèle à
+comparer aux données de référence.
+
+```yaml
+campaign: mon-etude-grid
+experiment:
+  method: grid
+  seeds: [1201, 1202]
+parameters:
+  sampling_rate: [0.001, 0.002]
+  matching_age_scheme: [matching_6, analysis_7]
+outputs:
+  age:
+    category: Age class
+    simulated: Proportion_EQASIM
+    references: [INSEE]
+  distance:
+    category: Distance class
+    simulated: Proportion_EQASIM
+    references: [HTS]
+  nbr_vehicle:
+    category: Number of vehicles class
+    simulated: Proportion_EQASIM
+    references: [HTS]
+calibration:
+  meta_configs: [00-calibration.yml]
+```
+
+Sous une ligne de commentaire, `init` a rempli les chemins `model` et
+`execution` propres à la machine. Toute clé omise prend une valeur par défaut :
+le dossier de campagne est `../campaigns/<campaign>`, et sans bloc `indicators`
+la distance de variation totale est calculée pour chaque sortie et chacune de
+ses références. Pour voir la configuration complète, valeurs par défaut
+comprises :
+
+```bash
+"${SA[@]}" show-config configs/01-grid.yml
+```
+
+Voir la [référence YAML](docs-fr/yaml-reference.md) pour toutes les clés.
+
 ## Workflow standard
 
 ```bash
@@ -102,8 +148,8 @@ ne calibre pas les paramètres scientifiques d'eqasim.
 
 Grid peut comparer des listes ordonnées `matching_attributes` nommées tout en
 conservant la liste résolue dans l'identité et l'exécution du run. Le YAML modèle
-doit déjà contenir cette clé active sous forme de liste; utilisez une nouvelle
-campagne/racine pour la cible dérivée. Consultez le
+doit déjà contenir cette clé active sous forme de liste; utilisez un nouveau
+nom de campagne pour la cible dérivée. Consultez le
 [tutoriel pratique](docs-fr/structured-configurations-tutorial.md).
 
 ## Documentation

@@ -25,23 +25,24 @@ Infrastructure or dedicated options forbidden as factors: `data_path`,
 See the [model YAML inspection procedure](yaml-reference.md#parameters) to list
 the keys and their types before choosing factors.
 
-## Scientific factor or override
+## Scientific factor or machine option
 
 A factor modifies the design, appears in the plan, and contributes to the
 `runId`. Use it only if its variation is part of the scientific question.
 
-An override adapts the execution environment. It does not appear in the plan
-and does not contribute to the `runId`. Only a few infrastructure options are
-allowed. Changing `sampling_rate` through `execution.overrides` is therefore
-rejected; declaring it in `parameters` is the correct approach.
+A machine option (`execution.machine_options`) adapts the execution environment.
+It does not appear in the plan and does not contribute to the `runId`. Only a
+few infrastructure options are allowed. Changing `sampling_rate` through
+`execution.machine_options` is therefore rejected; declaring it in `parameters`
+is the correct approach.
 
 The exact exclusions from the canonical configuration are `working_directory`
 and, under `config`, `data_path`, `git_binary`, `java_binary`, `java_memory`,
 `maven_binary`, `output_path`, and `processes`. `random_seed` is removed from
 `config`, but the seed is carried separately in the `runId` envelope.
 `output_prefix` is not excluded: its sealed value therefore affects `runId`,
-even though it is a dedicated option that can be neither a factor nor an
-override.
+even though it is a dedicated option that can be neither a factor nor a
+machine option.
 
 ## Named age schemes
 
@@ -95,9 +96,9 @@ scientific domains. In particular:
   distributions and can fall back to `uniform` for individual municipalities;
   the selected method is not retained in the current output, so this fallback
   must be instrumented before a strict method comparison;
-- household income is already archived in the `households` artifact, but the
+- household income is already archived in the `households` output, but the
   starter pack defines no income scalar; register a custom income indicator on
-  that artifact before interpreting this factor;
+  that output before interpreting this factor;
 - changing `hts` changes both the donor population and HTS references, and may
   require a separate prepared data cache;
 - `projection_year` requires both a compatible `projection_scenario` and the
@@ -138,16 +139,11 @@ replication seeds produce `2 × 2 × 3 × 2 = 24` positions:
 ```yaml
 experiment:
   method: grid
-  seed_role: replication
-  replications:
-    seeds: [1201, 1202]
+  seeds: [1201, 1202]
 parameters:
-  sampling_rate:
-    values: [0.001, 0.002]
-  matching_age_scheme:
-    values: [matching_6, analysis_7]
-  matching_minimum_observations:
-    values: [5, 20, 50]
+  sampling_rate: [0.001, 0.002]
+  matching_age_scheme: [matching_6, analysis_7]
+  matching_minimum_observations: [5, 20, 50]
 ```
 
 ### Concrete discrete OAT example
@@ -159,59 +155,53 @@ trajectories, and two replication seeds, this example has
 ```yaml
 experiment:
   method: discrete_oat
-  seed_role: replication
+  seeds: [1301, 1302]
   trajectories: 2
-  design_seed: 20260814
-  replications:
-    seeds: [1301, 1302]
 parameters:
-  sampling_rate:
-    values: [0.001, 0.002, 0.003]
-  matching_minimum_observations:
-    values: [5, 20, 50]
-  matching_minimum_age:
-    values: [0, 5, 12]
+  sampling_rate: [0.001, 0.002, 0.003]
+  matching_minimum_observations: [5, 20, 50]
+  matching_minimum_age: [0, 5, 12]
 ```
 
 ### Concrete Sobol example
 
-For Sobol, the seed is itself a factor. Adding the donor-cell threshold to the
-generated factors gives `D=4`; with `N=64`, the full Saltelli design contains
-`64 × (2×4+2) = 640` positions before deduplication:
+For Sobol, the seed is itself a factor, built from `experiment.seeds`. Adding
+the donor-cell threshold to the generated factors gives `D=4`; with `N=64`, the
+full Saltelli design contains `64 × (2×4+2) = 640` positions before
+deduplication:
 
 ```yaml
 experiment:
   method: sobol
-  seed_role: factor
+  seeds: [1401, 1402, 1403, 1404]
   base_sample_size: 64
-  design_seed: 20260814
 parameters:
-  sampling_rate:
-    values: [0.001, 0.002, 0.005]
-  matching_age_scheme:
-    values: [matching_6, analysis_7]
-  matching_minimum_observations:
-    values: [5, 20, 50]
-  seed:
-    values: [1401, 1402, 1403, 1404]
+  sampling_rate: [0.001, 0.002, 0.005]
+  matching_age_scheme: [matching_6, analysis_7]
+  matching_minimum_observations: [5, 20, 50]
 ```
 
 ## Replication seed or factor
 
-With `seed_role: replication`, Grid and discrete OAT repeat a configuration to
-measure its stochastic variability. Canonical Morris instead treats the listed
-values as base seeds and derives a distinct seed for every trajectory-replication
-block. In all three cases the declaration is in
-`experiment.replications.seeds` and is not an ordinary factor column.
+Seeds are always declared in `experiment.seeds`; the method decides their role.
 
-With `seed_role: factor`, Sobol includes the seed in the variance decomposition.
-It is in `parameters.seed.values`. A seed can never be both a factor and a
-replication in the same campaign.
+For Grid and discrete OAT, the seeds are replications: each configuration is
+repeated once per seed to measure its stochastic variability. Canonical Morris
+instead treats the listed values as base seeds and derives a distinct seed for
+every trajectory-replication block. In these three cases the seed is not an
+ordinary factor column.
+
+For Sobol and multi-scramble Sobol, the seeds are the support of a factor named
+`seed`, which is included in the variance decomposition; at least two seeds are
+required. A parameter named `seed` under `parameters` is refused, so a seed can
+never be both a factor and a replication in the same campaign.
 
 `design_seed` does not control eqasim. It makes trajectory construction or the
 scrambled Sobol sample deterministic and, for canonical Morris, participates in
 the versioned derivation of run seeds. It is distinct from the `random_seed`
-injected into each run.
+injected into each run. When omitted, it is derived from the campaign name, so
+renaming a campaign changes its design (see
+[Defaults](yaml-reference.md#defaults-and-show-config)).
 
 ## Grid
 
@@ -232,7 +222,7 @@ may reduce the number of unique runs; the Grid `check` rejects them.
 ## Discrete OAT
 
 Adjacent-level demonstrations use `method: discrete_oat`, with the experiment
-shape `method`, `seed_role`, `trajectories`, `design_seed`, and `replications`.
+keys `method`, `seeds`, `trajectories`, and the optional `design_seed`.
 The former `method: morris` no longer exists and is rejected.
 
 Discrete OAT accepts only numeric factors. Each domain contains at least two levels
@@ -400,8 +390,8 @@ interactions. The FF decision classification is emitted only for the sealed
 diagnostics but cannot carry a factor-fixing classification. For the primary
 indicator, only actionable ordinary factors are classified.
 
-The exact analysis keys are `completeness_threshold: 1.0` and
-`confidence_level`. Results are published as `multiscramble-sobol-indices.parquet`,
+The allowed analysis keys are `completeness_threshold`, which must be `1.0`
+(the default), and `confidence_level` (default `0.95`). Results are published as `multiscramble-sobol-indices.parquet`,
 `multiscramble-sobol-by-scramble.parquet`,
 `multiscramble-sobol-convergence.parquet`, and
 `multiscramble-sobol-diagnostics.parquet`. Plans are capped at 1,000,000
@@ -409,8 +399,8 @@ positions and 20,000,000 Arrow table cells.
 
 ## Indicators and total variation
 
-An indicator transforms the artifacts from a run into a finite `float`. The
-built-in `tv_distance` scalarizer compares two mass distributions after separate
+An indicator transforms the outputs of a run into a finite `float`. The
+built-in `tv_distance` indicator compares two mass distributions after separate
 normalization:
 
 `TV(p,q) = 0.5 × Σ |p_i-q_i|`
@@ -418,7 +408,7 @@ normalization:
 A value of 0 indicates identical distributions; 1 indicates completely disjoint
 supports within the provided classes. This measure alone does not establish the
 causal or scientific quality of a model: it depends on the classes, reference,
-and declared artifacts.
+and declared outputs.
 
-See the [glossary](glossary.md) for the distinctions between factor, override,
-run, position, and scalarizer.
+See the [glossary](glossary.md) for the distinctions between factor, machine
+option, run, position, and indicator.

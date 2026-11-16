@@ -100,31 +100,31 @@ named `matching_attributes` lists.
 The protocol uses:
 
 ```yaml
-artifacts:
+outputs:
   age:
-    class: Age class
-    synthetic: Proportion_EQASIM
+    category: Age class
+    simulated: Proportion_EQASIM
     references: [INSEE]
   distance:
-    class: Distance class
-    synthetic: Proportion_EQASIM
+    category: Distance class
+    simulated: Proportion_EQASIM
     references: [HTS]
   nbr_vehicle:
-    class: Number of vehicles class
-    synthetic: Proportion_EQASIM
+    category: Number of vehicles class
+    simulated: Proportion_EQASIM
     references: [HTS]
-
 indicators:
-  - pair:
-      scalarizer: tv_distance
-      artifact: age
+  - tv_distance:
+      output: age
       reference: INSEE
-  - product:
-      scalarizers: [tv_distance]
-      artifacts: [distance, nbr_vehicle]
+  - tv_distance:
+      outputs: [distance, nbr_vehicle]
 ```
 
-The primary age indicator governs the screening decision. The two HTS
+The `indicators` block produces the same three indicators as the default, but
+writes them explicitly, as a protocol should: `tv_distance(age, ref=INSEE)`,
+`tv_distance(distance, ref=HTS)`, and `tv_distance(nbr_vehicle, ref=HTS)`. The
+primary age indicator governs the screening decision. The two HTS
 indicators remain secondary diagnostics. A lower TV means a distribution closer
 to the reference, but Morris ranks the magnitude of the **change** in TV when
 the factors change.
@@ -141,14 +141,11 @@ The pilot declares:
 ```yaml
 experiment:
   method: canonical_morris
-  seed_role: replication
   levels: 4
   trajectories: 24
   candidate_trajectories: 32
   design_seed: 20260820
-  replications:
-    seeds: [45001, 45002]
-
+  seeds: [45001, 45002]
 analysis:
   completeness_threshold: 1.0
   bootstrap_resamples: 999
@@ -156,6 +153,10 @@ analysis:
   convergence_checkpoints: [8, 16, 24]
   screening_top_k: 2
 ```
+
+The protocol writes every analysis value and the design seed explicitly, even
+those that equal a default, so that the declaration can be read on its own. The
+two seeds are replication base seeds.
 
 SALib samples 32 candidate trajectories and locally optimizes a selection of 24;
 only the selected occurrences are simulated. Sampling is with replacement, so

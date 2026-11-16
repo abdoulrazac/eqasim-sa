@@ -25,8 +25,9 @@ prioritization or factor fixing. For that, use
 - The **total-order index** includes that factor and its interactions with the others.
 - An **interaction** means that the effect of one factor depends on the value of another.
 
-In this method, the simulator seed is itself a factor. It therefore does not
-appear in `experiment.replications.seeds`.
+In this method, the simulator seed is itself a factor, named `seed`. Its values
+are still written in `experiment.seeds`, but they take part in the variance
+decomposition instead of being replications.
 
 ## End-to-end practical example
 
@@ -41,42 +42,38 @@ After `eqasim-sa init`, the rendered `configs/03-sobol.yml` file asks a small
 plumbing question: "Do numeric values, categories, and a finite set of seeds pass
 correctly through the entire workflow?"
 
-It contains exactly:
+Its experiment part reads:
 
 ```yaml
-charter:
-  status: demonstration
-
-analysis:
-  completeness_threshold: 1.0
-  bootstrap_resamples: 99
-  confidence_level: 0.95
-
+campaign: mon-analyse-sa-sobol
 experiment:
   method: sobol
-  seed_role: factor
+  seeds: [1401, 1402]
   base_sample_size: 4
-  design_seed: 20260814
-
 parameters:
-  sampling_rate:
-    values: [0.001, 0.002]
-  matching_age_scheme:
-    values: [matching_6, analysis_7]
-  seed:
-    values: [1401, 1402]
+  sampling_rate: [0.001, 0.002]
+  matching_age_scheme: [matching_6, analysis_7]
+analysis:
+  bootstrap_resamples: 99
 ```
+
+The rest of the file declares the three outputs, the calibration file, the
+model, and local execution. Omitted keys take their defaults: without `charter`
+the campaign is a demonstration, the analysis uses `completeness_threshold: 1.0`
+and `confidence_level: 0.95`, and the design seed is derived from the campaign
+name. Only `bootstrap_resamples` is lowered to 99 to keep the demonstration
+fast. `show-config` displays every value.
 
 The source file `src/eqasim_sa/templates/03-sobol.yml` contains placeholders.
 Run the rendered copy in your project, not this source file.
 
-The two ordinary parameters must already exist under `config:` in the sealed
-model. `seed` is the only special exception: it must not exist under `config:`.
-Never add `random_seed` as a factor.
+The two parameters must already exist under `config:` in the sealed model. The
+seed factor needs no model key. Never add `random_seed` or `seed` under
+`parameters`.
 
 ### 2. Understand what is measured
 
-The starter declares three TV indicators:
+Without an `indicators` block, the starter computes three TV indicators:
 
 | Indicator | Comparison |
 | --- | --- |
@@ -126,7 +123,7 @@ is no separate `report` command.
 
 ### 5. Read the results without overinterpreting them
 
-The files are stored under `campaigns/sobol/`. For each factor and indicator,
+The files are stored under `campaigns/mon-analyse-sa-sobol/`. For each factor and indicator,
 `sobol-indices.parquet` contains:
 
 | Column | Meaning in this demonstration |
@@ -161,8 +158,8 @@ The `governed-report.json` report records this as
 ## Adapt the demonstration
 
 You can test another scalar input through the pipeline, such as
-`matching_minimum_observations: {values: [5, 20, 50]}`, in a **new** campaign
-with a new root. The cost always follows `N(2D+2)`.
+`matching_minimum_observations: [5, 20, 50]`, in a **new** campaign (a new
+`campaign` name). The cost always follows `N(2D+2)`.
 
 Add `income_assignation_method` only if you have a suitable income indicator:
 the starter's three indicators do not measure income directly. Add `hts` only if
@@ -184,9 +181,9 @@ scrambles.
 
 ## Checklist
 
-- The campaign has `charter.status: demonstration`.
+- The campaign is a demonstration (no `charter` block, or `charter.status: demonstration`).
 - `base_sample_size` is a power of two and at least 2.
-- `seed` is an integer factor with at least two distinct values.
+- `experiment.seeds` holds at least two distinct integers.
 - Positions and unique runs are distinguished.
 - Any out-of-range indices remain visible.
 - The result is presented as `demonstration_noninferential`.

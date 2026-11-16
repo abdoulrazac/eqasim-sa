@@ -25,22 +25,23 @@ Options d'infrastructure ou dédiées interdites comme facteurs : `data_path`,
 Consultez la [procédure d'inspection du YAML modèle](yaml-reference.md#parameters)
 pour lister les clés et leurs types avant de choisir les facteurs.
 
-## Facteur scientifique ou override
+## Facteur scientifique ou option machine
 
 Un facteur modifie le design, apparaît dans le plan et participe au `runId`.
 Utilisez-le seulement si sa variation fait partie de la question scientifique.
 
-Un override adapte l'environnement d'exécution. Il n'apparaît pas dans le plan
-et n'entre pas dans le `runId`. Seules quelques options d'infrastructure sont
-autorisées. Changer `sampling_rate` via `execution.overrides` est donc refusé;
-le déclarer dans `parameters` est la voie correcte.
+Une option machine (`execution.machine_options`) adapte l'environnement
+d'exécution. Elle n'apparaît pas dans le plan et n'entre pas dans le `runId`.
+Seules quelques options d'infrastructure sont autorisées. Changer
+`sampling_rate` via `execution.machine_options` est donc refusé ; le déclarer
+dans `parameters` est la voie correcte.
 
 Les exclusions exactes de la configuration canonique sont `working_directory`
 et, sous `config`, `data_path`, `git_binary`, `java_binary`, `java_memory`,
 `maven_binary`, `output_path` et `processes`. `random_seed` est retirée de
 `config` mais la seed est portée séparément dans l'enveloppe du `runId`.
 `output_prefix` n'est pas exclu : sa valeur scellée affecte donc `runId`, même
-s'il s'agit d'une option dédiée qui ne peut être ni facteur ni override.
+s'il s'agit d'une option dédiée qui ne peut être ni facteur ni option machine.
 
 ## Schémas d'âge nommés
 
@@ -96,9 +97,9 @@ domaines scientifiquement justifiés. En particulier :
   par attribut et peut retomber sur `uniform` pour certaines communes ; la
   méthode effectivement appliquée n'est pas conservée dans la sortie actuelle,
   donc ce fallback doit être instrumenté avant une comparaison stricte ;
-- le revenu est déjà archivé dans l'artefact `households`, mais le pack initial
+- le revenu est déjà archivé dans la sortie `households`, mais le pack initial
   ne définit aucun scalaire de revenu ; enregistrez un indicateur personnalisé
-  sur cet artefact avant d'interpréter ce facteur ;
+  sur cette sortie avant d'interpréter ce facteur ;
 - changer `hts` change à la fois les donneurs et les références HTS, et peut
   exiger un cache de données préparé séparément ;
 - `projection_year` exige un `projection_scenario` compatible et l'archive de
@@ -142,16 +143,11 @@ donneurs. Deux seeds de réplication donnent `2 × 2 × 3 × 2 = 24` positions :
 ```yaml
 experiment:
   method: grid
-  seed_role: replication
-  replications:
-    seeds: [1201, 1202]
+  seeds: [1201, 1202]
 parameters:
-  sampling_rate:
-    values: [0.001, 0.002]
-  matching_age_scheme:
-    values: [matching_6, analysis_7]
-  matching_minimum_observations:
-    values: [5, 20, 50]
+  sampling_rate: [0.001, 0.002]
+  matching_age_scheme: [matching_6, analysis_7]
+  matching_minimum_observations: [5, 20, 50]
 ```
 
 ### Exemple OAT discret concret
@@ -163,58 +159,53 @@ deux trajectoires et deux seeds de réplication, cet exemple contient
 ```yaml
 experiment:
   method: discrete_oat
-  seed_role: replication
+  seeds: [1301, 1302]
   trajectories: 2
-  design_seed: 20260814
-  replications:
-    seeds: [1301, 1302]
 parameters:
-  sampling_rate:
-    values: [0.001, 0.002, 0.003]
-  matching_minimum_observations:
-    values: [5, 20, 50]
-  matching_minimum_age:
-    values: [0, 5, 12]
+  sampling_rate: [0.001, 0.002, 0.003]
+  matching_minimum_observations: [5, 20, 50]
+  matching_minimum_age: [0, 5, 12]
 ```
 
 ### Exemple Sobol concret
 
-Pour Sobol, la seed est elle-même un facteur. Ajouter le seuil de cellule aux
-facteurs générés donne `D=4`; avec `N=64`, le plan Saltelli complet contient
+Pour Sobol, la seed est elle-même un facteur, construit à partir de
+`experiment.seeds`. Ajouter le seuil de cellule aux facteurs générés donne
+`D=4` ; avec `N=64`, le plan Saltelli complet contient
 `64 × (2×4+2) = 640` positions avant déduplication :
 
 ```yaml
 experiment:
   method: sobol
-  seed_role: factor
+  seeds: [1401, 1402, 1403, 1404]
   base_sample_size: 64
-  design_seed: 20260814
 parameters:
-  sampling_rate:
-    values: [0.001, 0.002, 0.005]
-  matching_age_scheme:
-    values: [matching_6, analysis_7]
-  matching_minimum_observations:
-    values: [5, 20, 50]
-  seed:
-    values: [1401, 1402, 1403, 1404]
+  sampling_rate: [0.001, 0.002, 0.005]
+  matching_age_scheme: [matching_6, analysis_7]
+  matching_minimum_observations: [5, 20, 50]
 ```
 
 ## Seed de réplication ou facteur
 
-Avec `seed_role: replication`, Grid et OAT discret répètent une configuration
-pour mesurer sa dispersion stochastique. Morris canonique considère plutôt les
-valeurs comme des seeds de base et dérive une seed distincte pour chaque bloc
-trajectoire-réplication. Dans les trois cas, la déclaration est dans
-`experiment.replications.seeds` et n'est pas une colonne de facteur ordinaire.
+Les seeds se déclarent toujours dans `experiment.seeds` ; la méthode décide de
+leur rôle.
 
-Avec `seed_role: factor`, Sobol inclut la seed dans la décomposition de variance.
-Elle est dans `parameters.seed.values`. Une seed ne peut jamais être facteur et
-réplication dans la même campagne.
+Pour Grid et OAT discret, les seeds sont des réplications : chaque configuration
+est répétée une fois par seed pour mesurer sa dispersion stochastique. Morris
+canonique considère plutôt les valeurs comme des seeds de base et dérive une
+seed distincte pour chaque bloc trajectoire-réplication. Dans ces trois cas, la
+seed n'est pas une colonne de facteur ordinaire.
+
+Pour Sobol et Sobol multi-scramble, les seeds forment le support d'un facteur
+nommé `seed`, inclus dans la décomposition de variance ; il en faut au moins
+deux. Un paramètre nommé `seed` sous `parameters` est refusé : une seed ne peut
+donc jamais être facteur et réplication dans la même campagne.
 
 `design_seed` ne pilote pas eqasim. Elle rend déterministes les trajectoires ou
 l'échantillon Sobol brouillé et, pour Morris canonique, participe à la dérivation
-versionnée des seeds de run. Elle est distincte de la seed `random_seed` injectée.
+versionnée des seeds de run. Elle est distincte de la seed `random_seed` injectée. Si elle est omise, elle
+est dérivée du nom de campagne : renommer une campagne change donc son design
+(voir [Valeurs par défaut](yaml-reference.md#valeurs-par-défaut-et-show-config)).
 
 ## Grid
 
@@ -235,8 +226,8 @@ peuvent réduire les runs uniques; le `check` Grid les refuse.
 ## OAT discret
 
 Les démonstrations à niveaux adjacents utilisent `method: discrete_oat`, avec
-l'expérience `method`, `seed_role`, `trajectories`, `design_seed` et
-`replications`. L'ancienne méthode `method: morris` n'existe plus et est refusée.
+les clés d'expérience `method`, `seeds`, `trajectories` et la clé facultative
+`design_seed`. L'ancienne méthode `method: morris` n'existe plus et est refusée.
 
 L'OAT discret accepte uniquement des facteurs numériques. Chaque domaine contient au
 moins deux niveaux du même type, strictement croissants et distincts. L'ordre
@@ -392,8 +383,8 @@ rangs à titre diagnostique, mais ne peuvent porter aucune classification de
 fixation. Seuls les facteurs ordinaires actionnables de l'indicateur primaire
 sont classifiés.
 
-Les clés d'analyse exactes sont `completeness_threshold: 1.0` et
-`confidence_level`. Les quatre sorties sont `multiscramble-sobol-indices.parquet`,
+Les clés d'analyse permises sont `completeness_threshold`, qui doit valoir
+`1.0` (la valeur par défaut), et `confidence_level` (par défaut `0.95`). Les quatre sorties sont `multiscramble-sobol-indices.parquet`,
 `multiscramble-sobol-by-scramble.parquet`,
 `multiscramble-sobol-convergence.parquet` et
 `multiscramble-sobol-diagnostics.parquet`. Les limites sont 1 000 000 positions
@@ -401,8 +392,8 @@ et 20 000 000 cellules de table Arrow.
 
 ## Indicateurs et variation totale
 
-Un indicateur transforme les artefacts d'un run en un `float` fini. Le
-scalariseur intégré `tv_distance` compare deux distributions de masses après
+Un indicateur transforme les sorties d'un run en un `float` fini. L'indicateur
+intégré `tv_distance` compare deux distributions de masses après
 normalisation séparée :
 
 `TV(p,q) = 0.5 × Σ |p_i-q_i|`
@@ -410,7 +401,7 @@ normalisation séparée :
 La valeur 0 indique des distributions identiques; 1 indique des supports
 totalement disjoints dans les classes fournies. Cette mesure n'établit pas à elle
 seule la qualité causale ou scientifique d'un modèle : elle dépend des classes,
-de la référence et des artefacts déclarés.
+de la référence et des sorties déclarées.
 
-Voir le [glossaire](glossary.md) pour les distinctions entre facteur, override,
-run, position et scalariseur.
+Voir le [glossaire](glossary.md) pour les distinctions entre facteur, option
+machine, run, position et indicateur.

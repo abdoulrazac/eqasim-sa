@@ -53,30 +53,26 @@ Après `eqasim-sa init`, le fichier rendu `configs/02-discrete-oat.yml` contient
 déjà ce cas :
 
 ```yaml
-charter:
-  status: demonstration
-
+campaign: mon-analyse-sa-discrete_oat
 experiment:
   method: discrete_oat
-  seed_role: replication
+  seeds: [1301, 1302]
   trajectories: 2
-  design_seed: 20260817
-  replications:
-    seeds: [1301, 1302]
-
 parameters:
-  sampling_rate:
-    values: [0.001, 0.002, 0.003]
+  sampling_rate: [0.001, 0.002, 0.003]
 ```
 
-Les autres blocs du fichier rendu définissent le modèle, les données, les trois
-indicateurs, l'exécution locale et la calibration. Le fichier source
+Les autres blocs du fichier rendu déclarent les trois sorties (et donc, par
+défaut, les trois indicateurs), le fichier de calibration, le modèle et ses
+données, et l'exécution locale. Sans bloc `charter`, la campagne est une
+démonstration, ce qu'exige l'OAT discret. La graine de design n'est pas écrite :
+elle est dérivée du nom de campagne (`show-config` affiche sa valeur). Le fichier source
 `src/eqasim_sa/templates/02-discrete-oat.yml` contient des placeholders ; c'est
 la copie créée dans votre projet par `init` qu'il faut exécuter.
 
-Les valeurs doivent être numériques, distinctes et strictement croissantes. La
-seed reste une réplication dans `experiment.replications.seeds` ; ne déclarez
-jamais `random_seed` comme paramètre d'analyse.
+Les valeurs doivent être numériques, distinctes et strictement croissantes. Les
+seeds sont des réplications déclarées dans `experiment.seeds` ; ne déclarez
+jamais `random_seed` ni `seed` comme paramètre d'analyse.
 
 ### 3. Comprendre la taille du plan
 
@@ -87,9 +83,11 @@ Le fichier déclare :
 - `R = 2` seeds de réplication.
 
 Le plan contient donc `T(D+1)R = 2 × 2 × 2 = 8` positions. Certaines positions
-peuvent désigner exactement le même réglage et la même seed. Le starter produit
-ainsi normalement **8 positions statistiques mais 6 runs uniques**. Le simulateur
-n'exécute pas deux fois un même `runId`.
+peuvent désigner exactement le même réglage et la même seed. Pour le projet
+`mon-analyse-sa`, le starter produit ainsi **8 positions statistiques mais 6 runs
+uniques**. Avec un autre nom de projet, la graine de design dérivée choisit
+d'autres trajectoires, et le starter peut produire 4 ou 6 runs uniques. Le
+simulateur n'exécute pas deux fois un même `runId`.
 
 ### 4. Comprendre les pas comparés
 
@@ -132,7 +130,7 @@ les effets ; il crée aussi le rapport gouverné.
 
 ### 6. Lire les résultats
 
-Les résultats se trouvent sous `campaigns/discrete_oat/`. Le fichier principal
+Les résultats se trouvent sous `campaigns/mon-analyse-sa-discrete_oat/`. Le fichier principal
 est `discrete-oat-effects.parquet`. Il contient une ligne par facteur et par
 indicateur avec notamment :
 
@@ -166,12 +164,9 @@ Vous pouvez, dans une nouvelle campagne, comparer par exemple :
 
 ```yaml
 parameters:
-  sampling_rate:
-    values: [0.001, 0.002, 0.005]
-  matching_minimum_observations:
-    values: [5, 20, 50]
-  matching_minimum_age:
-    values: [0, 5, 12]
+  sampling_rate: [0.001, 0.002, 0.005]
+  matching_minimum_observations: [5, 20, 50]
+  matching_minimum_age: [0, 5, 12]
 ```
 
 Avec deux trajectoires et deux seeds, cela donne
@@ -199,7 +194,7 @@ Pour décider scientifiquement quels facteurs doivent rester à l'étude, utilis
 - Chaque domaine contient au moins deux valeurs strictement croissantes.
 - Les paramètres sont numériques ; aucune configuration structurée n'est utilisée.
 - Le nombre de positions est calculé avant `plan`.
-- Une configuration modifiée utilise un nouveau `campaign` et un nouveau `campaign_root`.
+- Une configuration modifiée utilise un nouveau nom `campaign`, donc un nouveau dossier.
 - Le résultat est présenté comme un tri descriptif local, pas comme un criblage scientifique.
 
 ## Suite

@@ -35,7 +35,7 @@ git -C "$ROOT/eqasim-france" status --short
 La dernière commande ne doit rien afficher. Adaptez le nom si `init` reçoit un
 autre `--model-config`. Le commit modèle entre dans `contextHash` : après le
 scellement d'un plan, sa modification impose un nouveau projet ou, au minimum,
-un nouveau `campaign` et un `campaign_root` vide. Ne recouvrez jamais une
+un nouveau `campaign` (donc un nouveau dossier de campagne vide). Ne recouvrez jamais une
 campagne existante avec un contexte modifié.
 
 ## 2. Initialiser ou rejoindre un projet généré
@@ -77,15 +77,15 @@ cp configs/01-grid.yml configs/04-structured-grid.yml
 
 Dans `configs/04-structured-grid.yml`, effectuez exactement ces remplacements :
 
-1. Remplacez `campaign:` par `matching-structures-grid-structured`.
-2. Remplacez `campaign_root:` par `../campaigns/grid-structured`.
-3. Remplacez tout le bloc `parameters:`, jusqu'à `artifacts:` exclu, par le bloc
+1. Remplacez la valeur de `campaign:` par `matching-structures-grid-structured`.
+   Le dossier de campagne suit par défaut :
+   `campaigns/matching-structures-grid-structured/`.
+2. Remplacez tout le bloc `parameters:`, jusqu'à `outputs:` exclu, par le bloc
    ci-dessous.
 
 ```yaml
 # structured-grid-tutorial-replacement
 campaign: matching-structures-grid-structured
-campaign_root: ../campaigns/grid-structured
 parameters:
   matching_attributes:
     configurations:
@@ -94,15 +94,18 @@ parameters:
       age_priority: [age_class, any_cars, sex, socioprofessional_class, departement_id]
 ```
 
-Les deux premières lignes remplacent leurs lignes de premier niveau; n'en
-ajoutez pas une seconde copie. Le bloc `parameters` remplace les deux facteurs du
+La ligne `campaign` remplace la ligne de premier niveau existante ; n'en ajoutez
+pas une seconde copie. Le bloc `parameters` remplace les deux facteurs du
 starter. Gardez tous les autres blocs de `01-grid.yml`, notamment :
 
-- la charte de démonstration et les chemins du modèle et du contexte ;
-- `method: grid`, `seed_role: replication` et les deux seeds explicites
-  `[1201, 1202]` ;
-- les indicateurs âge/INSEE, distance/HTS et nombre de véhicules/HTS ;
-- les overrides d'exécution et le bloc `calibration.meta_configs`.
+- `method: grid` et les deux seeds de réplication `[1201, 1202]` ;
+- les trois `outputs`, qui donnent par défaut les indicateurs âge/INSEE,
+  distance/HTS et nombre de véhicules/HTS ;
+- le bloc `calibration.meta_configs` ;
+- les blocs `model` et `execution`, y compris `machine_options`.
+
+`"${SA[@]}" show-config configs/04-structured-grid.yml` affiche la configuration
+obtenue, toutes valeurs par défaut écrites.
 
 Le plan comporte `3 configurations × 2 seeds de réplication = 6` positions et,
 les trois charges ordonnées étant distinctes, 6 runs uniques attendus. La
@@ -134,7 +137,7 @@ sans pandas :
 import json
 import pyarrow.parquet as pq
 
-path = "campaigns/grid-structured/plan.parquet"
+path = "campaigns/matching-structures-grid-structured/plan.parquet"
 plan = pq.read_table(path)
 metadata = dict(plan.schema.metadata or {})
 
@@ -178,7 +181,7 @@ from pathlib import Path
 
 import pyarrow.parquet as pq
 
-root = Path("campaigns/grid-structured")
+root = Path("campaigns/matching-structures-grid-structured")
 manifest = json.loads((root / "analysis-generation.json").read_text())
 plan = pq.read_table(root / "plan.parquet").select(
     ["runId", "seed", "matching_attributes"]
@@ -228,13 +231,15 @@ parameters:
       family: discrete_uniform
       transform: identity
       provenance: Justification scientifique de probabilités égales sur trois structures de matching
-  seed:
-    values: [44011, 44012, 44013, 44014]
-    distribution:
-      family: discrete_uniform
-      transform: identity
-      provenance: Support fini déclaré de nuisance des seeds du simulateur
+experiment:
+  method: multiscramble_sobol
+  seeds: [44011, 44012, 44013, 44014]
+  seeds_provenance: Support fini déclaré de nuisance des seeds du simulateur
 ```
+
+Le support fini des seeds s'écrit dans `experiment.seeds`, jamais sous
+`parameters` ; `seeds_provenance` indique d'où il vient. Le fragment omet les
+autres clés d'expérience requises (`base_sample_sizes`, `scramble_seeds`).
 
 Ici, `discrete_uniform` donne la même probabilité aux trois labels; il ne donne
 pas une probabilité indépendante aux attributs internes. Le support fini de seed
@@ -250,7 +255,7 @@ l'étude.
 
 ## Refus et reprise sûre
 
-- `morris`, `discrete_oat` et `canonical_morris` refusent tous les facteurs
+- `discrete_oat` et `canonical_morris` refusent tous deux les facteurs
   structurés : des listes nommées ne sont pas des niveaux numériques ordonnés de
   trajectoire. Utilisez Grid pour une démonstration, ou Sobol multi-scramble avec
   gouvernance complète si son modèle probabiliste est défendable.
@@ -265,7 +270,7 @@ l'étude.
   la main labels, lignes, `structuredFactors`, versions, `runId` ou marqueurs;
   toute métadonnée absente, réordonnée, aliasée ou non canonique est refusée.
 - Tout changement de design, charge, commit modèle, manifeste, lockfile ou
-  version impose un nouveau nom/racine de campagne. Conservez les anciens plans
+  version impose un nouveau nom de campagne (donc un nouveau dossier). Conservez les anciens plans
   comme provenance immuable au lieu de les réparer sur place.
 
 Voir [Dépannage](troubleshooting.md#erreurs-de-facteur-structuré-nommé) pour les

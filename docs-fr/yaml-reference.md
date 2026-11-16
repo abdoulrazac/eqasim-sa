@@ -2,21 +2,154 @@
 
 [English](../docs/yaml-reference.md) | **Français**
 
-Une méta-configuration décrit une campagne entière. Il n'existe pas de JSON
-Schema dans le projet : `src/eqasim_sa/adapters/meta_config.py`, avec les
-validateurs appelés, est la norme exécutable.
+Une méta-configuration est l'unique fichier YAML qui décrit une expérience (une
+campagne) : quels paramètres du modèle varient, quelle méthode les explore, et
+quelles sorties du modèle sont comparées à quelles données de référence. Une
+expérience correspond à un fichier ; plusieurs expériences, à plusieurs
+fichiers.
+
+Vous n'écrivez que ce qui compte pour votre étude. Tout ce qui n'a qu'une valeur
+raisonnable, ou qu'`init` connaît déjà, a une valeur par défaut. La commande
+`eqasim-sa show-config FICHIER` affiche le fichier complet, toutes valeurs par
+défaut remplies (voir [Valeurs par défaut et `show-config`](#valeurs-par-défaut-et-show-config)).
+
+Il n'existe pas de JSON Schema dans le projet :
+`src/eqasim_sa/adapters/meta_config.py`, avec les validateurs qu'il appelle, est
+la norme exécutable, et `src/eqasim_sa/adapters/meta_config_defaults.py`
+contient toutes les valeurs par défaut.
 
 ## Sommaire
 
-- [Sécurité et blocs racine](#sécurité-yaml-globale)
-- [Modèle et contexte](#model-et-context)
-- [Expériences et paramètres](#experiment)
-- [Analyse, artefacts et indicateurs](#analysis)
-- [Calibration et exécution](#calibration)
-- [Exemples complets](#exemples-complets-valides)
+- [Un premier fichier](#un-premier-fichier)
+- [Valeurs par défaut et `show-config`](#valeurs-par-défaut-et-show-config)
+- [Règles générales](#règles-générales)
+- [Clés racine](#clés-racine)
+- [`model`](#model)
+- [`experiment`](#experiment)
+- [`parameters`](#parameters)
+- [`analysis`](#analysis)
+- [`outputs`](#outputs)
+- [`indicators`](#indicators)
+- [`execution`](#execution)
+- [`calibration`](#calibration)
+- [`charter`](#charter)
+- [Exemples complets valides](#exemples-complets-valides)
 - [Exemples invalides](#exemples-invalides)
 
-## Sécurité YAML globale
+## Un premier fichier
+
+Voici le modèle Grid qu'`init` écrit dans `configs/01-grid.yml`, ici pour un
+projet nommé `mon-analyse-sa` :
+
+```yaml
+# Two rates by two matching schemes by two seeds: eight positions and eight unique runs.
+campaign: mon-analyse-sa-grid
+experiment:
+  method: grid
+  seeds: [1201, 1202]
+parameters:
+  sampling_rate: [0.001, 0.002]
+  matching_age_scheme: [matching_6, analysis_7]
+outputs:
+  age:
+    category: Age class
+    simulated: Proportion_EQASIM
+    references: [INSEE]
+  distance:
+    category: Distance class
+    simulated: Proportion_EQASIM
+    references: [HTS]
+  nbr_vehicle:
+    category: Number of vehicles class
+    simulated: Proportion_EQASIM
+    references: [HTS]
+calibration:
+  meta_configs: [00-calibration.yml]
+# --- Rempli par eqasim-sa init : à modifier seulement si la machine change ---
+model:
+  root: ../../eqasim-france
+  config: ../../eqasim-france/config_local_nantes.yml
+  data_manifest: ../manifest.json
+execution:
+  workers: 2
+  scratch: ../scratch
+  machine_options:
+    data_path: ../../eqasim-data
+    processes: 1
+```
+
+Lisez-le de haut en bas :
+
+- `campaign` nomme l'expérience. Ses résultats vont dans
+  `../campaigns/mon-analyse-sa-grid`.
+- `experiment` choisit la méthode (`grid` essaie toutes les combinaisons) et
+  les graines de simulation (*seeds*). Chaque combinaison est exécutée une fois
+  par graine.
+- `parameters` donne, pour chaque paramètre eqasim que vous faites varier, les
+  valeurs à essayer.
+- `outputs` indique où lire chaque sortie du modèle : la colonne des classes
+  (`category`), la colonne des proportions simulées (`simulated`) et les
+  colonnes de référence auxquelles la comparer (`references`). Sans bloc
+  `indicators`, la distance de variation totale est calculée pour chaque sortie
+  et chacune de ses références.
+- `calibration` désigne le fichier de calibration des ressources utilisé par
+  `check` et `estimate`.
+- La partie sous la ligne de commentaire contient les chemins du modèle, de ses
+  données et du répertoire de travail temporaire sur cette machine.
+
+## Valeurs par défaut et `show-config`
+
+Quand une clé est omise, eqasim-sa applique les valeurs par défaut suivantes.
+
+| Clé | Valeur par défaut |
+| --- | --- |
+| `campaign_root` | `../campaigns/<campaign>` |
+| `model.lockfile` | `<model.root>/uv.lock` |
+| `experiment.design_seed` (OAT discret, Morris canonique, Sobol) | dérivée du nom de campagne (voir ci-dessous) |
+| `parameters.NOM: [a, b]` | identique à `parameters.NOM: {values: [a, b]}` |
+| `analysis` | un bloc vide, complété comme ci-dessous |
+| `analysis.completeness_threshold` | `1.0` (toutes les méthodes) |
+| `analysis.bootstrap_resamples` | `999` (Sobol, Morris canonique) |
+| `analysis.confidence_level` | `0.95` (Sobol, Morris canonique, Sobol multi-scramble) |
+| `indicators` | une distance de variation totale pour chaque sortie qui a au moins une référence |
+| `execution.backend` | `local` (seulement si un bloc `execution` est présent) |
+| `execution.workers` | `1` (seulement si un bloc `execution` est présent) |
+| `execution.invocation` | `[uv, run, --locked, python, -m, synpp]` (seulement si un bloc `execution` est présent) |
+
+Les chemins sont relatifs au répertoire du fichier YAML : la racine de campagne
+par défaut se trouve donc à côté du répertoire `configs/`. Les chemins par
+défaut utilisent `/`, valable sous Windows, macOS et Linux.
+
+La `design_seed` par défaut est calculée à partir du nom de campagne : les huit
+premiers octets de `SHA-256(b"eqasim-sa:design-seed:v1\0" + UTF8(campaign))`,
+lus comme un entier gros-boutiste puis décalés d'un bit vers la droite. Elle est
+donc toujours dans `[0, 2^63)`, ce qui convient à toutes les méthodes. Renommer
+une campagne change sa `design_seed` par défaut, donc son design ; écrivez
+`design_seed` explicitement pour conserver le design sous un autre nom.
+
+Les valeurs par défaut ne changent jamais en silence sous une campagne en cours.
+Le fichier résolu ne dépend que des octets de votre fichier YAML (scellés dans
+`metaConfigSha256`) et de la version d'eqasim-sa (incluse dans le `contextHash`,
+qui refuse déjà de reprendre une campagne avec une autre version). Rien de plus
+n'est écrit sur le disque.
+
+Pour voir le fichier complet qu'eqasim-sa utilise réellement :
+
+```bash
+"${SA[@]}" show-config configs/01-grid.yml
+```
+
+La commande valide le fichier comme le fait `plan` (dépôt du modèle propre,
+facteurs présents dans la configuration eqasim), puis affiche le YAML complet
+sur la sortie standard, toutes valeurs par défaut appliquées. Les chemins sont
+affichés tels que vous les avez écrits : la sortie est elle-même une
+méta-configuration valide. Si le fichier est invalide, le message d'erreur part
+sur la sortie d'erreur et le code de sortie vaut 1 ; contrairement aux autres
+sous-commandes, `show-config` n'affiche pas d'enveloppe JSON. Pour le modèle
+ci-dessus, la sortie figure dans
+[Exemples complets valides](#le-même-grid-avec-toutes-les-valeurs-par-défaut-écrites).
+
+## Règles générales
 
 Le chargeur est `yaml.SafeLoader`, puis le document doit être compatible JSON.
 Les alias YAML, les clés dupliquées, les clés non scalaires et les clés qui ne
@@ -26,27 +159,695 @@ types non JSON sont donc interdits. Les nombres non finis sont également refus�
 Tous les chemins relatifs de la méta-configuration sont résolus depuis le
 répertoire qui contient ce fichier YAML, pas depuis le répertoire courant.
 
-## Blocs racine
+Chaque bloc n'accepte que ses propres clés. Une clé mal orthographiée ou
+inconnue est une erreur, et le message liste les clés permises à ce niveau.
 
-| Clé | Présence | Type |
+## Clés racine
+
+| Clé | Présence | Contenu |
 | --- | --- | --- |
-| `campaign` | requise | chaîne |
-| `campaign_root` | requise | chaîne chemin |
-| `model` | requise | mapping |
-| `context` | requise | mapping |
-| `experiment` | requise | mapping |
-| `parameters` | requise | mapping |
-| `analysis` | requise | mapping |
-| `charter` | optionnelle ; absence = démonstration | mapping |
-| `execution` | optionnelle | mapping |
-| `calibration` | optionnelle | mapping |
-| `artifacts` | optionnelle, défaut `{}` | mapping |
-| `indicators` | optionnelle, défaut `[]` | liste |
+| `campaign` | requise | nom de l'expérience |
+| `campaign_root` | facultative | dossier de l'état et des résultats de la campagne |
+| `model` | requise | le modèle eqasim et ses entrées scellées |
+| `experiment` | requise | méthode et graines |
+| `parameters` | requise | paramètres eqasim que l'on fait varier, et leurs valeurs |
+| `analysis` | facultative | réglages de l'analyse |
+| `outputs` | facultative | sorties du modèle et leurs colonnes de référence |
+| `indicators` | facultative | grandeurs calculées à partir des sorties |
+| `execution` | facultative pour `plan` et `analyze` ; requise pour `run`, `check` et `estimate` | façon d'exécuter les runs sur cette machine |
+| `calibration` | facultative | fichiers de calibration des ressources |
+| `charter` | facultative ; absence = démonstration | ce que la campagne peut revendiquer |
 
 Aucune autre clé racine n'est admise. `campaign` doit correspondre à
-`^[A-Za-z0-9][A-Za-z0-9._-]*$`. `campaign_root` ne doit traverser aucun lien
-symbolique, doit être extérieur à `model.root`, et son premier ancêtre existant
-doit être un répertoire ordinaire.
+`^[A-Za-z0-9][A-Za-z0-9._-]*$` et compter au plus 64 caractères ; les noms
+réservés de Windows et les noms qui ne diffèrent que par la casse sont refusés
+sur tous les systèmes. `campaign_root` ne doit traverser aucun lien symbolique,
+doit être extérieur à `model.root`, et son premier ancêtre existant doit être un
+répertoire ordinaire. Utilisez un nouveau `campaign` pour tout design modifié :
+avec le `campaign_root` par défaut, la campagne reçoit aussi un nouveau dossier.
+
+## `model`
+
+```yaml
+model:
+  root: ../../eqasim-france
+  config: ../../eqasim-france/config_local_nantes.yml
+  data_manifest: ../manifest.json
+  lockfile: ../../eqasim-france/uv.lock
+```
+
+`root`, `config` et `data_manifest` sont requises ; `lockfile` est facultative
+et vaut par défaut `<root>/uv.lock`. Ce sont quatre chaînes de chemin.
+
+`root` est la racine exacte d'un dépôt Git, et ce dépôt doit être propre.
+`config` doit être un fichier ordinaire sous cette racine, suivi par Git et
+identique au blob de `HEAD`. `data_manifest` et `lockfile` sont des fichiers
+ordinaires dont le contenu est haché en SHA-256. Le chargement ne valide pas la
+structure interne du manifeste ; `init` le génère et le valide lors d'une
+relance.
+
+Le `contextHash` dérive de quatre chaînes : le commit eqasim, le SHA-256 du
+manifeste, le SHA-256 du lockfile et la version installée d'`eqasim-sa`. Sa
+définition exacte est :
+
+```python
+context_descriptor = {
+    "eqasimCommit": commit,
+    "dataManifestSha256": data_manifest_sha256,
+    "lockfileSha256": lockfile_sha256,
+    "eqasimSaVersion": version,
+}
+descriptor = json.dumps(
+    context_descriptor,
+    sort_keys=True,
+    separators=(",", ":"),
+    ensure_ascii=True,
+    allow_nan=False,
+).encode("ascii")
+context_hash = hashlib.sha256(
+    b"eqasim-sa:context:v2\0" + descriptor
+).hexdigest()
+```
+
+Le YAML eqasim chargé par `model.config` doit lui-même être un mapping compatible
+JSON contenant au minimum la structure suivante :
+
+```yaml
+working_directory: /chemin/cache
+run: []
+config:
+  sampling_rate: 0.001
+  random_seed: 1
+```
+
+`working_directory` est une chaîne, `run` une liste et `config` un mapping. Le
+même chargeur sûr interdit alias, clés dupliquées, clés non textuelles et valeurs
+non compatibles JSON.
+
+## `experiment`
+
+`method` choisit le design et `seeds` liste les graines de simulation. Les
+autres clés dépendent de la méthode :
+
+| Méthode | Clés permises | Charte |
+| --- | --- | --- |
+| `grid` | `method`, `seeds` | démonstration ou scientifique |
+| `discrete_oat` | `method`, `seeds`, `trajectories`, `design_seed` | démonstration |
+| `canonical_morris` | `method`, `seeds`, `levels`, `trajectories`, `candidate_trajectories`, `design_seed` | scientifique |
+| `sobol` | `method`, `seeds`, `base_sample_size`, `design_seed` | démonstration |
+| `multiscramble_sobol` | `method`, `seeds`, `base_sample_sizes`, `scramble_seeds`, `seeds_provenance` | scientifique |
+
+`design_seed` est facultative ; sa valeur par défaut est dérivée du nom de
+campagne (voir [Valeurs par défaut](#valeurs-par-défaut-et-show-config)). Toutes
+les autres clés du tableau sont requises.
+
+### Graines
+
+`experiment.seeds` est le seul endroit où s'écrivent les graines de simulation.
+C'est une liste non vide, sans doublon, d'entiers signés 64 bits. Son sens
+dépend de la méthode :
+
+- Pour Grid, OAT discret et Morris canonique, les graines sont des
+  **réplications** : chaque point du design est exécuté une fois par graine, et
+  l'analyse en fait la moyenne ou en rapporte la dispersion.
+- Pour Sobol et Sobol multi-scramble, les graines forment le support d'un
+  **facteur** supplémentaire, nommé `seed`, qui entre dans la décomposition de
+  variance. Il faut alors au moins deux graines. Les inventaires de charte et
+  les résultats d'indicateurs appellent ce facteur `seed`.
+
+Déclarer un paramètre nommé `seed` sous `parameters` est refusé : les graines
+s'écrivent toujours dans `experiment.seeds`.
+
+### Grid
+
+```yaml
+experiment:
+  method: grid
+  seeds: [1201, 1202]
+```
+
+Grid exécute chaque combinaison des valeurs de paramètres déclarées une fois par
+graine.
+
+### OAT discret
+
+```yaml
+experiment:
+  method: discrete_oat
+  seeds: [1301, 1302]
+  trajectories: 8
+```
+
+`trajectories` est un entier strictement positif au plus égal au nombre de
+candidats à niveaux adjacents. `design_seed`, si elle est écrite, est un entier
+signé 64 bits. La méthode exige une charte de démonstration. Ses trajectoires
+passent entre niveaux numériques adjacents et strictement croissants ; l'analyse
+divise chaque différence de sortie par ce pas local normalisé par l'étendue
+complète déclarée du facteur. Ce sont des effets locaux normalisés, pas des
+effets de Morris canonique.
+
+### Morris canonique
+
+```yaml
+experiment:
+  method: canonical_morris
+  seeds: [1301, 1302]
+  levels: 4
+  trajectories: 8
+  candidate_trajectories: 32
+  design_seed: 20260820
+```
+
+Morris canonique exige une charte scientifique avec l'objectif `screening`, une
+dépendance indépendante des paramètres et une distribution déclarée pour chaque
+paramètre. `levels` est un entier pair d'au moins 4 ; `trajectories` vaut au
+moins 2 ; `candidate_trajectories` est strictement supérieur à `trajectories`,
+au plus égal à l'univers fini des candidats, et au plus 500. Un budget
+déterministe de complexité des calculs de distance s'ajoute à ce plafond de 500.
+`design_seed` et chaque graine sont des entiers signés 64 bits.
+
+Le pas commun en probabilité unitaire est conservé exactement sous la forme
+rationnelle `Delta = p/[2(p-1)]`, où `p = levels`. Les valeurs sont projetées
+dans l'ordre lexicographique des facteurs par l'inverse généralisé de la loi
+uniforme discrète déclarée. Pour un support de longueur `L` et un indice de
+grille `z`, l'indice de support vaut 0 en `z = 0`, sinon
+`min((L*z - 1)//(p-1), L-1)`. Une dérivation SHA-256 versionnée combine
+`design_seed`, la graine de base, l'identité de la trajectoire sélectionnée et
+l'indice de réplication. Les `D+1` points d'un même bloc trajectoire-réplication
+partagent la graine dérivée, ce qui fournit des nombres aléatoires communs dans
+chaque contraste d'effet élémentaire ; les graines dérivées doivent être uniques
+entre blocs.
+
+L'échantillon candidat et les trajectoires sélectionnées sont déterministes pour
+la graine scellée. SALib 1.5.2 effectue l'appel Morris public avec optimisation
+locale et `optimal_trajectories: trajectories`. Les trajectoires candidates sont
+tirées avec remise : une même matrice peut donc être sélectionnée plusieurs fois
+sur une grille finie. Chaque occurrence a un indice sélectionné et une graine de
+simulation dérivée distincts ; toutes les matrices sélectionnées et les options
+SALib effectives sont scellées dans le design v3.
+
+Avant de publier un plan Morris canonique ou Sobol multi-scramble, les positions
+structurelles du design, sans déduplication par `runId`, ne doivent pas dépasser
+`floor(maximum_runs * (1 - reserve_fraction))`. La fraction réservée reste hors
+du budget d'exécution initial. Les plans canoniques utilisent le schéma de plan
+v2 et scellent le contrat scientifique normalisé complet, les distributions, les
+supports, les identités des candidats, les trajectoires sélectionnées, Delta, la
+dérivation des graines et les réglages d'analyse. Le chargement et l'analyse
+reconstruisent et comparent ce contrat.
+
+`init` ne génère pas de modèle Morris canonique, car la revendication
+scientifique, l'inventaire des incertitudes, l'estimande, le budget, les
+critères de convergence, les contrôles de robustesse, les supports et la
+provenance doivent être propres à l'étude. Le fragment suivant n'est qu'une
+illustration ; il omet volontairement `model`, `outputs`, `execution`,
+`calibration` et la plupart des entrées d'inventaire, et n'est donc pas une
+campagne prête. Le [protocole scientifique de Nantes](../protocols/nantes-scientific/README.md)
+contient des fichiers scientifiques complets.
+
+```yaml
+charter:
+  status: scientific
+  decision:
+    claim: <study-specific screening claim>
+    use: diagnostic
+    setting: <declared decision setting>
+    objective: screening
+    estimand: <expected indicator over simulation seeds>
+    primary_indicator: <resolved indicator name>
+  uncertainty:
+    dependence:
+      kind: independent
+      rationale: <study-specific justification>
+    inventory:
+      parameters:
+        - name: sampling_rate
+          status: varied
+          provenance: <source>
+          rationale: <why varied>
+        - name: matching_minimum_age
+          status: varied
+          provenance: <source>
+          rationale: <why varied>
+      data: []
+      structures: []
+      scenarios: []
+      numerics: []
+  budget:
+    maximum_runs: 1000
+    reserve_fraction: 0.1
+  stopping:
+    criteria:
+      - metric: <declared metric>
+        threshold: 0.05
+        consecutive_checks: 2
+  robustness:
+    checks:
+      - name: <declared check>
+        rationale: <why required>
+  stochastic:
+    target: conditional_mean
+    random_source: simulator_seed
+    intrinsic_variance: report
+    common_random_numbers: within_trajectory
+    allocation:
+      phase: pilot
+      variance_quantile: 0.9
+      target_mcse: 0.01
+      minimum_replications: 2
+      maximum_replications: 20
+      selected_replications: null
+      provenance: null
+experiment:
+  method: canonical_morris
+  seeds: [1301, 1302]
+  levels: 4
+  trajectories: 8
+  candidate_trajectories: 32
+  design_seed: 20260820
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002, 0.005]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: <study-specific support source>
+  matching_minimum_age:
+    values: [0, 5, 12]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: <study-specific support source>
+analysis:
+  convergence_checkpoints: [2, 4, 8]
+  screening_top_k: 1
+```
+
+### Sobol de démonstration
+
+```yaml
+experiment:
+  method: sobol
+  seeds: [1401, 1402]
+  base_sample_size: 16
+```
+
+`base_sample_size` est une puissance de deux supérieure ou égale à 2.
+`design_seed`, si elle est écrite, est un entier non signé 64 bits. Les graines
+deviennent le facteur `seed` et doivent compter au moins deux valeurs. La
+méthode exige une charte de démonstration.
+
+Cette méthode est réservée à la démonstration et conserve son bootstrap des
+lignes à brouillage unique. Son manifeste enregistre
+`inferenceStatus: demonstration_noninferential`.
+
+### Sobol multi-scramble
+
+Les campagnes scientifiques de priorisation des facteurs (FP) et de fixation des
+facteurs (FF) utilisent cette méthode :
+
+```yaml
+experiment:
+  method: multiscramble_sobol
+  seeds: [44011, 44012, 44013, 44014]
+  seeds_provenance: Declared finite simulator-seed nuisance support
+  base_sample_sizes: [2, 4, 8, 16]
+  scramble_seeds: [101, 202, 303, 404]
+```
+
+`base_sample_sizes` est non vide, triée, commence par une puissance de deux d'au
+moins 2, et chaque valeur double exactement la précédente. `scramble_seeds`
+contient au moins quatre entiers non signés 64 bits uniques. `design_seed`
+n'est pas permise. La taille maximale planifiée est le dernier point de
+contrôle.
+
+Les graines forment le support fini du facteur `seed`. Sa distribution
+scientifique est implicitement `discrete_uniform` avec `transform: identity`,
+et `seeds_provenance`, une chaîne non vide requise, indique d'où vient ce
+support. Chaque paramètre déclaré a aussi besoin de sa propre distribution.
+
+La charte scientifique doit avoir une dépendance indépendante et l'objectif
+`fp` ou `ff` ; le criblage est refusé. FF exige une `practical_tolerance`
+adimensionnelle de part de variance d'ordre total dans `[0,1]`. La graine est
+explicitement non actionnable ; ses lignes agrégées et par brouillage gardent
+des indices diagnostiques mais ont `is_actionable: false`, un rang nul et une
+tolérance FF nulle. Le support fini n'estime pas un bruit intrinsèque non
+restreint. L'implémentation refuse les plans au-delà de 1 000 000 positions de
+design ou de 20 000 000 cellules de table Arrow, avant toute allocation QMC ou de
+table ; réduisez le design déclaré plutôt que de contourner ces garde-fous.
+
+## `parameters`
+
+Chaque entrée nomme un paramètre eqasim et liste les valeurs à essayer. La forme
+courte est une simple liste :
+
+```yaml
+parameters:
+  sampling_rate: [0.001, 0.002, 0.003]
+  income_assignation_method: [uniform, bhepop2]
+```
+
+Elle est strictement équivalente à la forme longue avec une seule clé `values`,
+elle aussi acceptée :
+
+```yaml
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002, 0.003]
+```
+
+Les valeurs permises sont `int`, `float` fini ou chaîne non vide sans NUL. Elles
+sont homogènes dans chaque domaine. Booléens, `null`, listes, mappings, NaN et
+infinis sont refusés. Le nom doit être une option synpp sûre, une clé active de
+`model.config.config` et un identifiant de facteur valide et non réservé. Le nom
+`seed` est refusé : écrivez les graines dans [`experiment.seeds`](#graines).
+
+Grid et OAT discret exigent au moins un facteur. À la création ou à la
+validation du plan, chaque domaine Grid doit être non vide et homogène. L'OAT
+discret exige des domaines numériques homogènes d'au moins deux niveaux
+distincts et strictement croissants. Morris canonique et Sobol exigent au moins
+deux valeurs scalaires homogènes et distinctes par facteur ; les supports
+canoniques peuvent être numériques ou textuels, car la projection passe par la
+distribution déclarée.
+
+Pour inspecter les clés candidates et leurs types réels avant d'écrire
+`parameters`, exécutez depuis la racine du modèle :
+
+```bash
+uv run --locked python - <<'PY'
+from pathlib import Path
+import yaml
+
+document = yaml.safe_load(Path("config_local_nantes.yml").read_text())
+for name, value in sorted(document["config"].items()):
+    print(f"{name}: {type(value).__name__} = {value!r}")
+PY
+```
+
+Ne gardez qu'une clé scientifique active et non réservée, avec des valeurs du
+même type que l'option synpp correspondante.
+
+### Sous une charte scientifique
+
+Avec `charter.status: scientific`, la forme courte est refusée : chaque
+paramètre exige la forme longue avec exactement `values` et `distribution` :
+
+```yaml
+parameters:
+  sampling_rate:
+    values: [0.001, 0.002]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: Bounds declared in protocol version 2
+```
+
+Pour les domaines actuels définis par une liste, seuls
+`family: discrete_uniform` et `transform: identity` sont acceptés. `provenance`
+est une chaîne non vide. Les déclarations de famille et de transformation sont
+conservées comme données typées de la méta-configuration, afin que de futurs
+échantillonneurs puissent étendre le vocabulaire. Un support uniforme discret
+varié contient au moins deux valeurs distinctes ; l'uniformité porte sur les
+points du support, jamais sur des positions répétées de la liste. Le facteur
+graine de Sobol multi-scramble tient, lui, sa distribution de
+`experiment.seeds_provenance`.
+
+### Configurations nommées
+
+Une clé du modèle contenant une liste ordonnée peut aussi utiliser des
+configurations nommées. Le mécanisme est générique ; `matching_attributes` n'est
+qu'un exemple représentatif :
+
+```yaml
+parameters:
+  matching_attributes:
+    configurations:
+      default: [sex, any_cars, age_class, socioprofessional_class, departement_id]
+      reduced: [sex, age_class, socioprofessional_class]
+      age_priority: [age_class, any_cars, sex, socioprofessional_class, departement_id]
+```
+
+La clé du modèle doit exister et contenir une liste de chaînes. Chaque étiquette
+est une chaîne unique, non vide et sans NUL. Chaque contenu est une liste
+ordonnée non vide de chaînes uniques, non vides et sans NUL, et deux étiquettes
+ne peuvent pas désigner le même contenu. L'ordre du contenu est conservé.
+
+Grid est le premier design recommandé. Sobol de démonstration est accepté. Sobol
+multi-scramble n'est accepté que si les étiquettes ont une distribution
+scientifique défendable ; une déclaration scientifique ajoute le même voisin
+`distribution` exact que pour les supports scalaires :
+
+```yaml
+parameters:
+  matching_attributes:
+    configurations:
+      default: [sex, any_cars, age_class, socioprofessional_class, departement_id]
+      reduced: [sex, age_class, socioprofessional_class]
+    distribution:
+      family: discrete_uniform
+      transform: identity
+      provenance: Protocol-defined matching configurations
+```
+
+La liste des étiquettes est le support du facteur utilisé par le design et le
+contrat scientifique. La colonne du plan et `RunSpec.parameters` conservent les
+étiquettes ; le contenu résolu est haché dans `runId`. L'OAT discret et Morris
+canonique refusent les facteurs structurés, car l'ordre arbitraire d'étiquettes
+nominales ne peut pas définir leurs pas. À l'exécution, une liste déclarée et
+modifiée est écrite dans un instantané YAML sûr propre à la tentative et omise
+des options de ligne de commande synpp ; les listes ou mappings modifiés non
+déclarés restent invalides.
+
+## `analysis`
+
+Le bloc est facultatif. Chaque méthode accepte un ensemble fixe de clés ; toute
+autre clé est refusée, y compris une clé qui appartient à une autre méthode.
+
+| Méthode | Clés permises | Valeurs par défaut |
+| --- | --- | --- |
+| `grid`, `discrete_oat` | `completeness_threshold` | `completeness_threshold: 1.0` |
+| `sobol` | `completeness_threshold`, `bootstrap_resamples`, `confidence_level` | `1.0`, `999`, `0.95` |
+| `multiscramble_sobol` | `completeness_threshold`, `confidence_level` | `1.0`, `0.95` |
+| `canonical_morris` | `completeness_threshold`, `bootstrap_resamples`, `confidence_level`, `convergence_checkpoints`, `screening_top_k` | `1.0`, `999`, `0.95` ; les deux dernières n'ont pas de valeur par défaut |
+
+`completeness_threshold` est la part minimale des runs attendus qui doivent être
+terminés pour qu'`analyze` publie ses résultats. C'est un nombre fini dans
+`[0, 1]` ; `1` et `0` peuvent s'écrire comme des entiers. L'OAT discret, Morris
+canonique, Sobol et Sobol multi-scramble exigent `1.0` : seul Grid peut
+l'abaisser.
+
+`bootstrap_resamples` est un entier dans `[1, 2^63-1]` ; Morris canonique en
+exige au moins 100. `confidence_level` est un float fini strictement compris
+entre 0 et 1. Sobol multi-scramble n'a pas de réglage de bootstrap : ses tailles
+de convergence viennent uniquement de `experiment.base_sample_sizes`.
+
+Morris canonique a toujours besoin d'un bloc `analysis`, car deux de ses clés
+n'ont pas de valeur par défaut :
+
+```yaml
+analysis:
+  convergence_checkpoints: [2, 4, 8]
+  screening_top_k: 2
+```
+
+Les points de contrôle sont des entiers triés, uniques, d'au moins 2, et se
+terminent à `trajectories`. `screening_top_k` est compris entre 1 et le nombre
+de facteurs. Le bootstrap rééchantillonne des trajectoires entières, après que
+les effets ont d'abord été moyennés sur les graines de réplication. Il fournit
+une preuve d'incertitude de design fini conditionnelle au contrat scellé, pas une
+certification automatique des exigences d'arrêt ou de robustesse de la charte.
+
+## `outputs`
+
+Une sortie est une table qu'eqasim écrit pour chaque run (un fichier Parquet par
+sortie). Le bloc indique à eqasim-sa quelles colonnes lire :
+
+```yaml
+outputs:
+  age:
+    category: Age class
+    simulated: Proportion_EQASIM
+    references: [INSEE]
+```
+
+Chaque sortie exige exactement trois clés :
+
+- `category` : la colonne des classes (par exemple les classes d'âge) ;
+- `simulated` : la colonne des proportions produites par la simulation ;
+- `references` : les colonnes des proportions de référence (par exemple des
+  données de recensement ou d'enquête) auxquelles la comparer.
+
+`category` et `simulated` sont des chaînes distinctes et non vides.
+`references` est une liste, éventuellement vide et sans doublon, de chaînes non
+vides distinctes des deux autres colonnes. Avec l'adaptateur eqasim, chaque
+sortie utilisée par un indicateur doit être produite par une étape connue :
+`persons`, `households`, `activities`, `trips`, `vehicle_types`, `vehicles`,
+`age`, `age_purpose`, `distance`, `license`, `nbr_vehicle` ou `travel`.
+
+Avant de déclarer les colonnes, inspectez un fichier Parquet produit par un run
+connu :
+
+```bash
+uv run --project ../eqasim-sa --locked python - <<'PY'
+import pyarrow.parquet as pq
+
+path = "campaigns/mon-analyse-sa-calibration/archives/<runId>/age.parquet"
+parquet = pq.ParquetFile(path)
+print(parquet.schema_arrow)
+print(parquet.read().column_names)
+PY
+```
+
+Remplacez `<runId>` par un identifiant réel. Les chaînes `category`,
+`simulated` et `references` doivent reproduire exactement les noms de colonnes
+affichés.
+
+## `indicators`
+
+Un indicateur transforme une sortie d'un run en un nombre unique, que l'analyse
+de sensibilité étudie ensuite. Le seul indicateur intégré est `tv_distance`, la
+distance de variation totale entre la distribution simulée et la distribution de
+référence.
+
+### Valeur par défaut
+
+Sans clé `indicators`, eqasim-sa calcule `tv_distance` pour chaque sortie et
+chacune de ses références. Les sorties déclarées avec `references: []` sont
+ignorées. Avec les trois sorties des modèles, on obtient trois indicateurs :
+`tv_distance(age, ref=INSEE)`, `tv_distance(distance, ref=HTS)` et
+`tv_distance(nbr_vehicle, ref=HTS)`.
+
+`indicators: []` désactive les indicateurs. Seul Grid accepte l'absence
+d'indicateur ; l'OAT discret, Morris canonique, Sobol et Sobol multi-scramble en
+exigent au moins un.
+
+### Choisir les indicateurs
+
+Chaque entrée de la liste a exactement une clé : un nom d'indicateur
+(`tv_distance`) ou `custom`.
+
+```yaml
+indicators:
+  - tv_distance: {output: age, reference: INSEE}     # une sortie contre une référence
+  - tv_distance: {output: distance}                  # une sortie contre chacune de ses références
+  - tv_distance: {outputs: [distance, nbr_vehicle]}  # plusieurs sorties, chacune contre chacune de ses références
+  - custom: {function: mon_indicateur, output: age}  # une extension installée
+```
+
+La forme en bloc équivaut à la forme en ligne :
+
+```yaml
+indicators:
+  - tv_distance:
+      output: age
+      reference: INSEE
+```
+
+Une entrée `tv_distance` a exactement `output` et `reference`, ou seulement
+`output`, ou seulement `outputs`. Les noms sont des chaînes non vides ; `outputs`
+est une liste non vide sans doublon. Chaque sortie doit être déclarée dans
+`outputs`, chaque référence doit être l'une des références de cette sortie, et
+une sortie nommée sans référence doit en avoir au moins une.
+
+Une entrée `custom` a exactement `function` et `output`, deux chaînes non vides.
+`function` doit correspondre exactement à un point d'entrée installé du groupe
+`eqasim_sa.indicators`. L'objet chargé doit être appelable ou fournir
+`compute(artifacts)` et retourner un `float` fini.
+
+Chaque indicateur reçoit un nom comme `tv_distance(age, ref=INSEE)` ; le
+`primary_indicator` d'une charte scientifique doit être égal à l'un de ces noms.
+Les noms et identités des indicateurs résolus doivent être uniques dans
+l'analyse.
+
+### Distance de variation totale
+
+`tv_distance` lit les colonnes `category`, `simulated` et de référence. Les deux
+colonnes de masse doivent être numériques, finies, sans valeur nulle, non
+négatives et de somme positive. Elles sont normalisées séparément, puis :
+
+`TV = 0.5 × Σ |p_i - q_i|`, avec un résultat borné dans `[0, 1]`.
+
+0 signifie des distributions identiques ; 1, des distributions sans aucune
+classe commune.
+
+## `execution`
+
+```yaml
+execution:
+  scratch: ../scratch
+  workers: 2
+  machine_options:
+    data_path: ../../eqasim-data
+    processes: 1
+```
+
+Le bloc décrit la façon d'exécuter les runs sur cette machine. Il est facultatif
+pour `plan`, `analyze` et `show-config`, mais requis pour `run`, `check` et
+`estimate`.
+
+| Clé | Présence | Contenu |
+| --- | --- | --- |
+| `scratch` | requise | répertoire de travail temporaire des runs |
+| `backend` | facultative, défaut `local` | `local` ou `slurm` |
+| `workers` | facultative, défaut `1` | nombre de runs exécutés en parallèle |
+| `invocation` | facultative, défaut `[uv, run, --locked, python, -m, synpp]` | commande qui lance synpp |
+| `machine_options` | facultative, vide par défaut | options d'environnement eqasim propres à cette machine |
+| `slurm` | facultative | ressources du cluster, seulement avec `backend: slurm` |
+
+`workers` est un entier dans `[1, 1024]`. `scratch` est une chaîne non vide, sans
+NUL ni traversée de lien symbolique, qui doit déjà désigner un répertoire.
+`invocation` est une liste non vide de chaînes non vides sans NUL.
+
+### `machine_options`
+
+Ce sont les options eqasim qui dépendent de la machine, pas de l'étude. Seules
+les options présentes dans le YAML modèle scellé sont permises : `data_path`,
+`git_binary`, `java_binary`, `java_memory`, `maven_binary` et `processes`. La
+valeur doit conserver exactement le type du YAML modèle et être transportable
+comme scalaire synpp ; les booléens ne le sont pas. `data_path` doit se résoudre
+en un répertoire existant sans traverser de lien symbolique. Pour SLURM,
+`processes` doit être un entier strictement positif.
+
+Les options machine ne contribuent pas au `runId` : elles décrivent
+l'infrastructure, pas un facteur scientifique. Elles ne sont appliquées qu'au
+moment de l'exécution. Un paramètre scientifique comme `sampling_rate` est
+refusé ici ; faites-le varier sous `parameters`.
+
+### `slurm`
+
+```yaml
+execution:
+  backend: slurm
+  workers: 20
+  scratch: /scratch/mon-etude
+  machine_options:
+    processes: 4
+  slurm:
+    timeout_min: 1440
+    mem_gb: 16.0
+    partition: compute
+    account: equipe-transport
+    qos: normal
+```
+
+`slurm` est interdit avec le backend local. Toutes ses clés sont facultatives.
+`timeout_min` vaut 1440 par défaut et doit être un entier positif. `mem_gb` est
+un entier ou un float fini supérieur ou égal à `1/1024` ; `null` signifie
+absent. `partition`, `account` et `qos` sont `null` ou des identifiants sûrs
+suivant le même motif que `campaign`. `cpus_per_task` provient de
+`machine_options.processes`, ou vaut 1.
+
+## `calibration`
+
+```yaml
+calibration:
+  meta_configs: [00-calibration.yml]
+```
+
+Le mapping contient exactement `meta_configs`, une liste non vide de chaînes. Les
+chemins désignent des fichiers ordinaires, sont dédupliqués, ne peuvent pas
+désigner le fichier lui-même et ne peuvent pas contenir à leur tour de bloc
+`calibration`. Des chemins supplémentaires peuvent être passés à `check` et
+`estimate` par la CLI.
 
 ## `charter`
 
@@ -139,8 +940,9 @@ paramètres déclarés, et aucun facteur ne chevauche deux groupes. L'inventaire
 exactement les cinq catégories montrées. Chaque élément a exactement `name`,
 `status`, `provenance`, `rationale`; les textes sont non vides, le statut vaut
 `varied`, `fixed` ou `excluded`, et les noms sont uniques par catégorie. Les noms
-`varied` de l'inventaire des paramètres doivent correspondre exactement aux
-paramètres YAML.
+`varied` de l'inventaire des paramètres doivent correspondre exactement aux noms
+déclarés sous `parameters`, plus `seed` pour Sobol multi-scramble, dont le
+facteur graine provient de `experiment.seeds`.
 
 `maximum_runs` et chaque `consecutive_checks` sont des entiers signés 64 bits
 positifs. `reserve_fraction` est un float fini dans `[0, 1)`. `criteria` est non
@@ -169,9 +971,10 @@ stochastic:
   support_interpretation: declared_finite_nuisance
 ```
 
-Il n'a aucune allocation. `parameters.seed` reste une incertitude variée requise,
-mais son support fini est une nuisance : il n'identifie ni importance contrôlable
-ni bruit intrinsèque du simulateur.
+Il n'a aucune allocation. Le facteur graine, nommé `seed` dans la charte et
+construit à partir de `experiment.seeds`, reste un élément varié requis de
+l'inventaire des paramètres, mais son support fini est une nuisance : il
+n'identifie ni importance contrôlable ni bruit intrinsèque du simulateur.
 
 `load_meta_config` valide la structure de la charte. Les méthodes scientifiques
 courantes sont `canonical_morris` pour `screening` indépendant avec
@@ -188,806 +991,301 @@ Le criblage sérialise `practical_tolerance: null` et l'indépendance
 et distribution correspondante. Le cœur vérifie toute cette forme et son égalité
 avec le design avant publication.
 
-## `model` et `context`
+## Exemples complets valides
 
-```yaml
-model:
-  config: ../../eqasim-france/config_local_nantes.yml
-  root: ../../eqasim-france
-context:
-  data_manifest: ../manifest.json
-  lockfile: ../../eqasim-france/uv.lock
-```
+Les exemples ci-dessous sont complets. Avant de les charger, eqasim-sa vérifie
+aussi la machine : les chemins doivent exister, `model.root` doit être la racine
+exacte d'un dépôt Git propre, `model.config` doit être suivi et identique à son
+blob de `HEAD`, le manifeste et le lockfile doivent être des fichiers ordinaires,
+le répertoire scratch doit exister, et les facteurs et options machine doivent
+exister dans le YAML modèle avec les types indiqués. Le fichier
+`00-calibration.yml` référencé doit aussi exister et ne pas contenir de bloc
+`calibration`.
 
-`model` exige exactement `config` et `root`, deux chaînes. `root` est la racine
-exacte d'un dépôt Git. Le dépôt doit être propre. `config` doit être un fichier
-ordinaire sous cette racine, suivi par Git et identique au blob de `HEAD`.
-
-`context` exige exactement `data_manifest` et `lockfile`, deux fichiers
-ordinaires. Leur contenu est haché en SHA-256. Le chargement ne valide pas la
-structure interne du manifeste; `init` la génère et la valide lors d'une relance.
-
-Le `contextHash` dérive de quatre chaînes : commit eqasim, SHA-256 du manifeste,
-SHA-256 du lockfile et version installée d'`eqasim-sa`. Sa définition exacte est :
-
-```python
-context_descriptor = {
-    "eqasimCommit": commit,
-    "dataManifestSha256": data_manifest_sha256,
-    "lockfileSha256": lockfile_sha256,
-    "eqasimSaVersion": version,
-}
-descriptor = json.dumps(
-    context_descriptor,
-    sort_keys=True,
-    separators=(",", ":"),
-    allow_nan=False,
-).encode()
-context_hash = hashlib.sha256(
-    b"eqasim-sa:context:v1\0" + descriptor
-).hexdigest()
-```
-
-Le YAML eqasim chargé par `model.config` doit lui-même être un mapping JSON-safe
-avec cette forme minimale :
-
-```yaml
-working_directory: /chemin/cache
-run: []
-config:
-  sampling_rate: 0.001
-  random_seed: 1
-```
-
-`working_directory` est une chaîne, `run` une liste et `config` un mapping. Le
-même chargeur sûr interdit alias, clés dupliquées, clés non textuelles et valeurs
-non compatibles JSON.
-
-## `experiment`
+Les fichiers rendus par `init` sont des modèles de démonstration :
+[calibration](../src/eqasim_sa/templates/00-calibration.yml),
+[Grid](../src/eqasim_sa/templates/01-grid.yml),
+[OAT discret](../src/eqasim_sa/templates/02-discrete-oat.yml) et
+[Sobol](../src/eqasim_sa/templates/03-sobol.yml). Aucun modèle Morris canonique
+ni Sobol multi-scramble n'est généré ; le
+[protocole scientifique de Nantes](../protocols/nantes-scientific/README.md)
+contient des fichiers scientifiques complets.
 
 ### Grid
 
+Le modèle Grid figure dans [Un premier fichier](#un-premier-fichier).
+
+### Le même Grid avec toutes les valeurs par défaut écrites
+
+Voici ce qu'affiche `show-config configs/01-grid.yml` pour ce modèle. C'est
+aussi une méta-configuration valide : les deux fichiers décrivent la même
+campagne.
+
 ```yaml
+campaign: mon-analyse-sa-grid
+campaign_root: ../campaigns/mon-analyse-sa-grid
+model:
+  root: ../../eqasim-france
+  config: ../../eqasim-france/config_local_nantes.yml
+  data_manifest: ../manifest.json
+  lockfile: ../../eqasim-france/uv.lock
 experiment:
   method: grid
-  seed_role: replication
-  replications:
-    seeds: [1201, 1202]
+  seeds:
+  - 1201
+  - 1202
+parameters:
+  sampling_rate:
+    values:
+    - 0.001
+    - 0.002
+  matching_age_scheme:
+    values:
+    - matching_6
+    - analysis_7
+analysis:
+  completeness_threshold: 1.0
+outputs:
+  age:
+    category: Age class
+    simulated: Proportion_EQASIM
+    references:
+    - INSEE
+  distance:
+    category: Distance class
+    simulated: Proportion_EQASIM
+    references:
+    - HTS
+  nbr_vehicle:
+    category: Number of vehicles class
+    simulated: Proportion_EQASIM
+    references:
+    - HTS
+indicators:
+- tv_distance:
+    outputs:
+    - age
+    - distance
+    - nbr_vehicle
+execution:
+  workers: 2
+  scratch: ../scratch
+  machine_options:
+    data_path: ../../eqasim-data
+    processes: 1
+  backend: local
+  invocation:
+  - uv
+  - run
+  - --locked
+  - python
+  - -m
+  - synpp
+calibration:
+  meta_configs:
+  - 00-calibration.yml
 ```
-
-Les trois clés sont exactes. `seed_role` vaut `replication`. `seeds` est une
-liste non vide, sans doublon, d'entiers signés 64 bits. Grid avec seed facteur
-n'est pas pris en charge.
 
 ### OAT discret
 
 ```yaml
+# Discrete adjacent-level OAT demonstration: eight positions, not Morris inference.
+campaign: mon-analyse-sa-discrete_oat
 experiment:
   method: discrete_oat
-  seed_role: replication
-  trajectories: 8
-  design_seed: 20260814
-  replications:
-    seeds: [1301, 1302]
-```
-
-Ce sont exactement les cinq clés autorisées. `trajectories` est un entier
-strictement positif, au plus égal au nombre de trajectoires adjacentes candidates.
-`design_seed` est un entier signé 64 bits et les seeds de réplication suivent le
-contrat Grid. Une charte de démonstration est obligatoire. Les trajectoires
-relient des niveaux numériques adjacents strictement croissants. L'analyse divise
-chaque différence de sortie par la taille locale du pas normalisée par l'étendue
-totale déclarée. Ce sont des effets normalisés locaux, pas des effets Morris canoniques.
-
-### Morris canonique
-
-```yaml
-experiment:
-  method: canonical_morris
-  seed_role: replication
-  levels: 4
-  trajectories: 8
-  candidate_trajectories: 32
-  design_seed: 20260820
-  replications:
-    seeds: [1301, 1302]
-```
-
-Ce sont exactement les sept clés d'expérience. Morris canonique exige une charte
-scientifique d'objectif `screening`, une dépendance `independent` et une
-distribution déclarée pour chaque paramètre. `levels` est un entier pair au moins
-égal à 4, `trajectories` au moins égal à 2, et `candidate_trajectories` est strictement
-supérieur à `trajectories` sans dépasser le minimum de l'univers fini et 500. Un budget déterministe
-de calcul des distances s'ajoute au plafond de 500. `design_seed` et les seeds de
-base, non vides et uniques, sont des entiers signés 64 bits.
-
-Le pas commun dans l'espace de probabilité unitaire est scellé exactement comme
-`Delta = p/[2(p-1)]`, avec `p = levels`. Dans l'ordre lexical des facteurs, un
-indice de grille `z` se projette sur un support de longueur `L` par inverse
-généralisée uniforme discrète : indice 0 pour `z = 0`, sinon
-`min((L*z - 1)//(p-1), L-1)`. Une dérivation SHA-256 versionnée combine
-`design_seed`, seed de base, identité de trajectoire et indice de réplication.
-Les `D+1` points du bloc partagent la seed dérivée, donc des nombres aléatoires
-communs au contraste ; les seeds dérivées sont uniques entre blocs.
-
-L'échantillon candidat et la sélection sont déterministes pour la seed scellée.
-SALib 1.5.2 exécute l'appel Morris public avec optimisation locale et
-`optimal_trajectories: trajectories`. Les trajectoires candidates sont tirées
-avec remise : une matrice sélectionnée peut donc apparaître plusieurs fois sur
-une grille finie. Chaque occurrence possède un indice de sélection et une seed
-de simulation dérivée distincts ; toutes les matrices et options SALib effectives
-sont scellées dans le design v3.
-
-Avant publication d'un plan Morris canonique ou Sobol multi-scramble, les
-positions structurelles du design, sans déduplication des run IDs, ne dépassent pas
-`floor(maximum_runs * (1 - reserve_fraction))`; la réserve reste hors budget du
-plan initial. Le plan canonique utilise le schéma v2 et scelle contrat scientifique,
-distributions, supports, pool, sélection, Delta, dérivation des seeds et réglages
-d'analyse. Le chargement et l'analyse reconstruisent et comparent ce contrat.
-
-`init` ne génère aucun starter Morris canonique : revendication, inventaire
-d'incertitude, estimand, budget, convergence, robustesse, supports et provenance
-doivent être propres à l'étude. Le fragment suivant illustre seulement le schéma.
-Il omet modèle, contexte, artefacts, indicateurs, exécution, calibration et une
-partie de l'inventaire ; ce n'est pas une campagne prête à l'emploi :
-
-```yaml
-charter:
-  status: scientific
-  decision:
-    claim: <revendication de criblage propre à l'étude>
-    use: diagnostic
-    setting: <contexte décisionnel déclaré>
-    objective: screening
-    estimand: <indicateur espéré sur les seeds de simulation>
-    primary_indicator: <nom résolu d'indicateur>
-  uncertainty:
-    dependence:
-      kind: independent
-      rationale: <justification propre à l'étude>
-    inventory:
-      parameters:
-        - name: sampling_rate
-          status: varied
-          provenance: <source>
-          rationale: <raison de la variation>
-      data: []
-      structures: []
-      scenarios: []
-      numerics: []
-  budget:
-    maximum_runs: 1000
-    reserve_fraction: 0.1
-  stopping:
-    criteria:
-      - metric: <métrique déclarée>
-        threshold: 0.05
-        consecutive_checks: 2
-  robustness:
-    checks:
-      - name: <contrôle déclaré>
-        rationale: <raison du contrôle>
-  stochastic:
-    target: conditional_mean
-    random_source: simulator_seed
-    intrinsic_variance: report
-    common_random_numbers: within_trajectory
-    allocation:
-      phase: pilot
-      variance_quantile: 0.9
-      target_mcse: 0.01
-      minimum_replications: 2
-      maximum_replications: 20
-      selected_replications: null
-      provenance: null
-experiment:
-  method: canonical_morris
-  seed_role: replication
-  levels: 4
-  trajectories: 8
-  candidate_trajectories: 32
-  design_seed: 20260820
-  replications:
-    seeds: [1301, 1302]
+  seeds: [1301, 1302]
+  trajectories: 2
 parameters:
-  sampling_rate:
-    values: [0.001, 0.002, 0.005]
-    distribution:
-      family: discrete_uniform
-      transform: identity
-      provenance: <source du support propre à l'étude>
-analysis:
-  completeness_threshold: 1.0
-  bootstrap_resamples: 999
-  confidence_level: 0.95
-  convergence_checkpoints: [2, 4, 8]
-  screening_top_k: 1
+  sampling_rate: [0.001, 0.002, 0.003]
+outputs:
+  age:
+    category: Age class
+    simulated: Proportion_EQASIM
+    references: [INSEE]
+  distance:
+    category: Distance class
+    simulated: Proportion_EQASIM
+    references: [HTS]
+  nbr_vehicle:
+    category: Number of vehicles class
+    simulated: Proportion_EQASIM
+    references: [HTS]
+calibration:
+  meta_configs: [00-calibration.yml]
+# --- Rempli par eqasim-sa init : à modifier seulement si la machine change ---
+model:
+  root: ../../eqasim-france
+  config: ../../eqasim-france/config_local_nantes.yml
+  data_manifest: ../manifest.json
+execution:
+  workers: 2
+  scratch: ../scratch
+  machine_options:
+    data_path: ../../eqasim-data
+    processes: 1
 ```
 
 ### Sobol de démonstration
 
-Le `method: sobol` est une démonstration à scramble unique avec
-bootstrap des lignes. Son manifeste déclare
-`inferenceStatus: demonstration_noninferential`.
-
 ```yaml
-charter:
-  stochastic:
-    target: finite_seed_factor
-    random_source: simulator_seed
-    intrinsic_variance: not_identified
-    common_random_numbers: none
-    support_interpretation: declared_finite_nuisance
+# Single-scramble Sobol demonstration: 32 positions, not inferential evidence.
+campaign: mon-analyse-sa-sobol
 experiment:
   method: sobol
-  seed_role: factor
-  base_sample_size: 16
-  design_seed: 20260814
-```
-
-Ces quatre clés sont exactes. `base_sample_size` est une puissance de deux au
-moins égale à 2. `design_seed` est un entier non signé 64 bits. La seed est
-déclarée dans `parameters.seed`, pas dans `replications`.
-
-### Sobol multi-scramble
-
-Pour une campagne scientifique FP/FF, le bloc exact est :
-
-```yaml
-experiment:
-  method: multiscramble_sobol
-  seed_role: factor
-  base_sample_sizes: [2, 4, 8, 16]
-  scramble_seeds: [101, 202, 303, 404]
-analysis:
-  completeness_threshold: 1.0
-  confidence_level: 0.95
-```
-
-Les tailles sont des puissances de deux triées, non vides, au moins égales à 2,
-et doublent exactement. Il faut au moins quatre seeds uint64 uniques.
-`design_seed` est interdit. La charte scientifique exige une dépendance
-`independent` et l'objectif `fp` ou `ff`; `screening` est refusé et FF conserve
-une `practical_tolerance` sans dimension, interprétée comme part de variance
-d'ordre total et comprise dans `[0,1]`. Chaque facteur, dont le support fini de seed simulateur,
-déclare sa distribution. Il n'existe aucun réglage de bootstrap.
-La seed est explicitement non actionnable : ses lignes agrégées et par scramble
-gardent les indices diagnostiques, mais `is_actionable: false`, rang nul et
-tolérance FF nulle. Le support fini n'estime pas le bruit intrinsèque sans limite.
-Les plans dépassant 1 000 000 de positions ou 20 000 000 cellules de table Arrow
-sont refusés avant allocation QMC ou de table; réduisez le design déclaré.
-
-## `parameters`
-
-Avec une charte absente ou de démonstration, chaque entrée exige exactement une
-clé `values` :
-
-```yaml
+  seeds: [1401, 1402]
+  base_sample_size: 4
 parameters:
-  sampling_rate:
-    values: [0.001, 0.002, 0.003]
-  income_assignation_method:
-    values: [uniform, bhepop2]
-```
-
-Les valeurs autorisées sont `int`, `float` fini ou chaîne non vide sans NUL.
-Elles sont homogènes dans chaque domaine. Les booléens, `null`, listes, mappings,
-NaN et infinis sont refusés. Le nom doit être une option synpp sûre, une clé
-active de `model.config.config`, un identifiant de facteur valide et non réservé.
-
-Grid et l'OAT discret exigent au moins un facteur. À la création ou validation du plan,
-chaque domaine Grid doit être non vide et homogène. L'OAT discret exige des domaines
-numériques homogènes d'au moins deux niveaux, distincts et strictement
-croissants. Morris canonique et Sobol exigent au moins deux scalaires homogènes
-distincts par facteur ; le support canonique peut être numérique ou textuel car
-la projection passe par la distribution déclarée.
-
-Pour inspecter les clés candidates et leurs types réels avant d'écrire
-`parameters`, depuis la racine du modèle :
-
-```bash
-uv run --locked python - <<'PY'
-from pathlib import Path
-import yaml
-
-document = yaml.safe_load(Path("config_local_nantes.yml").read_text())
-for name, value in sorted(document["config"].items()):
-    print(f"{name}: {type(value).__name__} = {value!r}")
-PY
-```
-
-Conservez uniquement une clé scientifique active, non réservée, et des valeurs
-du même type que l'option synpp correspondante.
-
-Pour Sobol seulement :
-
-```yaml
-parameters:
-  sampling_rate:
-    values: [0.001, 0.002]
-  seed:
-    values: [1401, 1402]
-```
-
-`seed.values` contient au moins deux entiers signés 64 bits distincts. La seed
-est spéciale et n'a pas besoin d'exister dans la configuration modèle.
-
-Avec `charter.status: scientific`, chaque paramètre, y compris `seed`, exige au
-contraire exactement `values` et `distribution` :
-
-```yaml
-parameters:
-  sampling_rate:
-    values: [0.001, 0.002]
-    distribution:
-      family: discrete_uniform
-      transform: identity
-      provenance: Bornes déclarées dans le protocole version 2
-```
-
-Pour les domaines actuels sous forme de listes, seuls
-`family: discrete_uniform` et `transform: identity` sont admis. `provenance` est
-une chaîne non vide. Les familles et transformations analysées sont conservées
-comme données typées afin que les futurs échantillonneurs puissent étendre le
-vocabulaire. Un support uniforme discret varié contient au moins deux valeurs
-distinctes : l'uniformité porte sur les points du support, jamais sur des
-positions répétées dans la liste.
-
-Une clé modèle contenant une liste ordonnée peut utiliser des configurations
-nommées. Le mécanisme est générique ; `matching_attributes` n'est qu'un exemple :
-
-```yaml
-parameters:
-  matching_attributes:
-    configurations:
-      default: [sex, any_cars, age_class, socioprofessional_class, departement_id]
-      reduced: [sex, age_class, socioprofessional_class]
-      age_priority: [age_class, any_cars, sex, socioprofessional_class, departement_id]
-```
-
-La clé modèle doit exister et contenir une liste de chaînes. Chaque label est une
-chaîne unique, non vide et sans NUL. Chaque payload est une liste ordonnée non
-vide de chaînes uniques, non vides et sans NUL ; deux labels ne peuvent pas
-désigner le même payload. L'ordre est conservé. `seed` ne peut pas être structurée.
-
-Grid est le premier design recommandé. Le Sobol de démonstration est admis. Sobol multi-scramble n'est admis que si une
-distribution scientifique défendable porte sur les labels ; la déclaration
-scientifique ajoute le même sibling `distribution` que pour un support scalaire :
-
-```yaml
-parameters:
-  matching_attributes:
-    configurations:
-      default: [sex, any_cars, age_class, socioprofessional_class, departement_id]
-      reduced: [sex, age_class, socioprofessional_class]
-    distribution:
-      family: discrete_uniform
-      transform: identity
-      provenance: Configurations de matching définies par le protocole
-```
-
-La liste des labels est le support utilisé par le design et le contrat
-scientifique. La colonne du plan et `RunSpec.parameters` gardent les labels ; le
-payload résolu entre dans le `runId`. OAT discret et Morris
-canonique refusent ces facteurs car un ordre nominal arbitraire ne définit pas
-leurs pas. A l'exécution, une liste déclarée modifiée est écrite dans un snapshot
-YAML sûr propre à la tentative et omise de la CLI ; toute liste ou mapping modifié
-mais non déclaré reste invalide.
-
-## `analysis`
-
-Grid et l'OAT discret exigent exactement :
-
-```yaml
-analysis:
-  completeness_threshold: 1.0
-```
-
-Le seuil est un `float` YAML fini dans `[0, 1]`; `1` est invalide car il devient
-un entier. L'OAT discret impose `1.0`.
-
-Le Sobol de démonstration exige exactement :
-
-```yaml
-analysis:
-  completeness_threshold: 1.0
-  bootstrap_resamples: 999
-  confidence_level: 0.95
-```
-
-`bootstrap_resamples` est un entier dans `[1, 2^63-1]`.
-`confidence_level` est un `float` fini strictement entre 0 et 1. Sobol impose
-aussi une complétude de `1.0`.
-
-Le Sobol multi-scramble exige exactement `completeness_threshold: 1.0` et un
-`confidence_level` fini dans `(0, 1)`. Ses checkpoints viennent uniquement de
-`experiment.base_sample_sizes`; aucune clé de bootstrap n'est admise.
-
-Morris canonique exige exactement :
-
-```yaml
-analysis:
-  completeness_threshold: 1.0
-  bootstrap_resamples: 999
-  confidence_level: 0.95
-  convergence_checkpoints: [2, 4, 8]
-  screening_top_k: 2
-```
-
-Il impose la complétude `1.0` et au moins 100 rééchantillonnages. Les checkpoints
-sont des entiers triés, uniques, au moins égaux à 2, et se terminent par
-`trajectories`. `screening_top_k` est compris entre 1 et le nombre de facteurs.
-Le bootstrap rééchantillonne les trajectoires après moyenne des réplications. Il
-fournit une preuve d'incertitude de design fini conditionnelle au contrat scellé,
-pas une certification automatique de l'arrêt ou de la robustesse de la charte.
-
-## `artifacts`
-
-Le bloc associe un nom logique aux colonnes d'une table Parquet :
-
-```yaml
-artifacts:
+  sampling_rate: [0.001, 0.002]
+  matching_age_scheme: [matching_6, analysis_7]
+outputs:
   age:
-    class: Age class
-    synthetic: Proportion_EQASIM
+    category: Age class
+    simulated: Proportion_EQASIM
     references: [INSEE]
-```
-
-Chaque artefact exige exactement `class`, `synthetic`, `references`.
-`class` et `synthetic` sont des chaînes non vides distinctes. `references` est
-une liste éventuellement vide de chaînes non vides, sans doublon, distinctes
-des deux autres colonnes. Avec l'adaptateur eqasim, tout artefact référencé par
-un indicateur doit être produit par une étape connue : `persons`, `households`,
-`activities`, `trips`, `vehicle_types`, `vehicles`, `age`, `age_purpose`,
-`distance`, `license`, `nbr_vehicle` ou `travel`.
-
-Avant de déclarer les colonnes, inspectez un Parquet produit par un run connu :
-
-```bash
-uv run --project ../eqasim-sa --locked python - <<'PY'
-import pyarrow.parquet as pq
-
-path = "campaigns/calibration/archives/<runId>/age.parquet"
-parquet = pq.ParquetFile(path)
-print(parquet.schema_arrow)
-print(parquet.read().column_names)
-PY
-```
-
-Remplacez `<runId>` par un identifiant réel. Les chaînes `class`, `synthetic` et
-`references` doivent reproduire exactement les noms de colonnes affichés.
-
-## `indicators`
-
-Chaque élément contient exactement un type : `pair`, `product` ou `custom`.
-Le seul scalariseur intégré est `tv_distance`.
-
-### Paire
-
-```yaml
-indicators:
-  - pair:
-      scalarizer: tv_distance
-      artifact: age
-      reference: INSEE
-```
-
-Les trois clés sont requises et sont des chaînes non vides. L'artefact et la
-référence doivent avoir été déclarés.
-
-### Produit cartésien
-
-```yaml
-indicators:
-  - product:
-      scalarizers: [tv_distance]
-      artifacts: [distance, nbr_vehicle]
-```
-
-Les deux listes sont non vides, sans doublon. Le produit crée un indicateur pour
-chaque scalariseur, artefact et colonne de référence déclarée par cet artefact.
-
-### Extension personnalisée
-
-```yaml
-indicators:
-  - custom:
-      function: mon_indicateur
-      artifact: age
-```
-
-Les deux clés sont des chaînes non vides. `function` doit correspondre à
-exactement un entry point installé du groupe `eqasim_sa.indicators`. L'objet
-chargé doit être appelable ou fournir `compute(artifacts)` et retourner un
-`float` fini.
-
-L'OAT discret, Morris canonique et Sobol exigent au moins un
-indicateur. Grid accepte une liste vide.
-Les noms et identités d'indicateurs résolus doivent être uniques à l'analyse.
-
-### Distance de variation totale
-
-`tv_distance` lit les colonnes classe, synthétique et référence. Les deux
-colonnes de masses doivent être numériques, finies, sans valeur nulle,
-non négatives et de somme positive. Elles sont normalisées séparément, puis :
-
-`TV = 0.5 × Σ |p_i - q_i|`, avec un résultat borné dans `[0, 1]`.
-
-## `calibration`
-
-```yaml
+  distance:
+    category: Distance class
+    simulated: Proportion_EQASIM
+    references: [HTS]
+  nbr_vehicle:
+    category: Number of vehicles class
+    simulated: Proportion_EQASIM
+    references: [HTS]
+analysis:
+  bootstrap_resamples: 99
 calibration:
   meta_configs: [00-calibration.yml]
-```
-
-Le mapping contient exactement `meta_configs`, liste non vide de chaînes. Les
-chemins désignent des fichiers ordinaires, sont dédupliqués, ne peuvent pas se
-référencer eux-mêmes et ne peuvent pas contenir à leur tour un bloc
-`calibration`. Des chemins supplémentaires peuvent être passés à `check` et
-`estimate` par la CLI.
-
-## `execution`
-
-```yaml
+# --- Rempli par eqasim-sa init : à modifier seulement si la machine change ---
+model:
+  root: ../../eqasim-france
+  config: ../../eqasim-france/config_local_nantes.yml
+  data_manifest: ../manifest.json
 execution:
-  backend: local
   workers: 2
   scratch: ../scratch
-  invocation: [uv, run, --locked, python, -m, synpp]
-  overrides:
+  machine_options:
     data_path: ../../eqasim-data
     processes: 1
 ```
 
-Les clés requises sont exactement `backend`, `workers`, `scratch`,
-`invocation`; `overrides` et `slurm` sont optionnelles. Le bloc entier est
-optionnel pour `plan` et `analyze`, mais requis pour `run`, `check` et
-`estimate`.
+### Grid avec des indicateurs choisis
 
-`backend` vaut `local` ou `slurm`. `workers` est un entier strictement positif.
-`scratch` est une chaîne non vide sans NUL, sans traversée de lien symbolique,
-qui doit déjà désigner un répertoire. `invocation` est une liste non vide de
-chaînes non vides sans NUL.
-
-### `overrides`
-
-Le mapping est vide par défaut. Seules les options d'environnement présentes
-dans le YAML scellé sont admises : `data_path`, `git_binary`, `java_binary`,
-`java_memory`, `maven_binary` et `processes`. La valeur doit conserver exactement
-le type du YAML modèle et être transportable comme scalaire synpp; les booléens
-ne le sont pas. `data_path` doit résoudre vers un répertoire existant sans
-traverser de lien symbolique. Pour SLURM, `processes` doit être un entier
-strictement positif.
-
-Les overrides n'entrent pas dans le `runId` : ils décrivent l'infrastructure,
-pas un facteur scientifique. Ils sont appliqués seulement à l'exécution.
-
-### `slurm`
+Cette variante ne garde que la sortie âge contre INSEE et un indicateur de
+distance, choisit son propre dossier de campagne et utilise la forme longue pour
+un paramètre :
 
 ```yaml
-execution:
-  backend: slurm
-  workers: 20
-  scratch: /scratch/mon-etude
-  invocation: [uv, run, --locked, python, -m, synpp]
-  overrides:
-    processes: 4
-  slurm:
-    timeout_min: 1440
-    mem_gb: 16.0
-    partition: compute
-    account: equipe-transport
-    qos: normal
-```
-
-`slurm` est interdit avec le backend local. Toutes ses clés sont optionnelles.
-`timeout_min` vaut 1440 par défaut et doit être un entier positif. `mem_gb` est
-un entier ou float fini au moins égal à `1/1024`; `null` signifie absent.
-`partition`, `account` et `qos` sont `null` ou des identifiants sûrs selon le
-même motif que `campaign`. `cpus_per_task` provient de `overrides.processes`, ou
-vaut 1.
-
-## Exemples complets valides
-
-Les trois exemples suivants sont complets au niveau du schéma. Leur validation
-contextuelle exige avant tout que les chemins existent, que `model.root` soit la
-racine exacte d'un dépôt Git propre, que `model.config` soit suivi et identique à
-son blob `HEAD`, que le manifeste et le lockfile soient des fichiers ordinaires,
-que le scratch existe et que les facteurs/overrides existent dans le YAML modèle
-avec les types indiqués. Le fichier `00-calibration.yml` référencé doit également
-exister et ne pas contenir de bloc `calibration`.
-
-Les versions rendues par `init` sont des starters de démonstration :
-[Grid](../src/eqasim_sa/templates/01-grid.yml),
-[OAT discret](../src/eqasim_sa/templates/02-discrete-oat.yml) et
-[Sobol](../src/eqasim_sa/templates/03-sobol.yml).
-Aucun starter Morris canonique n'est généré.
-
-### Grid
-
-```yaml
-campaign: demo-grid
-campaign_root: ../campaigns/grid
-charter:
-  status: demonstration
-model:
-  config: ../../eqasim-france/config_local_nantes.yml
-  root: ../../eqasim-france
-context:
-  data_manifest: ../manifest.json
-  lockfile: ../../eqasim-france/uv.lock
-analysis:
-  completeness_threshold: 1.0
+campaign: mon-analyse-sa-grid-age
+campaign_root: ../campaigns/grid-age
 experiment:
   method: grid
-  seed_role: replication
-  replications:
-    seeds: [1201, 1202]
+  seeds: [1201, 1202]
 parameters:
   sampling_rate:
     values: [0.001, 0.002]
-artifacts:
+  matching_minimum_age: [0, 5, 12]
+outputs:
   age:
-    class: Age class
-    synthetic: Proportion_EQASIM
+    category: Age class
+    simulated: Proportion_EQASIM
     references: [INSEE]
+  distance:
+    category: Distance class
+    simulated: Proportion_EQASIM
+    references: [HTS]
 indicators:
-  - pair:
-      scalarizer: tv_distance
-      artifact: age
-      reference: INSEE
-execution:
-  backend: local
-  workers: 2
-  scratch: ../scratch
-  invocation: [uv, run, --locked, python, -m, synpp]
-  overrides:
-    data_path: ../../eqasim-data
-    processes: 1
-calibration:
-  meta_configs: [00-calibration.yml]
-```
-
-### OAT discret
-
-```yaml
-campaign: demo-discrete-oat
-campaign_root: ../campaigns/discrete-oat
-charter:
-  status: demonstration
+  - tv_distance: {output: age, reference: INSEE}
+  - tv_distance: {output: distance}
 model:
-  config: ../../eqasim-france/config_local_nantes.yml
   root: ../../eqasim-france
-context:
+  config: ../../eqasim-france/config_local_nantes.yml
   data_manifest: ../manifest.json
-  lockfile: ../../eqasim-france/uv.lock
-analysis:
-  completeness_threshold: 1.0
-experiment:
-  method: discrete_oat
-  seed_role: replication
-  trajectories: 2
-  design_seed: 20260814
-  replications:
-    seeds: [1301, 1302]
-parameters:
-  sampling_rate:
-    values: [0.001, 0.002, 0.003]
-artifacts:
-  age:
-    class: Age class
-    synthetic: Proportion_EQASIM
-    references: [INSEE]
-indicators:
-  - pair:
-      scalarizer: tv_distance
-      artifact: age
-      reference: INSEE
 execution:
-  backend: local
   workers: 2
   scratch: ../scratch
-  invocation: [uv, run, --locked, python, -m, synpp]
-  overrides:
+  machine_options:
     data_path: ../../eqasim-data
-    processes: 1
-calibration:
-  meta_configs: [00-calibration.yml]
-```
-
-### Sobol
-
-```yaml
-campaign: demo-sobol
-campaign_root: ../campaigns/sobol
-charter:
-  status: demonstration
-model:
-  config: ../../eqasim-france/config_local_nantes.yml
-  root: ../../eqasim-france
-context:
-  data_manifest: ../manifest.json
-  lockfile: ../../eqasim-france/uv.lock
-analysis:
-  completeness_threshold: 1.0
-  bootstrap_resamples: 99
-  confidence_level: 0.95
-experiment:
-  method: sobol
-  seed_role: factor
-  base_sample_size: 4
-  design_seed: 20260814
-parameters:
-  sampling_rate:
-    values: [0.001, 0.002]
-  matching_age_scheme:
-    values: [matching_6, analysis_7]
-  seed:
-    values: [1401, 1402]
-artifacts:
-  age:
-    class: Age class
-    synthetic: Proportion_EQASIM
-    references: [INSEE]
-indicators:
-  - pair:
-      scalarizer: tv_distance
-      artifact: age
-      reference: INSEE
-execution:
-  backend: local
-  workers: 2
-  scratch: ../scratch
-  invocation: [uv, run, --locked, python, -m, synpp]
-  overrides:
-    data_path: ../../eqasim-data
-    processes: 1
-calibration:
-  meta_configs: [00-calibration.yml]
 ```
 
 ## Exemples invalides
 
-Float requis écrit comme entier :
+Chaque fragment ci-dessous fait échouer un fichier par ailleurs valide, avec le
+message indiqué.
+
+Une graine déclarée comme paramètre :
 
 ```yaml
-analysis:
-  completeness_threshold: 1
+parameters:
+  seed: [1, 2]
 ```
 
-Seed simultanément facteur et réplication :
+> declare simulation seeds in experiment.seeds, not parameters.seed
+
+Une clé d'expérience mal orthographiée (`seed` au lieu de `seeds`) :
 
 ```yaml
 experiment:
   method: grid
-  seed_role: replication
-  replications:
-    seeds: [1]
-parameters:
-  seed:
-    values: [1, 2]
+  seed: [1201, 1202]
 ```
 
-Domaine OAT discret non ordonné :
+> experiment keys for grid must be exactly method, seeds
+
+Une clé d'analyse qui appartient à une autre méthode :
 
 ```yaml
-parameters:
-  sampling_rate:
-    values: [0.001, 0.003, 0.002]
+analysis:
+  bootstrap_resamples: 999
 ```
 
-Override scientifique ou dédié :
+> analysis keys must be exactly completeness_threshold
+
+Un indicateur sur une sortie non déclarée :
+
+```yaml
+indicators:
+  - tv_distance: {output: income}
+```
+
+> invalid indicator combinations: tv_distance(income)
+
+Un paramètre scientifique donné comme option machine :
 
 ```yaml
 execution:
-  overrides:
+  machine_options:
     sampling_rate: 0.002
-    output_path: /tmp/output
 ```
 
-Alias et clé dupliquée interdits :
+> machine_options 'sampling_rate' is not an allowed environment option
+
+Un paramètre en forme courte sous une charte scientifique (la charte elle-même
+est omise ici) :
 
 ```yaml
+parameters:
+  sampling_rate: [0.001, 0.002]
+```
+
+> factor 'sampling_rate' requires a distribution under a scientific charter (use
+> the long form with values and distribution)
+
+Un domaine non ordonné dans le fichier d'OAT discret, car l'OAT discret se
+déplace entre niveaux adjacents croissants :
+
+```text
+parameters:
+  sampling_rate: [0.001, 0.003, 0.002]
+```
+
+> discrete OAT factor 'sampling_rate' levels must be distinct and strictly
+> increasing
+
+Une clé dupliquée (ici avec en plus un alias YAML, refusé lui aussi) est
+détectée avant toute autre vérification :
+
+```text
 parameters: &params {}
 parameters: *params
 ```
+
+> duplicate YAML key: 'parameters'

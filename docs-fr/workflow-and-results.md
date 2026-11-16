@@ -25,11 +25,11 @@ cible.
 ## Identités scellées
 
 `contextHash` est défini par
-`SHA-256(b"eqasim-sa:context:v1\0" + UTF8(descriptor))`, où `descriptor` est le
+`SHA-256(b"eqasim-sa:context:v2\0" + ASCII(descriptor))`, où `descriptor` est le
 JSON compact à clés triées de `eqasimCommit`, `dataManifestSha256`,
 `lockfileSha256` et `eqasimSaVersion`. Le résultat est une chaîne de 64
 caractères hexadécimaux minuscules. Voir la
-[définition complète](yaml-reference.md#model-et-context).
+[définition complète](yaml-reference.md#model).
 
 `runId` est constitué des 32 premiers hexadécimaux d'un SHA-256 sur la
 configuration canonique et la seed. La canonicalisation retire
@@ -94,7 +94,7 @@ Les observations de la cible déjà complète sont également prises en compte.
 ## Arborescences de stockage
 
 ```text
-campaigns/grid/
+campaigns/mon-analyse-sa-grid/
 ├── plan.parquet
 ├── runs/
 │   └── <runId>.parquet
@@ -137,8 +137,8 @@ campaigns/grid/
 └── analysis-generation.json
 ```
 
-Les logs n'existent que pour les échecs publiés. L'arbre montre les six artefacts
-de `synthesis.output` et les six artefacts supplémentaires lorsque
+Les logs n'existent que pour les échecs publiés. L'arbre montre les six sorties
+de `synthesis.output` et les six sorties supplémentaires lorsque
 `analysis.synthesis.population` est demandée. Seules les étapes requises par les
 indicateurs sont exécutées, avec `synthesis.output` toujours présente.
 Les sorties d'analyse finales résident dans un unique répertoire immuable

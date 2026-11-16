@@ -151,7 +151,7 @@ or absent) is unaffected.
 - Durable writes are atomic, and symbolic links are broadly rejected.
 - Durable campaign coordination is confined to `.eqasim-sa/`; disposable attempts
   and contextual caches are confined to scratch.
-- Infrastructure overrides do not modify `runId`.
+- Machine options (`execution.machine_options`) do not modify `runId`.
 - Named structured factors remain a separate label-to-list mapping across the
   adapter/core boundary: plans expose labels, resolution and `runId` use lists,
   and schema v3 seals the canonical mapping.

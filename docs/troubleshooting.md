@@ -17,9 +17,11 @@ already been created.
 
 ## `plan differs; choose a new campaign_root`
 
-Cause: the design, parameters, context, package version, or artifact requirements
-differ under a root that has already been sealed. Remedy: choose a new
-`campaign_root`. Do not replace `plan.parquet`.
+Cause: the design, parameters, context, package version, or indicator
+requirements differ under a root that has already been sealed. Remedy: give the
+campaign a new `campaign` name (with the default `campaign_root`, this also gives
+it a new folder), or set a new `campaign_root`. Do not replace `plan.parquet`.
+Renaming a campaign also changes its default `design_seed`.
 
 ## `campaign_root contains durable state without a plan`
 
@@ -38,13 +40,39 @@ Remedy: run `plan`, then `run` for the calibration. Then run `plan`, `check`, an
 Cause: the name is absent from the eqasim `config:` block, is a dedicated option,
 belongs to infrastructure, or is a reserved column. Remedy: use an active
 scientific key; place only permitted environment options in
-`execution.overrides`.
+`execution.machine_options`.
+
+## `... keys must be among ...` or `... keys must be exactly ...`
+
+Cause: a key is misspelled, misplaced, or does not belong to the chosen method
+(for example `bootstrap_resamples` in a Grid `analysis` block). The message lists
+the keys allowed at that level; `missing required` names a required key that is
+absent and `unknown` names the key that is refused. Remedy: correct the key as
+described in the [YAML reference](yaml-reference.md). Once the file loads,
+`"${SA[@]}" show-config FILE` prints the complete configuration that eqasim-sa
+uses.
+
+## `declare simulation seeds in experiment.seeds, not parameters.seed`
+
+Cause: a parameter named `seed` is declared under `parameters`. Remedy: move the
+values to `experiment.seeds`. For Sobol and multi-scramble Sobol, they become
+the `seed` factor; for the other methods, they are replications.
+
+## `factor ... requires a distribution under a scientific charter`
+
+Cause: a parameter uses the short form `name: [a, b]` (or `values` alone) in a
+campaign with `charter.status: scientific`. Remedy: use the long form with
+`values` and `distribution`, as described in the
+[YAML reference](yaml-reference.md#under-a-scientific-charter). For
+multi-scramble Sobol, the seed factor also needs `experiment.seeds_provenance`.
 
 ## Type error in `parameters`
 
 Common causes: a boolean, `null`, mixed levels, a non-finite float, or an
 incorrectly ordered discrete-OAT domain. Remedy: keep the type
-homogeneous and numbers finite. Where a float is required, write `1.0`, not `1`.
+homogeneous and numbers finite. Where a float is required, such as a charter
+`threshold` or `reserve_fraction`, write a decimal point (`1.0`, not `1`);
+`analysis.completeness_threshold` alone also accepts `0` and `1`.
 
 ## Named structured factor errors
 
@@ -165,12 +193,12 @@ versions. The static probe does not run a complete simulation.
 ## `check --smoke` failure
 
 Cause: fewer than two seeds, no `sampling_rate`, a failure in the real pipeline,
-a missing artifact, or invalid Parquet. Remedy: satisfy the smoke contract and
+a missing output, or invalid Parquet. Remedy: satisfy the smoke contract and
 read the returned details. Caution: this option runs two temporary simulations at
 `sampling_rate: 0.001`; it consumes compute resources and accesses real data. The
 smoke check starts from the sealed model YAML and does not apply any
-`execution.overrides`. If the normal campaign depends on
-`execution.overrides.data_path`, the smoke check still uses the model's
+`execution.machine_options`. If the normal campaign depends on
+`execution.machine_options.data_path`, the smoke check still uses the model's
 `data_path`; make that path accessible or deliberately test from an environment
 where it is valid.
 
@@ -238,13 +266,13 @@ execution.scratch of at most N characters`); put the scratch on a short path suc
 as `C:\esa` in that case. On Linux and macOS the limits are 4096 and 1024
 characters and `check` only warns.
 
-## Campaign or artifact name refused
+## Campaign or output name refused
 
 Campaign names are limited to 64 characters. On every operating system, eqasim-sa
 refuses the Windows reserved names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`,
 `LPT1`-`LPT9`, with or without an extension, any case), names ending in a dot or a
 space, and names that differ only by case. This keeps a campaign created on Linux
-transferable to Windows and macOS. Rename the campaign, artifact, or indicator.
+transferable to Windows and macOS. Rename the campaign, output, or indicator.
 
 ## Line endings and `.gitattributes`
 
@@ -326,5 +354,5 @@ verify where these paths live.
 - Do not reuse a root after changing the model, data, lockfile, or version.
 - Never treat an archive alone as a complete run.
 
-For definitions of marker, archive, scratch, and override, see the
+For definitions of marker, archive, scratch, and machine option, see the
 [glossary](glossary.md).

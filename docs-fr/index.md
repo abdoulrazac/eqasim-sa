@@ -79,5 +79,5 @@ fournit les observations de ressources utilisées par `check` et `estimate`.
 - Exécuter la calibration avant `check` ou `estimate` d'une cible qui la référence.
 - Ne jamais modifier `plan.parquet` ni `runs/<runId>.parquet` à la main.
 - Garder le dépôt du modèle propre et sa configuration suivie par Git.
-- Utiliser un nouveau `campaign_root` lorsque le contexte ou le design change.
+- Utiliser un nouveau nom `campaign` (donc un nouveau dossier de campagne) lorsque le contexte ou le design change.
 - Considérer le scratch comme jetable, jamais comme preuve de complétude.

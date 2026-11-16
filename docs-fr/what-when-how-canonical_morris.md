@@ -101,31 +101,32 @@ plusieurs listes `matching_attributes` nommées.
 Le protocole utilise :
 
 ```yaml
-artifacts:
+outputs:
   age:
-    class: Age class
-    synthetic: Proportion_EQASIM
+    category: Age class
+    simulated: Proportion_EQASIM
     references: [INSEE]
   distance:
-    class: Distance class
-    synthetic: Proportion_EQASIM
+    category: Distance class
+    simulated: Proportion_EQASIM
     references: [HTS]
   nbr_vehicle:
-    class: Number of vehicles class
-    synthetic: Proportion_EQASIM
+    category: Number of vehicles class
+    simulated: Proportion_EQASIM
     references: [HTS]
-
 indicators:
-  - pair:
-      scalarizer: tv_distance
-      artifact: age
+  - tv_distance:
+      output: age
       reference: INSEE
-  - product:
-      scalarizers: [tv_distance]
-      artifacts: [distance, nbr_vehicle]
+  - tv_distance:
+      outputs: [distance, nbr_vehicle]
 ```
 
-La décision de criblage est gouvernée par l'indicateur âge principal. Les deux
+Le bloc `indicators` produit les trois mêmes indicateurs que la valeur par
+défaut, mais les écrit explicitement, comme il sied à un protocole :
+`tv_distance(age, ref=INSEE)`, `tv_distance(distance, ref=HTS)` et
+`tv_distance(nbr_vehicle, ref=HTS)`. La décision de criblage est gouvernée par
+l'indicateur âge principal. Les deux
 indicateurs HTS restent des diagnostics secondaires. Une TV plus faible indique
 une distribution plus proche de la référence, mais Morris classe l'ampleur du
 **changement** de TV lorsque les facteurs changent.
@@ -142,14 +143,11 @@ Le pilote déclare :
 ```yaml
 experiment:
   method: canonical_morris
-  seed_role: replication
   levels: 4
   trajectories: 24
   candidate_trajectories: 32
   design_seed: 20260820
-  replications:
-    seeds: [45001, 45002]
-
+  seeds: [45001, 45002]
 analysis:
   completeness_threshold: 1.0
   bootstrap_resamples: 999
@@ -157,6 +155,10 @@ analysis:
   convergence_checkpoints: [8, 16, 24]
   screening_top_k: 2
 ```
+
+Le protocole écrit explicitement toutes les valeurs d'analyse et la graine de
+design, même celles qui égalent une valeur par défaut, pour que la déclaration
+se lise seule. Les deux seeds sont des seeds de base de réplication.
 
 SALib tire 32 trajectoires candidates et optimise localement une sélection de 24 ;
 seules les occurrences retenues sont simulées. Le tirage se fait avec remise :

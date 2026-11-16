@@ -7,7 +7,7 @@ writes a JSON object to standard output. Warnings, notably about Sobol capacity,
 are written to standard error. `--help` and omitting the subcommand display text,
 not JSON. An `argparse` syntax error displays usage information and returns 2. An
 interrupt may terminate with 130 without guaranteeing that a complete JSON object
-has been written.
+has been written. `show-config` is the exception: it prints YAML, never JSON.
 
 ## `init`
 
@@ -35,6 +35,24 @@ The command is template-only: hashing the data is not a pipeline execution. With
 `--regenerate-data-manifest`, an existing project must still pass the strict
 checks on its static files and durable state; only the manifest is replaced.
 Plans and results are not rewritten.
+
+## `show-config`
+
+```text
+eqasim-sa show-config PATH
+```
+
+Prints the complete meta-configuration, with every default value applied (see
+[Defaults and `show-config`](yaml-reference.md#defaults-and-show-config)). The
+file is validated as for `plan` (clean model repository, factors present in the
+model configuration), but the scratch and data directories need not exist and
+no `execution` block is required.
+
+On success, the resolved YAML is written to standard output and the exit code is
+0. Paths are printed as written in the file, so the output is itself a valid
+meta-configuration. On an invalid file, the error message alone is written to
+standard error, nothing is written to standard output, and the exit code is 1.
+Unlike the other subcommands, there is no JSON envelope.
 
 ## `plan`
 
@@ -75,9 +93,9 @@ temporary eqasim runs with the first two distinct seeds and
 `sampling_rate: 0.001`, validates their markers and Parquet files, then deletes
 the temporary directory. That directory is `<execution.scratch>/.smoke-<8 hex>/`,
 so the `path_length` estimate covers the smoke runs too. It requires `sampling_rate` and two explicit seeds. It
-does not apply `execution.overrides`: its starting configuration is the sealed
-model YAML. Consequently, `execution.overrides.data_path` is ignored by the
-smoke test, and the model's `data_path` must be usable from the machine running
+does not apply `execution.machine_options`: its starting configuration is the
+sealed model YAML. Consequently, `execution.machine_options.data_path` is
+ignored by the smoke test, and the model's `data_path` must be usable from the machine running
 the test.
 
 JSON fields: `status` (`valid` or `invalid`), `checkVersion`,
@@ -167,11 +185,12 @@ eqasim-sa eqasim-run --campaign-root PATH --campaign NAME \
 
 | Code | Meaning |
 | ---: | --- |
-| 0 | success, help without a command, unchanged plan, or run already complete |
-| 1 | failed validation, application failure, or at least one failed run |
+| 0 | success, help without a command, configuration shown, unchanged plan, or run already complete |
+| 1 | failed validation (including an invalid file for `show-config`), application failure, or at least one failed run |
 | 2 | invalid CLI arguments reported by `argparse` |
 | 130 | keyboard interrupt handled at the application level |
 
-Application errors are normally encoded in JSON. `init` and `check` redact
+Application errors are normally encoded in JSON; `show-config` writes them as
+plain text on standard error. `init` and `check` redact
 absolute paths from their messages; this guarantee is not applied uniformly to
 the other commands.

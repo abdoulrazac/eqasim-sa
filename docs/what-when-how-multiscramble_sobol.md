@@ -98,21 +98,27 @@ parameters:
       family: discrete_uniform
       transform: identity
       provenance: Production screening report sha256:<actual screening digest>
-  seed:
-    values: [44011, 44012, 44013, 44014]
-    distribution:
-      family: discrete_uniform
-      transform: identity
-      provenance: Declared finite simulator-seed support
 ```
+
+The simulator seed is the third factor, named `seed`. It is not declared under
+`parameters` but with the experiment:
+
+```yaml
+experiment:
+  seeds: [44011, 44012, 44013, 44014]
+  seeds_provenance: Declared finite simulator-seed nuisance support; screening sha256:<actual screening digest>
+```
+
+Its distribution is implicitly `discrete_uniform` over these four seeds, and
+`seeds_provenance` plays the role of its `provenance`.
 
 The two matching settings are actionable. `seed` represents a source of random
 variation needed for the calculation, but nobody will "learn the seed more
 accurately." It therefore remains diagnostic and receives no actionable FP rank.
 
-Every ordinary factor must already exist under `config:` in the sealed model.
-The special `seed` key is the only exception and must not exist there. Never
-declare `random_seed` as a factor.
+Every factor declared under `parameters` must already exist under `config:` in
+the sealed model; the seed factor needs no model key. Never declare
+`random_seed` or `seed` under `parameters`.
 
 The support and equal probabilities must be justified by the study. A convenient
 list of values is not scientific evidence by itself.
@@ -134,10 +140,10 @@ It remains a secondary diagnostic.
 ```yaml
 experiment:
   method: multiscramble_sobol
-  seed_role: factor
+  seeds: [44011, 44012, 44013, 44014]
+  seeds_provenance: Declared finite simulator-seed nuisance support; screening sha256:<actual screening digest>
   base_sample_sizes: [8, 16, 32]
   scramble_seeds: [44101, 44102, 44103, 44104]
-
 analysis:
   completeness_threshold: 1.0
   confidence_level: 0.95

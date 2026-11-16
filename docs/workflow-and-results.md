@@ -24,11 +24,11 @@ durable storage, and cache observations needed to estimate a target.
 ## Sealed Identities
 
 `contextHash` is defined as
-`SHA-256(b"eqasim-sa:context:v1\0" + UTF8(descriptor))`, where `descriptor` is
+`SHA-256(b"eqasim-sa:context:v2\0" + ASCII(descriptor))`, where `descriptor` is
 the compact JSON with sorted keys for `eqasimCommit`, `dataManifestSha256`,
 `lockfileSha256`, and `eqasimSaVersion`. The result is a 64-character lowercase
 hexadecimal string. See the
-[complete definition](yaml-reference.md#model-and-context).
+[complete definition](yaml-reference.md#model).
 
 `runId` consists of the first 32 hexadecimal characters of a SHA-256 over the
 canonical configuration and seed. Canonicalization removes
@@ -94,7 +94,7 @@ from the target that are already complete are also included.
 ## Storage Trees
 
 ```text
-campaigns/grid/
+campaigns/mon-analyse-sa-grid/
 ├── plan.parquet
 ├── runs/
 │   └── <runId>.parquet
@@ -137,8 +137,8 @@ campaigns/grid/
 └── analysis-generation.json
 ```
 
-Logs exist only for published failures. The tree shows the six artifacts from
-`synthesis.output` and the six additional artifacts when
+Logs exist only for published failures. The tree shows the six outputs from
+`synthesis.output` and the six additional outputs when
 `analysis.synthesis.population` is requested. Only the stages required by the
 indicators are executed, with `synthesis.output` always present.
 Final analysis outputs live in one immutable

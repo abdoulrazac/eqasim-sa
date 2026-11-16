@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- BREAKING: simplified meta-configuration format; files in the previous format
+  are rejected, and an unknown key error lists the keys allowed at its level.
+  Root keys are `campaign`, `campaign_root`, `charter`, `model`, `experiment`,
+  `parameters`, `analysis`, `outputs`, `indicators`, `execution`, and
+  `calibration`. `model` holds `root`, `config`, `data_manifest`, and an
+  optional `lockfile`. Simulation seeds are always written in
+  `experiment.seeds` (replications for Grid, discrete OAT, and canonical Morris;
+  the support of the `seed` factor for Sobol and multi-scramble Sobol, which
+  also requires `experiment.seeds_provenance`); a `seed` parameter is refused.
+  A parameter may be a plain list (`sampling_rate: [0.001, 0.002]`); a
+  scientific charter still requires `values` with `distribution`. `outputs`
+  declare `category`, `simulated`, and `references` columns. Each `indicators`
+  entry has one key, `tv_distance` (with `output` and `reference`, `output`,
+  or `outputs`) or `custom` (`function`, `output`); without `indicators`,
+  `tv_distance` is computed for every output against each of its references.
+  Infrastructure options live in `execution.machine_options`. Defaults:
+  `campaign_root` `../campaigns/<campaign>`, `model.lockfile`
+  `<model.root>/uv.lock`, `design_seed` derived from the campaign name,
+  `completeness_threshold` `1.0` (`1` is accepted), `bootstrap_resamples` 999,
+  `confidence_level` 0.95, and, when `execution` is present, `backend` local,
+  `workers` 1, and the `uv run --locked python -m synpp` invocation. The `init`
+  starters use these defaults and are much shorter. The new
+  `eqasim-sa show-config META_CONFIG` validates a meta-configuration and prints
+  it as YAML with every default applied (paths as written); an
+  invalid file prints the error on standard error and exits with code 1, with
+  no JSON envelope.
 - BREAKING: drops all backward compatibility (dev phase, no existing campaigns).
   Removed: reading legacy scientific plans (`canonical_morris` and
   `multiscramble_sobol` design v1/v2; only design v3 is accepted);

@@ -53,30 +53,26 @@ After `eqasim-sa init`, the rendered `configs/02-discrete-oat.yml` file already
 contains this example:
 
 ```yaml
-charter:
-  status: demonstration
-
+campaign: mon-analyse-sa-discrete_oat
 experiment:
   method: discrete_oat
-  seed_role: replication
+  seeds: [1301, 1302]
   trajectories: 2
-  design_seed: 20260817
-  replications:
-    seeds: [1301, 1302]
-
 parameters:
-  sampling_rate:
-    values: [0.001, 0.002, 0.003]
+  sampling_rate: [0.001, 0.002, 0.003]
 ```
 
-The other blocks in the rendered file define the model, data, three indicators,
-local execution, and calibration. The source file
+The other blocks in the rendered file declare the three outputs (and so, by
+default, the three indicators), the calibration file, the model and its data,
+and local execution. Without a `charter` block, the campaign is a
+demonstration, which discrete OAT requires. The design seed is not written: it
+is derived from the campaign name (`show-config` displays its value). The source file
 `src/eqasim_sa/templates/02-discrete-oat.yml` contains placeholders; run the copy
 created in your project by `init`.
 
-The values must be numeric, distinct, and strictly increasing. The seed remains
-a replication in `experiment.replications.seeds`; never declare `random_seed` as
-an analysis parameter.
+The values must be numeric, distinct, and strictly increasing. The seeds are
+replications declared in `experiment.seeds`; never declare `random_seed` or
+`seed` as an analysis parameter.
 
 ### 3. Understand the design size
 
@@ -87,9 +83,11 @@ The file declares:
 - `R = 2` replication seeds.
 
 The design therefore contains `T(D+1)R = 2 × 2 × 2 = 8` positions. Some
-positions may represent exactly the same setting and seed. The starter therefore
-normally produces **8 statistical positions but 6 unique runs**. The simulator
-does not execute the same `runId` twice.
+positions may represent exactly the same setting and seed. For the project
+`mon-analyse-sa`, the starter therefore produces **8 statistical positions but 6
+unique runs**. With another project name, the derived design seed selects other
+trajectories, and the starter may produce 4 or 6 unique runs. The simulator does
+not execute the same `runId` twice.
 
 ### 4. Understand the compared steps
 
@@ -132,7 +130,7 @@ and effects; it also creates the governed report.
 
 ### 6. Read the results
 
-The results are stored under `campaigns/discrete_oat/`. The main file is
+The results are stored under `campaigns/mon-analyse-sa-discrete_oat/`. The main file is
 `discrete-oat-effects.parquet`. It contains one row per factor and indicator,
 including:
 
@@ -166,12 +164,9 @@ In a new campaign, you can compare, for example:
 
 ```yaml
 parameters:
-  sampling_rate:
-    values: [0.001, 0.002, 0.005]
-  matching_minimum_observations:
-    values: [5, 20, 50]
-  matching_minimum_age:
-    values: [0, 5, 12]
+  sampling_rate: [0.001, 0.002, 0.005]
+  matching_minimum_observations: [5, 20, 50]
+  matching_minimum_age: [0, 5, 12]
 ```
 
 With two trajectories and two seeds, this gives
@@ -198,7 +193,7 @@ To decide scientifically which factors must remain under study, use
 - Every domain contains at least two strictly increasing values.
 - The parameters are numeric; no structured configuration is used.
 - The number of positions is calculated before `plan`.
-- A modified configuration uses a new `campaign` and a new `campaign_root`.
+- A modified configuration uses a new `campaign` name, and therefore a new folder.
 - The result is presented as descriptive local triage, not scientific screening.
 
 ## Continue

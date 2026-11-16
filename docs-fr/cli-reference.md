@@ -7,7 +7,8 @@ normalement un objet JSON sur la sortie standard. Les avertissements, notamment
 la capacité Sobol, vont sur la sortie d'erreur. `--help` et l'absence de
 sous-commande affichent du texte, pas du JSON. Une erreur de syntaxe `argparse`
 affiche l'usage et renvoie 2. Une interruption peut terminer à 130 sans garantir
-qu'un objet JSON complet ait été écrit.
+qu'un objet JSON complet ait été écrit. `show-config` fait exception : elle
+affiche du YAML, jamais du JSON.
 
 ## `init`
 
@@ -32,6 +33,25 @@ La commande est template-only : le hachage des données n'est pas une exécution
 du pipeline. Avec `--regenerate-data-manifest`, un projet existant doit toujours
 passer les contrôles stricts de ses fichiers statiques et de son état durable;
 seul le manifeste est remplacé. Les plans et résultats ne sont pas réécrits.
+
+## `show-config`
+
+```text
+eqasim-sa show-config PATH
+```
+
+Affiche la méta-configuration complète, toutes valeurs par défaut appliquées
+(voir [Valeurs par défaut et `show-config`](yaml-reference.md#valeurs-par-défaut-et-show-config)).
+Le fichier est validé comme pour `plan` (dépôt du modèle propre, facteurs
+présents dans la configuration du modèle), mais les répertoires scratch et de
+données n'ont pas besoin d'exister et aucun bloc `execution` n'est requis.
+
+En cas de succès, le YAML résolu est écrit sur la sortie standard et le code de
+sortie vaut 0. Les chemins sont affichés tels qu'écrits dans le fichier : la
+sortie est elle-même une méta-configuration valide. Pour un fichier invalide,
+seul le message d'erreur est écrit sur la sortie d'erreur, rien n'est écrit sur
+la sortie standard, et le code de sortie vaut 1. Contrairement aux autres
+sous-commandes, il n'y a pas d'enveloppe JSON.
 
 ## `plan`
 
@@ -72,8 +92,9 @@ deux runs eqasim temporaires réels avec les deux premières seeds distinctes et
 `sampling_rate: 0.001`, valide leurs marqueurs et leurs Parquet, puis supprime le
 répertoire temporaire. Ce répertoire est `<execution.scratch>/.smoke-<8 hex>/` :
 l'estimation `path_length` couvre donc aussi les runs du smoke. Il exige `sampling_rate` et deux seeds explicites. Il
-n'applique pas `execution.overrides` : sa configuration de départ est le YAML
-modèle scellé. Ainsi, `execution.overrides.data_path` est ignoré par le smoke et
+n'applique pas `execution.machine_options` : sa configuration de départ est le
+YAML modèle scellé. Ainsi, `execution.machine_options.data_path` est ignoré par
+le smoke et
 le `data_path` du modèle doit être utilisable depuis la machine qui lance le test.
 
 Champs JSON : `status` (`valid` ou `invalid`), `checkVersion`,
@@ -163,11 +184,12 @@ eqasim-sa eqasim-run --campaign-root PATH --campaign NAME \
 
 | Code | Sens |
 | ---: | --- |
-| 0 | succès, aide sans commande, plan inchangé ou run déjà complet |
-| 1 | validation invalide, échec métier ou au moins un run échoué |
+| 0 | succès, aide sans commande, configuration affichée, plan inchangé ou run déjà complet |
+| 1 | validation invalide (y compris un fichier invalide pour `show-config`), échec métier ou au moins un run échoué |
 | 2 | arguments CLI invalides produits par `argparse` |
 | 130 | interruption clavier gérée au niveau de l'application |
 
-Les erreurs applicatives sont normalement encodées dans le JSON. `init` et
+Les erreurs applicatives sont normalement encodées dans le JSON ; `show-config`
+les écrit en texte brut sur la sortie d'erreur. `init` et
 `check` masquent les chemins absolus dans leurs messages; cette garantie n'est
 pas appliquée uniformément aux autres commandes.

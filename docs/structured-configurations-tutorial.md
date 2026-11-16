@@ -34,8 +34,8 @@ git -C "$ROOT/eqasim-france" status --short
 
 The final command must print nothing. Adapt the filename if `init` uses another
 `--model-config`. The model commit is part of `contextHash`; changing it after a
-plan has been sealed requires a new project or, at minimum, a new `campaign` and
-empty `campaign_root`. Never place a changed context over an existing campaign.
+plan has been sealed requires a new project or, at minimum, a new `campaign` (and so a new,
+empty campaign folder). Never place a changed context over an existing campaign.
 
 ## 2. Initialize or enter a generated project
 
@@ -75,15 +75,15 @@ cp configs/01-grid.yml configs/04-structured-grid.yml
 
 In `configs/04-structured-grid.yml`, make these exact replacements:
 
-1. Replace `campaign:` with `matching-structures-grid-structured`.
-2. Replace `campaign_root:` with `../campaigns/grid-structured`.
-3. Replace the complete `parameters:` block, up to but not including
-   `artifacts:`, with the block below.
+1. Replace the value of `campaign:` with `matching-structures-grid-structured`.
+   The campaign folder follows by default:
+   `campaigns/matching-structures-grid-structured/`.
+2. Replace the complete `parameters:` block, up to but not including
+   `outputs:`, with the block below.
 
 ```yaml
 # structured-grid-tutorial-replacement
 campaign: matching-structures-grid-structured
-campaign_root: ../campaigns/grid-structured
 parameters:
   matching_attributes:
     configurations:
@@ -92,15 +92,18 @@ parameters:
       age_priority: [age_class, any_cars, sex, socioprofessional_class, departement_id]
 ```
 
-The first two lines replace their existing top-level lines; do not insert a
+The `campaign` line replaces the existing top-level line; do not insert a
 second copy. The `parameters` block replaces both starter factors. Keep all
 other blocks from `01-grid.yml` unchanged, including:
 
-- the demonstration charter, model and context paths;
-- `method: grid`, `seed_role: replication`, and the two explicit seeds
-  `[1201, 1202]`;
-- the age/INSEE, distance/HTS, and number-of-vehicles/HTS indicators;
-- the execution overrides and `calibration.meta_configs` block.
+- `method: grid` and the two replication seeds `[1201, 1202]`;
+- the three `outputs`, which give by default the age/INSEE, distance/HTS, and
+  number-of-vehicles/HTS indicators;
+- the `calibration.meta_configs` block;
+- the `model` and `execution` blocks, including `machine_options`.
+
+`"${SA[@]}" show-config configs/04-structured-grid.yml` prints the resulting
+configuration with every default written out.
 
 There are `3 configurations × 2 replication seeds = 6` design positions and,
 because all three ordered payloads differ, 6 expected unique runs. The
@@ -131,7 +134,7 @@ not pandas:
 import json
 import pyarrow.parquet as pq
 
-path = "campaigns/grid-structured/plan.parquet"
+path = "campaigns/matching-structures-grid-structured/plan.parquet"
 plan = pq.read_table(path)
 metadata = dict(plan.schema.metadata or {})
 
@@ -174,7 +177,7 @@ from pathlib import Path
 
 import pyarrow.parquet as pq
 
-root = Path("campaigns/grid-structured")
+root = Path("campaigns/matching-structures-grid-structured")
 manifest = json.loads((root / "analysis-generation.json").read_text())
 plan = pq.read_table(root / "plan.parquet").select(
     ["runId", "seed", "matching_attributes"]
@@ -223,13 +226,16 @@ parameters:
       family: discrete_uniform
       transform: identity
       provenance: Study justification for equal probability over three named matching structures
-  seed:
-    values: [44011, 44012, 44013, 44014]
-    distribution:
-      family: discrete_uniform
-      transform: identity
-      provenance: Declared finite simulator-seed nuisance support
+experiment:
+  method: multiscramble_sobol
+  seeds: [44011, 44012, 44013, 44014]
+  seeds_provenance: Declared finite simulator-seed nuisance support
 ```
+
+The finite seed support is written in `experiment.seeds`, never under
+`parameters`; `seeds_provenance` states where it comes from. The fragment
+omits the other required experiment keys (`base_sample_sizes`,
+`scramble_seeds`).
 
 Here `discrete_uniform` assigns equal probability to the three labels; it does
 not assign probability independently to attributes inside a list. The finite
@@ -244,7 +250,7 @@ and the study-authored [Nantes protocol](../protocols/nantes-scientific/README.m
 
 ## Refusals and safe recovery
 
-- `morris`, `discrete_oat`, and `canonical_morris` all reject structured factors.
+- `discrete_oat` and `canonical_morris` both reject structured factors.
   They cannot treat named lists as ordered numeric trajectory levels. Use Grid
   for a demonstration or a fully governed multi-scramble Sobol campaign when
   its probability model is defensible.
@@ -258,7 +264,7 @@ and the study-authored [Nantes protocol](../protocols/nantes-scientific/README.m
   `structuredFactors`, versions, `runId`, or completion markers by hand;
   validation rejects missing, reordered, aliased, or noncanonical metadata.
 - Any design, payload, model commit, data manifest, lockfile, or package-version
-  change requires a new campaign name/root. Preserve old plans as immutable
+  change requires a new campaign name (and so a new campaign folder). Preserve old plans as immutable
   provenance rather than repairing them in place.
 
 See [Troubleshooting](troubleshooting.md#named-structured-factor-errors) for the

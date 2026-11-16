@@ -26,8 +26,9 @@ fixation scientifique. Pour cela, utilisez
 - L'**indice d'ordre total** inclut ce facteur et ses interactions avec les autres.
 - Une **interaction** signifie que l'effet d'un facteur dépend de la valeur d'un autre.
 
-Dans cette méthode, la seed du simulateur est elle-même un facteur. Elle ne se
-trouve donc pas dans `experiment.replications.seeds`.
+Dans cette méthode, la seed du simulateur est elle-même un facteur, nommé
+`seed`. Ses valeurs s'écrivent toujours dans `experiment.seeds`, mais elles
+entrent dans la décomposition de variance au lieu d'être des réplications.
 
 ## Cas pratique de bout en bout
 
@@ -42,42 +43,38 @@ Après `eqasim-sa init`, le fichier rendu `configs/03-sobol.yml` pose une petite
 question de plomberie : « Les valeurs numériques, les catégories et les seeds
 finies traversent-elles correctement tout le workflow ? »
 
-Il contient exactement :
+Sa partie expérience se lit ainsi :
 
 ```yaml
-charter:
-  status: demonstration
-
-analysis:
-  completeness_threshold: 1.0
-  bootstrap_resamples: 99
-  confidence_level: 0.95
-
+campaign: mon-analyse-sa-sobol
 experiment:
   method: sobol
-  seed_role: factor
+  seeds: [1401, 1402]
   base_sample_size: 4
-  design_seed: 20260814
-
 parameters:
-  sampling_rate:
-    values: [0.001, 0.002]
-  matching_age_scheme:
-    values: [matching_6, analysis_7]
-  seed:
-    values: [1401, 1402]
+  sampling_rate: [0.001, 0.002]
+  matching_age_scheme: [matching_6, analysis_7]
+analysis:
+  bootstrap_resamples: 99
 ```
+
+Le reste du fichier déclare les trois sorties, le fichier de calibration, le
+modèle et l'exécution locale. Les clés omises prennent leur valeur par défaut :
+sans `charter`, la campagne est une démonstration, l'analyse utilise
+`completeness_threshold: 1.0` et `confidence_level: 0.95`, et la graine de design
+est dérivée du nom de campagne. Seul `bootstrap_resamples` est abaissé à 99 pour
+garder la démonstration rapide. `show-config` affiche toutes les valeurs.
 
 Le fichier source `src/eqasim_sa/templates/03-sobol.yml` contient des
 placeholders. Exécutez la copie rendue dans votre projet, pas ce fichier source.
 
-Les deux paramètres ordinaires doivent déjà exister sous `config:` dans le
-modèle scellé. `seed` est l'unique exception spéciale : elle ne doit pas exister
-sous `config:`. N'ajoutez jamais `random_seed` comme facteur.
+Les deux paramètres doivent déjà exister sous `config:` dans le modèle scellé.
+Le facteur seed n'a besoin d'aucune clé du modèle. N'ajoutez jamais
+`random_seed` ni `seed` sous `parameters`.
 
 ### 2. Comprendre ce qui est mesuré
 
-Le starter déclare trois indicateurs TV :
+Sans bloc `indicators`, le starter calcule trois indicateurs TV :
 
 | Indicateur | Comparaison |
 | --- | --- |
@@ -127,7 +124,7 @@ Il n'existe pas de commande `report` distincte.
 
 ### 5. Lire les résultats sans les surinterpréter
 
-Les fichiers se trouvent sous `campaigns/sobol/`. Le fichier
+Les fichiers se trouvent sous `campaigns/mon-analyse-sa-sobol/`. Le fichier
 `sobol-indices.parquet` contient, pour chaque facteur et chaque indicateur :
 
 | Colonne | Signification dans cette démonstration |
@@ -163,8 +160,8 @@ Le rapport `governed-report.json` l'indique avec
 ## Adapter la démonstration
 
 Vous pouvez tester une autre entrée scalaire du modèle, par exemple
-`matching_minimum_observations: {values: [5, 20, 50]}`, dans une **nouvelle**
-campagne et une nouvelle racine. Le coût suit toujours `N(2D+2)`.
+`matching_minimum_observations: [5, 20, 50]`, dans une **nouvelle** campagne
+(un nouveau nom `campaign`). Le coût suit toujours `N(2D+2)`.
 
 N'ajoutez `income_assignation_method` que si vous disposez d'un indicateur de
 revenu adapté : les trois indicateurs du starter ne mesurent pas directement le
@@ -186,9 +183,9 @@ scrambles indépendants.
 
 ## Checklist
 
-- La campagne porte `charter.status: demonstration`.
+- La campagne est une démonstration (pas de bloc `charter`, ou `charter.status: demonstration`).
 - `base_sample_size` est une puissance de deux d'au moins 2.
-- `seed` est un facteur entier avec au moins deux valeurs distinctes.
+- `experiment.seeds` contient au moins deux entiers distincts.
 - Les positions et les runs uniques sont distingués.
 - Les indices hors plage éventuels restent visibles.
 - Le résultat est présenté comme `demonstration_noninferential`.

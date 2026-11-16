@@ -22,8 +22,8 @@ and does not prove that a parameter is important in every situation.
 
 - A **parameter** is an input that you vary, here `sampling_rate`.
 - A **seed** is an integer that controls a random draw in the simulator.
-- An **artifact** is a table produced by eqasim, such as the age distribution.
-- An **indicator** summarizes an artifact as a number that can be compared across runs.
+- An **output** is a table produced by eqasim, such as the age distribution.
+- An **indicator** summarizes an output as a number that can be compared across runs.
 
 In this guide, the indicator is total variation distance, abbreviated TV. It
 compares a synthetic distribution with a reference: `0` means that they are
@@ -67,7 +67,7 @@ placeholders; do not run it directly.
 ### 3. Declare the parameter and replications
 
 To isolate the effect of `sampling_rate`, derive a new campaign from the
-generated file and give it a new name and root:
+generated file and give it a new name:
 
 ```bash
 cp configs/01-grid.yml configs/01-grid-sampling-rate.yml
@@ -77,22 +77,19 @@ In `configs/01-grid-sampling-rate.yml`, replace the corresponding blocks with:
 
 ```yaml
 campaign: mon-analyse-sa-grid-sampling-rate
-campaign_root: ../campaigns/grid-sampling-rate
-
 experiment:
   method: grid
-  seed_role: replication
-  replications:
-    seeds: [1201, 1202, 1203]
-
+  seeds: [1201, 1202, 1203]
 parameters:
-  sampling_rate:
-    values: [0.001, 0.002]
+  sampling_rate: [0.001, 0.002]
 ```
 
 Remove `matching_age_scheme` from the copied `parameters` block. Leave the rest
-of the generated file unchanged, including `model`, `context`, `analysis`,
-`artifacts`, `indicators`, `execution`, and `calibration`.
+of the generated file unchanged, including `outputs`, `calibration`, `model`,
+and `execution`. The new `campaign` name also gives the campaign its own folder,
+`campaigns/mon-analyse-sa-grid-sampling-rate/`. To check the complete
+configuration, defaults included, run
+`"${SA[@]}" show-config configs/01-grid-sampling-rate.yml`.
 
 The sealed model must already contain `config.sampling_rate`. The seeds are not
 `sampling_rate` values: they repeat each rate to reveal random variation. This
@@ -104,34 +101,28 @@ design contains:
 
 ### 4. Choose what to measure
 
-The generated file already contains this block:
+The generated file already declares three model outputs and the reference data
+each one is compared with:
 
 ```yaml
-artifacts:
+outputs:
   age:
-    class: Age class
-    synthetic: Proportion_EQASIM
+    category: Age class
+    simulated: Proportion_EQASIM
     references: [INSEE]
   distance:
-    class: Distance class
-    synthetic: Proportion_EQASIM
+    category: Distance class
+    simulated: Proportion_EQASIM
     references: [HTS]
   nbr_vehicle:
-    class: Number of vehicles class
-    synthetic: Proportion_EQASIM
+    category: Number of vehicles class
+    simulated: Proportion_EQASIM
     references: [HTS]
-
-indicators:
-  - pair:
-      scalarizer: tv_distance
-      artifact: age
-      reference: INSEE
-  - product:
-      scalarizers: [tv_distance]
-      artifacts: [distance, nbr_vehicle]
 ```
 
-It produces three numbers per run:
+There is no `indicators` block, so eqasim-sa computes by default the total
+variation distance (`tv_distance`) of every output against each of its
+references. This produces three numbers per run:
 
 | Produced name | What it compares |
 | --- | --- |
@@ -143,7 +134,9 @@ For Nantes/EDGT 44, the distance comparison is an asymmetric secondary
 diagnostic: synthetic bins use Euclidean activity-to-activity distance, whereas
 HTS bins use routed distance.
 
-Choosing a parameter without choosing an indicator is not enough: you cannot
+To keep only some of them, add an `indicators` block (see the
+[YAML reference](yaml-reference.md#indicators)). Choosing a parameter without
+choosing an indicator is not enough: you cannot
 discuss "the effect of `sampling_rate`" without specifying **which output** you
 mean.
 
@@ -180,7 +173,7 @@ runs.
 
 ### 6. Read the results
 
-The campaign state is stored under `campaigns/grid-sampling-rate/`:
+The campaign state is stored under `campaigns/mon-analyse-sa-grid-sampling-rate/`:
 
 - `plan.parquet` links each `runId` to its rate and seed;
 - `analysis-generation.json` points to the current immutable generation under
@@ -202,7 +195,7 @@ from statistics import fmean
 
 import pyarrow.parquet as pq
 
-root = Path("campaigns/grid-sampling-rate")
+root = Path("campaigns/mon-analyse-sa-grid-sampling-rate")
 manifest = json.loads((root / "analysis-generation.json").read_text())
 plan = {row["runId"]: row for row in pq.read_table(root / "plan.parquet").to_pylist()}
 groups = defaultdict(list)
@@ -243,7 +236,7 @@ the combinations listed in the file.
 
 ## Adapt this example
 
-- To compare matching thresholds, replace the parameter with `matching_minimum_observations: {values: [5, 20, 50]}`.
+- To compare matching thresholds, replace the parameter with `matching_minimum_observations: [5, 20, 50]`.
 - To combine two parameters, add the second under `parameters` and multiply the domain sizes by the number of seeds.
 - To compare `matching_attributes` lists, follow the [structured-configurations tutorial](structured-configurations-tutorial.md).
 - For local numeric triage, continue with [discrete OAT](what-when-how-discrete_oat.md).
@@ -253,9 +246,9 @@ the combinations listed in the file.
 
 - The question names the parameter, its values, and every output being studied.
 - Every parameter key already exists under `config:` in the sealed model.
-- Seeds are in `experiment.replications.seeds`, never in `parameters.random_seed`.
+- Seeds are in `experiment.seeds`, never under `parameters`.
 - The number of positions fits the budget.
-- A modified campaign has a new `campaign` and a new `campaign_root`.
+- A modified campaign has a new `campaign` name, and therefore a new folder.
 - The results are described as a demonstration, not as scientific proof.
 
 ## Continue

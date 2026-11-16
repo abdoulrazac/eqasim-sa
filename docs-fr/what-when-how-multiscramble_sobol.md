@@ -97,22 +97,28 @@ parameters:
       family: discrete_uniform
       transform: identity
       provenance: Production screening report sha256:<empreinte réelle du criblage>
-  seed:
-    values: [44011, 44012, 44013, 44014]
-    distribution:
-      family: discrete_uniform
-      transform: identity
-      provenance: Support fini déclaré des seeds du simulateur
 ```
+
+La seed du simulateur est le troisième facteur, nommé `seed`. Elle ne se déclare
+pas sous `parameters` mais avec l'expérience :
+
+```yaml
+experiment:
+  seeds: [44011, 44012, 44013, 44014]
+  seeds_provenance: Declared finite simulator-seed nuisance support; screening sha256:<empreinte réelle du criblage>
+```
+
+Sa distribution est implicitement `discrete_uniform` sur ces quatre seeds, et
+`seeds_provenance` tient le rôle de sa `provenance`.
 
 Les deux réglages de matching sont actionnables. `seed` représente une source de
 variation aléatoire nécessaire au calcul, mais personne ne va « apprendre la
 seed plus précisément ». Elle reste donc diagnostique et ne reçoit aucun rang FP
 actionnable.
 
-Chaque facteur ordinaire doit déjà exister sous `config:` dans le modèle scellé.
-La clé spéciale `seed` est la seule exception et ne doit pas y exister. Ne
-déclarez jamais `random_seed` comme facteur.
+Chaque facteur déclaré sous `parameters` doit déjà exister sous `config:` dans
+le modèle scellé ; le facteur seed n'a besoin d'aucune clé du modèle. Ne
+déclarez jamais `random_seed` ni `seed` sous `parameters`.
 
 Le support et l'égalité des probabilités doivent être justifiés par l'étude. Une
 liste de valeurs pratique n'est pas, à elle seule, une preuve scientifique.
@@ -134,10 +140,10 @@ utilise la distance routée. Il reste un diagnostic secondaire.
 ```yaml
 experiment:
   method: multiscramble_sobol
-  seed_role: factor
+  seeds: [44011, 44012, 44013, 44014]
+  seeds_provenance: Declared finite simulator-seed nuisance support; screening sha256:<empreinte réelle du criblage>
   base_sample_sizes: [8, 16, 32]
   scramble_seeds: [44101, 44102, 44103, 44104]
-
 analysis:
   completeness_threshold: 1.0
   confidence_level: 0.95
