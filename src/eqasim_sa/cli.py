@@ -139,7 +139,14 @@ def dispatch(
         try:
             if show_config_factory is None:
                 raise RuntimeError("show-config adapter is not configured")
-            print(show_config_factory(arguments.meta_config), end="")
+            text = show_config_factory(arguments.meta_config)
+            buffer = getattr(sys.stdout, "buffer", None)
+            if buffer is None:
+                print(text, end="")
+            else:
+                sys.stdout.flush()
+                buffer.write(text.encode("utf-8"))
+                buffer.flush()
             return 0
         except Exception as error:
             print(

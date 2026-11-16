@@ -42,7 +42,7 @@ belongs to infrastructure, or is a reserved column. Remedy: use an active
 scientific key; place only permitted environment options in
 `execution.machine_options`.
 
-## `... keys must be among ...` or `... keys must be exactly ...`
+## `... keys must be among ...`
 
 Cause: a key is misspelled, misplaced, or does not belong to the chosen method
 (for example `bootstrap_resamples` in a Grid `analysis` block). The message lists

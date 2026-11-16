@@ -80,11 +80,11 @@ def test_execution_defaults_fill_backend_workers_invocation(tmp_path: Path) -> N
         ),
         (
             lambda d: d["experiment"].update(replications={"seeds": [41, 42]}),
-            "experiment keys for grid must be exactly method, seeds",
+            "experiment (grid) keys must be among method, seeds; unknown: ",
         ),
         (
             lambda d: d["experiment"].update(seed_role="replication"),
-            "experiment keys for grid must be exactly method, seeds",
+            "experiment (grid) keys must be among method, seeds; unknown: ",
         ),
         (
             lambda d: d.update(
@@ -379,3 +379,40 @@ def test_machine_options_transport_errors_use_the_new_name(tmp_path: Path) -> No
         load_meta_config(meta)
     assert "machine_options 'data_path'" in str(caught.value)
     assert "override" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [("experiment", "grid"), ("outputs", ["age"]), ("execution", None)],
+)
+def test_malformed_block_types_name_the_key(tmp_path: Path, key: str, value) -> None:
+    meta, _, _, _ = meta_fixture(tmp_path)
+    _edit(meta, lambda d: d.__setitem__(key, value))
+    with pytest.raises((TypeError, ValueError), match=key):
+        load_meta_config(meta)
+
+
+def test_scalar_parameter_says_it_must_be_a_list(tmp_path: Path) -> None:
+    meta, _, _, _ = meta_fixture(tmp_path)
+    _edit(meta, lambda d: d["parameters"].update(a=0.001))
+    with pytest.raises(
+        ValueError,
+        match=r"parameter 'a' must be a list of values, e\.g\. a: \[a, b\]",
+    ):
+        load_meta_config(meta)
+
+
+def _sub(tmp_path: Path) -> Path:
+    (tmp_path / "b").mkdir()
+    return tmp_path / "b"
+
+
+def test_experiment_and_analysis_key_errors_name_the_keys(tmp_path: Path) -> None:
+    meta, _, _, _ = meta_fixture(tmp_path)
+    _edit(meta, lambda d: d["experiment"].update(seed_role="x"))
+    with pytest.raises(ValueError, match=r"experiment \(grid\) keys.*unknown: seed_role"):
+        load_meta_config(meta)
+    meta, _, _, _ = meta_fixture(_sub(tmp_path))
+    _edit(meta, lambda d: d.update(analysis={"bootstrap_resamples": 9}))
+    with pytest.raises(ValueError, match=r"analysis keys.*unknown: bootstrap_resamples"):
+        load_meta_config(meta)

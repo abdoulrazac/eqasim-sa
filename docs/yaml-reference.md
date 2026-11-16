@@ -1201,7 +1201,7 @@ experiment:
   seed: [1201, 1202]
 ```
 
-> experiment keys for grid must be exactly method, seeds
+> experiment (grid) keys must be among method, seeds; unknown: seed
 
 An analysis key that belongs to another method:
 
@@ -1210,7 +1210,7 @@ analysis:
   bootstrap_resamples: 999
 ```
 
-> analysis keys must be exactly completeness_threshold
+> analysis keys must be among completeness_threshold; unknown: bootstrap_resamples
 
 An indicator on an undeclared output:
 

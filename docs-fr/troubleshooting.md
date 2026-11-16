@@ -42,7 +42,7 @@ Cause : nom absent du bloc `config:` eqasim, option dédiée, infrastructure ou
 colonne réservée. Remède : utiliser une clé scientifique active; placer seulement
 les options d'environnement autorisées dans `execution.machine_options`.
 
-## `... keys must be among ...` ou `... keys must be exactly ...`
+## `... keys must be among ...`
 
 Cause : une clé est mal orthographiée, mal placée, ou n'appartient pas à la
 méthode choisie (par exemple `bootstrap_resamples` dans un bloc `analysis` de

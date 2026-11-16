@@ -130,7 +130,7 @@ class SlurmResources:
 
 @dataclass(frozen=True)
 class Execution:
-    """Validated runtime, backend, workspace, and override configuration."""
+    """Validated runtime, backend, workspace, and machine_options override."""
 
     backend: str
     workers: int
@@ -658,11 +658,12 @@ def load_meta_config(
             f"unsupported experiment.method {method!r}; expected one of "
             f"{', '.join(EXPERIMENT_METHODS)}"
         )
-    if set(experiment) != set(EXPERIMENT_KEYS[method]):
-        raise ValueError(
-            f"experiment keys for {method} must be exactly "
-            f"{', '.join(EXPERIMENT_KEYS[method])}"
-        )
+    _require_keys(
+        experiment,
+        f"experiment ({method})",
+        EXPERIMENT_KEYS[method],
+        set(EXPERIMENT_KEYS[method]),
+    )
     seed_role = "factor" if method in SEED_FACTOR_METHODS else "replication"
     analysis_keys = (
         {
@@ -679,10 +680,7 @@ def load_meta_config(
         if method == "sobol"
         else {"completeness_threshold"}
     )
-    if set(analysis) != analysis_keys:
-        raise ValueError(
-            f"analysis keys must be exactly {', '.join(sorted(analysis_keys))}"
-        )
+    _require_keys(analysis, "analysis", tuple(sorted(analysis_keys)), analysis_keys)
     completeness_threshold = analysis["completeness_threshold"]
     if type(completeness_threshold) is int and completeness_threshold in (0, 1):
         completeness_threshold = float(completeness_threshold)
@@ -924,6 +922,11 @@ def load_meta_config(
             raise ValueError(
                 f"factor {name!r} requires a distribution under a scientific charter "
                 "(use the long form with values and distribution)"
+            )
+        if not isinstance(declaration, (list, dict)):
+            raise ValueError(
+                f"parameter {name!r} must be a list of values, "
+                f"e.g. {name}: [a, b]"
             )
         if (
             not isinstance(name, str)

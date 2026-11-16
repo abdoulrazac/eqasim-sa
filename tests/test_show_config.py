@@ -44,4 +44,25 @@ def test_show_config_reports_invalid_file(tmp_path, capsys, monkeypatch):
     assert run_show(monkeypatch, meta) != 0
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "experiment keys" in captured.err
+    assert "unknown: seed_role" in captured.err
+
+
+def test_show_config_writes_utf8_bytes_to_stdout_buffer(tmp_path, monkeypatch):
+    import io
+
+    meta, *_ = meta_fixture(tmp_path)
+    document = yaml.safe_load(meta.read_text())
+    document["outputs"] = {
+        "age": {"category": "Classe d'âge", "simulated": "s", "references": ["r"]}
+    }
+    meta.write_text(yaml.safe_dump(document, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    raw = io.BytesIO()
+    stdout = io.TextIOWrapper(raw, encoding="cp1252", errors="strict")
+    monkeypatch.setattr(sys, "stdout", stdout)
+    assert run_show(monkeypatch, meta) == 0
+    stdout.flush()
+    data = raw.getvalue()
+    assert "Classe d'âge".encode("utf-8") in data
+    again = tmp_path / "again.yml"
+    again.write_bytes(data)
+    assert load_meta_config(again, verify_data=False).seeds == (41, 42)

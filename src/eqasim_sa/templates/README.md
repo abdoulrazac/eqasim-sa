@@ -113,7 +113,7 @@ parameters:
       age_priority: [age_class, any_cars, sex, socioprofessional_class, departement_id]
 ```
 
-Keep the copied Grid's two replication seeds, execution, and calibration
+Keep the copied Grid's two replication seeds, outputs, execution, and calibration
 blocks. This produces 6 positions and 6 expected unique runs. The
 labels are readable aliases; execution and `runId` use the resolved ordered
 lists. Discrete OAT and canonical Morris reject structured factors. This remains a demonstration,

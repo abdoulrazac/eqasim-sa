@@ -78,3 +78,8 @@ def test_default_indicators_skip_outputs_without_references():
     only_empty = {"custom_only": outputs["custom_only"]}
     resolved = resolve_meta_config_document({**MINIMAL, "outputs": only_empty})
     assert resolved["indicators"] == []
+
+
+def test_default_design_seed_is_pinned():
+    # sha256(b"eqasim-sa:design-seed:v1\0" + campaign)[:8], big-endian, >> 1
+    assert default_design_seed("demo") == 7846582582423296551

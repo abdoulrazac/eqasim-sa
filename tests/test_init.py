@@ -658,3 +658,28 @@ def _commit_model(model: Path) -> None:
         ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "m"],
     ):
         subprocess.run(["git", *command], cwd=model, check=True)
+
+
+@pytest.mark.parametrize(
+    ("name", "positions", "unique"),
+    [
+        ("00-calibration.yml", None, None),
+        ("01-grid.yml", 8, 8),
+        ("02-discrete-oat.yml", 8, 6),
+        ("03-sobol.yml", 32, 8),
+    ],
+)
+def test_every_rendered_starter_loads_and_plans(
+    tmp_path: Path, name: str, positions: int | None, unique: int | None
+) -> None:
+    from eqasim_sa.adapters.application import plan_from_meta_config
+
+    model, data = inputs(tmp_path)
+    _commit_model(model)
+    project = tmp_path / "study"
+    init_from_inputs("study", project, model, data, None, DEFAULT_INVOCATION)
+    path = project / "configs" / name
+    load_meta_config(path)
+    if positions is not None:
+        planned = plan_from_meta_config(path)
+        assert (planned.design_positions, planned.unique_runs) == (positions, unique)
