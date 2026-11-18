@@ -15,7 +15,7 @@ import eqasim_sa.utils.filesystem as durable_publication
 from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
 from eqasim_sa.core.ledger import ArtifactManifestEntry, RunRecord, run_path, write_run
 from eqasim_sa.core.run import RunSpec, compute_run_id, pending_run_specs
-from eqasim_sa.ports.simulator import EXECUTION_EVIDENCE_V2_DOMAIN, ExecutionEvidence
+from eqasim_sa.ports.simulator import EXECUTION_EVIDENCE_DOMAIN, ExecutionEvidence
 from tests.conftest import make_symlink
 from tests.provenance_helpers import write_archive, write_verified_run
 
@@ -328,9 +328,9 @@ def execution_evidence(context_hash: str = "c" * 64) -> ExecutionEvidence:
         ("PATH", "TOKEN"),
         "3" * 64,
         ("/usr/bin/python3", "-m", "synpp"),
-        "4" * 40,
+        "4" * 64,
         "5" * 64,
-        schema_version=2,
+        schema_version=3,
         eqasim_sa_sha256="6" * 64,
     )
 
@@ -559,7 +559,7 @@ def test_v2_marker_binds_canonical_execution_evidence(tmp_path: Path) -> None:
     descriptor = json.dumps(
         document, sort_keys=True, separators=(",", ":")
     ).encode()
-    assert digest == hashlib.sha256(EXECUTION_EVIDENCE_V2_DOMAIN + descriptor).hexdigest()
+    assert digest == hashlib.sha256(EXECUTION_EVIDENCE_DOMAIN + descriptor).hexdigest()
     state = ledger.completion_state(tmp_path, expected_record(spec))
     assert state is not None and state.execution_evidence == expected
 

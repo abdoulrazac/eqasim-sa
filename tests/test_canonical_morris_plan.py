@@ -135,7 +135,7 @@ def canonical_design(root: Path, **changes) -> CanonicalMorrisDesign:
     }
     descriptor = scientific_context_descriptor()
     context_hash = hashlib.sha256(
-        b"eqasim-sa:context:v2\0"
+        b"eqasim-sa:context:v3\0"
         + json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     values = dict(

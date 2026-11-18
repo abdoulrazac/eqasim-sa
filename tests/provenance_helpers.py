@@ -23,7 +23,7 @@ TEST_EQASIM_SA_SHA256 = _SOFTWARE.sha256
 
 def scientific_context_descriptor() -> dict[str, str]:
     return {
-        "eqasimCommit": "a" * 40,
+        "eqasimSourceSha256": "a" * 64,
         "dataManifestSha256": "b" * 64,
         "lockfileSha256": "c" * 64,
         "eqasimSaVersion": TEST_EQASIM_SA_VERSION,
@@ -72,9 +72,9 @@ def execution_evidence(context_hash: str) -> ExecutionEvidence:
         environment_variables=("PATH",),
         executable_sha256="3" * 64,
         invocation=("/usr/bin/test",),
-        model_commit="a" * 40,
+        model_source_sha256="a" * 64,
         model_config_sha256="5" * 64,
-        schema_version=2,
+        schema_version=3,
         eqasim_sa_sha256=TEST_EQASIM_SA_SHA256,
     )
 

@@ -23,7 +23,7 @@ def design(
     root: Path, factors: dict[str, list], seeds: tuple[int, ...] = (1,)
 ) -> GridDesign:
     descriptor = {
-        "eqasimCommit": "a",
+        "eqasimSourceSha256": "a",
         "dataManifestSha256": "b",
         "lockfileSha256": "c",
         "eqasimSaVersion": "0.1.0",

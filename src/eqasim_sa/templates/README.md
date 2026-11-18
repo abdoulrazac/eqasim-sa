@@ -96,10 +96,9 @@ remain comparable; changing an output scheme is not a matching effect.
 
 ### Named matching configurations
 
-Grid can also compare named ordered lists. The tracked model YAML must already
-contain the active `config.matching_attributes` key as a list of strings; `init`
-does not add or modify it. Commit that YAML and verify that the complete model
-repository is clean before initializing or planning. Copy `configs/01-grid.yml`, give the copy a new
+Grid can also compare named ordered lists. The eqasim config named by
+`model.config` must already contain the active `config.matching_attributes` key
+as a list of strings; `init` does not add or modify it. Copy `configs/01-grid.yml`, give the copy a new
 `campaign` (its `campaign_root` follows by default), and replace its `parameters` block, for
 example:
 
@@ -147,6 +146,3 @@ interpreting `income_assignation_method`. Note that `bhepop2` can fall back to
 `uniform` for municipalities with invalid Filosofi distributions, and the
 current output does not retain the applied method.
 
-Before generating this project, `init` verified that the model configuration
-explicitly contains `matching_age_scheme: matching_6` and
-`analysis_age_scheme: analysis_7`.

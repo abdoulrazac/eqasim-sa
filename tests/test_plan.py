@@ -3,7 +3,6 @@ import hashlib
 import json
 import math
 import os
-import subprocess
 import threading
 from pathlib import Path
 
@@ -16,6 +15,7 @@ import eqasim_sa.utils.filesystem as durable_publication
 from eqasim_sa.core.methods.common import MAX_BOOTSTRAP_RESAMPLES
 from eqasim_sa.adapters.application import plan_from_meta_config
 from eqasim_sa.adapters.eqasim.config import load_yaml_document
+from eqasim_sa.adapters.eqasim.source_fingerprint import model_source_sha256
 from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator, eqasim_requirements
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.core.indicators import ArtifactSet
@@ -53,13 +53,13 @@ def base() -> dict:
 
 def design(root: Path, **changes) -> GridDesign:
     descriptor = {
-        "eqasimCommit": "a",
+        "eqasimSourceSha256": "a",
         "dataManifestSha256": "b",
         "lockfileSha256": "c",
         "eqasimSaVersion": "0.1.0",
     }
     context_hash = hashlib.sha256(
-        b"eqasim-sa:context:v2\0"
+        b"eqasim-sa:context:v3\0"
         + json.dumps(
             descriptor,
             sort_keys=True,
@@ -527,7 +527,7 @@ def test_grid_schema_order_identity_and_no_mutation(tmp_path: Path) -> None:
     assert table.schema.metadata == {
         b"planSchemaVersion": b"1",
         b"canonicalizationVersion": b"1",
-        b"contextDescriptor": b'{"dataManifestSha256":"b","eqasimCommit":"a","eqasimSaVersion":"0.1.0","lockfileSha256":"c"}',
+        b"contextDescriptor": b'{"dataManifestSha256":"b","eqasimSaVersion":"0.1.0","eqasimSourceSha256":"a","lockfileSha256":"c"}',
     }
     rows = table.to_pylist()
     preimage = b'{"factors":[{"levelIndex":0,"name":"a"},{"levelIndex":0,"name":"b"}],"replicationIndex":0}'
@@ -891,7 +891,7 @@ def test_duplicates_preserve_exact_plan_and_memoize_resolved_runs(
     before, mtime = path.read_bytes(), path.stat().st_mtime_ns
     assert calls == {"resolve": 2, "run_id": 2}
     assert hashlib.sha256(before).hexdigest() == (
-        "d6276d87cb6da85dbb9591c13572dfb22af509c38a7adf85eae8ab7b4cdfd26e"
+        "2b019c23b82309433cc4ff92a335c0060b1fa53533e5bbc48e1dfc2b17a521bd"
     )
     second = build_plan(current)
     rows = pq.read_table(path).to_pylist()
@@ -1295,31 +1295,21 @@ def test_yaml_loader_rejects_alias_duplicate_non_string_and_non_finite(
             load_yaml_document(path)
 
 
-def git(*arguments: str, cwd: Path) -> str:
-    return subprocess.run(
-        ["git", *arguments], cwd=cwd, check=True, text=True, capture_output=True
-    ).stdout.strip()
-
-
 def meta_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     model = tmp_path / "model"
     model.mkdir()
-    git("init", "-q", cwd=model)
-    git("config", "user.email", "test@example.test", cwd=model)
-    git("config", "user.name", "Test", cwd=model)
     config = model / "config.yml"
     config.write_text(
         "working_directory: /ignored\nrun: [old]\nconfig:\n  a: 0\n  b: x\n  random_seed: 9\n"
     )
     lock = model / "lock.yml"
     lock.write_text("locked\n")
-    git("add", "config.yml", "lock.yml", cwd=model)
-    git("commit", "-qm", "fixture", cwd=model)
+    (model / "pipeline.py").write_text("STAGES = []\n")
     manifest = tmp_path / "manifest.json"
     manifest.write_text("{}\n")
     meta = tmp_path / "meta.yml"
     meta.write_text(
-        "campaign: demo\ncampaign_root: campaign\nmodel:\n  config: model/config.yml\n  root: model\n"
+        "campaign: demo\ncampaign_root: campaign\nmodel:\n  config: config.yml\n  root: model\n"
         "  data_manifest: manifest.json\n  lockfile: model/lock.yml\n"
         "analysis:\n  completeness_threshold: 1.0\n"
         "experiment:\n  method: grid\n  seeds: [41, 42]\n"
@@ -1393,11 +1383,11 @@ def test_meta_context_and_application_end_to_end(tmp_path: Path) -> None:
     ]
     loaded = load_meta_config(meta)
     assert loaded.model_root == model.resolve()
-    assert loaded.context_descriptor["eqasimCommit"] == git(
-        "rev-parse", "--verify", "HEAD", cwd=model
+    assert loaded.context_descriptor["eqasimSourceSha256"] == model_source_sha256(
+        model
     )
     expected = hashlib.sha256(
-        b"eqasim-sa:context:v2\0"
+        b"eqasim-sa:context:v3\0"
         + json.dumps(
             loaded.context_descriptor,
             sort_keys=True,
@@ -1420,18 +1410,13 @@ def test_meta_context_and_application_end_to_end(tmp_path: Path) -> None:
     } == {"ZSTD"}
 
 
-def test_meta_rejects_dirty_repo_untracked_config_symlinks_and_nested_campaign(
+def test_meta_accepts_edited_config_and_rejects_symlinks_and_nested_campaign(
     tmp_path: Path,
 ) -> None:
     meta, model, config, manifest = meta_fixture(tmp_path)
-    config.write_text(config.read_text() + "# dirty\n")
-    with pytest.raises(ValueError, match="clean"):
-        load_meta_config(meta)
-    git("checkout", "--", "config.yml", cwd=model)
+    config.write_text(config.read_text() + "# edited, untracked copy\n")
     (model / "untracked").write_text("x")
-    with pytest.raises(ValueError, match="clean"):
-        load_meta_config(meta)
-    (model / "untracked").unlink()
+    load_meta_config(meta)
     meta.write_text(
         meta.read_text().replace(
             "campaign_root: campaign", "campaign_root: model/campaign"
@@ -1464,8 +1449,6 @@ def test_campaign_root_parent_segments_cannot_escape_into_model(tmp_path: Path) 
 def test_seedless_eqasim_document_is_fully_validated(tmp_path: Path) -> None:
     meta, _, config, _ = meta_fixture(tmp_path)
     config.write_text("config:\n  a: 0\n  b: x\n")
-    git("add", "config.yml", cwd=config.parent)
-    git("commit", "-qm", "invalid config", cwd=config.parent)
     with pytest.raises(TypeError, match="working_directory"):
         load_meta_config(meta)
 
@@ -1479,10 +1462,8 @@ def test_each_context_input_changes_context_hash(
     assert load_meta_config(meta).context_hash != baseline
     manifest.write_text("{}\n")
     (model / "lock.yml").write_text("changed\n")
-    git("add", "lock.yml", cwd=model)
-    git("commit", "-qm", "lock", cwd=model)
-    changed_commit_and_lock = load_meta_config(meta).context_hash
-    assert changed_commit_and_lock != baseline
+    changed_lock = load_meta_config(meta).context_hash
+    assert changed_lock != baseline
     real_version = __import__(
         "eqasim_sa.adapters.meta_config", fromlist=["importlib"]
     ).importlib.metadata.version
@@ -1490,16 +1471,13 @@ def test_each_context_input_changes_context_hash(
         "eqasim_sa.adapters.meta_config.importlib.metadata.version",
         lambda name: "9.9.9" if name == "eqasim-sa" else real_version(name),
     )
-    assert load_meta_config(meta).context_hash != changed_commit_and_lock
+    assert load_meta_config(meta).context_hash != changed_lock
 
 
 @pytest.mark.parametrize("missing", ["manifest", "lock"])
 def test_context_rejects_missing_files(tmp_path: Path, missing: str) -> None:
     meta, model, _, manifest = meta_fixture(tmp_path)
     (manifest if missing == "manifest" else model / "lock.yml").unlink()
-    if missing == "lock":
-        git("add", "lock.yml", cwd=model)
-        git("commit", "-qm", "remove lock", cwd=model)
     with pytest.raises(FileNotFoundError):
         load_meta_config(meta)
 

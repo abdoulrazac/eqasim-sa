@@ -9,10 +9,10 @@ from types import MappingProxyType
 from typing import Mapping
 
 
-CONTEXT_DOMAIN = b"eqasim-sa:context:v2\0"
+CONTEXT_DOMAIN = b"eqasim-sa:context:v3\0"
 CONTEXT_KEYS = frozenset(
     {
-        "eqasimCommit",
+        "eqasimSourceSha256",
         "dataManifestSha256",
         "lockfileSha256",
         "eqasimSaVersion",

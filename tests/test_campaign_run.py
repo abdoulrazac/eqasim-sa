@@ -35,11 +35,6 @@ from tests.conftest import make_symlink, pid_alive
 def meta_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     model = tmp_path / "model"
     model.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=model, check=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.test"], cwd=model, check=True
-    )
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=model, check=True)
     config = model / "config.yml"
     data = tmp_path / "data"
     data.mkdir()
@@ -49,13 +44,12 @@ def meta_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
         "  data_path: ../data\n  processes: 1\n  random_seed: 9\n"
     )
     (model / "lock.yml").write_text("locked\n")
-    subprocess.run(["git", "add", "."], cwd=model, check=True)
-    subprocess.run(["git", "commit", "-qm", "fixture"], cwd=model, check=True)
+    (model / "pipeline.py").write_text("STAGES = []\n")
     manifest = tmp_path / "manifest.json"
     generate_data_manifest(data, manifest)
     meta = tmp_path / "meta.yml"
     meta.write_text(
-        "campaign: demo\ncampaign_root: campaign\nmodel:\n  config: model/config.yml\n  root: model\n"
+        "campaign: demo\ncampaign_root: campaign\nmodel:\n  config: config.yml\n  root: model\n"
         "  data_manifest: manifest.json\n  lockfile: model/lock.yml\n"
         "experiment:\n  method: grid\n  seeds: [41, 42]\n"
         "parameters:\n  a: [1, 2]\n  b: [x, y]\n"
@@ -226,8 +220,6 @@ def test_execution_stores_process_count_from_sealed_config_without_override(
 ) -> None:
     meta, model, config, _ = meta_fixture(tmp_path)
     config.write_text(config.read_text().replace("processes: 1", "processes: 4"))
-    subprocess.run(["git", "add", "config.yml"], cwd=model, check=True)
-    subprocess.run(["git", "commit", "-qm", "process count"], cwd=model, check=True)
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     add_execution(meta, scratch, backend="slurm")
@@ -297,10 +289,6 @@ def test_slurm_rejects_non_positive_or_non_integer_processes(
     meta, model, config, _ = meta_fixture(tmp_path)
     if isinstance(processes, str):
         config.write_text(config.read_text().replace("processes: 1", "processes: x"))
-        subprocess.run(["git", "add", "config.yml"], cwd=model, check=True)
-        subprocess.run(
-            ["git", "commit", "-qm", "string processes"], cwd=model, check=True
-        )
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     add_execution(meta, scratch, backend="slurm", machine_options={"processes": processes})
@@ -356,7 +344,7 @@ def test_execution_seal_freezes_child_environment_and_absolute_invocation(
     assert frozen_record.is_file() and not changed_record.exists()
     assert secret.encode() not in (manifest.execution_evidence or b"")
     assert "EQASIM_TEST_SECRET" in evidence.environment_variables
-    assert evidence.schema_version == 2
+    assert evidence.schema_version == 3
     assert evidence.eqasim_sa_sha256 == loaded.eqasim_sa_sha256
 
 
@@ -368,10 +356,10 @@ def test_execution_seal_model_failure_is_sticky_after_state_is_restored(
     scratch.mkdir()
     add_execution(meta, scratch, workers=1)
     seal = create_execution_seal(load_meta_config(meta))
-    foreign = model / "untracked"
-    foreign.write_text("drift")
+    foreign = model / "drift.py"
+    foreign.write_text("drift = True\n")
 
-    with pytest.raises(RuntimeError, match="no longer clean") as first:
+    with pytest.raises(RuntimeError, match="eqasim source changed") as first:
         seal.guard()
     foreign.unlink()
     with pytest.raises(RuntimeError) as second:
@@ -410,7 +398,7 @@ def test_execution_seal_rejects_runner_source_state_drift(tmp_path: Path) -> Non
         seal.guard()
 
 
-def test_execution_seal_rejects_model_head_and_executable_drift(
+def test_execution_seal_rejects_model_source_and_executable_drift(
     tmp_path: Path,
 ) -> None:
     head_root = tmp_path / "head"
@@ -420,10 +408,8 @@ def test_execution_seal_rejects_model_head_and_executable_drift(
     scratch.mkdir()
     add_execution(meta, scratch, workers=1)
     seal = create_execution_seal(load_meta_config(meta))
-    subprocess.run(
-        ["git", "commit", "--allow-empty", "-qm", "drift"], cwd=model, check=True
-    )
-    with pytest.raises(RuntimeError, match="HEAD changed"):
+    (model / "pipeline.py").write_text("STAGES = ['drift']\n")
+    with pytest.raises(RuntimeError, match="eqasim source changed"):
         seal.guard()
 
     executable_root = tmp_path / "executable"
@@ -1604,7 +1590,7 @@ def _evidence() -> ExecutionEvidence:
         environment_variables=("PATH",),
         executable_sha256="4" * 64,
         invocation=(os.path.abspath("python"),),
-        model_commit="5" * 40,
+        model_source_sha256="5" * 64,
         model_config_sha256="6" * 64,
         eqasim_sa_sha256="7" * 64,
     )

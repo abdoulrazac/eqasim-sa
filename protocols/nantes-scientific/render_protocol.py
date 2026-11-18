@@ -9,7 +9,6 @@ import json
 import math
 import re
 import stat
-import subprocess
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -17,6 +16,11 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import yaml
 
+from eqasim_sa.adapters.eqasim.config import load_yaml_document
+from eqasim_sa.adapters.eqasim.source_fingerprint import (
+    eqasim_source_exclusions,
+    model_source_sha256,
+)
 from eqasim_sa.core.sensitivity import engine_descriptor, morris_unit_trajectories
 from eqasim_sa.core.software_identity import read_software_identity
 from eqasim_sa.utils import platform
@@ -118,18 +122,13 @@ def _evidence_root(root: Path | None, argument: str) -> Path:
 
 
 def _context_descriptor(arguments: argparse.Namespace) -> dict[str, str]:
-    completed = subprocess.run(
-        ["git", "rev-parse", "--verify", "HEAD"],
-        cwd=arguments.model_root,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if completed.returncode:
-        raise ValueError(f"cannot resolve model Git HEAD: {completed.stderr.strip()}")
+    model_document = load_yaml_document(arguments.model_config)
     software = read_software_identity()
     return {
-        "eqasimCommit": completed.stdout.strip(),
+        "eqasimSourceSha256": model_source_sha256(
+            arguments.model_root,
+            eqasim_source_exclusions(arguments.model_root, model_document),
+        ),
         "dataManifestSha256": canonical_json_sha256(
             arguments.data_manifest.read_bytes()
         ),

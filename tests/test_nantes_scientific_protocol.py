@@ -27,12 +27,6 @@ SEED_POOL = list(range(45001, 45021))
 PRIMARY_INDICATOR = "tv_distance(age, ref=INSEE)"
 
 
-def _git(root: Path, *arguments: str) -> None:
-    subprocess.run(
-        ["git", *arguments], cwd=root, check=True, capture_output=True, text=True
-    )
-
-
 def _write_json(path: Path, document: dict) -> None:
     path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n")
 
@@ -233,11 +227,6 @@ def _fixture_paths(
     )
     lockfile = model / "uv.lock"
     lockfile.write_text("version = 1\n")
-    _git(model, "init", "-q")
-    _git(model, "config", "user.email", "test@example.test")
-    _git(model, "config", "user.name", "Test")
-    _git(model, "add", "config.yml", "uv.lock")
-    _git(model, "commit", "-qm", "protocol fixture")
     pilot = tmp_path / "pilot evidence"
     screening = tmp_path / "screening evidence"
     paths = {

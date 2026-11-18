@@ -159,13 +159,13 @@ def _campaign(tmp_path: Path) -> tuple[Path, tuple[str, str]]:
 def _discrete_oat_campaign(tmp_path: Path, seeds: tuple[int, ...] = (11, 12)) -> Path:
     root = tmp_path / "discrete_oat"
     descriptor = {
-        "eqasimCommit": "a",
+        "eqasimSourceSha256": "a",
         "dataManifestSha256": "b",
         "lockfileSha256": "c",
         "eqasimSaVersion": "0.1.0",
     }
     context_hash = hashlib.sha256(
-        b"eqasim-sa:context:v2\0"
+        b"eqasim-sa:context:v3\0"
         + json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     design = DiscreteOATDesign(
@@ -207,13 +207,13 @@ def _discrete_oat_campaign(tmp_path: Path, seeds: tuple[int, ...] = (11, 12)) ->
 def _sobol_campaign(tmp_path: Path, n: int = 8) -> Path:
     root = tmp_path / "sobol"
     descriptor = {
-        "eqasimCommit": "a",
+        "eqasimSourceSha256": "a",
         "dataManifestSha256": "b",
         "lockfileSha256": "c",
         "eqasimSaVersion": "0.1.0",
     }
     context_hash = hashlib.sha256(
-        b"eqasim-sa:context:v2\0"
+        b"eqasim-sa:context:v3\0"
         + json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     design = SobolDesign(
@@ -738,7 +738,7 @@ def test_sobol_analysis_rejects_unplanned_degenerate_hybrid_contrasts(
 
     root = tmp_path / "degenerate"
     descriptor = {
-        "eqasimCommit": "a",
+        "eqasimSourceSha256": "a",
         "dataManifestSha256": "b",
         "lockfileSha256": "c",
         "eqasimSaVersion": "0.1.0",
@@ -747,7 +747,7 @@ def test_sobol_analysis_rejects_unplanned_degenerate_hybrid_contrasts(
         descriptor, sort_keys=True, separators=(",", ":")
     ).encode()
     context_hash = hashlib.sha256(
-        b"eqasim-sa:context:v2\0" + descriptor_bytes
+        b"eqasim-sa:context:v3\0" + descriptor_bytes
     ).hexdigest()
     design = SobolDesign(
         {
@@ -1225,6 +1225,42 @@ def test_multiscramble_transactionally_publishes_outputs_and_manifest_v7(
     assert root_relative(design.campaign_root, result.diagnostics_path) == manifest[
         "diagnosticsPath"
     ]
+
+
+def test_scientific_analysis_refuses_evidence_from_other_eqasim_source(
+    tmp_path: Path,
+) -> None:
+    design = multiscramble_design(tmp_path / "foreign-source")
+    build_plan(design)
+    plan = pq.read_table(design.campaign_root / "plan.parquet")
+    unique = {row["runId"]: row for row in plan.to_pylist()}
+    foreign = replace(
+        execution_evidence(design.context_hash), model_source_sha256="f" * 64
+    )
+    for run_id, row in unique.items():
+        write_parquet_atomic(
+            pa.table({"synthetic": [float(row["a"])]}),
+            design.campaign_root / "archives" / run_id / "age.parquet",
+        )
+        _write_verified_run(
+            design.campaign_root,
+            RunRecord(
+                run_id, "test", row["seed"], design.context_hash, "node", 1.0,
+                {"a": row["a"]},
+            ),
+            foreign,
+        )
+
+    with pytest.raises(ValueError, match="eqasim source does not match plan"):
+        analyze(
+            design.campaign_root,
+            (_scientific_indicator(),),
+            campaign="test",
+            completeness_threshold=1.0,
+            seed_role="factor",
+            method="multiscramble_sobol",
+            confidence_level=design.confidence_level,
+        )
 
 
 def test_sobol_bootstrap_refuses_excessive_degeneracy(
@@ -2169,13 +2205,13 @@ def test_discrete_oat_fake_pipeline_end_to_end_deduplicates_runs_and_ranks(
     root, workdir = tmp_path / "campaign", tmp_path / "workdir"
     workdir.mkdir()
     descriptor = {
-        "eqasimCommit": "a",
+        "eqasimSourceSha256": "a",
         "dataManifestSha256": "b",
         "lockfileSha256": "c",
         "eqasimSaVersion": "0.1.0",
     }
     context_hash = hashlib.sha256(
-        b"eqasim-sa:context:v2\0"
+        b"eqasim-sa:context:v3\0"
         + json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     design = DiscreteOATDesign(

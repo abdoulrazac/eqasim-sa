@@ -4,7 +4,6 @@ import hashlib
 import json
 import os
 import stat
-import subprocess
 import threading
 import time
 from collections.abc import Mapping, Sequence
@@ -16,6 +15,9 @@ from eqasim_sa.adapters.data_manifest import (
     load_data_manifest,
     verify_data_manifest,
     verify_data_tree_state,
+)
+from eqasim_sa.adapters.eqasim.source_fingerprint import (
+    model_source_sha256 as current_model_source_sha256,
 )
 from eqasim_sa.utils import platform
 from eqasim_sa.utils.filesystem import (
@@ -178,30 +180,6 @@ def resolve_invocation(
     return str(executable), *values[1:]
 
 
-def _git(
-    root: Path, environment: Mapping[str, str], *arguments: str
-) -> str:
-    completed = subprocess.run(
-        ["git", *arguments],
-        cwd=root,
-        env=environment,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="strict",
-        shell=False,
-        check=False,
-        timeout=5,
-    )
-    if completed.returncode:
-        raise RuntimeError(
-            f"Git command failed: {' '.join(arguments)}: {completed.stderr.strip()}"
-        )
-    return completed.stdout.strip()
-
-
 class ExecutionSeal:
     """Guard all provenance inputs against mutation during execution."""
 
@@ -212,7 +190,8 @@ class ExecutionSeal:
         model_root: Path,
         model_config: Path,
         model_config_bytes: bytes,
-        model_commit: str,
+        model_source_sha256: str,
+        model_source_exclusions: Sequence[Path],
         control_states: Sequence[tuple[Path, FileState]],
         data_manifest: Path,
         data_root: Path,
@@ -235,7 +214,8 @@ class ExecutionSeal:
         self.model_root = model_root.resolve(strict=True)
         self.model_config = model_config.resolve(strict=True)
         self.model_config_bytes = bytes(model_config_bytes)
-        self.model_commit = model_commit
+        self.model_source_sha256 = model_source_sha256
+        self.model_source_exclusions = tuple(model_source_exclusions)
         self.control_states = tuple(control_states)
         self.data_manifest = data_manifest.resolve(strict=True)
         self.invocation = resolve_invocation(invocation, self.model_root, self.environment)
@@ -262,32 +242,25 @@ class ExecutionSeal:
             environment_variables=tuple(sorted(child_environment)),
             executable_sha256=executable_sha256,
             invocation=self.invocation,
-            model_commit=model_commit,
+            model_source_sha256=model_source_sha256,
             model_config_sha256=hashlib.sha256(
                 lf_bytes(self.model_config_bytes)
             ).hexdigest(),
-            schema_version=2,
             eqasim_sa_sha256=software_identity.sha256,
         ).canonical_bytes()
 
     def _verify_current(self, *, include_data: bool) -> None:
         verify_software_source_states(self.software_identity)
-        if _git(
-            self.model_root,
-            self.environment,
-            "rev-parse",
-            "--verify",
-            "HEAD",
-        ) != self.model_commit:
-            raise RuntimeError("model HEAD changed after context sealing")
-        if _git(
-            self.model_root,
-            self.environment,
-            "status",
-            "--porcelain=v1",
-            "--untracked-files=all",
-        ):
-            raise RuntimeError("model Git repository is no longer clean")
+        try:
+            current_source = current_model_source_sha256(
+                self.model_root, self.model_source_exclusions
+            )
+        except (OSError, ValueError) as error:
+            raise RuntimeError(
+                "eqasim source changed after context sealing"
+            ) from error
+        if current_source != self.model_source_sha256:
+            raise RuntimeError("eqasim source changed after context sealing")
         for path, expected in self.control_states:
             try:
                 current = _regular_state(path)
@@ -379,7 +352,8 @@ def create_execution_seal(
         model_root=meta.model_root,
         model_config=meta.model_config,
         model_config_bytes=meta.model_bytes,
-        model_commit=meta.context_descriptor["eqasimCommit"],
+        model_source_sha256=meta.context_descriptor["eqasimSourceSha256"],
+        model_source_exclusions=meta.model_source_exclusions,
         control_states=meta.control_states,
         data_manifest=meta.data_manifest,
         data_root=data_root,

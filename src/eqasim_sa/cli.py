@@ -41,11 +41,11 @@ def parser() -> argparse.ArgumentParser:
     )
     init.add_argument(
         "--model-root", type=Path, default=Path("eqasim-france"), metavar="PATH",
-        help="eqasim-france Git root (default: ./eqasim-france)",
+        help="eqasim-france folder (default: ./eqasim-france)",
     )
     init.add_argument(
-        "--model-config", type=Path, default=Path("config_local_nantes.yml"), metavar="FILE",
-        help="model YAML path relative to --model-root (default: config_local_nantes.yml)",
+        "--model-config", type=Path, default=Path("config.yml"), metavar="FILE",
+        help="eqasim config, relative to --model-root or absolute (default: config.yml)",
     )
     init.add_argument(
         "--regenerate-data-manifest",

@@ -131,7 +131,7 @@ def test_application_estimate_passes_sobol_formula_inputs_and_unique_runs(
 
     root = tmp_path / "target"
     descriptor = {
-        "eqasimCommit": "a",
+        "eqasimSourceSha256": "a",
         "dataManifestSha256": "b",
         "lockfileSha256": "c",
         "eqasimSaVersion": "0.1.0",
@@ -195,7 +195,7 @@ def campaign(
     root: Path, duration: float = 2.5, discrete_oat: bool = False
 ) -> SimpleNamespace:
     descriptor = {
-        "eqasimCommit": "a",
+        "eqasimSourceSha256": "a",
         "dataManifestSha256": "b",
         "lockfileSha256": "c",
         "eqasimSaVersion": "0.1.0",

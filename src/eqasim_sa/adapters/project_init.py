@@ -527,7 +527,7 @@ def init_from_inputs(
     data_path: Path,
     scratch: Path | None,
     invocation: tuple[str, ...],
-    model_config: Path = Path("config_local_nantes.yml"),
+    model_config: Path = Path("config.yml"),
     regenerate_data_manifest: bool = False,
 ) -> dict:
     """Create or safely resume a generated demonstration project."""
@@ -576,25 +576,12 @@ def init_from_inputs(
         raise ValueError("directory and scratch must not overlap model-root")
     new_project = _preflight_project(absolute, scratch_relative)
     restored: list[str] = []
-    if model_config.is_absolute() or ".." in model_config.parts:
-        raise ValueError("model-config must be relative to model-root")
+    # Like model.config: relative to the eqasim folder, or absolute.
     selected_config = model / model_config
-    reject_links_below(model, selected_config, "model-config")
     if platform.is_link(selected_config) or not selected_config.is_file():
-        raise ValueError(
-            "model-config must be a regular non-symlink file under model-root"
-        )
+        raise ValueError("model-config must be a regular non-symlink file")
     model_document = load_yaml_document(selected_config)
     validate_eqasim_document(model_document)
-    model_values = model_document["config"]
-    if model_values.get("matching_age_scheme") != "matching_6":
-        raise ValueError(
-            "config.matching_age_scheme must be explicitly matching_6"
-        )
-    if model_values.get("analysis_age_scheme") != "analysis_7":
-        raise ValueError(
-            "config.analysis_age_scheme must be explicitly analysis_7"
-        )
     data = _directory(data_path, "data-path")
     campaign_names = {f"{project_name}-{method}" for method in INIT_METHODS}
     if scratch_relative is None and selected_scratch.exists():
@@ -630,8 +617,12 @@ def init_from_inputs(
                 if name != "README.md"
             }
         )
-        if actual != expected:
-            raise FileExistsError("init templates do not match the requested inputs")
+        for name, content in expected.items():
+            if actual[name] != content:
+                target = absolute / (
+                    "README.md" if name == "README.md" else f"configs/{name}"
+                )
+                raise FileExistsError(f"init would overwrite modified file {target}")
         if not regenerate_data_manifest:
             _validate_project_manifest(absolute / "manifest.json")
         _durable_preflight(absolute, expected_artifacts)

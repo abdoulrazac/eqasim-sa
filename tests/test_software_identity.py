@@ -8,7 +8,7 @@ import pytest
 from eqasim_sa.adapters import application
 from eqasim_sa.core.software_identity import read_software_identity
 from eqasim_sa.ports.simulator import (
-    EXECUTION_EVIDENCE_V2_DOMAIN,
+    EXECUTION_EVIDENCE_DOMAIN,
     ExecutionEvidence,
 )
 from tests.conftest import make_symlink
@@ -96,7 +96,7 @@ def test_execution_evidence_rejects_schema_v1() -> None:
         ExecutionEvidence.from_bytes(V1_PAYLOAD)
 
 
-def test_execution_evidence_schema_v2_binds_runner_digest() -> None:
+def test_execution_evidence_binds_runner_digest() -> None:
     evidence = ExecutionEvidence(
         context_hash="c" * 64,
         data_tree_sha256="1" * 64,
@@ -104,9 +104,9 @@ def test_execution_evidence_schema_v2_binds_runner_digest() -> None:
         environment_variables=("PATH",),
         executable_sha256="3" * 64,
         invocation=("/usr/bin/test",),
-        model_commit="4" * 40,
+        model_source_sha256="4" * 64,
         model_config_sha256="5" * 64,
-        schema_version=2,
+        schema_version=3,
         eqasim_sa_sha256="6" * 64,
     )
     payload = evidence.canonical_bytes()
@@ -118,7 +118,7 @@ def test_execution_evidence_schema_v2_binds_runner_digest() -> None:
 
     assert document["eqasimSaSha256"] == "6" * 64
     assert evidence_sha256 == hashlib.sha256(
-        EXECUTION_EVIDENCE_V2_DOMAIN + descriptor
+        EXECUTION_EVIDENCE_DOMAIN + descriptor
     ).hexdigest()
     assert ExecutionEvidence.from_bytes(payload) == evidence
 

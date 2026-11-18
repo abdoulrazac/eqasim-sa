@@ -111,7 +111,7 @@ Concrete eqasim-france source identifiers for this protocol are:
 - Matched population: `eqasim-france/synthesis/population/matched.py`
 - Analysis outputs: `eqasim-france/analysis/synthesis/population.py`
 
-The generated plan context seals the exact eqasim-france model commit and data
+The generated plan context seals the eqasim-france source fingerprint and data
 manifest digest; these path identifiers do not replace those immutable seals.
 
 ## Protocol Role Inventory

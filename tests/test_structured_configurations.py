@@ -30,7 +30,7 @@ from eqasim_sa.core.software_identity import read_software_identity
 from eqasim_sa.ports.simulator import SimulationError
 from tests.test_multiscramble_sobol_plan import multiscramble_meta_document
 from tests.test_multiscramble_sobol_plan import multiscramble_design
-from tests.test_plan import git, meta_fixture
+from tests.test_plan import meta_fixture
 from tests.provenance_helpers import write_verified_run
 
 
@@ -69,8 +69,6 @@ def structured_meta(tmp_path: Path) -> Path:
         config.read_text()
         + "  matching_attributes: [sex, any_cars, age_class, socioprofessional_class, departement_id]\n"
     )
-    git("add", "config.yml", cwd=model)
-    git("commit", "-qm", "structured fixture", cwd=model)
     document = yaml.safe_load(meta.read_text())
     document["parameters"] = {
         "matching_attributes": {"configurations": copy.deepcopy(CONFIGURATIONS)}
@@ -146,8 +144,6 @@ def test_structured_factor_requires_existing_string_list_model_key(
     document = yaml.safe_load((model / "config.yml").read_text())
     document["config"]["matching_attributes"] = base_value
     (model / "config.yml").write_text(yaml.safe_dump(document, sort_keys=False))
-    git("add", "config.yml", cwd=model)
-    git("commit", "-qm", "invalid structured base", cwd=model)
 
     with pytest.raises(TypeError, match="model config value.*list of strings"):
         load_meta_config(meta)
@@ -159,8 +155,6 @@ def test_structured_factor_requires_existing_model_key(tmp_path: Path) -> None:
     document = yaml.safe_load((model / "config.yml").read_text())
     del document["config"]["matching_attributes"]
     (model / "config.yml").write_text(yaml.safe_dump(document, sort_keys=False))
-    git("add", "config.yml", cwd=model)
-    git("commit", "-qm", "missing structured base", cwd=model)
 
     with pytest.raises(ValueError, match="unknown factor"):
         load_meta_config(meta)
@@ -242,7 +236,7 @@ def test_trajectory_methods_refuse_structured_factors(tmp_path: Path) -> None:
 
 def _grid_design(root: Path, *, structured_factors=None) -> GridDesign:  # type: ignore[no-untyped-def]
     descriptor = {
-        "eqasimCommit": "a",
+        "eqasimSourceSha256": "a",
         "dataManifestSha256": "b",
         "lockfileSha256": "c",
         "eqasimSaVersion": "0.3.0",
@@ -261,7 +255,7 @@ def _grid_design(root: Path, *, structured_factors=None) -> GridDesign:  # type:
         seeds=(41,),
         requirements={"run": ["stage"]},
         context_hash=hashlib.sha256(
-            b"eqasim-sa:context:v2\0" + encoded
+            b"eqasim-sa:context:v3\0" + encoded
         ).hexdigest(),
         context_descriptor=descriptor,
         campaign_root=root,
@@ -432,7 +426,7 @@ def test_grid_analysis_rejects_structured_factor_semantic_tampering(
 
 def _structured_sobol_campaign(root: Path) -> Path:
     descriptor = {
-        "eqasimCommit": "a",
+        "eqasimSourceSha256": "a",
         "dataManifestSha256": "b",
         "lockfileSha256": "c",
         "eqasimSaVersion": "0.3.0",
@@ -444,7 +438,7 @@ def _structured_sobol_campaign(root: Path) -> Path:
         {"matching_attributes": support},
         (11, 12, 13),
         {},
-        hashlib.sha256(b"eqasim-sa:context:v2\0" + encoded).hexdigest(),
+        hashlib.sha256(b"eqasim-sa:context:v3\0" + encoded).hexdigest(),
         descriptor,
         root,
         base_sample_size=8,
@@ -765,13 +759,13 @@ def test_slurm_callable_preserves_structured_snapshot_without_list_cli(
     campaign.mkdir()
     software_identity = read_software_identity()
     descriptor = {
-        "eqasimCommit": "a",
+        "eqasimSourceSha256": "a",
         "dataManifestSha256": "b",
         "lockfileSha256": "c",
         "eqasimSaVersion": "0.3.0",
     }
     encoded = json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
-    context_hash = hashlib.sha256(b"eqasim-sa:context:v2\0" + encoded).hexdigest()
+    context_hash = hashlib.sha256(b"eqasim-sa:context:v3\0" + encoded).hexdigest()
     meta_path = tmp_path / "meta.yml"
     meta_path.write_bytes(b"sealed meta\n")
     mapping = {

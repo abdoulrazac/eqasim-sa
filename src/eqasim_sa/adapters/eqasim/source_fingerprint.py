@@ -78,3 +78,31 @@ def model_source_sha256(
     entries.sort()
     payload = json.dumps(entries, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(MODEL_SOURCE_DOMAIN + payload.encode("utf-8")).hexdigest()
+
+
+def eqasim_source_exclusions(root: Path, document: object) -> tuple[Path, ...]:
+    """Directories an eqasim config writes into that lie under ``root``.
+
+    eqasim-sa runs eqasim with ``root`` as its working directory, so a relative
+    ``working_directory`` or ``config.output_path`` is resolved against
+    ``root``, exactly as synpp and eqasim resolve it. Paths outside ``root``
+    (or equal to it) are not returned: they never hold fingerprinted code, or
+    excluding them would exclude the whole tree.
+    """
+
+    resolved_root = Path(root).resolve()
+    values: list[object] = []
+    if isinstance(document, dict):
+        values.append(document.get("working_directory"))
+        config = document.get("config")
+        if isinstance(config, dict):
+            values.append(config.get("output_path"))
+    excluded = []
+    for value in values:
+        if not isinstance(value, str) or not value:
+            continue
+        path = Path(value)
+        candidate = (path if path.is_absolute() else resolved_root / path).resolve()
+        if candidate != resolved_root and candidate.is_relative_to(resolved_root):
+            excluded.append(candidate)
+    return tuple(sorted(set(excluded)))

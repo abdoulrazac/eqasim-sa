@@ -147,7 +147,7 @@ def test_installed_metadata_and_commands(tmp_path: Path) -> None:
         "matching_age_scheme": ["matching_6", "analysis_7"],
     }
     descriptor = {
-        "eqasimCommit": "a",
+        "eqasimSourceSha256": "a",
         "dataManifestSha256": "b",
         "lockfileSha256": "c",
         "eqasimSaVersion": "d",
@@ -200,7 +200,7 @@ def test_installed_init_generates_template_without_campaign_execution(tmp_path: 
     model, data = tmp_path / "model", tmp_path / "data"
     model.mkdir()
     data.mkdir()
-    (model / "config_local_nantes.yml").write_text(
+    (model / "config.yml").write_text(
         "working_directory: /cache\nrun: []\nconfig:\n"
         "  sampling_rate: 0.001\n  random_seed: 1\n"
         "  matching_age_scheme: matching_6\n  analysis_age_scheme: analysis_7\n"
@@ -252,13 +252,13 @@ def test_installed_wheel_sobol_plan_fake_runs_and_analysis_end_to_end(
     root, workdir = tmp_path / "campaign", tmp_path / "workdir"
     workdir.mkdir()
     descriptor = {
-        "eqasimCommit": "a",
+        "eqasimSourceSha256": "a",
         "dataManifestSha256": "b",
         "lockfileSha256": "c",
         "eqasimSaVersion": "0.1.0",
     }
     encoded = json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
-    context_hash = hashlib.sha256(b"eqasim-sa:context:v2\0" + encoded).hexdigest()
+    context_hash = hashlib.sha256(b"eqasim-sa:context:v3\0" + encoded).hexdigest()
     design = SobolDesign(
         {"config": {"a": 0}},
         {"a": [0, 1]},
@@ -312,21 +312,15 @@ def test_canonical_spec_and_epics_match_architecture_contract() -> None:
 def test_installed_plan_creates_replays_and_refuses_conflict(tmp_path: Path) -> None:
     model = tmp_path / "model"
     model.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=model, check=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.test"], cwd=model, check=True
-    )
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=model, check=True)
     (model / "config.yml").write_text(
         "working_directory: /ignored\nrun: [old]\nconfig:\n  rate: 0.1\n  sampling_rate: 0.1\n  random_seed: 9\n"
     )
     (model / "lock.yml").write_text("locked\n")
-    subprocess.run(["git", "add", "."], cwd=model, check=True)
-    subprocess.run(["git", "commit", "-qm", "fixture"], cwd=model, check=True)
+    (model / "pipeline.py").write_text("STAGES = []\n")
     (tmp_path / "manifest.json").write_text("{}\n")
     meta = tmp_path / "meta.yml"
     template = (
-        "campaign: demo\ncampaign_root: {root}\nmodel:\n  config: model/config.yml\n  root: model\n"
+        "campaign: demo\ncampaign_root: {root}\nmodel:\n  config: config.yml\n  root: model\n"
         "  data_manifest: manifest.json\n  lockfile: model/lock.yml\n"
         "analysis:\n  completeness_threshold: 1.0\n"
         "experiment:\n  method: grid\n  seeds: [41, 42]\n"
@@ -504,23 +498,17 @@ def test_installed_plan_creates_replays_and_refuses_conflict(tmp_path: Path) -> 
 def test_installed_campaign_interrupts_resumes_then_is_noop(tmp_path: Path) -> None:
     model = tmp_path / "model"
     model.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=model, check=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.test"], cwd=model, check=True
-    )
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=model, check=True)
     (model / "config.yml").write_text(
         "working_directory: /x\nrun: []\nconfig:\n  rate: 0.1\n  random_seed: 9\n"
     )
     (model / "lock.yml").write_text("locked\n")
-    subprocess.run(["git", "add", "."], cwd=model, check=True)
-    subprocess.run(["git", "commit", "-qm", "fixture"], cwd=model, check=True)
+    (model / "pipeline.py").write_text("STAGES = []\n")
     (tmp_path / "manifest.json").write_text("{}\n")
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     meta = tmp_path / "meta.yml"
     meta.write_text(
-        "campaign: demo\ncampaign_root: campaign\nmodel:\n  config: model/config.yml\n  root: model\n"
+        "campaign: demo\ncampaign_root: campaign\nmodel:\n  config: config.yml\n  root: model\n"
         "  data_manifest: manifest.json\n  lockfile: model/lock.yml\n"
         "analysis:\n  completeness_threshold: 1.0\n"
         "experiment:\n  method: grid\n  seeds: [41]\nparameters:\n  rate:\n    values: [0.1]\n"

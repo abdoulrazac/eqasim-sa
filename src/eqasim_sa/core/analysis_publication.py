@@ -195,7 +195,7 @@ def validate_scientific_execution_evidence(
     *,
     allow_empty: bool = False,
 ) -> str | None:
-    """Require equivalent schema-v2 execution evidence for scientific runs."""
+    """Require equivalent execution evidence for scientific runs."""
 
     expected = expected_records(table, campaign)
     if set(evidence_by_run) - set(expected):
@@ -209,7 +209,7 @@ def validate_scientific_execution_evidence(
     try:
         software_sha256 = scientific_contract["software"]["eqasimSaSha256"]
         descriptor = context_descriptor(table)
-        model_commit = descriptor["eqasimCommit"]
+        model_source = descriptor["eqasimSourceSha256"]
     except (KeyError, TypeError) as error:
         raise ValueError("scientific contract or plan context is incomplete") from error
     common: bytes | None = None
@@ -227,9 +227,9 @@ def validate_scientific_execution_evidence(
             raise ValueError(
                 f"scientific run {run_id} execution evidence software digest does not match plan"
             )
-        if evidence.model_commit != model_commit:
+        if evidence.model_source_sha256 != model_source:
             raise ValueError(
-                f"scientific run {run_id} execution evidence model commit does not match plan"
+                f"scientific run {run_id} execution evidence eqasim source does not match plan"
             )
         payload = evidence.canonical_bytes()
         if common is None:

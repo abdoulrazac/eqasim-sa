@@ -1,6 +1,5 @@
 """User-facing surface of the simplified meta-config format."""
 
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -40,8 +39,6 @@ def test_minimal_new_format_loads_with_defaults(tmp_path: Path) -> None:
 def test_omitted_campaign_root_and_lockfile_use_defaults(tmp_path: Path) -> None:
     meta, model, _, _ = meta_fixture(tmp_path)
     (model / "uv.lock").write_text("locked\n")
-    subprocess.run(["git", "add", "."], cwd=model, check=True)
-    subprocess.run(["git", "commit", "-qm", "lock"], cwd=model, check=True)
 
     def change(document: dict) -> None:
         del document["campaign_root"]

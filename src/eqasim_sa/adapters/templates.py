@@ -31,14 +31,17 @@ def render_project(
     data: Path,
     scratch: Path,
     invocation: tuple[str, ...],
-    model_config: Path = Path("config_local_nantes.yml"),
+    model_config: Path = Path("config.yml"),
 ) -> dict[str, bytes]:
     """Render every packaged starter with project-relative paths and commands."""
 
     configs = directory / "configs"
     values = {
         "@PROJECT_NAME@": project_name,
-        "@MODEL_CONFIG@": json.dumps(_relative(model_root / model_config, configs)),
+        # model.config is read from model.root when relative.
+        "@MODEL_CONFIG@": json.dumps(
+            str(model_config) if model_config.is_absolute() else model_config.as_posix()
+        ),
         "@MODEL_ROOT@": json.dumps(_relative(model_root, configs)),
         "@DATA_MANIFEST@": json.dumps("../manifest.json"),
         "@SCRATCH@": json.dumps(_relative(scratch, configs)),

@@ -4,12 +4,15 @@ import hashlib
 import importlib.metadata
 import math
 import os
-import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from eqasim_sa.adapters.eqasim.artifacts import ARTIFACT_STAGE
+from eqasim_sa.adapters.eqasim.source_fingerprint import (
+    eqasim_source_exclusions,
+    model_source_sha256,
+)
 from eqasim_sa.utils.names import reject_case_collisions, validate_portable_name
 from eqasim_sa.adapters.eqasim.config import (
     CAMPAIGN,
@@ -181,6 +184,7 @@ class MetaConfig:
     indicators: tuple[object, ...]
     indicator_requirements: tuple[IndicatorRequirement, ...]
     software_identity: SoftwareIdentity
+    model_source_exclusions: tuple[Path, ...]
     structured_factors: dict[str, dict[str, list[str]]] = field(default_factory=dict)
 
     @property
@@ -228,45 +232,6 @@ def _timeout(deadline: float | None) -> float:
     if remaining <= 0:
         raise TimeoutError("static check time budget exhausted")
     return min(5, remaining)
-
-
-def _git(root: Path, *arguments: str, deadline: float | None = None) -> str:
-    completed = subprocess.run(
-        ["git", *arguments],
-        cwd=root,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="strict",
-        shell=False,
-        check=False,
-        timeout=_timeout(deadline),
-    )
-    if completed.returncode:
-        raise ValueError(
-            f"Git command failed: {' '.join(arguments)}: {completed.stderr.strip()}"
-        )
-    return completed.stdout.strip()
-
-
-def _git_stdin(
-    root: Path, data: bytes, *arguments: str, deadline: float | None = None
-) -> str:
-    completed = subprocess.run(
-        ["git", *arguments],
-        cwd=root,
-        input=data,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        shell=False,
-        check=False,
-        timeout=_timeout(deadline),
-    )
-    if completed.returncode:
-        raise ValueError(f"Git command failed: {' '.join(arguments)}")
-    return completed.stdout.decode("utf-8").strip()
 
 
 def _digest(path: Path, deadline: float | None = None) -> str:
@@ -841,38 +806,21 @@ def load_meta_config(
     if platform.is_link(root_path):
         raise ValueError("model.root must not be a symlink")
     root = root_path.resolve(strict=True)
-    if (
-        not root.is_dir()
-        or Path(_git(root, "rev-parse", "--show-toplevel", deadline=deadline)) != root
-    ):
-        raise ValueError("model.root must be the exact Git root")
-    config = _file(base / config_value, "model.config")
-    if not config.is_relative_to(root):
-        raise ValueError("model.config must be strictly under model.root")
-    relative = config.relative_to(root)
-    _git(root, "ls-files", "--error-unmatch", "--", str(relative), deadline=deadline)
-    if _git(
-        root, "status", "--porcelain=v1", "--untracked-files=all", deadline=deadline
-    ):
-        raise ValueError("model Git repository must be clean")
-    commit = _git(root, "rev-parse", "--verify", "HEAD", deadline=deadline)
+    if not root.is_dir():
+        raise ValueError("model.root must be a directory")
+    # A relative model.config is read from model.root, as when eqasim is run
+    # from its own folder; an absolute one may live anywhere.
+    config = _file(root / config_value, "model.config")
     manifest_value, lock_value = model["data_manifest"], model.get("lockfile")
     if not isinstance(manifest_value, str) or not isinstance(lock_value, str):
         raise TypeError("model.data_manifest and model.lockfile must be strings")
     config_bytes = config.read_bytes()
-    # --path applies the repository's eol/autocrlf filters, so a CRLF
-    # checkout of an LF blob still matches its sealed Git blob.
-    if _git_stdin(
-        root,
-        config_bytes,
-        "hash-object",
-        f"--path={relative.as_posix()}",
-        "--stdin",
-        deadline=deadline,
-    ) != _git(root, "rev-parse", f"{commit}:{relative.as_posix()}", deadline=deadline):
-        raise ValueError("model.config does not match its sealed Git blob")
     model_document = load_yaml_source(config_bytes.decode("utf-8"))
     validate_eqasim_document(model_document)
+    model_source_exclusions = eqasim_source_exclusions(root, model_document)
+    eqasim_source_sha256 = model_source_sha256(
+        root, model_source_exclusions, deadline
+    )
     manifest = _file(base / manifest_value, "data manifest")
     lockfile = _file(base / lock_value, "lockfile")
     control_states = (
@@ -887,16 +835,12 @@ def load_meta_config(
     except ValueError as error:
         raise ValueError("data manifest must be a valid JSON document") from error
     descriptor = {
-        "eqasimCommit": commit,
+        "eqasimSourceSha256": eqasim_source_sha256,
         "dataManifestSha256": manifest_sha256,
         "lockfileSha256": lf_sha256(lockfile),
         "eqasimSaVersion": software_identity.version,
     }
     _timeout(deadline)
-    if _git(root, "rev-parse", "--verify", "HEAD", deadline=deadline) != commit or _git(
-        root, "status", "--porcelain=v1", "--untracked-files=all", deadline=deadline
-    ):
-        raise ValueError("model Git repository changed while sealing context")
     context_identity = ExecutionContextIdentity.from_descriptor(descriptor)
     factors = {}
     distributions = {}
@@ -1207,5 +1151,6 @@ def load_meta_config(
         indicators,
         indicator_requirements,
         software_identity,
+        model_source_exclusions,
         structured_factors,
     )

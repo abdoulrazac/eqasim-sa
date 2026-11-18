@@ -105,7 +105,7 @@ def test_release_version_and_plan_schema_matrix(tmp_path: Path) -> None:
         descriptor = json.loads(metadata[b"contextDescriptor"])
         assert descriptor == design.context_descriptor
         assert set(descriptor) == {
-            "eqasimCommit",
+            "eqasimSourceSha256",
             "dataManifestSha256",
             "lockfileSha256",
             "eqasimSaVersion",

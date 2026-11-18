@@ -25,7 +25,7 @@ METHODS = ("calibration", "grid", "discrete-oat", "sobol")
 def inputs(tmp_path: Path) -> tuple[Path, Path]:
     model = tmp_path / "model"
     model.mkdir()
-    (model / "config_local_nantes.yml").write_text(
+    (model / "config.yml").write_text(
         "working_directory: /cache\nrun: [old]\nconfig:\n"
         "  processes: 4\n  sampling_rate: 0.001\n  random_seed: 1234\n"
         "  matching_age_scheme: matching_6\n  analysis_age_scheme: analysis_7\n"
@@ -132,39 +132,7 @@ def test_init_is_a_pure_atomic_template_generator(
     assert readme.index('"${SA[@]}" plan') < readme.index('"${SA[@]}" check')
 
 
-@pytest.mark.parametrize(
-    ("config_lines", "message"),
-    [
-        ([], "matching_age_scheme"),
-        (["  matching_age_scheme: [matching_6]"], "matching_age_scheme"),
-        (["  matching_age_scheme: ''", "  analysis_age_scheme: analysis_7"], "matching_age_scheme"),
-        (["  matching_age_scheme: unknown", "  analysis_age_scheme: analysis_7"], "matching_age_scheme"),
-        (["  matching_age_scheme: analysis_7", "  analysis_age_scheme: analysis_7"], "matching_age_scheme"),
-        (["  matching_age_scheme: matching_6"], "analysis_age_scheme"),
-        (["  matching_age_scheme: matching_6", "  analysis_age_scheme: ''"], "analysis_age_scheme"),
-        (["  matching_age_scheme: matching_6", "  analysis_age_scheme: unknown"], "analysis_age_scheme"),
-        (["  matching_age_scheme: matching_6", "  analysis_age_scheme: matching_6"], "analysis_age_scheme"),
-    ],
-)
-def test_init_rejects_model_without_required_scalar_age_contract(
-    tmp_path: Path, config_lines: list[str], message: str,
-) -> None:
-    model, data = inputs(tmp_path)
-    config = model / "custom.yml"
-    config.write_text(
-        "working_directory: /cache\nrun: []\nconfig:\n  sampling_rate: 0.001\n"
-        + "\n".join(config_lines)
-        + "\n"
-    )
-    destination = tmp_path / "project"
-    with pytest.raises(ValueError, match=message):
-        init_from_inputs(
-            "project", destination, model, data, None, invocation(), Path("custom.yml")
-        )
-    assert not destination.exists()
-
-
-def test_init_accepts_custom_model_with_explicit_historical_age_schemes(
+def test_init_accepts_a_custom_model_config(
     tmp_path: Path,
 ) -> None:
     model, data = inputs(tmp_path)
@@ -490,7 +458,7 @@ def test_init_rejects_modified_and_hardlinked_static_files(tmp_path: Path) -> No
     config = root / "configs/01-grid.yml"
     original = config.read_bytes()
     config.write_text(config.read_text() + "# changed\n")
-    with pytest.raises(FileExistsError, match="templates"):
+    with pytest.raises(FileExistsError, match="init would overwrite modified file .*01-grid.yml"):
         init_from_inputs("project", root, model, data, None, invocation())
     config.write_bytes(original)
     # A separately linked README has matching bytes but is not owned template state.
@@ -628,7 +596,6 @@ def test_init_rejects_nested_scratch_through_link_below_project(
 
 def test_rendered_grid_starter_is_short_and_loads(tmp_path: Path) -> None:
     model, data = inputs(tmp_path)
-    _commit_model(model)
     project = tmp_path / "study"
     init_from_inputs("study", project, model, data, None, DEFAULT_INVOCATION)
     text = (project / "configs/01-grid.yml").read_text()
@@ -645,19 +612,9 @@ def test_rendered_grid_starter_is_short_and_loads(tmp_path: Path) -> None:
 
 def test_custom_invocation_is_written(tmp_path: Path) -> None:
     _, root, model, _ = initialize(tmp_path)
-    _commit_model(model)
     path = root / "configs/01-grid.yml"
     assert 'invocation: ["python", "-m", "synpp"]' in path.read_text()
     assert tuple(load_meta_config(path).execution.invocation) == invocation()
-
-
-def _commit_model(model: Path) -> None:
-    for command in (
-        ["init", "-q"],
-        ["add", "."],
-        ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "m"],
-    ):
-        subprocess.run(["git", *command], cwd=model, check=True)
 
 
 @pytest.mark.parametrize(
@@ -675,7 +632,6 @@ def test_every_rendered_starter_loads_and_plans(
     from eqasim_sa.adapters.application import plan_from_meta_config
 
     model, data = inputs(tmp_path)
-    _commit_model(model)
     project = tmp_path / "study"
     init_from_inputs("study", project, model, data, None, DEFAULT_INVOCATION)
     path = project / "configs" / name

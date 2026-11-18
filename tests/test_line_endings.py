@@ -1,6 +1,5 @@
 import hashlib
 import json
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -30,22 +29,11 @@ def _crlf(content: bytes) -> bytes:
     return lf_bytes(content).replace(b"\n", b"\r\n")
 
 
-def _git(root: Path, *arguments: str) -> str:
-    return subprocess.run(
-        ["git", *arguments], cwd=root, check=True, capture_output=True
-    ).stdout.decode()
-
-
-def _model(root: Path, *, autocrlf: bool = False) -> Path:
+def _model(root: Path) -> Path:
     model = root / "model"
     model.mkdir(parents=True)
-    _git(model, "init", "-q")
-    _git(model, "config", "user.email", "test@example.test")
-    _git(model, "config", "user.name", "Test")
-    _git(model, "config", "core.autocrlf", "true" if autocrlf else "false")
     (model / "config.yml").write_bytes(MODEL_CONFIG)
-    _git(model, "add", ".")
-    _git(model, "commit", "-qm", "fixture")
+    (model / "pipeline.py").write_bytes(b"STAGES = []\n")
     return model
 
 
@@ -145,13 +133,8 @@ def test_software_identity_ignores_crlf(tmp_path: Path) -> None:
     ]
 
 
-def test_model_config_crlf_checkout_passes_git_check(tmp_path: Path) -> None:
-    model = _model(tmp_path, autocrlf=True)
-    config = model / "config.yml"
-    config.unlink()
-    _git(model, "checkout", "--", "config.yml")
-    assert config.read_bytes() == _crlf(MODEL_CONFIG)
-    assert _git(model, "status", "--porcelain=v1", "--untracked-files=all") == ""
+def test_crlf_model_config_and_code_keep_identity(tmp_path: Path) -> None:
+    model = _model(tmp_path)
     data = _data(tmp_path)
     meta = _project(tmp_path / "project", model, data, crlf=False)
     scratch = tmp_path / "scratch"
@@ -163,29 +146,20 @@ def test_model_config_crlf_checkout_passes_git_check(tmp_path: Path) -> None:
         + '  invocation: ["python3", "-m", "synpp"]\n',
         encoding="utf-8",
     )
+    lf = load_meta_config(meta)
+    (model / "config.yml").write_bytes(_crlf(MODEL_CONFIG))
+    (model / "pipeline.py").write_bytes(_crlf(b"STAGES = []\n"))
 
-    loaded = load_meta_config(meta)
-    evidence = json.loads(create_execution_seal(loaded).evidence)
+    crlf = load_meta_config(meta)
+    evidence = json.loads(create_execution_seal(crlf).evidence)
 
-    assert loaded.model_bytes == _crlf(MODEL_CONFIG)
+    assert crlf.model_bytes == _crlf(MODEL_CONFIG)
+    assert crlf.context_hash == lf.context_hash
     assert evidence["modelConfigSha256"] == hashlib.sha256(MODEL_CONFIG).hexdigest()
 
 
-def test_model_config_content_drift_still_fails_git_check(tmp_path: Path) -> None:
-    model = _model(tmp_path, autocrlf=True)
-    config = model / "config.yml"
-    data = _data(tmp_path)
-    meta = _project(tmp_path / "project", model, data, crlf=False)
-    _git(model, "config", "core.autocrlf", "false")
-    config.write_bytes(MODEL_CONFIG.replace(b"a: 0", b"a: 1"))
-    _git(model, "update-index", "--assume-unchanged", "config.yml")
-
-    with pytest.raises(ValueError, match="sealed Git blob"):
-        load_meta_config(meta)
-
-
 def test_domains_bumped() -> None:
-    assert CONTEXT_DOMAIN == b"eqasim-sa:context:v2\0"
+    assert CONTEXT_DOMAIN == b"eqasim-sa:context:v3\0"
     assert SOFTWARE_IDENTITY_DOMAIN == b"eqasim-sa:software-identity:v2\0"
 
 

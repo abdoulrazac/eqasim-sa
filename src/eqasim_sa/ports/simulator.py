@@ -13,9 +13,9 @@ JsonScalar: TypeAlias = None | bool | int | float | str
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
 ResolvedConfig: TypeAlias = dict[str, JsonValue]
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
-GIT_COMMIT = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 CHILD_ENVIRONMENT_DOMAIN = b"eqasim-sa:child-environment:v1\0"
-EXECUTION_EVIDENCE_V2_DOMAIN = b"eqasim-sa:execution-evidence:v2\0"
+EXECUTION_EVIDENCE_DOMAIN = b"eqasim-sa:execution-evidence:v3\0"
+EXECUTION_EVIDENCE_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -40,9 +40,9 @@ class ExecutionEvidence:
     environment_variables: tuple[str, ...]
     executable_sha256: str
     invocation: tuple[str, ...]
-    model_commit: str
+    model_source_sha256: str
     model_config_sha256: str
-    schema_version: int = 2
+    schema_version: int = EXECUTION_EVIDENCE_SCHEMA_VERSION
     eqasim_sa_sha256: str | None = None
 
     def __post_init__(self) -> None:
@@ -51,6 +51,7 @@ class ExecutionEvidence:
             self.data_tree_sha256,
             self.environment_sha256,
             self.executable_sha256,
+            self.model_source_sha256,
             self.model_config_sha256,
         )
         if any(
@@ -59,17 +60,15 @@ class ExecutionEvidence:
         ):
             raise ValueError("execution evidence contains an invalid SHA-256 digest")
         if (
-            type(self.model_commit) is not str
-            or GIT_COMMIT.fullmatch(self.model_commit) is None
+            type(self.schema_version) is not int
+            or self.schema_version != EXECUTION_EVIDENCE_SCHEMA_VERSION
         ):
-            raise ValueError("execution evidence contains an invalid model commit")
-        if type(self.schema_version) is not int or self.schema_version != 2:
             raise ValueError("unsupported execution evidence schema version")
         if (
             not isinstance(self.eqasim_sa_sha256, str)
             or SHA256.fullmatch(self.eqasim_sa_sha256) is None
         ):
-            raise ValueError("execution evidence v2 requires eqasimSaSha256")
+            raise ValueError("execution evidence requires eqasimSaSha256")
         if (
             type(self.invocation) is not tuple
             or not self.invocation
@@ -98,7 +97,7 @@ class ExecutionEvidence:
             "environmentVariables": list(self.environment_variables),
             "executableSha256": self.executable_sha256,
             "invocation": list(self.invocation),
-            "modelCommit": self.model_commit,
+            "modelSourceSha256": self.model_source_sha256,
             "modelConfigSha256": self.model_config_sha256,
             "schemaVersion": self.schema_version,
             "eqasimSaSha256": self.eqasim_sa_sha256,
@@ -114,7 +113,7 @@ class ExecutionEvidence:
             allow_nan=False,
         ).encode("ascii")
         evidence_sha256 = hashlib.sha256(
-            EXECUTION_EVIDENCE_V2_DOMAIN + descriptor
+            EXECUTION_EVIDENCE_DOMAIN + descriptor
         ).hexdigest()
         return json.dumps(
             {**self._descriptor(), "evidenceSha256": evidence_sha256},
@@ -139,12 +138,15 @@ class ExecutionEvidence:
                 "environmentVariables",
                 "executableSha256",
                 "invocation",
-                "modelCommit",
+                "modelSourceSha256",
                 "modelConfigSha256",
                 "schemaVersion",
                 "eqasimSaSha256",
             }
-            if schema_version != 2 or set(document) != expected:
+            if (
+                schema_version != EXECUTION_EVIDENCE_SCHEMA_VERSION
+                or set(document) != expected
+            ):
                 raise ValueError
             if not isinstance(document["environmentVariables"], list) or not isinstance(
                 document["invocation"], list
@@ -157,7 +159,7 @@ class ExecutionEvidence:
                 environment_variables=tuple(document["environmentVariables"]),
                 executable_sha256=document["executableSha256"],
                 invocation=tuple(document["invocation"]),
-                model_commit=document["modelCommit"],
+                model_source_sha256=document["modelSourceSha256"],
                 model_config_sha256=document["modelConfigSha256"],
                 schema_version=schema_version,
                 eqasim_sa_sha256=document.get("eqasimSaSha256"),
