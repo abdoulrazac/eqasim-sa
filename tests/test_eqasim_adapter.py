@@ -896,3 +896,71 @@ def test_resolve_invocation_finds_exe_without_suffix(tmp_path: Path) -> None:
     resolved = resolve_invocation(["uv", "run"], tmp_path, {"PATH": str(tools)})
     assert resolved[0].lower().endswith("uv.exe")
     assert resolved[1:] == ("run",)
+
+
+def test_probe_imports_a_fake_synpp_module_through_the_invocation(
+    tmp_path: Path,
+) -> None:
+    from eqasim_sa.adapters.eqasim.simulator import probe_environment
+
+    (tmp_path / "synpp.py").write_text("print('noise that is never read')\n")
+    assert probe_environment((sys.executable, "-m", "synpp"), tmp_path) is None
+
+
+def test_probe_never_reads_synpp_output_only_the_exit_code(tmp_path: Path) -> None:
+    from eqasim_sa.adapters.eqasim.simulator import probe_environment
+
+    (tmp_path / "synpp.py").write_text(
+        "import sys\nprint('Config file does not exist: x')\nsys.exit(3)\n"
+    )
+    with pytest.raises(RuntimeError, match="cannot import synpp.*returncode=3"):
+        probe_environment((sys.executable, "-m", "synpp"), tmp_path)
+
+
+def test_probe_fails_when_the_interpreter_has_no_synpp(tmp_path: Path) -> None:
+    from eqasim_sa.adapters.eqasim.simulator import probe_environment
+
+    code = "import sys; sys.modules['synpp'] = None"
+    with pytest.raises(RuntimeError, match="environment probe failed"):
+        probe_environment(
+            (sys.executable, "-c", f"{code}\nimport synpp", "-m", "synpp"), tmp_path
+        )
+
+
+def test_probe_names_a_missing_invocation(tmp_path: Path) -> None:
+    from eqasim_sa.adapters.eqasim.simulator import probe_environment
+
+    with pytest.raises(RuntimeError, match="no-such-python-xyz"):
+        probe_environment(("no-such-python-xyz", "-m", "synpp"), tmp_path)
+
+
+def test_probe_is_skipped_without_trailing_m_synpp(tmp_path: Path) -> None:
+    from eqasim_sa.adapters.eqasim.simulator import probe_environment
+
+    assert (
+        probe_environment(("uv", "run", "synpp"), tmp_path)
+        == "synpp probe skipped: invocation does not end with -m synpp"
+    )
+
+
+def test_probe_timeout_is_not_swallowed(tmp_path: Path) -> None:
+    import subprocess
+    import time
+
+    from eqasim_sa.adapters.eqasim.simulator import probe_environment
+
+    started = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        probe_environment(
+            (sys.executable, "-c", "import time; time.sleep(10)", "-m", "synpp"),
+            tmp_path,
+            timeout=0.05,
+        )
+    assert time.monotonic() - started < 1
+
+
+def test_probe_on_the_real_synpp(tmp_path: Path) -> None:
+    from eqasim_sa.adapters.eqasim.simulator import probe_environment
+
+    pytest.importorskip("synpp")
+    assert probe_environment((sys.executable, "-m", "synpp"), tmp_path) is None

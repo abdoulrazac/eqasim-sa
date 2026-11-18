@@ -210,7 +210,7 @@ def test_sobol_rejects_factor_without_effective_projected_contrast(tmp_path: Pat
     descriptor, context_hash = _context()
     design = plan_module.SobolDesign(
         base(),
-        {"sampling_rate": [0.001, 0.002], "matching_age_scheme": ["matching_6", "analysis_7"]},
+        {"sampling_rate": [0.001, 0.002], "income_assignation_method": ["uniform", "bhepop2"]},
         (1401, 1402),
         {},
         context_hash,
@@ -228,7 +228,7 @@ def test_sobol_accepts_identifiable_factors_with_position_deduplication(tmp_path
     descriptor, context_hash = _context()
     design = plan_module.SobolDesign(
         base(),
-        {"sampling_rate": [0.001, 0.002], "matching_age_scheme": ["matching_6", "analysis_7"]},
+        {"sampling_rate": [0.001, 0.002], "income_assignation_method": ["uniform", "bhepop2"]},
         (1401, 1402),
         {},
         context_hash,

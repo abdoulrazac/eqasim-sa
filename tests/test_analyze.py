@@ -754,13 +754,12 @@ def test_sobol_analysis_rejects_unplanned_degenerate_hybrid_contrasts(
         {
             "config": {
                 "sampling_rate": 0.001,
-                "matching_age_scheme": "matching_6",
-                "analysis_age_scheme": "analysis_7",
+                "income_assignation_method": "uniform",
             }
         },
         {
             "sampling_rate": [0.001, 0.002],
-            "matching_age_scheme": ["matching_6", "analysis_7"],
+            "income_assignation_method": ["uniform", "bhepop2"],
         },
         (1401, 1402),
         {},
@@ -793,7 +792,7 @@ def test_sobol_analysis_rejects_unplanned_degenerate_hybrid_contrasts(
                 "node",
                 1.0,
                 {
-                    "matching_age_scheme": row["matching_age_scheme"],
+                    "income_assignation_method": row["income_assignation_method"],
                     "sampling_rate": row["sampling_rate"],
                 },
             ),

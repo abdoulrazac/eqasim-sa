@@ -1,13 +1,24 @@
-# Single-scramble Sobol demonstration: 32 positions, not inferential evidence.
+# Single-scramble Sobol demonstration: 48 positions and 4 unique runs, not inferential evidence.
+# Prerequisite: in your copy of the eqasim configuration, add
+# `analysis.synthesis.population` to `run:` (the age, distance and nbr_vehicle
+# outputs come from that stage); eqasim-sa checks it when loading.
 campaign: @PROJECT_NAME@-sobol
 experiment:
   method: sobol
   seeds: [1401, 1402]
-  base_sample_size: 4
+  base_sample_size: 8
 parameters:
   sampling_rate: [0.001, 0.002]
-  matching_age_scheme: [matching_6, analysis_7]
+  # To vary another parameter, write it in the config: section of your eqasim
+  # configuration first, then add it here, e.g.
+  # matching_minimum_age: [0, 5, 12]
 outputs:
+  persons: {}
+  households: {}
+  trips: {}
+  activities: {}
+  activities_spatial:
+    file: "{prefix}activities.gpkg"
   age:
     category: Age class
     simulated: Proportion_EQASIM

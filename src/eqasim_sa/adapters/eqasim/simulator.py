@@ -6,7 +6,6 @@ import math
 import re
 import subprocess
 import threading
-import uuid
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -262,30 +261,45 @@ class EqasimSimulator:
         return subprocess.CompletedProcess(command, returncode, stdout, stderr)
 
 
+PROBE_SKIPPED = "synpp probe skipped: invocation does not end with -m synpp"
+
+
 def probe_environment(
     invocation: tuple[str, ...], root: Path, timeout: float = 20.0
-) -> None:
-    """Check that an invocation reaches synpp without starting a simulation."""
+) -> str | None:
+    """Check that the invocation's interpreter can import synpp.
 
-    missing = root / f".eqasim-sa-probe-{uuid.uuid4().hex}.yml"
-    completed = subprocess.run(
-        [*invocation, str(missing)],
-        cwd=root,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        # Only scanned for a marker: never fail on a console-encoded byte.
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        shell=False,
-        timeout=timeout,
-    )
-    output = f"{completed.stdout}\n{completed.stderr}"
-    if completed.returncode == 0 or "Config file does not exist:" not in output:
-        raise RuntimeError(
-            f"synpp environment probe failed: returncode={completed.returncode}"
+    Only an invocation ending with ``-m synpp`` is probed: those two elements
+    become ``-c "import synpp"`` and the exit code must be 0. Nothing printed
+    by synpp is read. Any other invocation is not probed and the returned text
+    says so; ``None`` means the probe passed.
+    """
+
+    if tuple(invocation[-2:]) != ("-m", "synpp"):
+        return PROBE_SKIPPED
+    command = [*invocation[:-2], "-c", "import synpp"]
+    label = " ".join(invocation)
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=root,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            shell=False,
+            timeout=timeout,
         )
+    except OSError as error:
+        raise RuntimeError(
+            f"synpp environment probe failed: cannot start invocation {label!r}: "
+            f"{error.__class__.__name__}"
+        ) from error
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"synpp environment probe failed: invocation {label!r} cannot import "
+            f"synpp (returncode={completed.returncode})"
+        )
+    return None
 
 
 def validate_transport(name: str, value: object, label: str | None = None) -> None:

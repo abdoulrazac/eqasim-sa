@@ -249,7 +249,6 @@ def test_evidence_v3_round_trip_and_v2_rejected() -> None:
 INIT_MODEL_CONFIG = (
     "working_directory: cache\nrun: [synthesis.output, analysis.synthesis.population]\nconfig:\n"
     "  processes: 4\n  sampling_rate: 0.001\n  random_seed: 1234\n"
-    "  matching_age_scheme: matching_6\n  analysis_age_scheme: analysis_7\n"
     "  data_path: /data\n  output_path: /output\n  output_prefix: nantes_\n"
 )
 

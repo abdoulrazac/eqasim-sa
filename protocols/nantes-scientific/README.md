@@ -45,7 +45,7 @@ existing output. Use an absolute, phase-specific `--campaign-root`:
 ```bash
 python protocols/nantes-scientific/render_protocol.py \
   protocols/nantes-scientific/01-canonical-morris-pilot.yml rendered/pilot.yml \
-  --model-config "$ROOT/eqasim-france/config_local_nantes.yml" \
+  --model-config "$ROOT/eqasim-france/config.yml" \
   --model-root "$ROOT/eqasim-france" \
   --data-manifest "$ROOT/study/manifest.json" \
   --lockfile "$ROOT/eqasim-france/uv.lock" \
@@ -60,7 +60,7 @@ allocation itself and derives `R` and the first `R` preregistered seeds:
 ```bash
 python protocols/nantes-scientific/render_protocol.py \
   protocols/nantes-scientific/02-canonical-morris-production.yml rendered/production.yml \
-  --model-config "$ROOT/eqasim-france/config_local_nantes.yml" \
+  --model-config "$ROOT/eqasim-france/config.yml" \
   --model-root "$ROOT/eqasim-france" --data-manifest "$ROOT/study/manifest.json" \
   --lockfile "$ROOT/eqasim-france/uv.lock" --scratch "$ROOT/scratch" \
   --data-path "$ROOT/eqasim-data" \
@@ -74,7 +74,7 @@ command with template `04-multiscramble-ff.yml` and its own output/root:
 ```bash
 python protocols/nantes-scientific/render_protocol.py \
   protocols/nantes-scientific/03-multiscramble-fp.yml rendered/fp.yml \
-  --model-config "$ROOT/eqasim-france/config_local_nantes.yml" \
+  --model-config "$ROOT/eqasim-france/config.yml" \
   --model-root "$ROOT/eqasim-france" --data-manifest "$ROOT/study/manifest.json" \
   --lockfile "$ROOT/eqasim-france/uv.lock" --scratch "$ROOT/scratch" \
   --data-path "$ROOT/eqasim-data" \
@@ -89,9 +89,16 @@ protocol and the current model, manifest, lockfile, and `eqasim-sa` version. It
 rejects symlink traversal, malformed evidence, capped or infeasible allocations,
 out-of-range `R`, incomplete or unconverged screening, unresolved markers, and
 model configurations that contradict these exact fixed values:
-`sampling_rate: 0.001`, `matching_age_scheme: matching_6`,
-`analysis_age_scheme: analysis_7`, `income_assignation_method: uniform`,
+`sampling_rate: 0.001`, `income_assignation_method: uniform`,
 `hts: edgt_44`, and `departments: [44]`.
+
+The renderer does not edit your eqasim configuration. The configuration passed
+as `--model-config` must be your own copy of the Nantes configuration. It must
+contain the values fixed by the protocol (above) and the parameters the
+protocol varies (`matching_minimum_observations`, `matching_minimum_age`), and
+its `run:` list must include `analysis.synthesis.population` so that the
+`age`, `distance` and `nbr_vehicle` outputs are written. The official
+`config.yml` does not set these by default; add them to your copy.
 
 The FP/FF gate deliberately permits a **conditional follow-up analysis**, not a
 final claim. It requires `claimAuthorized: false`, pending robustness with a
@@ -107,7 +114,7 @@ governed report can authorize a claim.
 
 Concrete eqasim-france source identifiers for this protocol are:
 
-- Model configuration: `eqasim-france/config_local_nantes.yml`
+- Model configuration: your copy of the Nantes eqasim configuration
 - Matched population: `eqasim-france/synthesis/population/matched.py`
 - Analysis outputs: `eqasim-france/analysis/synthesis/population.py`
 
@@ -124,28 +131,26 @@ robustness check.
 
 | Candidate | Protocol role | Concrete source path | Rationale |
 | --- | --- | --- | --- |
-| `matching_minimum_observations` | varied | `eqasim-france/config_local_nantes.yml`; `eqasim-france/synthesis/population/matched.py` | Actionable numerical threshold screened on `[5, 20, 50]` and retained for FP/FF. |
-| `matching_minimum_age` | varied | `eqasim-france/config_local_nantes.yml`; `eqasim-france/synthesis/population/matched.py` | Actionable numerical threshold screened on `[0, 5, 12]` and retained for FP/FF. |
-| `sampling_rate` | fixed | `eqasim-france/config_local_nantes.yml` | Sealed at `0.001`; alternative rates are numerical robustness checks, not attribution factors. |
-| Simulator `random_seed` / `seed` | stochastic | `eqasim-france/config_local_nantes.yml`; `charter.stochastic` and `experiment.seeds` in these protocol files | Morris integrates a conditional mean with CRN; Sobol uses a declared finite non-actionable nuisance support. |
-| `processes` / process count | robustness-only | `eqasim-france/config_local_nantes.yml`; `execution.machine_options.processes` in these protocol files | Sealed to one for campaigns; separate identical-seed runs must test process-count determinism. |
-| `analysis_age_scheme` | fixed | `eqasim-france/config_local_nantes.yml`; `eqasim-france/analysis/synthesis/population.py` | `analysis_7` defines the primary output and must remain comparable across the main campaigns. |
-| `matching_age_scheme` | robustness-only | `eqasim-france/config_local_nantes.yml`; `eqasim-france/synthesis/population/matched.py` | `matching_6` is sealed; alternatives change matching structure and require separate checks. |
-| `income_assignation_method` | robustness-only | `eqasim-france/config_local_nantes.yml`; `eqasim-france/synthesis/population/income/uniform.py` | Uniform assignment is sealed; alternative income models are structural checks. |
+| `matching_minimum_observations` | varied | your Nantes eqasim configuration; `eqasim-france/synthesis/population/matched.py` | Actionable numerical threshold screened on `[5, 20, 50]` and retained for FP/FF. |
+| `matching_minimum_age` | varied | your Nantes eqasim configuration; `eqasim-france/synthesis/population/matched.py` | Actionable numerical threshold screened on `[0, 5, 12]` and retained for FP/FF. |
+| `sampling_rate` | fixed | your Nantes eqasim configuration | Sealed at `0.001`; alternative rates are numerical robustness checks, not attribution factors. |
+| Simulator `random_seed` / `seed` | stochastic | your Nantes eqasim configuration; `charter.stochastic` and `experiment.seeds` in these protocol files | Morris integrates a conditional mean with CRN; Sobol uses a declared finite non-actionable nuisance support. |
+| `processes` / process count | robustness-only | your Nantes eqasim configuration; `execution.machine_options.processes` in these protocol files | Sealed to one for campaigns; separate identical-seed runs must test process-count determinism. |
+| `income_assignation_method` | robustness-only | your Nantes eqasim configuration; `eqasim-france/synthesis/population/income/uniform.py` | Uniform assignment is sealed; alternative income models are structural checks. |
 | INSEE RP 2022 age reference | fixed | `eqasim-france/data/census/`; `eqasim-france/analysis/reference/census/sociodemographics.py` | Declared primary age reference for Loire-Atlantique; other years or sources are data-reference robustness. |
-| `hts: edgt_44` and EDGT data | fixed | `eqasim-france/config_local_nantes.yml`; `eqasim-france/data/hts/edgt_44/` | Declared secondary distance and vehicle-count reference; alternative surveys are robustness-only. |
+| `hts: edgt_44` and EDGT data | fixed | your Nantes eqasim configuration; `eqasim-france/data/hts/edgt_44/` | Declared secondary distance and vehicle-count reference; alternative surveys are robustness-only. |
 | Population projection model | robustness-only | `eqasim-france/synthesis/population/projection/reweighted.py`; `eqasim-france/synthesis/population/projection/ipu.py` | Projection alternatives alter model structure and are not mixed into primary attribution. |
 | Home-location model | robustness-only | `eqasim-france/synthesis/population/spatial/home/locations.py`; `eqasim-france/synthesis/locations/output/home.py` | Location alternatives are structural checks requiring separate campaigns. |
 | Education-location model | robustness-only | `eqasim-france/synthesis/locations/education.py`; `eqasim-france/synthesis/locations/output/education.py` | Education assignment alternatives are structural checks, not numerical factors. |
 | Vehicle-generation model | robustness-only | `eqasim-france/synthesis/vehicles/vehicles.py`; `eqasim-france/synthesis/vehicles/cars/default.py` | Vehicle model alternatives are checked separately from matching-threshold attribution. |
-| `mode_choice` and policy scenario | excluded | `eqasim-france/config_local_nantes.yml`; `eqasim-france/matsim/` | Mode choice is disabled in the sealed synthesis baseline; policy or mode-choice scenarios require distinct confirmation campaigns. |
+| `mode_choice` and policy scenario | excluded | your Nantes eqasim configuration; `eqasim-france/matsim/` | Mode choice is disabled in the sealed synthesis baseline; policy or mode-choice scenarios require distinct confirmation campaigns. |
 | Synthetic/HTS distance definition | robustness-only | `eqasim-france/analysis/synthesis/mode_distances.py`; `eqasim-france/analysis/reference/hts/mode_distances.py` | Synthetic Euclidean and survey routed distances are asymmetric and must be disclosed and checked separately. |
-| Department/region geography | fixed | `departments`, `regions`, and `iris_path` in `eqasim-france/config_local_nantes.yml` | Department 44 and its declared IRIS geography define the decision setting. |
-| External geography/data paths | fixed | `data_path`, `gtfs_path`, `osm_path`, `ban_path`, `bdtopo_path`, `bpe_path`, and `iris_path` in `eqasim-france/config_local_nantes.yml`; rendered `model.data_manifest` | Inputs are machine-specific but sealed by the data-manifest digest; changing them creates a different evidence context. |
+| Department/region geography | fixed | `departments`, `regions`, and `iris_path` in your Nantes eqasim configuration | Department 44 and its declared IRIS geography define the decision setting. |
+| External geography/data paths | fixed | `data_path`, `gtfs_path`, `osm_path`, `ban_path`, `bdtopo_path`, `bpe_path`, and `iris_path` in your Nantes eqasim configuration; rendered `model.data_manifest` | Inputs are machine-specific but sealed by the data-manifest digest; changing them creates a different evidence context. |
 
 ## Scientific Contract
 
-The primary quantity is total-variation distance for `analysis_7` age classes
+The primary quantity is total-variation distance for age classes
 against INSEE RP 2022. Distance and vehicle-count TV against EDGT 44 are
 secondary. Distance reporting must disclose synthetic Euclidean distance versus
 survey routed-distance asymmetry.
@@ -158,5 +163,5 @@ provisional variance-share tolerance of `0.05`, including interactions.
 
 The inventory records parameter, data, structural, scenario, and numerical
 uncertainties. Structural, data-source, process-determinism, factor-support,
-age-scheme, distance-definition, and scenario checks remain outside the primary
+distance-definition, and scenario checks remain outside the primary
 attribution design.

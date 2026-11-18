@@ -76,8 +76,6 @@ ALLOCATION_KEYS = {
 }
 FIXED_MODEL_VALUES = {
     "sampling_rate": 0.001,
-    "matching_age_scheme": "matching_6",
-    "analysis_age_scheme": "analysis_7",
     "income_assignation_method": "uniform",
     "hts": "edgt_44",
     "departments": [44],

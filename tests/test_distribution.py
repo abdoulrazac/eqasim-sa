@@ -121,10 +121,10 @@ def test_installed_metadata_and_commands(tmp_path: Path) -> None:
     assert "method: discrete_oat" in resources["02-discrete-oat.yml"].read_text()
     assert "design_seed: 20260817" in resources["02-discrete-oat.yml"].read_text()
     assert "method: sobol" in resources["03-sobol.yml"].read_text()
-    assert "base_sample_size: 4" in resources["03-sobol.yml"].read_text()
-    assert "matching_age_scheme" in resources["01-grid.yml"].read_text()
-    assert "matching_age_scheme" not in resources["02-discrete-oat.yml"].read_text()
-    assert "matching_age_scheme" in resources["03-sobol.yml"].read_text()
+    assert "base_sample_size: 8" in resources["03-sobol.yml"].read_text()
+    for name in ("01-grid.yml", "02-discrete-oat.yml", "03-sobol.yml"):
+        assert "  sampling_rate: [" in resources[name].read_text()
+        assert "age_scheme" not in resources[name].read_text()
     starter_configs = [
         resources[name].read_text()
         for name in (
@@ -144,14 +144,13 @@ def test_installed_metadata_and_commands(tmp_path: Path) -> None:
     base = {
         "config": {
             "sampling_rate": 0.001,
-            "matching_age_scheme": "matching_6",
-            "analysis_age_scheme": "analysis_7",
+            "income_assignation_method": "uniform",
             "random_seed": 1,
         }
     }
     factors = {
         "sampling_rate": [0.001, 0.002],
-        "matching_age_scheme": ["matching_6", "analysis_7"],
+        "income_assignation_method": ["uniform", "bhepop2"],
     }
     descriptor = {
         "eqasimSourceSha256": "a",
@@ -210,7 +209,6 @@ def test_installed_init_generates_template_without_campaign_execution(tmp_path: 
     (model / "config.yml").write_text(
         "working_directory: /cache\nrun: [synthesis.output, analysis.synthesis.population]\nconfig:\n"
         "  sampling_rate: 0.001\n  random_seed: 1\n"
-        "  matching_age_scheme: matching_6\n  analysis_age_scheme: analysis_7\n"
     )
     (model / "uv.lock").write_text("version = 1\n")
     (data / "input.txt").write_text("installed wheel\n")

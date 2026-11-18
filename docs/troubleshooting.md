@@ -186,9 +186,10 @@ sizes, and environment startup time.
 
 ## `synpp environment probe failed`
 
-Cause: the invocation does not start synpp as expected or does not respond with
-`Config file does not exist:` for the probe file. Remedy: execute the
-`execution.invocation` list in `model.root`, then check the environment and
+Cause: the invocation ends with `-m synpp` but its interpreter cannot start or
+cannot `import synpp` (the probe runs the invocation with `-m synpp` replaced by
+`-c "import synpp"` and requires exit code 0; no synpp output is read).
+Remedy: run that command in `model.root`, then check the environment and
 versions. The static probe does not run a complete simulation.
 
 ## `check --smoke` failure

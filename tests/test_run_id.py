@@ -13,7 +13,7 @@ def config() -> dict[str, object]:
         "config": {
             "sampling_rate": 0.01,
             "matching_attributes": ["age", "sex"],
-            "matching_age_scheme": "matching_6",
+            "income_assignation_method": "uniform",
             "output_path": "/output/a",
             "data_path": "/data/a",
             "processes": 4,
@@ -30,7 +30,7 @@ def config() -> dict[str, object]:
 def test_run_id_golden_and_does_not_mutate() -> None:
     source = config()
     before = copy.deepcopy(source)
-    assert compute_run_id(source, 42) == "e359ad502b818c92bdef5fcb7fe7d417"
+    assert compute_run_id(source, 42) == "110e16cfff707486ce055595324cd3d7"
     assert source == before
 
 
@@ -60,7 +60,7 @@ def test_scientific_value_seed_list_order_and_nested_homonym_are_hashed() -> Non
     changed["config"]["sampling_rate"] = 0.02  # type: ignore[index]
     assert compute_run_id(changed, 42) != baseline_id
     changed = copy.deepcopy(baseline)
-    changed["config"]["matching_age_scheme"] = "analysis_7"  # type: ignore[index]
+    changed["config"]["income_assignation_method"] = "bhepop2"  # type: ignore[index]
     assert compute_run_id(changed, 42) != baseline_id
     changed = copy.deepcopy(baseline)
     changed["config"]["matching_attributes"].reverse()  # type: ignore[index,union-attr]

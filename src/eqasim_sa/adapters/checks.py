@@ -221,11 +221,13 @@ def _static_check(path: Path, calibrations: tuple[Path, ...]):  # type: ignore[n
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError("static check time budget exhausted")
-        probe_environment(
+        return probe_environment(
             meta.execution.invocation, meta.model_root, min(20, remaining)
         )
 
-    item, _ = _check("eqasimEnvironment", environment)
+    item, skipped = _check("eqasimEnvironment", environment)
+    if skipped:
+        item["note"] = skipped
     checks.append(item)
 
     def disk():  # type: ignore[no-untyped-def]

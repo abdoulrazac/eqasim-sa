@@ -82,7 +82,7 @@ Without `--smoke`, the checks are:
 | `metaConfig` | YAML, Git context, factors, and paths |
 | `sealedPlan` | equality of the plan with the recomputed design |
 | `uniqueConfigSeedPairs` | no Grid duplicates; sealed validation for discrete OAT, canonical Morris, and Sobol |
-| `eqasimEnvironment` | synpp probe with a nonexistent configuration path |
+| `eqasimEnvironment` | when `execution.invocation` ends with `-m synpp`, the invocation with those two elements replaced by `-c "import synpp"` must exit 0; otherwise the probe is skipped and the check carries `note: synpp probe skipped: invocation does not end with -m synpp` |
 | `diskSpace` | durable and scratch space based on available observations |
 
 The static check has an overall budget of 55 seconds, and the environment probe

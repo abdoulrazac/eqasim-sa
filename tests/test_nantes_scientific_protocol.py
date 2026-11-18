@@ -212,8 +212,6 @@ def _fixture_paths(
                     "matching_minimum_observations": 20,
                     "matching_minimum_age": 5,
                     "sampling_rate": sampling_rate,
-                    "matching_age_scheme": "matching_6",
-                    "analysis_age_scheme": "analysis_7",
                     "income_assignation_method": "uniform",
                     "hts": "edgt_44",
                     "departments": [44],
@@ -840,3 +838,23 @@ def test_protocols_and_renderer_are_isolated_from_package_and_init(tmp_path: Pat
     }
     assert not any(initialized.rglob("render_protocol.py"))
     assert all(not any(initialized.rglob(name)) for name in TEMPLATES)
+
+
+def test_protocols_rely_only_on_upstream_eqasim_names() -> None:
+    forbidden = (
+        "matching_" + "age_scheme",
+        "analysis_" + "age_scheme",
+        "projection_" + "year",
+        "config_local_" + "nantes",
+        "analysis_7",
+        "Matching and analysis age schemes",
+    )
+    for path in (*(PROTOCOL / name for name in TEMPLATES), RENDERER, PROTOCOL / "README.md"):
+        text = path.read_text(encoding="utf-8")
+        assert not [word for word in forbidden if word in text], path
+
+
+def test_protocol_readme_requires_user_copy_with_analysis_stage() -> None:
+    text = (PROTOCOL / "README.md").read_text(encoding="utf-8")
+    assert "analysis.synthesis.population" in text
+    assert "your own copy of the Nantes configuration" in text

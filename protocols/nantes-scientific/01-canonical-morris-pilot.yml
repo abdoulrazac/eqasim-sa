@@ -8,7 +8,7 @@ charter:
     use: diagnostic
     setting: Loire-Atlantique department 44 population synthesis using INSEE RP 2022 and EDGT 44
     objective: screening
-    estimand: Expected total-variation distance over simulator seeds under the analysis_7 output scheme
+    estimand: Expected total-variation distance over simulator seeds
     primary_indicator: tv_distance(age, ref=INSEE)
   uncertainty:
     dependence:
@@ -26,7 +26,7 @@ charter:
           rationale: Screen sensitivity to the minimum matching-age threshold
         - name: sampling_rate
           status: fixed
-          provenance: eqasim-france/config_local_nantes.yml
+          provenance: Nantes eqasim configuration copy used for the campaign
           rationale: Fixed at 0.001 and assessed only as numerical robustness
       data:
         - name: INSEE_RP_2022
@@ -42,13 +42,9 @@ charter:
           status: excluded
           provenance: eqasim-france/synthesis/population/matched.py and eqasim-france/analysis/synthesis/population.py
           rationale: Projection, home, education, vehicle, and mode-choice alternatives are robustness-only
-        - name: matching_age_scheme
-          status: excluded
-          provenance: eqasim-france/config_local_nantes.yml; matching in eqasim-france/synthesis/population/matched.py; outputs in eqasim-france/analysis/synthesis/population.py
-          rationale: Alternative age schemes are a separate structural robustness check
         - name: income_assignation_method
           status: excluded
-          provenance: eqasim-france/config_local_nantes.yml
+          provenance: Nantes eqasim configuration copy used for the campaign
           rationale: Alternative income assignment is a separate structural check
       scenarios:
         - name: policy_and_mode_choice_scenario
@@ -80,8 +76,6 @@ charter:
         rationale: Reassess conclusions against defensible alternative support endpoints
       - name: Sampling-rate numerical robustness
         rationale: Verify the primary attribution conclusion away from fixed sampling_rate 0.001
-      - name: Matching and analysis age schemes
-        rationale: Keep matching alternatives separate while preserving comparable analysis_7 outputs
       - name: Survey and reference choice
         rationale: Reassess reference-year and HTS-source choices outside primary attribution
       - name: Distance definition asymmetry

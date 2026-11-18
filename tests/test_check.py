@@ -1,7 +1,5 @@
 import json
-import subprocess
 import sys
-import time
 from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
@@ -319,6 +317,58 @@ def test_check_reports_disk_measurements_when_space_is_insufficient(
     )
 
 
+def test_check_reports_a_skipped_synpp_probe(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from eqasim_sa.adapters import application
+
+    root = tmp_path / "campaign"
+    root.mkdir()
+    plan = root / "plan.parquet"
+    plan.write_bytes(b"plan")
+    meta = SimpleNamespace(
+        campaign="demo",
+        campaign_root=root,
+        model_document=design(root, {"rate": [1]}).base_config,
+        factors={"rate": [1]},
+        seeds=(1,),
+        context_hash="c" * 64,
+        context_descriptor=design(root, {"rate": [1]}).context_descriptor,
+        execution=SimpleNamespace(invocation=("spy",), scratch=tmp_path, workers=1),
+        model_root=tmp_path,
+        control_states=(),
+        calibration_meta_configs=(),
+        outputs={},
+    )
+    monkeypatch.setattr(check_service, "load_meta_config", lambda *args, **kwargs: meta)
+    monkeypatch.setattr(check_service, "load_run_specs", lambda *args: ())
+    monkeypatch.setattr(
+        check_service,
+        "_estimate_state",
+        lambda *args: (
+            {"estimatedDiskBytes": 100, "estimatedScratchBytes": 20},
+            meta,
+            (),
+            10,
+        ),
+    )
+    monkeypatch.setattr(
+        check_service.shutil, "disk_usage", lambda path: SimpleNamespace(free=40)
+    )
+
+    payload = application.check_from_meta_config(Path("meta.yml"), (), False)
+
+    environment = next(
+        item for item in payload["checks"] if item["name"] == "eqasimEnvironment"
+    )
+    assert environment == {
+        "name": "eqasimEnvironment",
+        "status": "passed",
+        "error": None,
+        "note": "synpp probe skipped: invocation does not end with -m synpp",
+    }
+
+
 def test_smoke_requires_static_success_and_exactly_two_distinct_seeds(
     monkeypatch,
 ) -> None:
@@ -330,55 +380,6 @@ def test_smoke_requires_static_success_and_exactly_two_distinct_seeds(
         check_service, "_smoke", lambda *args: (_ for _ in ()).throw(AssertionError())
     )
     assert application.check_from_meta_config(Path("meta.yml"), (), True) is invalid
-
-
-def test_environment_probe_uses_missing_config_without_loading_data(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from eqasim_sa.adapters.eqasim.simulator import probe_environment
-
-    seen = {}
-
-    def run(command, **options):  # type: ignore[no-untyped-def]
-        seen.update(command=command, options=options)
-        return SimpleNamespace(
-            returncode=1,
-            stdout="",
-            stderr=f"Config file does not exist: {command[-1]}",
-        )
-
-    monkeypatch.setattr("eqasim_sa.adapters.eqasim.simulator.subprocess.run", run)
-    probe_environment(("python", "-m", "synpp"), tmp_path)
-    assert seen["command"][:3] == ["python", "-m", "synpp"]
-    assert Path(seen["command"][-1]).parent == tmp_path
-    assert not Path(seen["command"][-1]).exists()
-    assert seen["options"]["cwd"] == tmp_path and seen["options"]["shell"] is False
-
-
-def test_environment_probe_rejects_unexpected_process_result(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from eqasim_sa.adapters.eqasim.simulator import probe_environment
-
-    monkeypatch.setattr(
-        "eqasim_sa.adapters.eqasim.simulator.subprocess.run",
-        lambda *args, **kwargs: SimpleNamespace(returncode=2, stdout="", stderr="wrong"),
-    )
-    with pytest.raises(RuntimeError, match="environment probe"):
-        probe_environment(("synpp",), tmp_path)
-
-
-def test_environment_probe_reaches_timeout_within_budget(tmp_path: Path) -> None:
-    from eqasim_sa.adapters.eqasim.simulator import probe_environment
-
-    started = time.monotonic()
-    with pytest.raises(subprocess.TimeoutExpired):
-        probe_environment(
-            (sys.executable, "-c", "import time; time.sleep(10)"),
-            tmp_path,
-            timeout=0.05,
-        )
-    assert time.monotonic() - started < 1
 
 
 def test_static_check_never_touches_referenced_data(

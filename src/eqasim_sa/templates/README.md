@@ -8,9 +8,9 @@ results. Every command below is an explicit manual step.
 
 - `manifest.json`: hash manifest of the selected input data tree.
 - `configs/00-calibration.yml`: three resource-calibration positions.
-- `configs/01-grid.yml`: Grid target, 8 positions and 8 unique runs.
+- `configs/01-grid.yml`: Grid target, 4 positions and 4 unique runs.
 - `configs/02-discrete-oat.yml`: adjacent-level discrete OAT target, 8 positions and 6 unique runs.
-- `configs/03-sobol.yml`: Sobol target, 32 positions and 8 unique runs.
+- `configs/03-sobol.yml`: Sobol target, 48 positions and 4 unique runs.
 - `campaigns/`: initially empty; manual `plan` commands create campaign state.
 - `scratch/`: initially empty and disposable unless `--scratch` selected another path.
 
@@ -89,10 +89,25 @@ Never edit a `plan.parquet` or completion marker. Rerunning the same campaign
 command executes only missing work. Use a new `campaign` (and so a new campaign folder) for
 a changed design, and a new project when the sealed model or data context changes.
 
-Grid and Sobol vary the scalar `matching_age_scheme` between `matching_6` and
-`analysis_7`. Discrete OAT does not because it accepts only numeric factors. The model
-configuration keeps `analysis_age_scheme: analysis_7` fixed so output classes
-remain comparable; changing an output scheme is not a matching effect.
+## Prepare your eqasim configuration
+
+The starters work with the official, unmodified eqasim: `model.config` is
+`config.yml`, read from the eqasim folder. Two things to check in your copy of
+that configuration:
+
+- `run:` must include `analysis.synthesis.population`, because the `age`,
+  `distance` and `nbr_vehicle` outputs are written by that stage. The official
+  `config.yml` only lists `synthesis.output`; `eqasim-sa` refuses to load a
+  starter otherwise (`output 'age' is written by eqasim stage ... not in run:`).
+- Every parameter you vary must be written in its `config:` section. The
+  starters vary only `sampling_rate`, which the official configuration contains.
+  To vary `matching_minimum_age`, add it to `config:` first, then add it to
+  `parameters` (each starter shows the commented line).
+
+The starters also keep the raw `persons`, `households`, `trips`, `activities`
+and `activities_spatial` (`{prefix}activities.gpkg`) files of every run, so a
+later analysis does not need new simulations. They have no references, so they
+produce no indicator.
 
 ### Named matching configurations
 
@@ -128,7 +143,7 @@ HTS. eqasim-france still archives `HTS adjust with INSEE population weights`
 for compatibility, but that column is a global rescaling of HTS and therefore
 has the same normalized TV value; it is intentionally not declared here.
 
-The Nantes model also exposes optional scalar factors:
+Once written in your configuration, these scalar factors can also be varied:
 
 | Factor | Default | Example domain | Compatible methods |
 | --- | ---: | --- | --- |
@@ -136,8 +151,8 @@ The Nantes model also exposes optional scalar factors:
 | `matching_minimum_age` | `5` | `[0, 5, 12]` | Grid, discrete OAT, Sobol |
 | `income_assignation_method` | `uniform` | `[uniform, bhepop2]` | Grid, Sobol |
 
-Adding `matching_minimum_observations` to the generated Grid gives 24 positions:
-two rates by two matching schemes by three thresholds by two replication seeds.
+Adding `matching_minimum_observations` (once written in your configuration) to the
+generated Grid gives 12 positions: two rates by three thresholds by two replication seeds.
 Use a new `campaign` for that modified design. The starter
 indicators do not measure income directly. The `households` output already
 contains household income; compute the income measure you need in an eqasim

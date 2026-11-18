@@ -19,6 +19,7 @@ from eqasim_sa.cli import dispatch, parser
 from tests.conftest import make_symlink
 
 
+SOBOL_POSITIONS, SOBOL_UNIQUE = 48, 4
 METHODS = ("calibration", "grid", "discrete-oat", "sobol")
 
 
@@ -28,7 +29,6 @@ def inputs(tmp_path: Path) -> tuple[Path, Path]:
     (model / "config.yml").write_text(
         "working_directory: /cache\nrun: [synthesis.output, analysis.synthesis.population]\nconfig:\n"
         "  processes: 4\n  sampling_rate: 0.001\n  random_seed: 1234\n"
-        "  matching_age_scheme: matching_6\n  analysis_age_scheme: analysis_7\n"
         "  data_path: /data\n  output_path: /output\n  output_prefix: nantes_\n"
     )
     (model / "uv.lock").write_text("version = 1\n")
@@ -113,15 +113,14 @@ def test_init_is_a_pure_atomic_template_generator(
         assert "HTS adjust with INSEE population weights" not in text
         assert text.count("references: [INSEE]") == 1
         assert text.count("references: [HTS]") == 2
-    assert "  matching_age_scheme: [matching_6, analysis_7]" in (
-        root / "configs/01-grid.yml"
-    ).read_text()
-    assert "matching_age_scheme" not in (
-        root / "configs/02-discrete-oat.yml"
-    ).read_text()
-    assert "  matching_age_scheme: [matching_6, analysis_7]" in (
-        root / "configs/03-sobol.yml"
-    ).read_text()
+        assert "  sampling_rate: [" in text
+        assert "config: \"config.yml\"" in text
+        assert "analysis.synthesis.population" in text
+        for name in ("persons", "households", "trips", "activities"):
+            assert f"\n  {name}: {{}}\n" in text
+        assert '    file: "{prefix}activities.gpkg"' in text
+        assert "# matching_minimum_age: [0, 5, 12]" in text
+        assert "age_scheme" not in text and "projection_" + "year" not in text
     readme = (root / "README.md").read_text()
     assert "did not\nplan a campaign" in readme
     project = Path(__file__).resolve().parents[1]
@@ -138,8 +137,7 @@ def test_init_accepts_a_custom_model_config(
     model, data = inputs(tmp_path)
     (model / "custom.yml").write_text(
         "working_directory: /cache\nrun: [synthesis.output, analysis.synthesis.population]\nconfig:\n"
-        "  sampling_rate: 0.001\n  matching_age_scheme: matching_6\n"
-        "  analysis_age_scheme: analysis_7\n"
+        "  sampling_rate: 0.001\n"
     )
     result = init_from_inputs(
         "project", tmp_path / "project", model, data, None, invocation(), Path("custom.yml")
@@ -603,7 +601,7 @@ def test_rendered_grid_starter_is_short_and_loads(tmp_path: Path) -> None:
     ):
         assert absent not in text
     body = [line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
-    assert len(body) <= 32
+    assert len(body) <= 40
     loaded = load_meta_config(project / "configs/01-grid.yml")
     assert loaded.campaign_root == (project / "campaigns" / "study-grid").resolve()
 
@@ -619,9 +617,9 @@ def test_custom_invocation_is_written(tmp_path: Path) -> None:
     ("name", "positions", "unique"),
     [
         ("00-calibration.yml", None, None),
-        ("01-grid.yml", 8, 8),
+        ("01-grid.yml", 4, 4),
         ("02-discrete-oat.yml", 8, 6),
-        ("03-sobol.yml", 32, 8),
+        ("03-sobol.yml", SOBOL_POSITIONS, SOBOL_UNIQUE),
     ],
 )
 def test_every_rendered_starter_loads_and_plans(
@@ -637,3 +635,36 @@ def test_every_rendered_starter_loads_and_plans(
     if positions is not None:
         planned = plan_from_meta_config(path)
         assert (planned.design_positions, planned.unique_runs) == (positions, unique)
+
+
+def test_starters_need_analysis_stage_in_run(tmp_path: Path) -> None:
+    model, data = inputs(tmp_path)
+    (model / "config.yml").write_text(
+        "working_directory: /cache\nrun: [synthesis.output]\nconfig:\n"
+        "  processes: 4\n  sampling_rate: 0.001\n  data_path: /data\n  output_path: /output\n"
+        "  output_prefix: nantes_\n"
+    )
+    project = tmp_path / "study"
+    init_from_inputs("study", project, model, data, None, DEFAULT_INVOCATION)
+    for name in ("00-calibration", "01-grid", "02-discrete-oat", "03-sobol"):
+        with pytest.raises(ValueError, match="not in run:"):
+            load_meta_config(project / "configs" / f"{name}.yml")
+
+
+def test_starters_vary_only_sampling_rate(tmp_path: Path) -> None:
+    model, data = inputs(tmp_path)
+    project = tmp_path / "study"
+    init_from_inputs("study", project, model, data, None, DEFAULT_INVOCATION)
+    for name in ("00-calibration", "01-grid", "02-discrete-oat", "03-sobol"):
+        assert set(load_meta_config(project / "configs" / f"{name}.yml").factors) == {
+            "sampling_rate"
+        }
+
+
+def test_template_readme_reports_the_planned_counts(tmp_path: Path) -> None:
+    _, root, _, _ = initialize(tmp_path)
+    readme = (root / "README.md").read_text()
+    assert "Grid target, 4 positions and 4 unique runs" in readme
+    assert "adjacent-level discrete OAT target, 8 positions and 6 unique runs" in readme
+    assert f"Sobol target, {SOBOL_POSITIONS} positions and {SOBOL_UNIQUE} unique runs" in readme
+    assert "analysis.synthesis.population" in readme
