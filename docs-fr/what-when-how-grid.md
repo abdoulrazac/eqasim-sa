@@ -85,14 +85,18 @@ parameters:
   sampling_rate: [0.001, 0.002]
 ```
 
-Supprimez donc `matching_age_scheme` du bloc `parameters` copié. Le reste du
-fichier généré, notamment `outputs`, `calibration`, `model` et `execution`,
+Par rapport au modèle, seuls le nom de campagne et la troisième seed changent.
+Le reste du fichier généré, notamment `outputs`, `calibration`, `model` et `execution`,
 reste inchangé. Le nouveau nom de `campaign` donne aussi à la campagne son
 propre dossier, `campaigns/mon-analyse-sa-grid-sampling-rate/`. Pour vérifier la
 configuration complète, valeurs par défaut comprises, lancez
 `"${SA[@]}" show-config configs/01-grid-sampling-rate.yml`.
 
-Le modèle scellé doit déjà contenir `config.sampling_rate`. Les seeds ne sont pas
+Votre configuration eqasim doit contenir `config.sampling_rate` (le
+`config.yml` officiel le contient) et lister `analysis.synthesis.population`
+dans `run:` (voir
+[Préparer votre configuration eqasim](getting-started.md#préparer-votre-configuration-eqasim)).
+Les seeds ne sont pas
 des valeurs de `sampling_rate` : elles répètent chaque taux pour rendre visible
 la variabilité aléatoire. Le plan contient ici :
 
@@ -102,11 +106,21 @@ la variabilité aléatoire. Le plan contient ici :
 
 ### 4. Choisir ce que l'on mesure
 
-Le fichier généré déclare déjà trois sorties du modèle et les données de
-référence auxquelles chacune est comparée :
+Le fichier généré déclare déjà les sorties à conserver de chaque run. Les
+fichiers de population (`persons`, `households`, `trips`, `activities` et les
+activités spatiales `activities_spatial`) sont archivés pour qu'une analyse
+ultérieure n'exige aucune nouvelle simulation ; ils n'ont pas de référence et ne
+produisent donc aucun indicateur. Trois distributions sont comparées aux
+données de référence :
 
 ```yaml
 outputs:
+  persons: {}
+  households: {}
+  trips: {}
+  activities: {}
+  activities_spatial:
+    file: "{prefix}activities.gpkg"
   age:
     category: Age class
     simulated: Proportion_EQASIM
@@ -235,7 +249,7 @@ Grid n'explore que les combinaisons écrites dans le fichier.
 
 ## Adapter ce cas
 
-- Pour comparer des seuils de matching, remplacez le paramètre par `matching_minimum_observations: [5, 20, 50]`.
+- Pour comparer des seuils de matching, écrivez `matching_minimum_observations` dans la section `config:` de votre configuration eqasim, puis remplacez le paramètre par `matching_minimum_observations: [5, 20, 50]`.
 - Pour croiser deux paramètres, ajoutez le second sous `parameters` et multipliez les tailles de domaines par le nombre de seeds.
 - Pour comparer des listes `matching_attributes`, suivez le [tutoriel des configurations structurées](structured-configurations-tutorial.md).
 - Pour un tri numérique local, continuez avec [OAT discret](what-when-how-discrete_oat.md).
@@ -244,7 +258,7 @@ Grid n'explore que les combinaisons écrites dans le fichier.
 ## Checklist
 
 - La question nomme le paramètre, les valeurs et chaque sortie étudiée.
-- Chaque clé de paramètre existe déjà sous `config:` dans le modèle scellé.
+- Chaque clé de paramètre existe déjà sous `config:` dans votre configuration eqasim, et sa liste `run:` contient les étapes qui écrivent les sorties déclarées.
 - Les seeds sont dans `experiment.seeds`, jamais sous `parameters`.
 - Le nombre de positions reste compatible avec le budget.
 - Une campagne modifiée possède un nouveau nom `campaign`, donc un nouveau dossier.

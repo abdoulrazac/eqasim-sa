@@ -63,8 +63,9 @@ parameters:
   sampling_rate: [0.001, 0.002, 0.003]
 ```
 
-Les autres blocs du fichier rendu déclarent les trois sorties (et donc, par
-défaut, les trois indicateurs), le fichier de calibration, le modèle et ses
+Les autres blocs du fichier rendu déclarent les sorties (les fichiers de
+population conservés avec chaque run, et les trois distributions qui donnent,
+par défaut, les trois indicateurs), le fichier de calibration, le modèle et ses
 données, et l'exécution locale. Sans bloc `charter`, la campagne est une
 démonstration, ce qu'exige l'OAT discret. `design_seed` est écrite explicitement
 pour que le starter choisisse les mêmes trajectoires quel que soit le nom du
@@ -172,7 +173,9 @@ parameters:
 
 Avec deux trajectoires et deux seeds, cela donne
 `2 × (3 + 1) × 2 = 16` positions. Chaque clé doit déjà exister sous `config:`
-dans le modèle scellé. OAT discret refuse les catégories et les listes
+dans votre configuration eqasim : écrivez-y d'abord
+`matching_minimum_observations` et `matching_minimum_age`, que le `config.yml`
+officiel ne fixe pas. OAT discret refuse les catégories et les listes
 structurées ; utilisez [Grid](what-when-how-grid.md) pour celles-ci.
 
 ## Ce que vous pouvez conclure

@@ -29,13 +29,14 @@
 | **Seed (graine)** | Entier injecté comme `random_seed`, déclaré dans `experiment.seeds` ; selon la méthode, elle représente une réplication ou un facteur Sobol nommé `seed`. |
 | **Worker** | Slot local ou SLURM qui traite séquentiellement un lot de runs et possède son cache exclusif. |
 | **Option machine** | Valeur d'infrastructure sous `execution.machine_options`, appliquée seulement à l'exécution, hors design et hors `runId`. |
-| **Sortie** | Table écrite par eqasim pour chaque run (un fichier Parquet), déclarée sous `outputs` avec sa colonne de classes (`category`), sa colonne simulée (`simulated`) et ses colonnes de référence (`references`). |
-| **Indicateur** | Nombre calculé à partir d'une sortie d'un run, que l'analyse étudie ; `tv_distance`, la distance de variation totale entre distributions simulée et de référence, est l'indicateur intégré. |
+| **Sortie** | Fichier écrit par eqasim pour chaque run et conservé par eqasim-sa, déclaré sous `outputs` avec son `file` et son `separator` (des valeurs par défaut existent pour les douze sorties eqasim connues) et, pour les indicateurs, sa colonne de classes (`category`), sa colonne simulée (`simulated`) et ses colonnes de référence (`references`). |
+| **Indicateur** | Nombre calculé à partir des sorties d'un run, que l'analyse étudie : `tv_distance` (distance de variation totale entre distributions simulée et de référence), `share` (proportion d'une classe) ou `value` (un nombre lu dans une table). |
 | **Backend** | Mécanisme d'exécution des lots, `local` ou `slurm`. |
-| **`contextHash`** | SHA-256 domain-separated du commit modèle, du manifeste, du lockfile et de la version d'`eqasim-sa`. |
+| **Empreinte du code d'eqasim** | SHA-256 des fichiers de code d'eqasim (`*.py`, `*.java`, `pom.xml`, `pyproject.toml`, `uv.lock`) sous `model.root`, indépendante de Git ; elle identifie le code d'eqasim dans le `contextHash`. |
+| **`contextHash`** | SHA-256 domain-separated de l'empreinte du code d'eqasim, du manifeste, du lockfile et de la version d'`eqasim-sa`. |
 | **Manifeste** | `manifest.json`, inventaire trié des fichiers de données avec tailles et SHA-256, produit par `init`. |
 | **Marqueur** | `runs/<runId>.parquet`, publié en dernier et seule preuve de complétude reconnue. |
-| **Archive** | Répertoire `archives/<runId>/` contenant les sorties Parquet durables du run. |
+| **Archive** | Répertoire `archives/<runId>/` contenant une copie à l'octet près de chaque fichier de sortie déclaré du run, nommée `<nom de la sortie><extension>`. |
 | **Scratch** | Stockage temporaire des caches et tentatives workers; il est jetable et ne prouve aucune complétude. |
 
 Voir [Workflow et résultats](workflow-and-results.md) pour les formats et

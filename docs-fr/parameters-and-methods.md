@@ -43,48 +43,22 @@ et, sous `config`, `data_path`, `git_binary`, `java_binary`, `java_memory`,
 `output_prefix` n'est pas exclu : sa valeur scellée affecte donc `runId`, même
 s'il s'agit d'une option dédiée qui ne peut être ni facteur ni option machine.
 
-## Schémas d'âge nommés
-
-`eqasim-france` expose deux sélecteurs scalaires de type chaîne.
-`matching_age_scheme` contrôle les classes d'âge du matching statistique et vaut
-`matching_6` par défaut. `analysis_age_scheme` contrôle les classes des sorties
-`age`, `age_purpose` et `travel` et vaut `analysis_7` par défaut.
-
-| Schéma | Bornes du matching | Classes de sortie |
-| --- | --- | --- |
-| `matching_6` | `[14, 29, 44, 59, 74, 1000]` | `0-14`, `15-29`, `30-44`, `45-59`, `60-74`, `75+` |
-| `analysis_7` | `[10, 14, 17, 24, 49, 64, 1000]` | `0-10`, `11-14`, `15-17`, `18-24`, `25-49`, `50-64`, `65+` |
-
-Les plans Grid et Sobol générés font varier `matching_age_scheme` entre ces deux
-noms. La configuration modèle conserve `analysis_age_scheme: analysis_7` fixe
-afin que les indicateurs comparés gardent les mêmes classes de sortie. L'OAT discret ne
-peut pas porter ce facteur catégoriel car il accepte uniquement des domaines
-numériques ordonnés. Les noms de schéma sont des facteurs scalaires ordinaires
-et participent donc au `runId`; les listes de bornes et autres recodages
-structurés utilisent le contrat de facteur liste structurée nommé décrit plus bas.
-
-`init` lit le YAML modèle sélectionné sans l'exécuter. Il exige les entrées
-explicites `matching_age_scheme: matching_6` et
-`analysis_age_scheme: analysis_7`. Cela fixe le schéma de matching pour la
-calibration et l'OAT discret, stabilise les classes de sortie et rend l'identité des
-runs générés explicite. Grid et Sobol remplacent toujours
-`matching_age_scheme` via leur domaine de facteur.
-
 ## Catalogue des paramètres Nantes
 
-Les paramètres suivants sont des candidats scientifiquement pertinents. Une clé
-doit être explicitement présente sous `config:` dans le YAML modèle scellé avant
-de pouvoir être déclarée comme facteur.
+Les paramètres eqasim suivants sont des candidats scientifiquement pertinents.
+Une clé doit être explicitement présente sous `config:` dans la configuration
+eqasim désignée par `model.config` avant de pouvoir être déclarée comme
+facteur. Le `config.yml` officiel ne fixe que quelques clés, comme
+`sampling_rate` ; écrivez d'abord les autres dans votre copie, avec leur valeur
+par défaut dans eqasim.
 
-| Paramètre | Type et valeur actuelle | Effet | Domaine d'exemple | Méthodes |
+| Paramètre | Type et valeur par défaut dans eqasim | Effet | Domaine d'exemple | Méthodes |
 | --- | --- | --- | --- | --- |
 | `sampling_rate` | float, `0.001` | taille de population et bruit Monte Carlo | `[0.001, 0.002, 0.005]` | Grid, OAT discret, Morris canonique, Sobol |
-| `matching_age_scheme` | chaîne, `matching_6` | classes d'âge servant à sélectionner les donneurs HTS | `[matching_6, analysis_7]` | Grid, Sobol |
 | `matching_minimum_observations` | entier, `20` | taille minimale d'une cellule de donneurs acceptée | `[5, 20, 50]` | Grid, OAT discret, Morris canonique, Sobol |
 | `matching_minimum_age` | entier, `5` | âge minimal des personnes cibles entrant dans le matching | `[0, 5, 12]` | Grid, OAT discret, Morris canonique, Sobol |
 | `income_assignation_method` | chaîne, `uniform` | méthode de synthèse du revenu, `uniform` ou `bhepop2` | `[uniform, bhepop2]` | Grid, Sobol |
 | `hts` | chaîne, `edgt_44` | donneurs et distributions de référence de l'enquête | `[edgt_44, entd]` | Grid, Sobol, si les deux jeux existent |
-| `projection_year` | entier si activé | population synthétique et référence INSEE projetées | `[2020, 2030, 2040]` | conditionnel aux données et au scénario de projection |
 
 Ces valeurs montrent la syntaxe; elles ne constituent pas automatiquement des
 domaines scientifiquement justifiés. En particulier :
@@ -98,15 +72,12 @@ domaines scientifiquement justifiés. En particulier :
   méthode effectivement appliquée n'est pas conservée dans la sortie actuelle,
   donc ce fallback doit être instrumenté avant une comparaison stricte ;
 - le revenu est déjà archivé dans la sortie `households`, mais le pack initial
-  ne définit aucun scalaire de revenu ; enregistrez un indicateur personnalisé
-  sur cette sortie avant d'interpréter ce facteur ;
+  ne définit aucun indicateur de revenu ; calculez la mesure de revenu dont vous
+  avez besoin dans une étape d'analyse eqasim, déclarez son fichier CSV sous
+  `outputs` et lisez-la avec un indicateur `value` avant d'interpréter ce
+  facteur (voir [Vos propres calculs](yaml-reference.md#vos-propres-calculs)) ;
 - changer `hts` change à la fois les donneurs et les références HTS, et peut
-  exiger un cache de données préparé séparément ;
-- `projection_year` exige un `projection_scenario` compatible et l'archive de
-  projection. Sans ce paramètre, `analysis.synthesis.population` compare à
-  `data.census.filtered`; avec lui, le stage compare à
-  `synthesis.population.projection.reweighted`, donc INSEE suit le recensement
-  projeté.
+  exiger un cache de données préparé séparément.
 
 Le starter déclare exactement trois signaux TV : âge contre INSEE, distance
 contre HTS brut et nombre de véhicules contre HTS brut. eqasim-france continue
@@ -137,8 +108,8 @@ des plans non structurés restent inchangés.
 
 ### Exemple Grid concret
 
-Ce design croise taille de population, recodage de l'âge et seuil de cellule de
-donneurs. Deux seeds de réplication donnent `2 × 2 × 3 × 2 = 24` positions :
+Ce design croise taille de population, méthode de synthèse du revenu et seuil
+de cellule de donneurs. Deux seeds de réplication donnent `2 × 2 × 3 × 2 = 24` positions :
 
 ```yaml
 experiment:
@@ -146,7 +117,7 @@ experiment:
   seeds: [1201, 1202]
 parameters:
   sampling_rate: [0.001, 0.002]
-  matching_age_scheme: [matching_6, analysis_7]
+  income_assignation_method: [uniform, bhepop2]
   matching_minimum_observations: [5, 20, 50]
 ```
 
@@ -170,8 +141,8 @@ parameters:
 ### Exemple Sobol concret
 
 Pour Sobol, la seed est elle-même un facteur, construit à partir de
-`experiment.seeds`. Ajouter le seuil de cellule aux facteurs générés donne
-`D=4` ; avec `N=64`, le plan Saltelli complet contient
+`experiment.seeds`. Faire varier le taux, la méthode de synthèse du revenu et
+le seuil de cellule, plus le facteur seed, donne `D=4` ; avec `N=64`, le plan Saltelli complet contient
 `64 × (2×4+2) = 640` positions avant déduplication :
 
 ```yaml
@@ -181,7 +152,7 @@ experiment:
   base_sample_size: 64
 parameters:
   sampling_rate: [0.001, 0.002, 0.005]
-  matching_age_scheme: [matching_6, analysis_7]
+  income_assignation_method: [uniform, bhepop2]
   matching_minimum_observations: [5, 20, 50]
 ```
 

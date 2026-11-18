@@ -117,7 +117,7 @@ variation needed for the calculation, but nobody will "learn the seed more
 accurately." It therefore remains diagnostic and receives no actionable FP rank.
 
 Every factor declared under `parameters` must already exist under `config:` in
-the sealed model; the seed factor needs no model key. Never declare
+your Nantes eqasim configuration; the seed factor needs no model key. Never declare
 `random_seed` or `seed` under `parameters`.
 
 The support and equal probabilities must be justified by the study. A convenient
@@ -176,7 +176,7 @@ uv run --project "$ROOT/eqasim-sa" --locked python \
   "$ROOT/eqasim-sa/protocols/nantes-scientific/render_protocol.py" \
   "$ROOT/eqasim-sa/protocols/nantes-scientific/03-multiscramble-fp.yml" \
   "$ROOT/rendered/multiscramble-fp.yml" \
-  --model-config "$ROOT/eqasim-france/config_local_nantes.yml" \
+  --model-config "$ROOT/eqasim-france/config_nantes.yml" \
   --model-root "$ROOT/eqasim-france" \
   --data-manifest "$ROOT/mon-analyse-sa/manifest.json" \
   --lockfile "$ROOT/eqasim-france/uv.lock" \
@@ -187,7 +187,10 @@ uv run --project "$ROOT/eqasim-sa" --locked python \
 ```
 
 The renderer refuses to produce the YAML if the screening evidence is missing,
-incomplete, unstable, or incompatible.
+incomplete, unstable, or incompatible. `config_nantes.yml` is the same copy of
+the Nantes eqasim configuration as for canonical Morris. The renderer also
+checks that the screening campaign was planned with the same eqasim code
+fingerprint, data manifest, lockfile, and `eqasim-sa` version.
 
 ### 6. Plan, estimate, and run
 
@@ -258,7 +261,7 @@ uv run --project "$ROOT/eqasim-sa" --locked python \
   "$ROOT/eqasim-sa/protocols/nantes-scientific/render_protocol.py" \
   "$ROOT/eqasim-sa/protocols/nantes-scientific/04-multiscramble-ff.yml" \
   "$ROOT/rendered/multiscramble-ff.yml" \
-  --model-config "$ROOT/eqasim-france/config_local_nantes.yml" \
+  --model-config "$ROOT/eqasim-france/config_nantes.yml" \
   --model-root "$ROOT/eqasim-france" \
   --data-manifest "$ROOT/mon-analyse-sa/manifest.json" \
   --lockfile "$ROOT/eqasim-france/uv.lock" \

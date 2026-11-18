@@ -20,8 +20,8 @@ eqasim-sa init --project-name NAME [options]
 | --- | --- | --- | --- |
 | `--project-name NAME` | oui | aucun | segment sûr de 1 à 64 caractères |
 | `--directory PATH` | non | `./NAME` | destination du projet |
-| `--model-root PATH` | non | `./eqasim-france` | racine du modèle |
-| `--model-config FILE` | non | `config_local_nantes.yml` | chemin relatif à `model-root`, sans `..` |
+| `--model-root PATH` | non | `./eqasim-france` | dossier eqasim (Git n'est pas nécessaire) |
+| `--model-config FILE` | non | `config.yml` | configuration eqasim, relative à `--model-root` ou absolue ; écrite comme `model.config` dans les modèles |
 | `--data-path PATH` | non | `./eqasim-data` | arbre de données à hacher |
 | `--scratch PATH` | non | `<directory>/scratch` | scratch local, créé si absent |
 | `--invocation ARG` | non, répétable | `uv run --locked python -m synpp` | un argument par occurrence, dans l'ordre |
@@ -42,8 +42,8 @@ eqasim-sa show-config PATH
 
 Affiche la méta-configuration complète, toutes valeurs par défaut appliquées
 (voir [Valeurs par défaut et `show-config`](yaml-reference.md#valeurs-par-défaut-et-show-config)).
-Le fichier est validé comme pour `plan` (dépôt du modèle propre, facteurs
-présents dans la configuration du modèle), mais les répertoires scratch et de
+Le fichier est validé comme pour `plan` (dossier eqasim et configuration
+trouvés, facteurs présents dans la configuration du modèle), mais les répertoires scratch et de
 données n'ont pas besoin d'exister et aucun bloc `execution` n'est requis.
 
 En cas de succès, le YAML résolu est écrit sur la sortie standard et le code de
@@ -78,7 +78,7 @@ Sans `--smoke`, les contrôles sont :
 
 | Contrôle | Vérification |
 | --- | --- |
-| `metaConfig` | YAML, contexte Git, facteurs et chemins |
+| `metaConfig` | YAML, empreinte du code d'eqasim et contexte, facteurs, sorties déclarées et chemins |
 | `sealedPlan` | égalité du plan avec le design recalculé |
 | `uniqueConfigSeedPairs` | absence de doublons Grid; validation scellée pour OAT discret, Morris canonique et Sobol |
 | `eqasimEnvironment` | sonde synpp avec un chemin de configuration inexistant |
@@ -89,8 +89,8 @@ d'environnement utilise au plus 20 secondes de ce budget.
 
 `--smoke` n'est pas statique. Si les contrôles précédents passent, il exécute
 deux runs eqasim temporaires réels avec les deux premières seeds distinctes et
-`sampling_rate: 0.001`, valide leurs marqueurs et leurs Parquet, puis supprime le
-répertoire temporaire. Ce répertoire est `<execution.scratch>/.smoke-<8 hex>/` :
+`sampling_rate: 0.001`, valide leurs marqueurs et vérifie que chaque fichier de
+sortie déclaré a été archivé, puis supprime le répertoire temporaire. Ce répertoire est `<execution.scratch>/.smoke-<8 hex>/` :
 l'estimation `path_length` couvre donc aussi les runs du smoke. Il exige `sampling_rate` et deux seeds explicites. Il
 n'applique pas `execution.machine_options` : sa configuration de départ est le
 YAML modèle scellé. Ainsi, `execution.machine_options.data_path` est ignoré par
@@ -111,7 +111,7 @@ eqasim-sa estimate --meta-config PATH \
 Exige un plan cible, un bloc `execution` et au moins un run complet parmi la
 cible ou les campagnes de calibration. Pour chaque observation, `duration` et
 `scratchBytes` viennent du marqueur, tandis que les octets durables sont mesurés
-sur le marqueur et tous les fichiers Parquet de l'archive. Le calcul utilise la
+sur le marqueur et tous les fichiers de l'archive. Le calcul utilise la
 moyenne des durées et tailles durables, et le maximum du cache par worker.
 
 Champs JSON : `status`, `estimateVersion`, `method`, `formula`,
@@ -137,8 +137,10 @@ Champs JSON : `status`, `total`, `completed`, `skipped`, `failed`, `failures`,
 eqasim-sa analyze --meta-config PATH
 ```
 
-Recalcule les indicateurs depuis les archives et publie atomiquement les sorties
-d'analyse. Champs JSON : `status`, `path`, `runs`, `indicators`, `values`,
+Recalcule les indicateurs depuis les fichiers de sortie archivés et publie
+atomiquement les sorties d'analyse. Les colonnes des sorties (`category`,
+`simulated`, `references`) et les indicateurs sont lus dans la
+méta-configuration courante : on peut donc les corriger après les runs. Champs JSON : `status`, `path`, `runs`, `indicators`, `values`,
 `completionRate`, `expected`, `completed`, `missing`, `failed`,
 `dispersionPath`, `sensitivityMethod`, `sensitivityPath`, `convergencePath`,
 `rankReversalsPath`, `byScramblePath`, `diagnosticsPath`, `noiseFloorPath`,

@@ -4,8 +4,15 @@
 
 `eqasim-sa` plans, runs, and analyzes sensitivity analysis campaigns for a
 synpp-driven eqasim pipeline. Its current vocabulary is Grid, discrete OAT,
-canonical Morris, demonstration Sobol, and multi-scramble Sobol. It provides deterministic plans, per-run resumption,
-indicators computed from Parquet outputs, and local and SLURM backends.
+canonical Morris, demonstration Sobol, and multi-scramble Sobol. It provides
+deterministic plans, per-run resumption, byte-for-byte archives of the output
+files you declare, indicators computed from those files (`tv_distance`,
+`share`, `value`), and local and SLURM backends.
+
+It works with the official, unmodified eqasim: point it at an eqasim folder
+(a clone, a copy, or an archive) and the configuration file of your study.
+Git is not required; the eqasim code is identified by a fingerprint of its
+content, and synpp runs the `run:` list of your eqasim configuration as it is.
 
 All generated starters, including calibration, Grid, discrete OAT, and Sobol,
 are demonstrations: they
@@ -15,10 +22,8 @@ its scientific claims, uncertainty model, estimand, budget, convergence criteria
 and robustness checks must be study-specific. The generated `03-sobol.yml`
 is a demonstration: its single scramble and row bootstrap are noninferential.
 
-The generated Grid and Sobol examples vary the scalar eqasim-france
-`matching_age_scheme`; discrete OAT leaves this categorical factor fixed, and
-`analysis_age_scheme` remains fixed so output distributions stay comparable.
-Discrete OAT uses adjacent numeric levels and local normalized effects; it is not
+The generated starters vary only `sampling_rate`, a parameter of the official
+eqasim configuration. Discrete OAT uses adjacent numeric levels and local normalized effects; it is not
 canonical Morris. Canonical Morris is supported only for scientific screening,
 not factor prioritization or factor fixing. Scientific canonical Morris targets
 the conditional mean over simulator seeds. Its `stochastic` charter declares a
@@ -75,13 +80,19 @@ cd "$ROOT/mon-etude"
 
 `init` generates only a template project and `manifest.json`, which hashes the
 data tree. It does not create a plan and does not run synpp, a campaign, or an
-analysis.
+analysis. The starters use the official `config.yml` of the eqasim folder; add
+`--model-config config_nantes.yml` to use a copy of your own.
+
+Before planning, add `analysis.synthesis.population` to the `run:` list of that
+eqasim configuration: the `age`, `distance`, and `nbr_vehicle` outputs compared
+by the starters are written by that stage, and the official `config.yml` lists
+only `synthesis.output`. eqasim-sa refuses to load a starter otherwise.
 
 ## The configuration file
 
 Each experiment is one short YAML file. The generated `configs/01-grid.yml`
 starts with what you choose: the method and its seeds, the parameter values to
-try, and the model outputs to compare with reference data.
+try, the output files to keep, and the outputs to compare with reference data.
 
 ```yaml
 campaign: mon-etude-grid
@@ -90,8 +101,13 @@ experiment:
   seeds: [1201, 1202]
 parameters:
   sampling_rate: [0.001, 0.002]
-  matching_age_scheme: [matching_6, analysis_7]
 outputs:
+  persons: {}
+  households: {}
+  trips: {}
+  activities: {}
+  activities_spatial:
+    file: "{prefix}activities.gpkg"
   age:
     category: Age class
     simulated: Proportion_EQASIM
@@ -109,9 +125,11 @@ calibration:
 ```
 
 Below a comment line, `init` has filled in the machine-specific `model` and
-`execution` paths. Every omitted key takes a default value: the campaign folder
-is `../campaigns/<campaign>`, and without an `indicators` block the total
-variation distance is computed for every output against each of its references.
+`execution` paths. Every omitted key takes a default value: the known eqasim
+outputs such as `persons` or `age` have default files, the campaign folder is
+`../campaigns/<campaign>`, and without an `indicators` block the total variation
+distance is computed for every output against each of its references. Custom
+quantities are computed in an eqasim analysis stage and read with `value`.
 To see the complete configuration, defaults included:
 
 ```bash
@@ -141,8 +159,8 @@ calibrate eqasim's scientific parameters.
 ## Structured matching configurations
 
 Grid can compare named ordered `matching_attributes` lists while preserving the
-resolved list in run identity and execution. The model YAML must already contain
-the active list-valued key; use a new campaign name for the derived target. See
+resolved list in run identity and execution. Your eqasim configuration must
+already contain the active list-valued key; use a new campaign name for the derived target. See
 the [practical structured-configurations tutorial](docs/structured-configurations-tutorial.md).
 
 ## Documentation

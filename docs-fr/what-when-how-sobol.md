@@ -6,7 +6,8 @@
 
 ## En bref
 
-Le starter `sobol` fait varier plusieurs entrées, puis calcule des indices de
+Le starter `sobol` fait varier ses entrées (le taux d'échantillonnage et la
+graine du simulateur), puis calcule des indices de
 premier ordre et d'ordre total. Il utilise cependant une seule séquence de Sobol
 randomisée, appelée **scramble**, et un bootstrap des lignes de cette même
 séquence.
@@ -40,8 +41,8 @@ commandes depuis ce projet généré.
 ### 1. Comprendre la démonstration générée
 
 Après `eqasim-sa init`, le fichier rendu `configs/03-sobol.yml` pose une petite
-question de plomberie : « Les valeurs numériques, les catégories et les seeds
-finies traversent-elles correctement tout le workflow ? »
+question de plomberie : « Les valeurs numériques et un ensemble fini de seeds
+traversent-ils correctement tout le workflow ? »
 
 Sa partie expérience se lit ainsi :
 
@@ -50,16 +51,16 @@ campaign: mon-analyse-sa-sobol
 experiment:
   method: sobol
   seeds: [1401, 1402]
-  base_sample_size: 4
+  base_sample_size: 8
 parameters:
   sampling_rate: [0.001, 0.002]
-  matching_age_scheme: [matching_6, analysis_7]
 analysis:
   bootstrap_resamples: 99
 ```
 
-Le reste du fichier déclare les trois sorties, le fichier de calibration, le
-modèle et l'exécution locale. Les clés omises prennent leur valeur par défaut :
+Le reste du fichier déclare les sorties (les fichiers de population et les
+trois distributions comparées aux données de référence), le fichier de
+calibration, le modèle et l'exécution locale. Les clés omises prennent leur valeur par défaut :
 sans `charter`, la campagne est une démonstration, l'analyse utilise
 `completeness_threshold: 1.0` et `confidence_level: 0.95`, et la graine de design
 est dérivée du nom de campagne. Seul `bootstrap_resamples` est abaissé à 99 pour
@@ -68,8 +69,11 @@ garder la démonstration rapide. `show-config` affiche toutes les valeurs.
 Le fichier source `src/eqasim_sa/templates/03-sobol.yml` contient des
 placeholders. Exécutez la copie rendue dans votre projet, pas ce fichier source.
 
-Les deux paramètres doivent déjà exister sous `config:` dans le modèle scellé.
-Le facteur seed n'a besoin d'aucune clé du modèle. N'ajoutez jamais
+`sampling_rate` doit exister sous `config:` dans votre configuration eqasim ; le
+`config.yml` officiel le contient déjà. Comme pour tous les modèles, la liste
+`run:` de cette configuration doit contenir `analysis.synthesis.population`
+(voir [Démarrage](getting-started.md#préparer-votre-configuration-eqasim)). Le
+facteur seed n'a besoin d'aucune clé du modèle. N'ajoutez jamais
 `random_seed` ni `seed` sous `parameters`.
 
 ### 2. Comprendre ce qui est mesuré
@@ -87,22 +91,20 @@ classes synthétiques utilisent la distance euclidienne entre activités, tandis
 que HTS utilise la distance routée.
 
 La TV va de `0` à `1` ; une valeur plus faible indique des distributions plus
-proches. Le paramètre `matching_age_scheme` touche au matching, tandis que
-`analysis_age_scheme` reste fixé à `analysis_7` dans le modèle pour garder les
-classes de sortie comparables.
+proches.
 
 ### 3. Comprendre la taille du plan
 
-Sobol compte `D = 3` facteurs : `sampling_rate`, `matching_age_scheme` et
-`seed`. Avec `N = 4`, le plan contient :
+Sobol compte `D = 2` facteurs : `sampling_rate` et `seed`. Avec `N = 8`, le
+plan contient :
 
 ```text
-N(2D+2) = 4 × (2×3+2) = 32 positions
+N(2D+2) = 8 × (2×2+2) = 48 positions
 ```
 
 La projection sur seulement deux valeurs par facteur crée des positions qui
-désignent le même réglage final. Le starter contient normalement **32 positions
-statistiques mais 8 runs uniques**. Ces duplications sont attendues dans cette
+désignent le même réglage final. Le starter contient **48 positions
+statistiques mais 4 runs uniques** (deux taux par deux seeds). Ces duplications sont attendues dans cette
 petite démonstration ; elles ne rendent pas le design scientifiquement suffisant.
 
 ### 4. Calibrer, planifier et exécuter
@@ -139,8 +141,7 @@ Voici une **illustration fictive**, et non un résultat Nantes :
 | Facteur | Premier ordre | Ordre total |
 | --- | ---: | ---: |
 | `sampling_rate` | `0.28` | `0.42` |
-| `matching_age_scheme` | `0.12` | `0.31` |
-| `seed` | `0.25` | `0.37` |
+| `seed` | `0.45` | `0.61` |
 
 Vous pouvez vérifier que le fichier est produit, que chaque facteur apparaît et
 que les colonnes sont finies. Vous ne devez pas transformer ce tableau fictif en
@@ -161,11 +162,14 @@ Le rapport `governed-report.json` l'indique avec
 
 Vous pouvez tester une autre entrée scalaire du modèle, par exemple
 `matching_minimum_observations: [5, 20, 50]`, dans une **nouvelle** campagne
-(un nouveau nom `campaign`). Le coût suit toujours `N(2D+2)`.
+(un nouveau nom `campaign`), après avoir écrit ce paramètre dans la section
+`config:` de votre configuration eqasim. Le coût suit toujours `N(2D+2)`.
 
-N'ajoutez `income_assignation_method` que si vous disposez d'un indicateur de
-revenu adapté : les trois indicateurs du starter ne mesurent pas directement le
-revenu. N'ajoutez `hts` que si les deux jeux de données préparés existent, car ce
+N'ajoutez `income_assignation_method` (`[uniform, bhepop2]`) que si vous
+disposez d'un indicateur de revenu adapté : les trois indicateurs du starter ne
+mesurent pas directement le revenu. Calculez une mesure de revenu dans une étape
+d'analyse eqasim et lisez-la avec un indicateur `value` (voir
+[Vos propres calculs](yaml-reference.md#vos-propres-calculs)). N'ajoutez `hts` que si les deux jeux de données préparés existent, car ce
 paramètre change à la fois les donneurs et les références HTS.
 
 Pour comparer simplement des catégories ou des listes structurées, préférez

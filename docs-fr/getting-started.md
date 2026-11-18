@@ -7,8 +7,8 @@
 - Windows 10 ou ultérieur, macOS 13 ou ultérieur, ou Linux (pris en charge ; vérification sous Windows et macOS en attente, voir la [vérification des plateformes](../docs/platform-verification.md)). Le backend `local` se comporte de la même façon sur les trois ; le backend `slurm` exige Linux (voir le [dépannage](troubleshooting.md#backend-slurm-sous-windows-ou-macos)). Aucun droit administrateur n'est nécessaire, sauf sous Windows sans chemins longs, où un run eqasim réel exige qu'un administrateur les active une fois (voir [Scratch court sous Windows](#scratch-court-sous-windows)).
 - Campagnes, scratch et données sur un disque local NTFS, APFS, ext4 ou xfs, ou sur le système de fichiers partagé du cluster. Les volumes FAT/exFAT et les partages SMB ne sont pas pris en charge pour les campagnes (non détectés : eqasim-sa ne les refuse pas, vérifiez donc où se trouvent vos chemins).
 - Python 3.13 exactement dans la plage déclarée `>=3.13,<3.14`.
-- `uv` et Git disponibles.
-- Un dépôt eqasim propre, avec un commit `HEAD`, un YAML suivi par Git et un `uv.lock`.
+- `uv` disponible. Git n'est pas nécessaire.
+- Un dossier eqasim (un clone, une copie ou une archive décompressée) contenant son fichier de configuration (par défaut `config.yml`) et un `uv.lock`.
 - Un répertoire de données existant sans liens symboliques pour `init`.
 - L'environnement synpp requis par eqasim. `synpp` n'est pas une dépendance Python d'`eqasim-sa`.
 
@@ -53,6 +53,12 @@ dans une méta-configuration entre, lui, dans le contexte scientifique scellé.
   --model-root "$ROOT/eqasim-france" \
   --data-path "$ROOT/eqasim-data"
 ```
+
+`--model-config` désigne la configuration eqasim de votre étude, relative à
+`--model-root` ou absolue ; elle vaut par défaut `config.yml`, le fichier
+officiel. Si vous travaillez sur une copie, par exemple `config_nantes.yml` à
+côté de `config.yml`, ajoutez `--model-config config_nantes.yml`. Les modèles
+contiennent alors `config: config_nantes.yml`.
 
 `init` est strictement un générateur atomique de modèle. Il rend quatre YAML,
 un README et un `manifest.json` contenant la taille et le SHA-256 de chaque
@@ -130,6 +136,36 @@ utilisera, toutes valeurs par défaut écrites :
 `show-config` affiche du YAML, pas du JSON. Si le fichier est invalide, la
 commande écrit l'erreur sur la sortie d'erreur et se termine avec le code 1.
 
+## Préparer votre configuration eqasim
+
+Les modèles fonctionnent avec eqasim officiel, non modifié. Avant le premier
+`plan`, vérifiez deux points dans la configuration eqasim désignée par
+`model.config` :
+
+- Sa liste `run:` doit contenir `analysis.synthesis.population`. Les modèles
+  comparent les distributions `age`, `distance` et `nbr_vehicle` aux données du
+  recensement et des enquêtes, et ces fichiers sont écrits par cette étape
+  d'eqasim. Le `config.yml` officiel ne liste que `synthesis.output` ; ajoutez
+  la seconde étape :
+
+  ```yaml
+  run:
+    - synthesis.output
+    - analysis.synthesis.population
+  ```
+
+  eqasim-sa exécute `run:` exactement tel qu'il est écrit. Si l'étape manque,
+  le chargement s'arrête avec `output 'age' is written by eqasim stage
+  'analysis.synthesis.population', which is not in run: of ...`.
+- Chaque paramètre que vous faites varier doit être écrit dans sa section
+  `config:`. Les modèles ne font varier que `sampling_rate`, que la
+  configuration officielle contient. Pour en faire varier un autre, par exemple
+  `matching_minimum_age`, écrivez-le d'abord dans `config:`.
+
+Modifier ce fichier après le scellement d'un plan change l'identité de la
+campagne : faites ces modifications avant de planifier, ou utilisez ensuite une
+nouvelle campagne.
+
 ## Première calibration des ressources
 
 Depuis `mon-analyse-sa/`, sceller puis exécuter la calibration :
@@ -179,8 +215,8 @@ bonne méthode et la limite des revendications.
 
 ## Première cible structurée
 
-Pour comparer des listes ordonnées `matching_attributes` nommées, committez
-d'abord une clé active sous forme de liste dans le dépôt modèle propre, puis
+Pour comparer des listes ordonnées `matching_attributes` nommées, écrivez
+d'abord une clé active sous forme de liste dans votre configuration eqasim, puis
 dérivez une configuration Grid avec une nouvelle campagne/racine. Le
 [tutoriel des configurations structurées](structured-configurations-tutorial.md)
 couvre les six runs, les métadonnées du plan, l'inspection de l'analyse et les
@@ -194,10 +230,10 @@ Les commandes `plan` renvoient un objet JSON avec `status`, `designPositions` et
 
 | Étape | JSON minimal à la première exécution | Fichiers attendus après `run`/`analyze` |
 | --- | --- | --- |
-| Calibration | `plan`: `created`, 3 positions, 3 runs uniques; `run`: `completed`, 3 complétés | `campaigns/mon-analyse-sa-calibration/plan.parquet`, 3 marqueurs sous `runs/`, 3 archives |
-| Grid | `plan`: `created`, 8 positions, 8 runs uniques; `run`: 8 complétés; `analyze`: `completed` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `replication-dispersion.parquet`, `output-summary.parquet`, `governed-report.json` |
+| Calibration | `plan`: `created`, 3 positions, 3 runs uniques; `run`: `completed`, 3 complétés | `campaigns/mon-analyse-sa-calibration/plan.parquet`, 3 marqueurs sous `runs/`, 3 archives de huit fichiers chacune (`persons.csv`, …, `activities_spatial.gpkg`, `age.csv`, `distance.csv`, `nbr_vehicle.csv`) |
+| Grid | `plan`: `created`, 4 positions, 4 runs uniques; `run`: 4 complétés; `analyze`: `completed` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `replication-dispersion.parquet`, `output-summary.parquet`, `governed-report.json` |
 | OAT discret | `plan`: `created`, 8 positions, 6 runs uniques; `run`: 6 complétés; `analyze`: sensibilité `discrete_oat` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `replication-dispersion.parquet`, `discrete-oat-effects.parquet`, `output-summary.parquet`, `governed-report.json` |
-| Sobol | `plan`: `created`, 32 positions, 8 runs uniques; `run`: 8 complétés; `analyze`: sensibilité `sobol` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `sobol-indices.parquet`, `output-summary.parquet`, `governed-report.json` |
+| Sobol | `plan`: `created`, 48 positions, 4 runs uniques; `run`: 4 complétés; `analyze`: sensibilité `sobol` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `sobol-indices.parquet`, `output-summary.parquet`, `governed-report.json` |
 
 Une relance identique de `plan` renvoie `unchanged`. Une campagne déjà complète
 renvoie pour `run` `status: completed` et `total: 0`.
@@ -207,7 +243,7 @@ renvoie pour `run` `status: completed` et `total: 0`.
 - Les quatre plans correspondent aux cardinalités attendues ou à votre design documenté.
 - Chaque `runId` attendu possède un marqueur valide et une archive lisible.
 - `analyze` annonce `status: completed` et le taux de complétude attendu.
-- Les schémas et colonnes des Parquet de sorties correspondent aux déclarations `outputs`.
+- Les noms de colonnes des fichiers CSV archivés correspondent aux déclarations `category`, `simulated` et `references` sous `outputs`.
 - Les sorties de démonstration Grid, OAT discret et Sobol ont été inspectées, pas seulement créées.
 - Le Sobol généré est une démonstration non inférentielle. Une campagne scientifique
   multi-scramble doit être rédigée séparément; aucun starter n'est fourni.

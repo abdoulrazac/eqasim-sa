@@ -7,12 +7,24 @@ petite campagne Grid. Il démontre de bout en bout la configuration, l'exécutio
 le stockage et l'analyse. Ce n'est pas une campagne scientifique et ses sorties
 ne soutiennent aucune revendication inférentielle ou décisionnelle.
 
-## 1. Préparer le modèle avant l'initialisation
+## 1. Préparer la configuration eqasim avant l'initialisation
 
-Le YAML eqasim-france actif indiqué par `--model-config` doit déjà contenir
-`config.matching_attributes` sous forme de liste de chaînes. Par exemple :
+Travaillez sur une copie de la configuration officielle, placée dans le dossier
+eqasim, pour laisser le fichier officiel intact :
+
+```bash
+cp "$ROOT/eqasim-france/config.yml" "$ROOT/eqasim-france/config_nantes.yml"
+```
+
+Dans `config_nantes.yml`, écrivez `config.matching_attributes` sous forme de
+liste de chaînes, et vérifiez que `run:` contient
+`analysis.synthesis.population`, qui écrit les sorties `age`, `distance` et
+`nbr_vehicle` comparées par les modèles :
 
 ```yaml
+run:
+  - synthesis.output
+  - analysis.synthesis.population
 config:
   matching_attributes:
     - sex
@@ -22,25 +34,17 @@ config:
     - departement_id
 ```
 
-Ajoutez cette clé au YAML suivi réellement chargé par eqasim-france, pas à une
-copie locale non suivie. Faites-le avant `init` ou tout `plan`, committez-le et
-laissez l'ensemble du dépôt modèle propre :
-
-```bash
-git -C "$ROOT/eqasim-france" add config_local_nantes.yml
-git -C "$ROOT/eqasim-france" commit -m "Declare matching attributes"
-git -C "$ROOT/eqasim-france" status --short
-```
-
-La dernière commande ne doit rien afficher. Adaptez le nom si `init` reçoit un
-autre `--model-config`. Le commit modèle entre dans `contextHash` : après le
-scellement d'un plan, sa modification impose un nouveau projet ou, au minimum,
-un nouveau `campaign` (donc un nouveau dossier de campagne vide). Ne recouvrez jamais une
+Gardez les autres clés de la copie telles quelles. Faites-le avant `init` ou
+tout `plan`. Git n'est pas nécessaire. Le contenu de ce fichier, comme le code
+d'eqasim, fait partie de l'identité de la campagne : après le scellement d'un
+plan, sa modification impose un nouveau projet ou, au minimum, un nouveau
+`campaign` (donc un nouveau dossier de campagne vide). Ne recouvrez jamais une
 campagne existante avec un contexte modifié.
 
 ## 2. Initialiser ou rejoindre un projet généré
 
-Initialisez après le commit modèle :
+Initialisez avec cette configuration ; `--model-config` est lu depuis le
+dossier eqasim :
 
 ```bash
 ROOT="$(pwd -P)"
@@ -49,12 +53,14 @@ PY=(uv run --project "$ROOT/eqasim-sa" --locked python)
 "${SA[@]}" init \
   --project-name matching-structures \
   --model-root "$ROOT/eqasim-france" \
+  --model-config config_nantes.yml \
   --data-path "$ROOT/eqasim-data"
 cd "$ROOT/matching-structures"
 ```
 
-Un projet généré existant convient aussi si ses chemins modèle désignent ce YAML
-suivi et si aucune racine de campagne n'est réutilisée après le changement de
+Les fichiers générés contiennent alors `config: config_nantes.yml` sous `model`.
+Un projet généré existant convient aussi si son `model.config` désigne cette
+configuration et si aucune racine de campagne n'est réutilisée après le changement de
 contexte. Utilisez le tableau `SA=(...)` de son `README.md` s'il diffère.
 Pour les extraits d'inspection, définissez `PY=(python)` si eqasim-sa et PyArrow
 sont installés dans l'environnement Python actif.
@@ -95,11 +101,12 @@ parameters:
 ```
 
 La ligne `campaign` remplace la ligne de premier niveau existante ; n'en ajoutez
-pas une seconde copie. Le bloc `parameters` remplace les deux facteurs du
-starter. Gardez tous les autres blocs de `01-grid.yml`, notamment :
+pas une seconde copie. Le bloc `parameters` remplace le facteur du starter
+(`sampling_rate`). Gardez tous les autres blocs de `01-grid.yml`, notamment :
 
 - `method: grid` et les deux seeds de réplication `[1201, 1202]` ;
-- les trois `outputs`, qui donnent par défaut les indicateurs âge/INSEE,
+- les `outputs` : les fichiers de population conservés avec chaque run, et les
+  trois distributions qui donnent par défaut les indicateurs âge/INSEE,
   distance/HTS et nombre de véhicules/HTS ;
 - le bloc `calibration.meta_configs` ;
 - les blocs `model` et `execution`, y compris `machine_options`.
@@ -264,12 +271,12 @@ l'étude.
 - Chaque charge est une liste ordonnée non vide de chaînes non vides uniques.
   Les labels sont non vides et les charges doivent être distinctes; les alias
   sont refusés.
-- La valeur du modèle de base doit déjà être une liste de chaînes. eqasim-sa ne
-  crée ni ne convertit cette clé.
+- La valeur de base dans votre configuration eqasim doit déjà être une liste de
+  chaînes. eqasim-sa ne crée ni ne convertit cette clé.
 - Les métadonnées du schéma v3 sont scellées et canoniques. Ne modifiez jamais à
   la main labels, lignes, `structuredFactors`, versions, `runId` ou marqueurs;
   toute métadonnée absente, réordonnée, aliasée ou non canonique est refusée.
-- Tout changement de design, charge, commit modèle, manifeste, lockfile ou
+- Tout changement de design, charge, code d'eqasim, manifeste, lockfile ou
   version impose un nouveau nom de campagne (donc un nouveau dossier). Conservez les anciens plans
   comme provenance immuable au lieu de les réparer sur place.
 

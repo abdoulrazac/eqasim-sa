@@ -42,15 +42,20 @@ Voici le modèle Grid qu'`init` écrit dans `configs/01-grid.yml`, ici pour un
 projet nommé `mon-analyse-sa` :
 
 ```yaml
-# Two rates by two matching schemes by two seeds: eight positions and eight unique runs.
+# Two rates by two seeds: four positions and four unique runs.
 campaign: mon-analyse-sa-grid
 experiment:
   method: grid
   seeds: [1201, 1202]
 parameters:
   sampling_rate: [0.001, 0.002]
-  matching_age_scheme: [matching_6, analysis_7]
 outputs:
+  persons: {}
+  households: {}
+  trips: {}
+  activities: {}
+  activities_spatial:
+    file: "{prefix}activities.gpkg"
   age:
     category: Age class
     simulated: Proportion_EQASIM
@@ -68,7 +73,7 @@ calibration:
 # --- Rempli par eqasim-sa init : à modifier seulement si la machine change ---
 model:
   root: ../../eqasim-france
-  config: ../../eqasim-france/config_local_nantes.yml
+  config: config.yml
   data_manifest: ../manifest.json
 execution:
   workers: 2
@@ -78,6 +83,10 @@ execution:
     processes: 1
 ```
 
+Le fichier généré contient aussi quelques lignes de commentaire (omises ici)
+qui rappellent le prérequis sur votre configuration eqasim et montrent comment
+ajouter un second paramètre.
+
 Lisez-le de haut en bas :
 
 - `campaign` nomme l'expérience. Ses résultats vont dans
@@ -86,16 +95,29 @@ Lisez-le de haut en bas :
   les graines de simulation (*seeds*). Chaque combinaison est exécutée une fois
   par graine.
 - `parameters` donne, pour chaque paramètre eqasim que vous faites varier, les
-  valeurs à essayer.
-- `outputs` indique où lire chaque sortie du modèle : la colonne des classes
-  (`category`), la colonne des proportions simulées (`simulated`) et les
-  colonnes de référence auxquelles la comparer (`references`). Sans bloc
-  `indicators`, la distance de variation totale est calculée pour chaque sortie
-  et chacune de ses références.
+  valeurs à essayer. Le modèle ne fait varier que `sampling_rate`, que la
+  configuration officielle d'eqasim contient déjà.
+- `outputs` liste les fichiers de chaque run qu'eqasim-sa conserve. Une sortie
+  eqasim connue comme `persons` n'a besoin de rien d'autre (`{}`) ;
+  `activities_spatial` n'est pas un nom connu, son fichier est donc écrit
+  explicitement. Pour les trois distributions `age`, `distance` et
+  `nbr_vehicle`, le bloc indique aussi la colonne des classes (`category`), la
+  colonne des proportions simulées (`simulated`) et les colonnes de référence
+  auxquelles les comparer (`references`). Sans bloc `indicators`, la distance
+  de variation totale est calculée pour chaque sortie et chacune de ses
+  références.
 - `calibration` désigne le fichier de calibration des ressources utilisé par
   `check` et `estimate`.
-- La partie sous la ligne de commentaire contient les chemins du modèle, de ses
-  données et du répertoire de travail temporaire sur cette machine.
+- La partie sous la ligne de commentaire contient les chemins du dossier
+  eqasim, de son fichier de configuration, des données et du répertoire de
+  travail temporaire sur cette machine. `config: config.yml` est lu depuis le
+  dossier eqasim (`model.root`).
+
+Avant toute planification, ouvrez votre copie de la configuration eqasim et
+vérifiez que sa liste `run:` contient `analysis.synthesis.population` : les
+fichiers `age`, `distance` et `nbr_vehicle` sont écrits par cette étape
+d'eqasim, et le `config.yml` officiel ne liste que `synthesis.output`. Voir
+[Ce qu'eqasim exécute](#ce-queqasim-exécute).
 
 ## Valeurs par défaut et `show-config`
 
@@ -111,6 +133,9 @@ Quand une clé est omise, eqasim-sa applique les valeurs par défaut suivantes.
 | `analysis.completeness_threshold` | `1.0` (toutes les méthodes) |
 | `analysis.bootstrap_resamples` | `999` (Sobol, Morris canonique) |
 | `analysis.confidence_level` | `0.95` (Sobol, Morris canonique, Sobol multi-scramble) |
+| `outputs.NOM.file`, `outputs.NOM.separator` (sortie connue) | le fichier et le séparateur eqasim indiqués dans [Sorties connues](#sorties-connues-et-leurs-fichiers) |
+| `outputs.NOM.separator` (autre sortie) | `,` |
+| `outputs.NOM.references` | une liste vide |
 | `indicators` | une distance de variation totale pour chaque sortie qui a au moins une référence |
 | `execution.backend` | `local` (seulement si un bloc `execution` est présent) |
 | `execution.workers` | `1` (seulement si un bloc `execution` est présent) |
@@ -139,8 +164,8 @@ Pour voir le fichier complet qu'eqasim-sa utilise réellement :
 "${SA[@]}" show-config configs/01-grid.yml
 ```
 
-La commande valide le fichier comme le fait `plan` (dépôt du modèle propre,
-facteurs présents dans la configuration eqasim), puis affiche le YAML complet
+La commande valide le fichier comme le fait `plan` (dossier eqasim et
+configuration trouvés, facteurs présents dans la configuration eqasim), puis affiche le YAML complet
 sur la sortie standard, toutes valeurs par défaut appliquées. Les chemins sont
 affichés tels que vous les avez écrits : la sortie est elle-même une
 méta-configuration valide. Si le fichier est invalide, le message d'erreur part
@@ -172,7 +197,7 @@ inconnue est une erreur, et le message liste les clés permises à ce niveau.
 | `experiment` | requise | méthode et graines |
 | `parameters` | requise | paramètres eqasim que l'on fait varier, et leurs valeurs |
 | `analysis` | facultative | réglages de l'analyse |
-| `outputs` | facultative | sorties du modèle et leurs colonnes de référence |
+| `outputs` | requise | fichiers conservés de chaque run, et colonnes que les indicateurs y lisent |
 | `indicators` | facultative | grandeurs calculées à partir des sorties |
 | `execution` | facultative pour `plan` et `analyze` ; requise pour `run`, `check` et `estimate` | façon d'exécuter les runs sur cette machine |
 | `calibration` | facultative | fichiers de calibration des ressources |
@@ -191,7 +216,7 @@ avec le `campaign_root` par défaut, la campagne reçoit aussi un nouveau dossie
 ```yaml
 model:
   root: ../../eqasim-france
-  config: ../../eqasim-france/config_local_nantes.yml
+  config: config.yml
   data_manifest: ../manifest.json
   lockfile: ../../eqasim-france/uv.lock
 ```
@@ -199,20 +224,54 @@ model:
 `root`, `config` et `data_manifest` sont requises ; `lockfile` est facultative
 et vaut par défaut `<root>/uv.lock`. Ce sont quatre chaînes de chemin.
 
-`root` est la racine exacte d'un dépôt Git, et ce dépôt doit être propre.
-`config` doit être un fichier ordinaire sous cette racine, suivi par Git et
-identique au blob de `HEAD`. `data_manifest` et `lockfile` sont des fichiers
-ordinaires dont le contenu est haché en SHA-256. Le chargement ne valide pas la
-structure interne du manifeste ; `init` le génère et le valide lors d'une
-relance.
+`root` est le dossier eqasim : un clone, une copie ou une archive décompressée
+fonctionnent de la même façon. Git n'est pas nécessaire, et eqasim-sa ne
+l'appelle jamais. `root` doit être un répertoire existant qui n'est pas un lien
+symbolique.
 
-Le `contextHash` dérive de quatre chaînes : le commit eqasim, le SHA-256 du
-manifeste, le SHA-256 du lockfile et la version installée d'`eqasim-sa`. Sa
-définition exacte est :
+`config` est le fichier de configuration eqasim de votre étude. Un chemin
+relatif est lu depuis `root`, exactement comme quand vous lancez eqasim
+vous-même depuis son dossier : `config: config.yml` désigne le fichier
+officiel, et `config: config_nantes.yml` une copie que vous avez faite à côté.
+Un chemin absolu est aussi accepté : le fichier peut alors se trouver hors du
+dossier eqasim. Il doit s'agir d'un fichier ordinaire ; il n'a pas besoin
+d'être sous gestion de versions. Son contenu fait partie de l'identité de la
+campagne.
+
+`data_manifest` et `lockfile` sont des fichiers ordinaires dont le contenu est
+haché en SHA-256. Le chargement ne valide pas la structure interne du
+manifeste ; `init` le génère et le valide lors d'une relance.
+
+### L'empreinte du code d'eqasim
+
+eqasim-sa identifie le code d'eqasim par une empreinte de son contenu : un
+SHA-256 calculé sur tous les fichiers `*.py` et `*.java` et tous les
+`pom.xml`, `pyproject.toml` et `uv.lock` situés sous `root`. Sont laissés de
+côté :
+
+- les dossiers dont le nom commence par un point (par exemple `.venv`) et les
+  dossiers `__pycache__` ;
+- les environnements virtuels Python et les environnements conda (tout dossier
+  qui contient `pyvenv.cfg` ou `conda-meta`) : installer des paquets ne change
+  donc jamais l'empreinte ;
+- les dossiers `working_directory` (cache) et `config.output_path` de la
+  configuration eqasim, quand ils se trouvent sous `root` ;
+- les liens symboliques et les jonctions Windows, ni suivis ni hachés.
+
+Le contenu des fichiers est haché avec des fins de ligne normalisées en LF, et
+les chemins sont triés, écrits avec `/` et normalisés en Unicode NFC : un même
+code donne la même empreinte sous Windows, macOS et Linux. Toute modification
+du code d'eqasim change l'empreinte, donc l'identité de la campagne. Pendant
+une campagne, chaque run recalcule l'empreinte et refuse de démarrer si le code
+a changé.
+
+Le `contextHash` dérive de quatre chaînes : l'empreinte du code d'eqasim, le
+SHA-256 du manifeste, le SHA-256 du lockfile et la version installée
+d'`eqasim-sa`. Sa définition exacte est :
 
 ```python
 context_descriptor = {
-    "eqasimCommit": commit,
+    "eqasimSourceSha256": eqasim_source_sha256,
     "dataManifestSha256": data_manifest_sha256,
     "lockfileSha256": lockfile_sha256,
     "eqasimSaVersion": version,
@@ -225,16 +284,20 @@ descriptor = json.dumps(
     allow_nan=False,
 ).encode("ascii")
 context_hash = hashlib.sha256(
-    b"eqasim-sa:context:v2\0" + descriptor
+    b"eqasim-sa:context:v3\0" + descriptor
 ).hexdigest()
 ```
 
-Le YAML eqasim chargé par `model.config` doit lui-même être un mapping compatible
-JSON contenant au minimum la structure suivante :
+### La configuration eqasim
+
+Le YAML eqasim chargé par `model.config` doit lui-même être un mapping
+compatible JSON contenant au minimum la structure suivante :
 
 ```yaml
 working_directory: /chemin/cache
-run: []
+run:
+  - synthesis.output
+  - analysis.synthesis.population
 config:
   sampling_rate: 0.001
   random_seed: 1
@@ -243,6 +306,38 @@ config:
 `working_directory` est une chaîne, `run` une liste et `config` un mapping. Le
 même chargeur sûr interdit alias, clés dupliquées, clés non textuelles et valeurs
 non compatibles JSON.
+
+### Ce qu'eqasim exécute
+
+eqasim-sa exécute la liste `run:` de votre configuration eqasim telle quelle :
+il n'ajoute, ne retire ni ne réordonne aucune étape. Chaque run ne change que
+les paramètres que l'on fait varier, la graine (`random_seed`), le dossier de
+cache (`working_directory`) et le dossier de sortie (`output_path`), qui
+pointent vers l'espace temporaire propre au run.
+
+La liste `run:` décide donc des fichiers présents à la fin d'un run. Le
+`config.yml` officiel ne liste que `synthesis.output`, qui écrit les fichiers
+de population (`persons`, `households`, `trips`, `activities`…). Les
+distributions comparées aux données du recensement et des enquêtes (`age`,
+`distance`, `nbr_vehicle`…) sont écrites par l'étape eqasim
+`analysis.synthesis.population` ; ajoutez-la à `run:` dans votre copie de la
+configuration :
+
+```yaml
+run:
+  - synthesis.output
+  - analysis.synthesis.population
+```
+
+Quand une sortie connue garde son fichier par défaut (voir
+[`outputs`](#outputs)) et que l'étape qui l'écrit manque dans `run:`, le
+chargement s'arrête avec un message comme :
+
+> output 'age' is written by eqasim stage 'analysis.synthesis.population',
+> which is not in run: of /chemin/eqasim-france/config.yml; add it to run: in
+> your eqasim config
+
+Le message donne le chemin complet de la configuration lue.
 
 ## `experiment`
 
@@ -521,6 +616,12 @@ infinis sont refusés. Le nom doit être une option synpp sûre, une clé active
 `model.config.config` et un identifiant de facteur valide et non réservé. Le nom
 `seed` est refusé : écrivez les graines dans [`experiment.seeds`](#graines).
 
+« Clé active » signifie que le paramètre est écrit dans la section `config:` de
+votre configuration eqasim. Le `config.yml` officiel n'en fixe que quelques-uns
+(comme `sampling_rate`) ; pour faire varier un autre paramètre d'eqasim, par
+exemple `matching_minimum_age`, écrivez-le d'abord dans `config:` avec sa
+valeur habituelle, puis listez-le sous `parameters`.
+
 Grid et OAT discret exigent au moins un facteur. À la création ou à la
 validation du plan, chaque domaine Grid doit être non vide et homogène. L'OAT
 discret exige des domaines numériques homogènes d'au moins deux niveaux
@@ -530,14 +631,15 @@ canoniques peuvent être numériques ou textuels, car la projection passe par la
 distribution déclarée.
 
 Pour inspecter les clés candidates et leurs types réels avant d'écrire
-`parameters`, exécutez depuis la racine du modèle :
+`parameters`, exécutez depuis le dossier eqasim (remplacez `config.yml` par
+votre fichier de configuration) :
 
 ```bash
 uv run --locked python - <<'PY'
 from pathlib import Path
 import yaml
 
-document = yaml.safe_load(Path("config_local_nantes.yml").read_text())
+document = yaml.safe_load(Path("config.yml").read_text())
 for name, value in sorted(document["config"].items()):
     print(f"{name}: {type(value).__name__} = {value!r}")
 PY
@@ -658,61 +760,122 @@ certification automatique des exigences d'arrêt ou de robustesse de la charte.
 
 ## `outputs`
 
-Une sortie est une table qu'eqasim écrit pour chaque run (un fichier Parquet par
-sortie). Le bloc indique à eqasim-sa quelles colonnes lire :
+`outputs` liste les fichiers de chaque run qu'eqasim-sa conserve, et les
+colonnes que les indicateurs peuvent y lire. Au moins une sortie est requise :
 
 ```yaml
 outputs:
+  persons: {}
+  activities_spatial:
+    file: "{prefix}activities.gpkg"
   age:
     category: Age class
     simulated: Proportion_EQASIM
     references: [INSEE]
 ```
 
-Chaque sortie exige exactement trois clés :
+Chaque sortie accepte cinq clés, toutes facultatives pour une sortie connue :
 
-- `category` : la colonne des classes (par exemple les classes d'âge) ;
-- `simulated` : la colonne des proportions produites par la simulation ;
-- `references` : les colonnes des proportions de référence (par exemple des
-  données de recensement ou d'enquête) auxquelles la comparer.
+| Clé | Contenu |
+| --- | --- |
+| `file` | chemin du fichier, relatif au dossier de sortie d'eqasim (`output_path`) |
+| `separator` | séparateur de colonnes d'un fichier CSV, un seul caractère |
+| `category` | la colonne des classes (par exemple les classes d'âge) |
+| `simulated` | la colonne des valeurs produites par la simulation |
+| `references` | les colonnes des valeurs de référence (recensement, enquête…) |
 
-`category` et `simulated` sont des chaînes distinctes et non vides.
-`references` est une liste, éventuellement vide et sans doublon, de chaînes non
-vides distinctes des deux autres colonnes. Avec l'adaptateur eqasim, chaque
-sortie utilisée par un indicateur doit être produite par une étape connue :
-`persons`, `households`, `activities`, `trips`, `vehicle_types`, `vehicles`,
-`age`, `age_purpose`, `distance`, `license`, `nbr_vehicle` ou `travel`.
+Un nom de sortie ne contient que des lettres, des chiffres, `_` et `-`. Les
+noms qui ne diffèrent que par la casse, et les noms réservés par Windows, sont
+refusés sur tous les systèmes.
 
-Avant de déclarer les colonnes, inspectez un fichier Parquet produit par un run
-connu :
+### Sorties connues et leurs fichiers
 
-```bash
-uv run --project ../eqasim-sa --locked python - <<'PY'
-import pyarrow.parquet as pq
+eqasim-sa connaît les douze fichiers qu'eqasim écrit dans ses étapes standard.
+Pour ces noms, `file` et `separator` ont une valeur par défaut : `persons: {}`
+suffit.
 
-path = "campaigns/mon-analyse-sa-calibration/archives/<runId>/age.parquet"
-parquet = pq.ParquetFile(path)
-print(parquet.schema_arrow)
-print(parquet.read().column_names)
-PY
+| Sorties | `file` par défaut | `separator` par défaut | Écrites par l'étape eqasim |
+| --- | --- | --- | --- |
+| `persons`, `households`, `activities`, `trips`, `vehicle_types`, `vehicles` | `{prefix}<nom>.csv` | `;` | `synthesis.output` |
+| `age`, `age_purpose`, `distance`, `license`, `nbr_vehicle`, `travel` | `analysis_population/{prefix}<nom>.csv` | `,` | `analysis.synthesis.population` |
+
+`{prefix}` désigne l'`output_prefix` de votre configuration eqasim (par défaut
+`ile_de_france_` dans eqasim) ; c'est le seul gabarit permis dans `file`. Pour
+tout autre nom, `file` est requis et `separator` vaut `,` par défaut. C'est
+ainsi que les modèles conservent le fichier spatial des activités :
+
+```yaml
+outputs:
+  activities_spatial:
+    file: "{prefix}activities.gpkg"
 ```
 
-Remplacez `<runId>` par un identifiant réel. Les chaînes `category`,
-`simulated` et `references` doivent reproduire exactement les noms de colonnes
-affichés.
+`file` est un chemin relatif écrit avec `/`, sans `..`, `\`, `:` ni chemin
+absolu. Vous pouvez aussi changer le `file` d'une sortie connue, par exemple
+pour lire sous un nom connu un fichier écrit par votre propre étape eqasim ; la
+vérification d'étape décrite dans [Ce qu'eqasim exécute](#ce-queqasim-exécute)
+ne s'applique alors plus à elle.
+
+### Ce qui est archivé
+
+À la fin de chaque run réussi, chaque fichier déclaré est copié à l'octet près
+dans l'archive du run, sous le nom `<nom de la sortie><extension du fichier>` :
+`age.csv`, `persons.csv`, `activities_spatial.gpkg`, etc. Le manifeste du run
+enregistre pour chaque fichier son chemin d'origine sous le dossier de sortie
+d'eqasim (par exemple `analysis_population/nantes_age.csv`), sa taille et son
+SHA-256. Un fichier déclaré qu'eqasim n'a pas écrit fait échouer le run avec un
+message qui nomme le chemin attendu et rappelle de vérifier `run:` dans votre
+configuration eqasim. Les fichiers non déclarés ne sont pas conservés.
+
+Seuls `file` et `separator` déterminent ce qui est archivé : seules ces deux
+clés, avec le nom de la sortie, sont scellées dans le plan. `category`,
+`simulated` et `references` relèvent de l'analyse : vous pouvez les ajouter ou
+les corriger après les runs et recalculer l'analyse sans rien relancer.
+Ajouter, retirer ou renommer une sortie, ou changer son `file` ou son
+`separator`, demande une nouvelle campagne.
+
+### Colonnes lues par les indicateurs
+
+`category`, `simulated` et `references` nomment des colonnes d'une sortie CSV.
+Elles ne sont nécessaires que pour les sorties utilisées par `tv_distance` ou
+`share` ; `category` et `simulated` sont des chaînes distinctes et non vides,
+et `references` est une liste, éventuellement vide et sans doublon, de chaînes
+non vides distinctes des deux autres colonnes. Les noms doivent reproduire
+exactement l'en-tête du CSV, espaces et casse compris.
+
+Les fichiers CSV sont d'abord lus comme du texte. Si la première colonne a un
+en-tête vide (l'index de lignes qu'écrit pandas), elle est retirée. Les
+colonnes qu'un indicateur utilise comme nombres (`simulated`, les colonnes de
+référence, la colonne lue par `value`) sont ensuite converties explicitement ;
+une cellule qui n'est pas un nombre fini arrête l'analyse avec une erreur qui
+nomme la colonne. Les libellés de classe restent du texte : une classe écrite
+`0` dans le fichier est la chaîne `"0"`.
+
+Pour voir les noms exacts des colonnes, ouvrez un fichier archivé dans un
+tableur ou affichez sa première ligne :
+
+```bash
+head -n 1 campaigns/mon-analyse-sa-calibration/archives/<runId>/age.csv
+```
+
+Remplacez `<runId>` par un identifiant réel.
 
 ## `indicators`
 
-Un indicateur transforme une sortie d'un run en un nombre unique, que l'analyse
-de sensibilité étudie ensuite. Le seul indicateur intégré est `tv_distance`, la
-distance de variation totale entre la distribution simulée et la distribution de
-référence.
+Un indicateur transforme les sorties d'un run en un nombre unique, que
+l'analyse de sensibilité étudie ensuite. Trois types sont intégrés :
+
+| Type | Nom du résultat | Ce qu'il calcule |
+| --- | --- | --- |
+| `tv_distance` | `tv_distance(age, ref=INSEE)` | distance de variation totale entre la distribution simulée et une distribution de référence |
+| `share` | `share(age, 0-10)` | proportion d'une classe dans une distribution simulée |
+| `value` | `value(summary, mean_income, zone=44)` | un nombre lu dans une cellule d'une table |
 
 ### Valeur par défaut
 
 Sans clé `indicators`, eqasim-sa calcule `tv_distance` pour chaque sortie et
-chacune de ses références. Les sorties déclarées avec `references: []` sont
-ignorées. Avec les trois sorties des modèles, on obtient trois indicateurs :
+chacune de ses références. Les sorties déclarées sans référence sont ignorées.
+Avec les sorties des modèles, on obtient trois indicateurs :
 `tv_distance(age, ref=INSEE)`, `tv_distance(distance, ref=HTS)` et
 `tv_distance(nbr_vehicle, ref=HTS)`.
 
@@ -722,16 +885,20 @@ exigent au moins un.
 
 ### Choisir les indicateurs
 
-Chaque entrée de la liste a exactement une clé : un nom d'indicateur
-(`tv_distance`) ou `custom`.
+Chaque entrée de la liste a exactement une clé, le type d'indicateur :
 
 ```yaml
 indicators:
   - tv_distance: {output: age, reference: INSEE}     # une sortie contre une référence
   - tv_distance: {output: distance}                  # une sortie contre chacune de ses références
   - tv_distance: {outputs: [distance, nbr_vehicle]}  # plusieurs sorties, chacune contre chacune de ses références
-  - custom: {function: mon_indicateur, output: age}  # une extension installée
+  - share: {output: nbr_vehicle, category: "0"}      # proportion d'une classe
+  - value: {output: summary, column: mean_income, where: {zone: "44"}}  # une cellule
 ```
+
+Ces lignes illustrent chaque forme. Écrites ensemble, elles calculeraient deux
+fois `tv_distance(distance, ref=HTS)`, ce qui est refusé : une vraie liste
+nomme chaque indicateur une seule fois.
 
 La forme en bloc équivaut à la forme en ligne :
 
@@ -742,32 +909,86 @@ indicators:
       reference: INSEE
 ```
 
+Chaque indicateur reçoit un nom, montré dans le premier tableau ; le
+`primary_indicator` d'une charte scientifique doit être égal à l'un de ces
+noms. Les noms des indicateurs résolus doivent être uniques dans l'analyse.
+
+### Distance de variation totale (`tv_distance`)
+
 Une entrée `tv_distance` a exactement `output` et `reference`, ou seulement
 `output`, ou seulement `outputs`. Les noms sont des chaînes non vides ; `outputs`
 est une liste non vide sans doublon. Chaque sortie doit être déclarée dans
-`outputs`, chaque référence doit être l'une des références de cette sortie, et
-une sortie nommée sans référence doit en avoir au moins une.
+`outputs` avec `category` et `simulated`, chaque référence doit être l'une des
+références de cette sortie, et une sortie nommée sans référence doit en avoir
+au moins une.
 
-Une entrée `custom` a exactement `function` et `output`, deux chaînes non vides.
-`function` doit correspondre exactement à un point d'entrée installé du groupe
-`eqasim_sa.indicators`. L'objet chargé doit être appelable ou fournir
-`compute(artifacts)` et retourner un `float` fini.
-
-Chaque indicateur reçoit un nom comme `tv_distance(age, ref=INSEE)` ; le
-`primary_indicator` d'une charte scientifique doit être égal à l'un de ces noms.
-Les noms et identités des indicateurs résolus doivent être uniques dans
-l'analyse.
-
-### Distance de variation totale
-
-`tv_distance` lit les colonnes `category`, `simulated` et de référence. Les deux
-colonnes de masse doivent être numériques, finies, sans valeur nulle, non
-négatives et de somme positive. Elles sont normalisées séparément, puis :
+L'indicateur lit les colonnes `category`, `simulated` et de référence. Les deux
+colonnes de masse doivent être des nombres finis, non négatifs et de somme
+positive. Les libellés de classe doivent être non vides et uniques. Les deux
+colonnes sont normalisées séparément, puis :
 
 `TV = 0.5 × Σ |p_i - q_i|`, avec un résultat borné dans `[0, 1]`.
 
 0 signifie des distributions identiques ; 1, des distributions sans aucune
 classe commune.
+
+### Part d'une classe (`share`)
+
+```yaml
+indicators:
+  - share: {output: age, category: "0-10"}
+```
+
+Une entrée `share` a exactement `output` et `category`. La sortie doit déclarer
+`category` et `simulated`. La colonne simulée est normalisée pour sommer à 1,
+et l'indicateur vaut la proportion de la ligne dont la classe est égale à
+`category`. Son nom est `share(age, 0-10)`.
+
+`category` doit être une chaîne YAML entre guillemets, même quand la classe
+ressemble à un nombre ou à un booléen : écrivez `category: "0"` ou
+`category: "True"`, jamais `category: 0`. Une classe absente du fichier arrête
+l'analyse avec une erreur.
+
+### Un nombre lu dans une table (`value`)
+
+```yaml
+indicators:
+  - value: {output: summary, column: mean_income}
+  - value: {output: summary, column: mean_income, where: {zone: "44"}}
+```
+
+Une entrée `value` a `output` et `column`, et facultativement `where`. Elle lit
+la cellule de `column` dans l'unique ligne choisie par `where`. Sans `where`, le
+fichier doit avoir exactement une ligne. Avec `where`, chaque colonne listée
+doit être égale au texte donné ; exactement une ligne doit correspondre. La
+cellule doit être un nombre fini. Les noms sont `value(summary, mean_income)` et
+`value(summary, mean_income, zone=44)`.
+
+Comme pour `share.category`, chaque valeur de `where` doit être une chaîne YAML
+entre guillemets (`zone: "44"`, pas `zone: 44`). La sortie n'a besoin ni de
+`category`, ni de `simulated`, ni de `references`.
+
+### Vos propres calculs
+
+eqasim-sa n'a pas de mécanisme d'extension pour les indicateurs. Quand il vous
+faut une grandeur que les trois types ci-dessus ne calculent pas (un revenu
+moyen, un taux par zone, une part modale), calculez-la dans eqasim : écrivez
+une étape d'analyse eqasim qui enregistre une petite table CSV dans le dossier
+de sortie, ajoutez cette étape à `run:` dans votre configuration eqasim,
+déclarez le fichier sous `outputs` et lisez-le avec `value`. Par exemple, si
+votre étape écrit `analysis_population/{prefix}summary.csv` :
+
+```yaml
+outputs:
+  summary:
+    file: "analysis_population/{prefix}summary.csv"
+indicators:
+  - value: {output: summary, column: mean_income}
+```
+
+Comme l'étape fait partie du code d'eqasim, elle entre dans l'empreinte du code
+et dans l'identité de la campagne, et son fichier CSV est archivé avec chaque
+run.
 
 ## `execution`
 
@@ -995,9 +1216,10 @@ avec le design avant publication.
 ## Exemples complets valides
 
 Les exemples ci-dessous sont complets. Avant de les charger, eqasim-sa vérifie
-aussi la machine : les chemins doivent exister, `model.root` doit être la racine
-exacte d'un dépôt Git propre, `model.config` doit être suivi et identique à son
-blob de `HEAD`, le manifeste et le lockfile doivent être des fichiers ordinaires,
+aussi la machine : les chemins doivent exister, `model.root` doit être un
+répertoire qui contient le code d'eqasim, `model.config` doit être un fichier
+ordinaire dont la liste `run:` produit les sorties connues déclarées, le
+manifeste et le lockfile doivent être des fichiers ordinaires,
 le répertoire scratch doit exister, et les facteurs et options machine doivent
 exister dans le YAML modèle avec les types indiqués. Le fichier
 `00-calibration.yml` référencé doit aussi exister et ne pas contenir de bloc
@@ -1027,7 +1249,7 @@ campaign: mon-analyse-sa-grid
 campaign_root: ../campaigns/mon-analyse-sa-grid
 model:
   root: ../../eqasim-france
-  config: ../../eqasim-france/config_local_nantes.yml
+  config: config.yml
   data_manifest: ../manifest.json
   lockfile: ../../eqasim-france/uv.lock
 experiment:
@@ -1040,28 +1262,45 @@ parameters:
     values:
     - 0.001
     - 0.002
-  matching_age_scheme:
-    values:
-    - matching_6
-    - analysis_7
 analysis:
   completeness_threshold: 1.0
 outputs:
+  persons:
+    file: '{prefix}persons.csv'
+    separator: ;
+  households:
+    file: '{prefix}households.csv'
+    separator: ;
+  trips:
+    file: '{prefix}trips.csv'
+    separator: ;
+  activities:
+    file: '{prefix}activities.csv'
+    separator: ;
+  activities_spatial:
+    file: '{prefix}activities.gpkg'
+    separator: ','
   age:
     category: Age class
     simulated: Proportion_EQASIM
     references:
     - INSEE
+    file: analysis_population/{prefix}age.csv
+    separator: ','
   distance:
     category: Distance class
     simulated: Proportion_EQASIM
     references:
     - HTS
+    file: analysis_population/{prefix}distance.csv
+    separator: ','
   nbr_vehicle:
     category: Number of vehicles class
     simulated: Proportion_EQASIM
     references:
     - HTS
+    file: analysis_population/{prefix}nbr_vehicle.csv
+    separator: ','
 indicators:
 - tv_distance:
     outputs:
@@ -1087,6 +1326,9 @@ calibration:
   - 00-calibration.yml
 ```
 
+Sous cette forme affichée, les sorties connues montrent leur `file` et leur
+`separator` par défaut.
+
 ### OAT discret
 
 ```yaml
@@ -1100,6 +1342,12 @@ experiment:
 parameters:
   sampling_rate: [0.001, 0.002, 0.003]
 outputs:
+  persons: {}
+  households: {}
+  trips: {}
+  activities: {}
+  activities_spatial:
+    file: "{prefix}activities.gpkg"
   age:
     category: Age class
     simulated: Proportion_EQASIM
@@ -1117,7 +1365,7 @@ calibration:
 # --- Rempli par eqasim-sa init : à modifier seulement si la machine change ---
 model:
   root: ../../eqasim-france
-  config: ../../eqasim-france/config_local_nantes.yml
+  config: config.yml
   data_manifest: ../manifest.json
 execution:
   workers: 2
@@ -1130,16 +1378,21 @@ execution:
 ### Sobol de démonstration
 
 ```yaml
-# Single-scramble Sobol demonstration: 32 positions, not inferential evidence.
+# Single-scramble Sobol demonstration: 48 positions and 4 unique runs, not inferential evidence.
 campaign: mon-analyse-sa-sobol
 experiment:
   method: sobol
   seeds: [1401, 1402]
-  base_sample_size: 4
+  base_sample_size: 8
 parameters:
   sampling_rate: [0.001, 0.002]
-  matching_age_scheme: [matching_6, analysis_7]
 outputs:
+  persons: {}
+  households: {}
+  trips: {}
+  activities: {}
+  activities_spatial:
+    file: "{prefix}activities.gpkg"
   age:
     category: Age class
     simulated: Proportion_EQASIM
@@ -1159,7 +1412,7 @@ calibration:
 # --- Rempli par eqasim-sa init : à modifier seulement si la machine change ---
 model:
   root: ../../eqasim-france
-  config: ../../eqasim-france/config_local_nantes.yml
+  config: config.yml
   data_manifest: ../manifest.json
 execution:
   workers: 2
@@ -1171,9 +1424,12 @@ execution:
 
 ### Grid avec des indicateurs choisis
 
-Cette variante ne garde que la sortie âge contre INSEE et un indicateur de
-distance, choisit son propre dossier de campagne et utilise la forme longue pour
-un paramètre :
+Cette variante utilise une copie de la configuration eqasim nommée
+`config_nantes.yml`, placée à côté de `config.yml`, dans laquelle
+`matching_minimum_age` est écrit sous `config:` et
+`analysis.synthesis.population` figure dans `run:`. Elle ne garde que deux
+distributions, choisit ses indicateurs, écrit son propre dossier de campagne et
+utilise la forme longue pour un paramètre :
 
 ```yaml
 campaign: mon-analyse-sa-grid-age
@@ -1190,16 +1446,17 @@ outputs:
     category: Age class
     simulated: Proportion_EQASIM
     references: [INSEE]
-  distance:
-    category: Distance class
+  nbr_vehicle:
+    category: Number of vehicles class
     simulated: Proportion_EQASIM
     references: [HTS]
 indicators:
   - tv_distance: {output: age, reference: INSEE}
-  - tv_distance: {output: distance}
+  - tv_distance: {output: nbr_vehicle}
+  - share: {output: nbr_vehicle, category: "0"}
 model:
   root: ../../eqasim-france
-  config: ../../eqasim-france/config_local_nantes.yml
+  config: config_nantes.yml
   data_manifest: ../manifest.json
 execution:
   workers: 2
@@ -1249,6 +1506,35 @@ indicators:
 ```
 
 > invalid indicator combinations: tv_distance(income)
+
+Une sortie qu'eqasim-sa ne connaît pas, déclarée sans son fichier :
+
+```yaml
+outputs:
+  summary: {}
+```
+
+> output 'summary' is not a known eqasim output; declare its file (relative to
+> eqasim's output_path, e.g. analysis_population/{prefix}summary.csv)
+
+Une classe de `share` écrite comme un nombre YAML au lieu d'une chaîne entre
+guillemets :
+
+```yaml
+indicators:
+  - share: {output: nbr_vehicle, category: 0}
+```
+
+> share category must be a quoted string (e.g. "0", "True")
+
+Une valeur de `where` écrite comme un nombre YAML :
+
+```yaml
+indicators:
+  - value: {output: summary, column: mean_income, where: {zone: 44}}
+```
+
+> where values must be quoted strings
 
 Un paramètre scientifique donné comme option machine :
 

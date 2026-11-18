@@ -2,10 +2,11 @@
 
 [English](../docs/compatibility.md) | **Francais**
 
-Cette page decrit `eqasim-sa` 0.3.0 ainsi que le contrat non publie courant des
-facteurs structures. Le parseur Python et le code d'analyse sont normatifs. Il n'y a
-aucune compatibilite ascendante : seuls les formats courants sont lus et rien
-n'est migre.
+Cette page décrit `eqasim-sa` 0.3.0 ainsi que les changements non publiés
+courants : facteurs structurés, et modèle eqasim qui n'a plus besoin de Git. Le
+parseur Python et le code d'analyse sont normatifs. Il n'y a aucune
+compatibilite ascendante : seuls les formats courants sont lus et rien n'est
+migre.
 
 ## Matrice des plans et methodes
 
@@ -25,7 +26,7 @@ label-vers-payload dans leurs metadonnees de methode comme second invariant
 scelle ; les deux mappings canoniques doivent etre exactement egaux. La version
 du schema de plan est independante de la version du design numerique. Seul le design
 scientifique v3 (contrat SALib) est accepte ; les designs anterieurs sont rejetes
-avant tout acces aux runs ou plugins d'indicateur et exigent une nouvelle
+avant tout acces aux runs et exigent une nouvelle
 planification v3. Les analyseurs scientifiques v3 reconstruisent strictement les
 metadonnees scellees du plan, son contexte et son design SALib. Les analyseurs de
 demonstration valident leurs contrats propres. L'analyse Grid directe valide la forme et les
@@ -70,10 +71,32 @@ actionnable et exclue des rangs de decision FP/FF.
 | Facteur structure avec `discrete_oat` ou `canonical_morris` | rejete car l'ordre nominal des labels est arbitraire |
 | Metadonnees scellees d'un plan scientifique absentes, non prises en charge, non canoniques, alterees ou incompatibles avec le contexte | rejete avant publication par les analyseurs Morris canonique et Sobol multi-scramble |
 | Design scientifique v1/v2 | rejete ; replanifier avec le design scientifique v3 |
+| Plan, marqueur ou archive écrits par une version antérieure (contexte et preuves d'exécution identifiés par le commit eqasim, archives de sorties en Parquet) | rejeté ; rien n'est converti, créez une nouvelle campagne |
+| Sortie connue laissée à son `file` par défaut dont l'étape eqasim manque dans `run:` | rejetée au chargement de la méta-configuration |
+| Entrée d'indicateur `custom` | rejetée ; seuls `tv_distance`, `share` et `value` existent |
+| `share.category` ou valeur de `where` qui n'est pas une chaîne YAML entre guillemets | rejeté au chargement de la méta-configuration |
 | Plan Grid presente a l'analyse | l'analyse coeur directe valide methode, marqueurs, completude, forme et labels v3 ; le preflight applicatif reconstruit le plan pour lier les payloads au modele et a la meta-configuration |
 | Positions scientifiques au-dessus du budget declare apres reserve | rejete avant publication du plan |
 | Analyse OAT ou Sobol incomplete | rejetee car la completude doit valoir `1.0` |
 | Preuve d'arret non prise en charge ou non evaluable | echec ferme, donc non convergee |
+
+## Modèle eqasim et sorties
+
+- `model.root` est n'importe quel dossier eqasim (clone, copie ou archive). Git
+  n'est pas nécessaire : le code est identifié par une empreinte de son
+  contenu, et `model.config` est lu relativement à `model.root` (ou comme un
+  chemin absolu).
+- synpp exécute la liste `run:` de la configuration eqasim sans la modifier.
+- Chaque sortie déclarée est archivée à l'octet près sous le nom
+  `<nom><extension>` (par exemple `age.csv`), avec son chemin d'origine dans le
+  manifeste du run. Les archives de sorties ne sont plus converties en
+  Parquet ; les résultats d'analyse (`indicators.parquet`, tables de
+  sensibilité) restent des fichiers Parquet.
+- Le plan scelle les sorties déclarées (`outputsDeclaration` : nom, `file`,
+  `separator`) ; `category`, `simulated` et `references` peuvent changer entre
+  les runs et l'analyse.
+- Les plugins d'indicateur sont supprimés. Les calculs personnalisés se font
+  dans une étape d'analyse eqasim dont le fichier CSV est lu avec `value`.
 
 ## Frontieres de init et Nantes
 
@@ -95,16 +118,17 @@ protocole Nantes reel a ete planifie ou execute.
 `eqasim-sa` prend en charge nativement Windows 10+, macOS 13+ et Linux avec le
 backend `local` (vérification sous Windows et macOS en attente, voir la
 [vérification des plateformes](../docs/platform-verification.md)) ; `slurm` est
-réservé à Linux. Il n'y a pas de compatibilité
-ascendante pour les hash dont les octets ont changé : ces domaines sont désormais
-en `v2`, et les nouveaux plans les utilisent :
+réservé à Linux. Il n'y a pas de compatibilité ascendante pour les hash dont
+les octets ont changé : les nouveaux plans utilisent les domaines ci-dessous, et
+les identités calculées avec des domaines antérieurs sont refusées :
 
 | Domaine | Courant |
 | --- | --- |
-| Contexte d'exécution | `eqasim-sa:context:v2` |
+| Contexte d'exécution (`eqasimSourceSha256` remplace le commit eqasim) | `eqasim-sa:context:v3` |
+| Empreinte du code d'eqasim | `eqasim-sa:model-source:v1` |
+| Preuves d'exécution (`schemaVersion: 3`, `modelSourceSha256`) | `eqasim-sa:execution-evidence:v3` |
 | Identité logicielle d'`eqasim-sa` | `eqasim-sa:software-identity:v2` |
-| Définition d'indicateur | `eqasim-sa:indicator-definition:v2` |
-| Distribution de plugin d'indicateur | `eqasim-sa:plugin-distribution:v2` |
+| Définition d'indicateur (`tv_distance`, `share`, `value`) | `eqasim-sa:indicator-definition:v3` |
 
 Les entrées texte sont
 hachées après normalisation CRLF vers LF (voir le

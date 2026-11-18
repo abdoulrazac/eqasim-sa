@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- BREAKING: eqasim-sa runs the official, unmodified eqasim and no longer needs
+  Git. `model.root` is any eqasim folder (clone, copy, or archive); eqasim-sa
+  never calls `git`. The eqasim code is identified by a content fingerprint
+  (`*.py`, `*.java`, `pom.xml`, `pyproject.toml`, `uv.lock` under `model.root`,
+  LF-normalized; hidden folders, `__pycache__`, virtual and conda environments,
+  the eqasim `working_directory` and `output_path`, and links are ignored),
+  checked again before every run. It replaces the eqasim commit: the context
+  descriptor key is `eqasimSourceSha256` (domain `eqasim-sa:context:v3`), the
+  execution evidence key is `modelSourceSha256` (schema 3, domain
+  `eqasim-sa:execution-evidence:v3`), and indicator definitions use domain
+  `eqasim-sa:indicator-definition:v3`. `model.config` is required and read
+  relative to `model.root` (or absolute); `init --model-config` defaults to
+  `config.yml`. synpp runs the `run:` list of the eqasim configuration unchanged;
+  a known output left at its default file whose stage is missing from `run:` is
+  refused at load time (add `analysis.synthesis.population` to the official
+  `config.yml` for `age`, `distance`, `nbr_vehicle`, ...). `outputs` (at least
+  one) accept `file`, `separator`, `category`, `simulated`, and `references`,
+  with defaults for the twelve known eqasim outputs; each declared file is
+  archived byte for byte as `<name><suffix>` with its `sourcePath` in the run
+  manifest, and only name, `file`, and `separator` are sealed in the plan
+  (`outputsDeclaration`). CSV outputs are read as text (a first column with an
+  empty header is dropped) and numbers are parsed explicitly. Indicators are
+  `tv_distance`, `share` (`share(output, category)`), and `value`
+  (`value(output, column[, column=value])`); `share.category` and `where` values
+  must be quoted YAML strings. Custom indicator plugins are removed: compute
+  custom quantities in an eqasim analysis stage and read them with `value`. The
+  `init` starters vary only `sampling_rate` and keep the population files. The
+  synpp probe of `check` runs the invocation with `-m synpp` replaced by
+  `-c "import synpp"`. Plans, markers, and archives of earlier versions
+  (`eqasimCommit`, `modelCommit`, Parquet output archives) are not read.
+
 - BREAKING: simplified meta-configuration format; files in the previous format
   are rejected, and an unknown key error lists the keys allowed at its level.
   Root keys are `campaign`, `campaign_root`, `charter`, `model`, `experiment`,
@@ -14,8 +45,8 @@
   A parameter may be a plain list (`sampling_rate: [0.001, 0.002]`); a
   scientific charter still requires `values` with `distribution`. `outputs`
   declare `category`, `simulated`, and `references` columns. Each `indicators`
-  entry has one key, `tv_distance` (with `output` and `reference`, `output`,
-  or `outputs`) or `custom` (`function`, `output`); without `indicators`,
+  entry has one key, such as `tv_distance` (with `output` and `reference`,
+  `output`, or `outputs`); without `indicators`,
   `tv_distance` is computed for every output against each of its references.
   Infrastructure options live in `execution.machine_options`. Defaults:
   `campaign_root` `../campaigns/<campaign>`, `model.lockfile`
@@ -67,11 +98,10 @@
   when one would fit), and `same_machine`; `run` refuses to resume a campaign whose
   completed runs carry different execution evidence.
 - Makes identities line-ending independent (CRLF normalized to LF for the
-  lockfile, data manifest canonical JSON, software, indicator, and plugin
-  identities, and the `model.config` Git check); `init` writes a
-  `.gitattributes`.
-- Bumps the context, software identity, indicator definition, and plugin
-  distribution hash domains to `v2` (no backward compatibility).
+  lockfile, data manifest canonical JSON, software and indicator identities);
+  `init` writes a `.gitattributes`.
+- Bumps the software identity hash domain to `v2` (no backward compatibility;
+  see above for the context and indicator definition domains).
 - Adds a multi-OS CI workflow and `docs/platform-verification.md`.
 - Declares the project under GPL-2.0-only and adds bilingual contribution
   guidance and package README metadata.

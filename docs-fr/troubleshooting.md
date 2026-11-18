@@ -2,18 +2,83 @@
 
 [English](../docs/troubleshooting.md)
 
-## `model Git repository must be clean`
+## `No such file or directory` pour `model.config`
 
-Cause : fichier suivi modifié, fichier non suivi, index différent ou changement
-pendant le chargement. Remède : inspecter `git status --short` dans la racine du
-modèle, puis versionner ou retirer consciemment les changements. Ne contournez
-pas ce contrôle : le commit entre dans `contextHash`.
+Cause : un `model.config` relatif est lu depuis le dossier eqasim
+(`model.root`), pas depuis le répertoire de la méta-configuration. Un chemin
+comme `../../eqasim-france/config.yml`, écrit relativement à `configs/`, pointe
+donc au mauvais endroit. Remède : écrire le chemin relativement à `model.root`
+(`config: config.yml`, ou `config: config_nantes.yml` pour une copie placée à
+côté), ou un chemin absolu. Le message affiche le chemin complet essayé.
 
-## `model.config does not match its sealed Git blob`
+## `no eqasim source files found under ...`
 
-Cause : le fichier lu n'est pas identique à la version de `HEAD`. Remède :
-restaurer ou committer la configuration, puis utiliser une nouvelle campagne si
-un plan avait déjà été créé.
+Cause : `model.root` ne contient aucun `*.py`, `*.java`, `pom.xml`,
+`pyproject.toml` ni `uv.lock` hors des dossiers ignorés ; ce n'est sans doute
+pas le dossier eqasim. Remède : faire pointer `model.root` vers le dossier qui
+contient le code d'eqasim et son `config.yml`.
+
+## `eqasim source changed after context sealing`
+
+Cause : un fichier de code d'eqasim sous `model.root` (`*.py`, `*.java`,
+`pom.xml`, `pyproject.toml`, `uv.lock`) a été ajouté, supprimé ou modifié après
+la planification de la campagne. Le code fait partie de l'identité de la
+campagne, et chaque run vérifie son empreinte avant de démarrer. Remède :
+restaurer le code tel qu'il était au scellement du plan, ou planifier une
+nouvelle campagne avec le nouveau code. Les fichiers écrits dans le
+`working_directory` et l'`output_path` d'eqasim, ainsi que dans les
+environnements virtuels ou conda, sont ignorés. Si un autre outil écrit des
+fichiers de code dans le dossier eqasim, déplacez ses sorties ailleurs.
+
+## `model config changed after context sealing`
+
+Cause : la configuration eqasim désignée par `model.config` a été modifiée
+pendant la campagne. Remède : la restaurer, ou planifier une nouvelle campagne
+avec le fichier modifié.
+
+## `output '...' is written by eqasim stage '...', which is not in run: of ...`
+
+Cause : une sortie connue (par exemple `age`, `distance` ou `nbr_vehicle`)
+garde son fichier par défaut, mais l'étape eqasim qui l'écrit ne figure pas dans
+la liste `run:` de votre configuration eqasim. eqasim-sa exécute `run:`
+exactement tel qu'il est écrit et n'ajoute aucune étape. Remède : ajouter
+l'étape nommée, en général `analysis.synthesis.population`, à `run:` dans votre
+copie de la configuration, avant de planifier. Voir
+[Ce qu'eqasim exécute](yaml-reference.md#ce-queqasim-exécute).
+
+## `output '...' is not a known eqasim output; declare its file`
+
+Cause : un nom de sortie hors des douze sorties eqasim connues n'a pas de
+`file`. Remède : ajouter `file`, relatif au dossier de sortie d'eqasim, par
+exemple `file: "analysis_population/{prefix}summary.csv"`, et `separator` si ce
+n'est pas une virgule. Voir
+[Sorties connues](yaml-reference.md#sorties-connues-et-leurs-fichiers).
+
+## `eqasim did not write declared output '...' (expected ...)`
+
+Cause : un run s'est terminé mais le fichier déclaré n'est pas dans le dossier
+de sortie d'eqasim. Raisons habituelles : l'étape qui l'écrit n'est pas dans
+`run:`, le chemin `file` est mal orthographié, ou `{prefix}` ne correspond pas à
+l'`output_prefix` de votre configuration eqasim. Remède : lire
+`logs/<runId>.log`, corriger la configuration eqasim ou la déclaration `file`
+(une nouvelle campagne est nécessaire si le plan était déjà scellé), puis
+relancer.
+
+## `share category must be a quoted string` ou `where values must be quoted strings`
+
+Cause : YAML lit `category: 0`, `category: True` ou `zone: 44` comme un nombre
+ou un booléen, alors que les libellés de classe et les cellules de table sont
+comparés comme du texte. Remède : les écrire entre guillemets :
+`category: "0"`, `category: "True"`, `where: {zone: "44"}`.
+
+## `artifact '...' is missing declared column '...'` ou `column '...' must be numeric`
+
+Cause : une colonne `category`, `simulated`, de référence, de `value` ou de
+`where` ne correspond pas exactement à l'en-tête du CSV, ou une colonne
+utilisée comme nombre contient du texte. Remède : afficher la première ligne du
+fichier archivé (`head -n 1 archives/<runId>/age.csv`), corriger les noms de
+colonnes sous `outputs` ou `indicators`, puis relancer `analyze`. Ces clés ne
+sont pas scellées dans le plan : aucun run n'est à refaire.
 
 ## `plan differs; choose a new campaign_root`
 
@@ -83,8 +148,8 @@ Pour un float requis, comme un `threshold` ou une `reserve_fraction` de charte,
   `values` et `configurations`.
 - `unknown factor` ou `model config value must be a list of strings` : le YAML
   modèle scellé doit déjà contenir `config.matching_attributes` active sous forme
-  de liste de chaînes. Committez ce YAML et gardez le dépôt modèle propre;
-  eqasim-sa ne crée ni ne convertit cette clé.
+  de liste de chaînes. Écrivez-la dans votre configuration eqasim avant de
+  planifier ; eqasim-sa ne crée ni ne convertit cette clé.
 - `must be a non-empty ordered list...`, `distinct payloads` ou `payload aliases` :
   chaque charge est une liste non vide de chaînes non vides uniques, et deux
   labels ne peuvent résoudre vers la même liste ordonnée. Les labels sont aussi
@@ -184,21 +249,22 @@ pas les fichiers de verrou pendant une exécution.
 
 ## `static check time budget exhausted`
 
-Cause : accès Git, lecture des plans/manifeste, sonde synpp ou mesure disque trop
-lente au-delà du budget de 55 secondes. Remède : vérifier les stockages réseau,
+Cause : empreinte du code d'eqasim, lecture des plans/manifeste, sonde synpp ou
+mesure disque trop lente au-delà du budget de 55 secondes. Remède : vérifier les stockages réseau,
 la taille des fichiers de contrôle et le temps de démarrage de l'environnement.
 
 ## `synpp environment probe failed`
 
-Cause : l'invocation ne démarre pas synpp comme attendu ou ne répond pas avec
-`Config file does not exist:` pour le fichier-sonde. Remède : exécuter la liste
-`execution.invocation` dans `model.root`, vérifier l'environnement et les
-versions. La sonde statique ne lance pas une simulation complète.
+Cause : l'invocation se termine par `-m synpp` mais son interpréteur ne démarre
+pas ou ne peut pas faire `import synpp` (la sonde exécute l'invocation en
+remplaçant `-m synpp` par `-c "import synpp"` et exige le code de sortie 0 ;
+aucune sortie de synpp n'est lue). Remède : exécuter cette commande dans
+`model.root`, puis vérifier l'environnement et les versions. La sonde statique ne lance pas une simulation complète.
 
 ## Échec de `check --smoke`
 
 Cause : moins de deux seeds, absence de `sampling_rate`, pipeline réel en échec,
-sortie absente ou Parquet invalide. Remède : satisfaire le contrat smoke et
+fichier de sortie déclaré non écrit. Remède : satisfaire le contrat smoke et
 lire le détail retourné. Attention : cette option exécute deux simulations
 temporaires à `sampling_rate: 0.001`; elle consomme du calcul et accède aux
 données réelles. Le smoke part du YAML modèle scellé et n'applique aucun
@@ -286,25 +352,25 @@ macOS. Renommez la campagne, la sortie ou l'indicateur.
 
 ## Fins de ligne et `.gitattributes`
 
-Un checkout Git sous Windows peut convertir LF en CRLF. eqasim-sa hache les
-entrées texte après normalisation CRLF vers LF : un checkout CRLF produit donc les
-mêmes identités que sur le cluster. Cela concerne le hash de `uv.lock`
+Copier ou extraire des fichiers sous Windows peut convertir LF en CRLF.
+eqasim-sa hache les entrées texte après normalisation CRLF vers LF : une copie
+en CRLF produit donc les mêmes identités que sur le cluster. Cela concerne
+l'empreinte du code d'eqasim (`eqasimSourceSha256`), le hash de `uv.lock`
 (`lockfileSha256`), la forme JSON canonique du manifeste de données
-(`dataManifestSha256`), l'identité logicielle d'`eqasim-sa`, le texte des
-indicateurs intégrés et des plugins (les fichiers binaires restent bruts) et le
-contrôle Git de `model.config`, qui utilise `git hash-object --path` pour appliquer
-les règles de conversion de Git. Les fichiers de données restent hachés octet pour
-octet. `init` écrit aussi un `.gitattributes` (sans jamais écraser le vôtre) qui
-impose LF pour les fichiers YAML, JSON et `*.lock`. Si `check` signale une
-divergence après un transfert, comparez les fichiers avec `git status` et
-`git diff` avant de soupçonner les données.
+(`dataManifestSha256`), l'identité logicielle d'`eqasim-sa`, les définitions
+des indicateurs intégrés et la configuration eqasim dans les preuves
+d'exécution (`model_config_sha256`). Les fichiers de données restent hachés
+octet pour octet. `init` écrit aussi un `.gitattributes` (sans jamais écraser le
+vôtre) qui impose LF pour les fichiers YAML, JSON et `*.lock`. Si `check`
+signale une divergence après un transfert, comparez les fichiers sur les deux
+machines avant de soupçonner les données.
 
 ## Backend SLURM sous Windows ou macOS
 
 Le backend `slurm` exige Linux. `check` signale l'élément `backend` en échec avec
 `the slurm backend requires Linux; run eqasim-sa on the cluster`, et `run` refuse
 avec le même message. Préparez l'étude sur le PC, copiez-la vers le cluster par
-Git, `scp` ou `sftp`, refaites le rendu des chemins machine (marqueurs
+`scp`, `sftp` ou tout autre outil de copie, refaites le rendu des chemins machine (marqueurs
 `__MACHINE_*__` de `protocols/*/` avec `render_protocol.py`, ou édition des chemins
 du YAML), puis lancez `check`, `plan` et `run` sur le cluster. Le PC ne soumet
 jamais de job.
@@ -340,7 +406,7 @@ soumet et appliqué dans le job Slurm.
 
 `analyze` n'a besoin ni de l'arborescence de données ni du scratch, et ne compare
 jamais la preuve d'exécution à la machine qui analyse. Il faut : le dossier de
-campagne rapatrié (`scp` ou `sftp`), le dépôt eqasim au même commit, le même
+campagne rapatrié (`scp` ou `sftp`), le dossier eqasim avec le même code, le même
 `uv.lock` et le même manifeste de données, et le rendu des chemins machine refait
 pour cette machine. `metaConfigSha256` est une provenance publiée, pas une
 contrainte d'égalité : des chemins machine différents ne bloquent pas l'analyse.

@@ -29,7 +29,7 @@ eqasim-sa/
 │   │   ├── data_manifest.py
 │   │   ├── worker.py
 │   │   ├── backends/
-│   │   ├── eqasim/       # adapter and worker workspace lifecycle
+│   │   ├── eqasim/       # adapter, code fingerprint, output files, worker workspace
 │   │   └── fake/
 │   └── templates/
 └── tests/
@@ -37,7 +37,8 @@ eqasim-sa/
 
 `ports/` defines the backend and simulator protocols. `core/` owns identities,
 designs, the ledger, and analyses without knowing about the CLI. `adapters/`
-loads YAML, invokes synpp, normalizes artifacts, manages local/SLURM execution,
+loads YAML, fingerprints the eqasim code, invokes synpp, copies the declared
+output files, manages local/SLURM execution,
 and wires the application together. `cli.py` is limited to parsing and JSON
 envelopes.
 
@@ -124,7 +125,7 @@ Inspect and test the newly produced artifacts; do not assume that pre-existing
 ## Observed testing strategy
 
 - Unit tests for identities, plans, the ledger, indicators, and statistics.
-- Adversarial validation tests for Parquet schemas, paths, symbolic links, and atomic writes.
+- Adversarial validation tests for Parquet plan and marker schemas, CSV output reading, paths, symbolic links, and atomic writes.
 - CLI integration tests with a synpp spy executable.
 - A fake pipeline for end-to-end runs and analyses.
 - Metadata tests and commands from a built installation.
@@ -144,7 +145,12 @@ or absent) is unaffected.
 
 ## Important invariants
 
-- The model YAML must remain a clean, tracked Git blob.
+- eqasim-sa never calls Git. The eqasim code fingerprint
+  (`adapters/eqasim/source_fingerprint.py`) and the bytes of the model YAML are
+  sealed in the context and checked again before every run.
+- synpp receives the `run:` list of the model YAML unchanged.
+- Declared output files are archived byte for byte; only their name, `file`, and
+  `separator` are sealed in the plan.
 - The plan is reproducible and immutable under a given root.
 - The run marker is published after the archives and is the sole proof of completion.
 - Plans and run markers are no-clobber publications; an existing marker is never replaced.
@@ -159,17 +165,19 @@ or absent) is unaffected.
   application preflight.
 - An analysis must not mutate its sources; the code backs them up and restores them if they differ.
 
-## Add a custom indicator
+## Add an indicator kind
 
-Publish a Python entry point in the `eqasim_sa.indicators` group. Its name must
-match `indicators[].custom.function`. The loaded object may be a class that can
-be instantiated without arguments, a callable, or an object with
-`compute(artifacts)`. The result must be exactly one finite `float`. The analysis
-name will be `function(artifact)`.
+There is no plugin mechanism: the indicator kinds are `tv_distance`, `share`,
+and `value`, all built in. A user who needs another quantity computes it in an
+eqasim analysis stage, declares the CSV file under `outputs`, and reads it with
+`value`; that code is then covered by the eqasim code fingerprint.
 
-The callable receives an `ArtifactSet`; use `artifacts.path("name")` to obtain a
-Parquet file copied read-only into the temporary analysis space. Add tests for
-resolution, errors, source purity, and distribution.
+A new built-in kind is a change to eqasim-sa itself. Implement it in
+`core/indicators/` (computation, canonical definition, and `KIND_VERSIONS`),
+parse it in `adapters/meta_config.py` (`INDICATOR_KINDS`), and document it in
+both YAML references. Changing the bytes of an existing definition requires a
+new `eqasim-sa:indicator-definition` domain version. Add tests for parsing,
+errors, computation on CSV text columns, and source purity.
 
 ## Distribution caveats
 

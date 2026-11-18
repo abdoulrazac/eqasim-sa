@@ -6,7 +6,8 @@
 
 ## At a glance
 
-The `sobol` starter varies several inputs, then calculates first-order and
+The `sobol` starter varies its inputs (the sampling rate and the simulator
+seed), then calculates first-order and
 total-order indices. However, it uses only one randomized Sobol sequence, called
 a **scramble**, and bootstraps rows from that same sequence.
 
@@ -39,8 +40,8 @@ commands from that generated project.
 ### 1. Understand the generated demonstration
 
 After `eqasim-sa init`, the rendered `configs/03-sobol.yml` file asks a small
-plumbing question: "Do numeric values, categories, and a finite set of seeds pass
-correctly through the entire workflow?"
+plumbing question: "Do numeric values and a finite set of seeds pass correctly
+through the entire workflow?"
 
 Its experiment part reads:
 
@@ -49,16 +50,16 @@ campaign: mon-analyse-sa-sobol
 experiment:
   method: sobol
   seeds: [1401, 1402]
-  base_sample_size: 4
+  base_sample_size: 8
 parameters:
   sampling_rate: [0.001, 0.002]
-  matching_age_scheme: [matching_6, analysis_7]
 analysis:
   bootstrap_resamples: 99
 ```
 
-The rest of the file declares the three outputs, the calibration file, the
-model, and local execution. Omitted keys take their defaults: without `charter`
+The rest of the file declares the outputs (the population files and the three
+distributions compared with reference data), the calibration file, the model,
+and local execution. Omitted keys take their defaults: without `charter`
 the campaign is a demonstration, the analysis uses `completeness_threshold: 1.0`
 and `confidence_level: 0.95`, and the design seed is derived from the campaign
 name. Only `bootstrap_resamples` is lowered to 99 to keep the demonstration
@@ -67,7 +68,10 @@ fast. `show-config` displays every value.
 The source file `src/eqasim_sa/templates/03-sobol.yml` contains placeholders.
 Run the rendered copy in your project, not this source file.
 
-The two parameters must already exist under `config:` in the sealed model. The
+`sampling_rate` must exist under `config:` in your eqasim configuration; the
+official `config.yml` already has it. As for every starter, the `run:` list of
+that configuration must contain `analysis.synthesis.population` (see
+[Getting started](getting-started.md#prepare-your-eqasim-configuration)). The
 seed factor needs no model key. Never add `random_seed` or `seed` under
 `parameters`.
 
@@ -85,23 +89,20 @@ For Nantes/EDGT 44, distance is an asymmetric secondary diagnostic: synthetic
 bins use Euclidean activity-to-activity distance, whereas HTS bins use routed
 distance.
 
-TV ranges from `0` to `1`; a lower value indicates closer distributions. The
-`matching_age_scheme` parameter affects matching, while `analysis_age_scheme`
-remains fixed at `analysis_7` in the model so that the output classes stay
-comparable.
+TV ranges from `0` to `1`; a lower value indicates closer distributions.
 
 ### 3. Understand the design size
 
-Sobol counts `D = 3` factors: `sampling_rate`, `matching_age_scheme`, and `seed`.
-With `N = 4`, the design contains:
+Sobol counts `D = 2` factors: `sampling_rate` and `seed`. With `N = 8`, the
+design contains:
 
 ```text
-N(2D+2) = 4 × (2×3+2) = 32 positions
+N(2D+2) = 8 × (2×2+2) = 48 positions
 ```
 
 Projecting each factor onto only two values creates positions that represent the
-same final setting. The starter normally contains **32 statistical positions but
-8 unique runs**. These duplicates are expected in this small demonstration;
+same final setting. The starter contains **48 statistical positions but 4
+unique runs** (two rates by two seeds). These duplicates are expected in this small demonstration;
 they do not make the design scientifically sufficient.
 
 ### 4. Calibrate, plan, and run
@@ -138,8 +139,7 @@ Here is a **fictional illustration**, not a Nantes result:
 | Factor | First order | Total order |
 | --- | ---: | ---: |
 | `sampling_rate` | `0.28` | `0.42` |
-| `matching_age_scheme` | `0.12` | `0.31` |
-| `seed` | `0.25` | `0.37` |
+| `seed` | `0.45` | `0.61` |
 
 You can check that the file was produced, that every factor appears, and that
 the columns contain finite values. You must not turn this fictional table into a
@@ -159,10 +159,14 @@ The `governed-report.json` report records this as
 
 You can test another scalar input through the pipeline, such as
 `matching_minimum_observations: [5, 20, 50]`, in a **new** campaign (a new
-`campaign` name). The cost always follows `N(2D+2)`.
+`campaign` name), after writing that parameter in the `config:` section of
+your eqasim configuration. The cost always follows `N(2D+2)`.
 
-Add `income_assignation_method` only if you have a suitable income indicator:
-the starter's three indicators do not measure income directly. Add `hts` only if
+Add `income_assignation_method` (`[uniform, bhepop2]`) only if you have a
+suitable income indicator: the starter's three indicators do not measure income
+directly. Compute an income measure in an eqasim analysis stage and read it with
+a `value` indicator (see
+[Your own calculations](yaml-reference.md#your-own-calculations)). Add `hts` only if
 both prepared datasets exist, because this parameter changes both donors and
 HTS references.
 

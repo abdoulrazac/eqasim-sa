@@ -24,11 +24,18 @@ durable storage, and cache observations needed to estimate a target.
 ## Sealed Identities
 
 `contextHash` is defined as
-`SHA-256(b"eqasim-sa:context:v2\0" + ASCII(descriptor))`, where `descriptor` is
-the compact JSON with sorted keys for `eqasimCommit`, `dataManifestSha256`,
-`lockfileSha256`, and `eqasimSaVersion`. The result is a 64-character lowercase
+`SHA-256(b"eqasim-sa:context:v3\0" + ASCII(descriptor))`, where `descriptor` is
+the compact JSON with sorted keys for `eqasimSourceSha256` (the eqasim code
+fingerprint, computed without Git), `dataManifestSha256`, `lockfileSha256`, and
+`eqasimSaVersion`. The result is a 64-character lowercase
 hexadecimal string. See the
-[complete definition](yaml-reference.md#model).
+[complete definition](yaml-reference.md#the-eqasim-code-fingerprint).
+
+The plan also seals the declared outputs (`outputsDeclaration`): for each
+output, its name, `file`, and `separator`. These determine what each run
+archives. The columns read by indicators (`category`, `simulated`,
+`references`) and the indicators themselves are not sealed: they are read from
+the current meta-configuration at every `analyze`.
 
 `runId` consists of the first 32 hexadecimal characters of a SHA-256 over the
 canonical configuration and seed. Canonicalization removes
@@ -82,7 +89,7 @@ existing one.
 
 Each completion marker stores `duration` and `scratchBytes`. For each observed
 run, the estimator separately measures durable bytes by adding the size of
-the marker and all flat Parquet files in its archive. `estimate` calculates:
+the marker and all files in its archive. `estimate` calculates:
 
 - mean observed duration × number of unique runs for compute hours;
 - mean durable size × unique runs, plus plan size, for disk space;
@@ -100,18 +107,14 @@ campaigns/mon-analyse-sa-grid/
 │   └── <runId>.parquet
 ├── archives/
 │   └── <runId>/
-│       ├── persons.parquet
-│       ├── households.parquet
-│       ├── activities.parquet
-│       ├── trips.parquet
-│       ├── vehicle_types.parquet
-│       ├── vehicles.parquet
-│       ├── age.parquet
-│       ├── age_purpose.parquet
-│       ├── distance.parquet
-│       ├── license.parquet
-│       ├── nbr_vehicle.parquet
-│       └── travel.parquet
+│       ├── persons.csv
+│       ├── households.csv
+│       ├── trips.csv
+│       ├── activities.csv
+│       ├── activities_spatial.gpkg
+│       ├── age.csv
+│       ├── distance.csv
+│       └── nbr_vehicle.csv
 ├── logs/
 │   └── <runId>.log
 ├── .eqasim-sa/
@@ -137,10 +140,12 @@ campaigns/mon-analyse-sa-grid/
 └── analysis-generation.json
 ```
 
-Logs exist only for published failures. The tree shows the six outputs from
-`synthesis.output` and the six additional outputs when
-`analysis.synthesis.population` is requested. Only the stages required by the
-indicators are executed, with `synthesis.output` always present.
+Logs exist only for published failures. The archive holds one file per output
+declared in the meta-configuration, here the eight outputs of the starters. Each
+file is a byte-for-byte copy of what eqasim wrote, named
+`<output name><extension>`; files that are not declared are not kept. eqasim
+runs the `run:` list of your eqasim configuration unchanged, so that list must
+contain the stages that write the declared files.
 Final analysis outputs live in one immutable
 `analysis/generations/<generationId>/` directory. `analysis/staging/` contains
 only transactional work and is empty after a normal command completes.
@@ -174,6 +179,12 @@ with Zstandard:
 | `duration` | monotonic seconds, finite nonnegative float |
 | `scratchBytes` | worker cache size after the run |
 | factors | scientific values of the run |
+
+The marker also carries two metadata entries. `artifactManifest` lists every
+archived file with its output `name`, its `sourcePath` (the original path under
+eqasim's output folder, for example `analysis_population/nantes_age.csv`), its
+size, and its SHA-256. `executionEvidence` (schema version 3) records how the
+run was executed, including the eqasim code fingerprint (`modelSourceSha256`).
 
 An archive without a marker is incomplete. A marker with the wrong schema, a
 different identity, a foreign name, or different compression is an error.

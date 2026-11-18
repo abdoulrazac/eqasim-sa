@@ -84,14 +84,17 @@ parameters:
   sampling_rate: [0.001, 0.002]
 ```
 
-Remove `matching_age_scheme` from the copied `parameters` block. Leave the rest
-of the generated file unchanged, including `outputs`, `calibration`, `model`,
+Compared with the starter, only the campaign name and the third seed change.
+Leave the rest of the generated file unchanged, including `outputs`, `calibration`, `model`,
 and `execution`. The new `campaign` name also gives the campaign its own folder,
 `campaigns/mon-analyse-sa-grid-sampling-rate/`. To check the complete
 configuration, defaults included, run
 `"${SA[@]}" show-config configs/01-grid-sampling-rate.yml`.
 
-The sealed model must already contain `config.sampling_rate`. The seeds are not
+Your eqasim configuration must contain `config.sampling_rate` (the official
+`config.yml` does) and list `analysis.synthesis.population` in `run:` (see
+[Prepare your eqasim configuration](getting-started.md#prepare-your-eqasim-configuration)).
+The seeds are not
 `sampling_rate` values: they repeat each rate to reveal random variation. This
 design contains:
 
@@ -101,11 +104,20 @@ design contains:
 
 ### 4. Choose what to measure
 
-The generated file already declares three model outputs and the reference data
-each one is compared with:
+The generated file already declares the outputs to keep from each run. The
+population files (`persons`, `households`, `trips`, `activities`, and the
+spatial activities `activities_spatial`) are archived so that a later analysis
+needs no new simulation; they have no reference, so they produce no indicator.
+Three distributions are compared with reference data:
 
 ```yaml
 outputs:
+  persons: {}
+  households: {}
+  trips: {}
+  activities: {}
+  activities_spatial:
+    file: "{prefix}activities.gpkg"
   age:
     category: Age class
     simulated: Proportion_EQASIM
@@ -236,7 +248,7 @@ the combinations listed in the file.
 
 ## Adapt this example
 
-- To compare matching thresholds, replace the parameter with `matching_minimum_observations: [5, 20, 50]`.
+- To compare matching thresholds, write `matching_minimum_observations` in the `config:` section of your eqasim configuration, then replace the parameter with `matching_minimum_observations: [5, 20, 50]`.
 - To combine two parameters, add the second under `parameters` and multiply the domain sizes by the number of seeds.
 - To compare `matching_attributes` lists, follow the [structured-configurations tutorial](structured-configurations-tutorial.md).
 - For local numeric triage, continue with [discrete OAT](what-when-how-discrete_oat.md).
@@ -245,7 +257,7 @@ the combinations listed in the file.
 ## Checklist
 
 - The question names the parameter, its values, and every output being studied.
-- Every parameter key already exists under `config:` in the sealed model.
+- Every parameter key already exists under `config:` in your eqasim configuration, and its `run:` list contains the stages that write the declared outputs.
 - Seeds are in `experiment.seeds`, never under `parameters`.
 - The number of positions fits the budget.
 - A modified campaign has a new `campaign` name, and therefore a new folder.

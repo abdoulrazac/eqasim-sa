@@ -19,8 +19,8 @@ eqasim-sa init --project-name NAME [options]
 | --- | --- | --- | --- |
 | `--project-name NAME` | yes | none | safe segment of 1 to 64 characters |
 | `--directory PATH` | no | `./NAME` | project destination |
-| `--model-root PATH` | no | `./eqasim-france` | model root |
-| `--model-config FILE` | no | `config_local_nantes.yml` | path relative to `model-root`, without `..` |
+| `--model-root PATH` | no | `./eqasim-france` | eqasim folder (Git is not required) |
+| `--model-config FILE` | no | `config.yml` | eqasim configuration, relative to `--model-root` or absolute; written as `model.config` in the starters |
 | `--data-path PATH` | no | `./eqasim-data` | data tree to hash |
 | `--scratch PATH` | no | `<directory>/scratch` | local scratch space, created if absent |
 | `--invocation ARG` | no, repeatable | `uv run --locked python -m synpp` | one argument per occurrence, in order |
@@ -44,8 +44,8 @@ eqasim-sa show-config PATH
 
 Prints the complete meta-configuration, with every default value applied (see
 [Defaults and `show-config`](yaml-reference.md#defaults-and-show-config)). The
-file is validated as for `plan` (clean model repository, factors present in the
-model configuration), but the scratch and data directories need not exist and
+file is validated as for `plan` (eqasim folder and configuration found, factors
+present in the model configuration), but the scratch and data directories need not exist and
 no `execution` block is required.
 
 On success, the resolved YAML is written to standard output and the exit code is
@@ -79,7 +79,7 @@ Without `--smoke`, the checks are:
 
 | Check | Verification |
 | --- | --- |
-| `metaConfig` | YAML, Git context, factors, and paths |
+| `metaConfig` | YAML, eqasim code fingerprint and context, factors, declared outputs, and paths |
 | `sealedPlan` | equality of the plan with the recomputed design |
 | `uniqueConfigSeedPairs` | no Grid duplicates; sealed validation for discrete OAT, canonical Morris, and Sobol |
 | `eqasimEnvironment` | when `execution.invocation` ends with `-m synpp`, the invocation with those two elements replaced by `-c "import synpp"` must exit 0; otherwise the probe is skipped and the check carries `note: synpp probe skipped: invocation does not end with -m synpp` |
@@ -90,7 +90,8 @@ uses at most 20 seconds of that budget.
 
 `--smoke` is not static. If the preceding checks pass, it executes two real,
 temporary eqasim runs with the first two distinct seeds and
-`sampling_rate: 0.001`, validates their markers and Parquet files, then deletes
+`sampling_rate: 0.001`, validates their markers and that every declared output
+file was archived, then deletes
 the temporary directory. That directory is `<execution.scratch>/.smoke-<8 hex>/`,
 so the `path_length` estimate covers the smoke runs too. It requires `sampling_rate` and two explicit seeds. It
 does not apply `execution.machine_options`: its starting configuration is the
@@ -112,7 +113,7 @@ eqasim-sa estimate --meta-config PATH \
 Requires a target plan, an `execution` block, and at least one completed run from
 the target or calibration campaigns. For each observation, `duration` and
 `scratchBytes` come from the marker, while durable bytes are measured from
-the marker and every Parquet file in the archive. The calculation uses mean
+the marker and every file in the archive. The calculation uses mean
 duration and durable size, and the maximum cache size per worker.
 
 JSON fields: `status`, `estimateVersion`, `method`, `formula`,
@@ -138,8 +139,10 @@ fields: `status`, `total`, `completed`, `skipped`, `failed`, `failures`,
 eqasim-sa analyze --meta-config PATH
 ```
 
-Recomputes indicators from the archives and atomically publishes analysis
-outputs. JSON fields: `status`, `path`, `runs`, `indicators`, `values`,
+Recomputes indicators from the archived output files and atomically publishes
+analysis outputs. The output columns (`category`, `simulated`, `references`)
+and the indicators are read from the current meta-configuration, so they can be
+corrected after the runs. JSON fields: `status`, `path`, `runs`, `indicators`, `values`,
 `completionRate`, `expected`, `completed`, `missing`, `failed`,
 `dispersionPath`, `sensitivityMethod`, `sensitivityPath`, `convergencePath`,
 `rankReversalsPath`, `byScramblePath`, `diagnosticsPath`, `noiseFloorPath`,

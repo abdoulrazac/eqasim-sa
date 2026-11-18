@@ -63,8 +63,9 @@ parameters:
   sampling_rate: [0.001, 0.002, 0.003]
 ```
 
-The other blocks in the rendered file declare the three outputs (and so, by
-default, the three indicators), the calibration file, the model and its data,
+The other blocks in the rendered file declare the outputs (the population files
+kept with each run, and the three distributions that give, by default, the three
+indicators), the calibration file, the model and its data,
 and local execution. Without a `charter` block, the campaign is a
 demonstration, which discrete OAT requires. `design_seed` is written explicitly
 so that the starter selects the same trajectories whatever the project name. The source file
@@ -171,7 +172,9 @@ parameters:
 
 With two trajectories and two seeds, this gives
 `2 × (3 + 1) × 2 = 16` positions. Every key must already exist under `config:`
-in the sealed model. Discrete OAT rejects categories and structured lists; use
+in your eqasim configuration: write `matching_minimum_observations` and
+`matching_minimum_age` there first, since the official `config.yml` does not
+set them. Discrete OAT rejects categories and structured lists; use
 [Grid](what-when-how-grid.md) for those.
 
 ## What you can conclude

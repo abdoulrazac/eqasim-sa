@@ -7,12 +7,23 @@ small Grid campaign. It is an end-to-end demonstration of configuration,
 execution, storage, and analysis plumbing. It is not a scientific campaign and
 does not support inferential or decision claims.
 
-## 1. Prepare the model before initialization
+## 1. Prepare the eqasim configuration before initialization
 
-The active eqasim-france YAML referenced by `--model-config` must already contain
-`config.matching_attributes` as a list of strings. For example:
+Work on a copy of the official configuration, placed in the eqasim folder, so
+that the official file stays untouched:
+
+```bash
+cp "$ROOT/eqasim-france/config.yml" "$ROOT/eqasim-france/config_nantes.yml"
+```
+
+In `config_nantes.yml`, write `config.matching_attributes` as a list of strings,
+and make sure `run:` contains `analysis.synthesis.population`, which writes the
+`age`, `distance`, and `nbr_vehicle` outputs compared by the starters:
 
 ```yaml
+run:
+  - synthesis.output
+  - analysis.synthesis.population
 config:
   matching_attributes:
     - sex
@@ -22,24 +33,16 @@ config:
     - departement_id
 ```
 
-Add this key to the tracked YAML that eqasim-france actually loads, not to an
-untracked local copy. Do this before `init` or any `plan`, then commit it and
-leave the complete model repository clean:
-
-```bash
-git -C "$ROOT/eqasim-france" add config_local_nantes.yml
-git -C "$ROOT/eqasim-france" commit -m "Declare matching attributes"
-git -C "$ROOT/eqasim-france" status --short
-```
-
-The final command must print nothing. Adapt the filename if `init` uses another
-`--model-config`. The model commit is part of `contextHash`; changing it after a
-plan has been sealed requires a new project or, at minimum, a new `campaign` (and so a new,
-empty campaign folder). Never place a changed context over an existing campaign.
+Keep the other keys of the copy as they are. Do this before `init` or any
+`plan`. Git is not required. The content of this file, like the eqasim code, is
+part of the campaign identity: changing it after a plan has been sealed requires
+a new project or, at minimum, a new `campaign` (and so a new, empty campaign
+folder). Never place a changed context over an existing campaign.
 
 ## 2. Initialize or enter a generated project
 
-Initialize after the model commit:
+Initialize with this configuration; `--model-config` is read from the eqasim
+folder:
 
 ```bash
 ROOT="$(pwd -P)"
@@ -48,12 +51,14 @@ PY=(uv run --project "$ROOT/eqasim-sa" --locked python)
 "${SA[@]}" init \
   --project-name matching-structures \
   --model-root "$ROOT/eqasim-france" \
+  --model-config config_nantes.yml \
   --data-path "$ROOT/eqasim-data"
 cd "$ROOT/matching-structures"
 ```
 
-An existing generated project is also usable if its model paths point to this
-tracked YAML and no campaign root is being reused after the context change. Use
+The generated files then contain `config: config_nantes.yml` under `model`.
+An existing generated project is also usable if its `model.config` names this
+configuration and no campaign root is being reused after the context change. Use
 the `SA=(...)` array rendered in its `README.md` if it differs from the command
 above. For the inspection snippets, set `PY=(python)` when eqasim-sa and PyArrow
 are installed in the active Python environment.
@@ -93,11 +98,13 @@ parameters:
 ```
 
 The `campaign` line replaces the existing top-level line; do not insert a
-second copy. The `parameters` block replaces both starter factors. Keep all
+second copy. The `parameters` block replaces the starter factor
+(`sampling_rate`). Keep all
 other blocks from `01-grid.yml` unchanged, including:
 
 - `method: grid` and the two replication seeds `[1201, 1202]`;
-- the three `outputs`, which give by default the age/INSEE, distance/HTS, and
+- the `outputs`: the population files kept with each run, and the three
+  distributions that give by default the age/INSEE, distance/HTS, and
   number-of-vehicles/HTS indicators;
 - the `calibration.meta_configs` block;
 - the `model` and `execution` blocks, including `machine_options`.
@@ -258,12 +265,12 @@ and the study-authored [Nantes protocol](../protocols/nantes-scientific/README.m
   `configurations` plus `distribution` for a scientific campaign.
 - Every payload must be a non-empty ordered list of unique, non-empty strings.
   Labels must be non-empty, and payloads must be distinct; aliases are rejected.
-- The base model value must already be a list of strings. eqasim-sa will not
-  create or convert the model key.
+- The base value in your eqasim configuration must already be a list of
+  strings. eqasim-sa will not create or convert the model key.
 - Schema-v3 metadata is sealed and canonical. Never edit labels, rows,
   `structuredFactors`, versions, `runId`, or completion markers by hand;
   validation rejects missing, reordered, aliased, or noncanonical metadata.
-- Any design, payload, model commit, data manifest, lockfile, or package-version
+- Any design, payload, eqasim code, data manifest, lockfile, or package-version
   change requires a new campaign name (and so a new campaign folder). Preserve old plans as immutable
   provenance rather than repairing them in place.
 

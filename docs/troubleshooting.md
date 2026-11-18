@@ -2,18 +2,78 @@
 
 [Français](../docs-fr/troubleshooting.md)
 
-## `model Git repository must be clean`
+## `No such file or directory` for `model.config`
 
-Cause: a tracked file has been modified, an untracked file is present, the index
-differs, or a change occurred during loading. Remedy: inspect
-`git status --short` at the model root, then deliberately commit or remove the
-changes. Do not bypass this check: the commit is included in `contextHash`.
+Cause: a relative `model.config` is read from the eqasim folder (`model.root`),
+not from the directory of the meta-configuration. A path such as
+`../../eqasim-france/config.yml`, written relative to `configs/`, therefore
+points to the wrong place. Remedy: write the path relative to `model.root`
+(`config: config.yml`, or `config: config_nantes.yml` for a copy next to it), or
+an absolute path. The message shows the full path that was tried.
 
-## `model.config does not match its sealed Git blob`
+## `no eqasim source files found under ...`
 
-Cause: the file being read is not identical to the version in `HEAD`. Remedy:
-restore or commit the configuration, then use a new campaign if a plan had
-already been created.
+Cause: `model.root` contains no `*.py`, `*.java`, `pom.xml`, `pyproject.toml`
+or `uv.lock` outside the ignored folders, so it is probably not the eqasim
+folder. Remedy: point `model.root` at the folder that contains eqasim's code and
+its `config.yml`.
+
+## `eqasim source changed after context sealing`
+
+Cause: an eqasim code file under `model.root` (`*.py`, `*.java`, `pom.xml`,
+`pyproject.toml`, `uv.lock`) was added, removed, or edited after the campaign
+was planned. The code is part of the campaign identity, and every run checks its
+fingerprint before starting. Remedy: restore the code as it was when the plan was
+sealed, or plan a new campaign with the new code. Files written in the eqasim
+`working_directory` and `output_path`, and in virtual or conda environments,
+are ignored. If another tool writes code files inside the eqasim folder, move
+its output elsewhere.
+
+## `model config changed after context sealing`
+
+Cause: the eqasim configuration named by `model.config` was edited during the
+campaign. Remedy: restore it, or plan a new campaign with the edited file.
+
+## `output '...' is written by eqasim stage '...', which is not in run: of ...`
+
+Cause: a known output (for example `age`, `distance`, or `nbr_vehicle`) keeps
+its default file, but the eqasim stage that writes it is not in the `run:` list
+of your eqasim configuration. eqasim-sa runs `run:` exactly as written and does
+not add stages. Remedy: add the named stage, usually
+`analysis.synthesis.population`, to `run:` in your copy of the configuration,
+before planning. See [What eqasim runs](yaml-reference.md#what-eqasim-runs).
+
+## `output '...' is not a known eqasim output; declare its file`
+
+Cause: an output name outside the twelve known eqasim outputs has no `file`.
+Remedy: add `file`, relative to eqasim's output folder, for example
+`file: "analysis_population/{prefix}summary.csv"`, and `separator` if it is not
+a comma. See [Known outputs](yaml-reference.md#known-outputs-and-their-files).
+
+## `eqasim did not write declared output '...' (expected ...)`
+
+Cause: a run finished but the declared file is not in eqasim's output folder.
+Typical reasons: the stage that writes it is not in `run:`, the `file` path is
+misspelled, or `{prefix}` does not match the `output_prefix` of your eqasim
+configuration. Remedy: read `logs/<runId>.log`, correct the eqasim
+configuration or the `file` declaration (a new campaign is needed if the plan
+was already sealed), and run again.
+
+## `share category must be a quoted string` or `where values must be quoted strings`
+
+Cause: YAML reads `category: 0`, `category: True`, or `zone: 44` as a number or
+a boolean, while class labels and table cells are compared as text. Remedy:
+write them between quotes: `category: "0"`, `category: "True"`,
+`where: {zone: "44"}`.
+
+## `artifact '...' is missing declared column '...'` or `column '...' must be numeric`
+
+Cause: a `category`, `simulated`, reference, `value` column, or `where` column
+does not exactly match the CSV header, or a column used as a number contains
+text. Remedy: print the first line of the archived file
+(`head -n 1 archives/<runId>/age.csv`), correct the column names under
+`outputs` or `indicators`, and rerun `analyze`. These keys are not sealed in the
+plan, so no run needs to be repeated.
 
 ## `plan differs; choose a new campaign_root`
 
@@ -82,8 +142,8 @@ homogeneous and numbers finite. Where a float is required, such as a charter
   `configurations`.
 - `unknown factor` or `model config value must be a list of strings`: the sealed
   model YAML must already contain active `config.matching_attributes` as a list
-  of strings. Commit that YAML and keep the model repository clean before
-  planning; eqasim-sa does not create or coerce the key.
+  of strings. Write it in your eqasim configuration before planning; eqasim-sa
+  does not create or coerce the key.
 - `must be a non-empty ordered list...`, `distinct payloads`, or `payload
   aliases`: every configuration payload must be a non-empty list of unique,
   non-empty strings, and no two labels may resolve to the same ordered list.
@@ -180,7 +240,8 @@ lock files while an execution is in progress.
 
 ## `static check time budget exhausted`
 
-Cause: Git access, plan/manifest reads, the synpp probe, or disk measurement took
+Cause: the eqasim code fingerprint, plan/manifest reads, the synpp probe, or disk
+measurement took
 longer than the 55-second budget. Remedy: check network storage, control-file
 sizes, and environment startup time.
 
@@ -195,7 +256,7 @@ versions. The static probe does not run a complete simulation.
 ## `check --smoke` failure
 
 Cause: fewer than two seeds, no `sampling_rate`, a failure in the real pipeline,
-a missing output, or invalid Parquet. Remedy: satisfy the smoke contract and
+a declared output file that was not written. Remedy: satisfy the smoke contract and
 read the returned details. Caution: this option runs two temporary simulations at
 `sampling_rate: 0.001`; it consumes compute resources and accesses real data. The
 smoke check starts from the sealed model YAML and does not apply any
@@ -278,23 +339,23 @@ transferable to Windows and macOS. Rename the campaign, output, or indicator.
 
 ## Line endings and `.gitattributes`
 
-A Git checkout on Windows may convert LF to CRLF. eqasim-sa hashes text inputs
-after normalizing CRLF to LF, so a CRLF checkout produces the same identities as
-on the cluster: the `uv.lock` hash (`lockfileSha256`), the canonical JSON form of
-the data manifest (`dataManifestSha256`), the `eqasim-sa` software identity,
-built-in indicator and plugin text (binary files stay raw), and the `model.config`
-Git check, which uses `git hash-object --path` so that Git's own conversion rules
-apply. Data files are still hashed byte for byte. `init` also writes a
-`.gitattributes` (never overwriting yours) forcing LF for YAML, JSON, and `*.lock`
-files. If `check` reports a mismatch after a transfer, compare the files with
-`git status` and `git diff` before suspecting the data.
+Copying or checking out files on Windows may convert LF to CRLF. eqasim-sa hashes
+text inputs after normalizing CRLF to LF, so a CRLF copy produces the same
+identities as on the cluster: the eqasim code fingerprint
+(`eqasimSourceSha256`), the `uv.lock` hash (`lockfileSha256`), the canonical JSON
+form of the data manifest (`dataManifestSha256`), the `eqasim-sa` software
+identity, the built-in indicator definitions, and the eqasim configuration in
+the execution evidence (`model_config_sha256`). Data files are still hashed byte
+for byte. `init` also writes a `.gitattributes` (never overwriting yours) forcing
+LF for YAML, JSON, and `*.lock` files. If `check` reports a mismatch after a
+transfer, compare the files on both machines before suspecting the data.
 
 ## SLURM backend on Windows or macOS
 
 The `slurm` backend requires Linux. `check` reports the `backend` item as failed
 with `the slurm backend requires Linux; run eqasim-sa on the cluster`, and `run`
 refuses with the same message. Prepare the study on your PC, copy it to the
-cluster with Git, `scp`, or `sftp`, render the machine paths again (the
+cluster with `scp`, `sftp`, or any copy tool, render the machine paths again (the
 `__MACHINE_*__` markers of `protocols/*/` with `render_protocol.py`, or edit the
 YAML paths), and run `check`, `plan`, and `run` on the cluster. The PC never
 submits jobs.
@@ -328,7 +389,7 @@ host and enforced inside the Slurm job.
 
 `analyze` does not need the data tree or the scratch, and never compares the
 execution evidence with the analyzing machine. It needs: the campaign folder copied
-back (`scp` or `sftp`), the eqasim repository at the same commit, the same
+back (`scp` or `sftp`), the eqasim folder with the same code, the same
 `uv.lock` and data manifest, and the machine paths rendered again for that machine.
 `metaConfigSha256` is published provenance, not an equality constraint, so
 different machine paths do not block analysis.

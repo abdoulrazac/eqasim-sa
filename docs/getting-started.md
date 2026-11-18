@@ -7,8 +7,8 @@
 - Windows 10 or later, macOS 13 or later, or Linux (supported; verification on Windows and macOS is pending, see [Platform verification](platform-verification.md)). The `local` backend behaves the same on all three; the `slurm` backend requires Linux (see [Troubleshooting](troubleshooting.md#slurm-backend-on-windows-or-macos)). No administrator rights are needed, except on Windows without long paths, where a real eqasim run needs an administrator to enable them once (see [Short scratch on Windows](#short-scratch-on-windows)).
 - Campaigns, scratch, and data on a local NTFS, APFS, ext4, or xfs disk, or on the cluster's shared filesystem. FAT/exFAT volumes and SMB shares are not supported for campaigns (not detected: eqasim-sa does not refuse them, so check where your paths live).
 - Exactly Python 3.13 within the declared range `>=3.13,<3.14`.
-- `uv` and Git available.
-- A clean eqasim repository with a `HEAD` commit, a YAML file tracked by Git, and a `uv.lock`.
+- `uv` available. Git is not required.
+- An eqasim folder (a clone, a copy, or an unpacked archive) containing its configuration file (by default `config.yml`) and a `uv.lock`.
 - An existing data directory without symbolic links for `init`.
 - The synpp environment required by eqasim. `synpp` is not a Python dependency of `eqasim-sa`.
 
@@ -53,6 +53,12 @@ in a meta-configuration, however, is part of the sealed scientific context.
   --model-root "$ROOT/eqasim-france" \
   --data-path "$ROOT/eqasim-data"
 ```
+
+`--model-config` names the eqasim configuration of your study, relative to
+`--model-root` or absolute; it defaults to `config.yml`, the official file. If
+you work on a copy, for example `config_nantes.yml` next to `config.yml`, add
+`--model-config config_nantes.yml`. The starters then contain
+`config: config_nantes.yml`.
 
 `init` is strictly an atomic template generator. It renders four YAML files, a
 README, and a `manifest.json` containing the size and SHA-256 of every data
@@ -127,6 +133,33 @@ default written out:
 `show-config` prints YAML, not JSON. If the file is invalid, it prints the error
 on standard error and exits with code 1.
 
+## Prepare your eqasim configuration
+
+The starters work with the official, unmodified eqasim. Before the first
+`plan`, check two things in the eqasim configuration named by `model.config`:
+
+- Its `run:` list must contain `analysis.synthesis.population`. The starters
+  compare the `age`, `distance` and `nbr_vehicle` distributions with census and
+  survey data, and these files are written by that eqasim stage. The official
+  `config.yml` lists only `synthesis.output`; add the second stage:
+
+  ```yaml
+  run:
+    - synthesis.output
+    - analysis.synthesis.population
+  ```
+
+  eqasim-sa runs `run:` exactly as written. If the stage is missing, loading
+  stops with `output 'age' is written by eqasim stage
+  'analysis.synthesis.population', which is not in run: of ...`.
+- Every parameter you vary must be written in its `config:` section. The
+  starters vary only `sampling_rate`, which the official configuration
+  contains. To vary another one, for example `matching_minimum_age`, write it in
+  `config:` first.
+
+Changing this file after a plan has been sealed changes the campaign identity:
+make these edits before planning, or use a new campaign afterwards.
+
 ## First resource calibration
 
 From `mon-analyse-sa/`, seal and then run the calibration:
@@ -176,8 +209,8 @@ correct method and claim boundary.
 
 ## First structured target
 
-To compare named ordered `matching_attributes` lists, first commit an active
-list-valued key in the clean model repository, then derive a Grid configuration
+To compare named ordered `matching_attributes` lists, first write an active
+list-valued key in your eqasim configuration, then derive a Grid configuration
 under a new campaign/root. The
 [structured-configurations tutorial](structured-configurations-tutorial.md)
 covers the complete six-run workflow, plan metadata, analysis inspection, and
@@ -191,10 +224,10 @@ The `plan` commands return a JSON object with `status`, `designPositions`, and
 
 | Stage | Minimum JSON on first execution | Expected files after `run`/`analyze` |
 | --- | --- | --- |
-| Calibration | `plan`: `created`, 3 positions, 3 unique runs; `run`: `completed`, 3 completed | `campaigns/mon-analyse-sa-calibration/plan.parquet`, 3 markers under `runs/`, 3 archives |
-| Grid | `plan`: `created`, 8 positions, 8 unique runs; `run`: 8 completed; `analyze`: `completed` | `analysis-generation.json`; selected generation: `indicators.parquet`, `replication-dispersion.parquet`, `output-summary.parquet`, `governed-report.json` |
+| Calibration | `plan`: `created`, 3 positions, 3 unique runs; `run`: `completed`, 3 completed | `campaigns/mon-analyse-sa-calibration/plan.parquet`, 3 markers under `runs/`, 3 archives with eight files each (`persons.csv`, ..., `activities_spatial.gpkg`, `age.csv`, `distance.csv`, `nbr_vehicle.csv`) |
+| Grid | `plan`: `created`, 4 positions, 4 unique runs; `run`: 4 completed; `analyze`: `completed` | `analysis-generation.json`; selected generation: `indicators.parquet`, `replication-dispersion.parquet`, `output-summary.parquet`, `governed-report.json` |
 | Discrete OAT | `plan`: `created`, 8 positions, 6 unique runs; `run`: 6 completed; `analyze`: sensitivity `discrete_oat` | `analysis-generation.json`; selected generation: `indicators.parquet`, `replication-dispersion.parquet`, `discrete-oat-effects.parquet`, `output-summary.parquet`, `governed-report.json` |
-| Sobol | `plan`: `created`, 32 positions, 8 unique runs; `run`: 8 completed; `analyze`: sensitivity `sobol` | `analysis-generation.json`; selected generation: `indicators.parquet`, `sobol-indices.parquet`, `output-summary.parquet`, `governed-report.json` |
+| Sobol | `plan`: `created`, 48 positions, 4 unique runs; `run`: 4 completed; `analyze`: sensitivity `sobol` | `analysis-generation.json`; selected generation: `indicators.parquet`, `sobol-indices.parquet`, `output-summary.parquet`, `governed-report.json` |
 
 An identical rerun of `plan` returns `unchanged`. For an already complete
 campaign, `run` returns `status: completed` and `total: 0`.
@@ -204,7 +237,7 @@ campaign, `run` returns `status: completed` and `total: 0`.
 - The four plans match the expected cardinalities or your documented design.
 - Every expected `runId` has a valid marker and a readable archive.
 - `analyze` reports `status: completed` and the expected completion rate.
-- The schemas and columns of the output Parquet files match the `outputs` declarations.
+- The column names of the archived CSV files match the `category`, `simulated`, and `references` declarations under `outputs`.
 - The Grid, discrete OAT, and Sobol demonstration outputs have been inspected, not merely created.
 - The generated Sobol campaign is a noninferential demonstration. A scientific
   multi-scramble Sobol campaign must be authored separately; there is no starter.

@@ -25,11 +25,18 @@ cible.
 ## Identités scellées
 
 `contextHash` est défini par
-`SHA-256(b"eqasim-sa:context:v2\0" + ASCII(descriptor))`, où `descriptor` est le
-JSON compact à clés triées de `eqasimCommit`, `dataManifestSha256`,
-`lockfileSha256` et `eqasimSaVersion`. Le résultat est une chaîne de 64
+`SHA-256(b"eqasim-sa:context:v3\0" + ASCII(descriptor))`, où `descriptor` est le
+JSON compact à clés triées de `eqasimSourceSha256` (l'empreinte du code
+d'eqasim, calculée sans Git), `dataManifestSha256`, `lockfileSha256` et
+`eqasimSaVersion`. Le résultat est une chaîne de 64
 caractères hexadécimaux minuscules. Voir la
-[définition complète](yaml-reference.md#model).
+[définition complète](yaml-reference.md#lempreinte-du-code-deqasim).
+
+Le plan scelle aussi les sorties déclarées (`outputsDeclaration`) : pour chaque
+sortie, son nom, son `file` et son `separator`. Ils déterminent ce que chaque
+run archive. Les colonnes lues par les indicateurs (`category`, `simulated`,
+`references`) et les indicateurs eux-mêmes ne sont pas scellés : ils sont lus
+dans la méta-configuration courante à chaque `analyze`.
 
 `runId` est constitué des 32 premiers hexadécimaux d'un SHA-256 sur la
 configuration canonique et la seed. La canonicalisation retire
@@ -81,7 +88,7 @@ refuse de continuer. Créez une nouvelle racine au lieu d'éditer l'existante.
 
 Chaque marqueur complet stocke `duration` et `scratchBytes`. Pour chaque run
 observé, l'estimateur mesure séparément les octets durables en additionnant la
-taille du marqueur et de tous les fichiers Parquet plats de son archive.
+taille du marqueur et de tous les fichiers de son archive.
 `estimate` calcule :
 
 - durée moyenne observée × nombre de runs uniques pour les heures de calcul;
@@ -100,18 +107,14 @@ campaigns/mon-analyse-sa-grid/
 │   └── <runId>.parquet
 ├── archives/
 │   └── <runId>/
-│       ├── persons.parquet
-│       ├── households.parquet
-│       ├── activities.parquet
-│       ├── trips.parquet
-│       ├── vehicle_types.parquet
-│       ├── vehicles.parquet
-│       ├── age.parquet
-│       ├── age_purpose.parquet
-│       ├── distance.parquet
-│       ├── license.parquet
-│       ├── nbr_vehicle.parquet
-│       └── travel.parquet
+│       ├── persons.csv
+│       ├── households.csv
+│       ├── trips.csv
+│       ├── activities.csv
+│       ├── activities_spatial.gpkg
+│       ├── age.csv
+│       ├── distance.csv
+│       └── nbr_vehicle.csv
 ├── logs/
 │   └── <runId>.log
 ├── .eqasim-sa/
@@ -137,10 +140,13 @@ campaigns/mon-analyse-sa-grid/
 └── analysis-generation.json
 ```
 
-Les logs n'existent que pour les échecs publiés. L'arbre montre les six sorties
-de `synthesis.output` et les six sorties supplémentaires lorsque
-`analysis.synthesis.population` est demandée. Seules les étapes requises par les
-indicateurs sont exécutées, avec `synthesis.output` toujours présente.
+Les logs n'existent que pour les échecs publiés. L'archive contient un fichier
+par sortie déclarée dans la méta-configuration, ici les huit sorties des
+modèles. Chaque fichier est une copie à l'octet près de ce qu'eqasim a écrit,
+nommée `<nom de la sortie><extension>` ; les fichiers non déclarés ne sont pas
+conservés. eqasim exécute la liste `run:` de votre configuration eqasim sans la
+modifier : cette liste doit donc contenir les étapes qui écrivent les fichiers
+déclarés.
 Les sorties d'analyse finales résident dans un unique répertoire immuable
 `analysis/generations/<generationId>/`. `analysis/staging/` ne contient que le
 travail transactionnel et reste vide après la fin normale d'une commande.
@@ -174,6 +180,13 @@ compressée Zstandard :
 | `duration` | secondes monotoniques, float fini non négatif |
 | `scratchBytes` | taille du cache worker après le run |
 | facteurs | valeurs scientifiques du run |
+
+Le marqueur porte aussi deux métadonnées. `artifactManifest` liste chaque
+fichier archivé avec le `name` de sa sortie, son `sourcePath` (le chemin
+d'origine sous le dossier de sortie d'eqasim, par exemple
+`analysis_population/nantes_age.csv`), sa taille et son SHA-256.
+`executionEvidence` (version de schéma 3) enregistre la façon dont le run a été
+exécuté, dont l'empreinte du code d'eqasim (`modelSourceSha256`).
 
 Une archive sans marqueur est incomplète. Un marqueur au mauvais schéma, avec
 une identité différente, un nom étranger ou une compression différente est une

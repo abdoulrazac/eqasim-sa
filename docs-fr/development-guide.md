@@ -29,7 +29,7 @@ eqasim-sa/
 │   │   ├── data_manifest.py
 │   │   ├── worker.py
 │   │   ├── backends/
-│   │   ├── eqasim/       # adaptateur et cycle de vie du workspace worker
+│   │   ├── eqasim/       # adaptateur, empreinte du code, fichiers de sortie, workspace worker
 │   │   └── fake/
 │   └── templates/
 └── tests/
@@ -37,7 +37,8 @@ eqasim-sa/
 
 `ports/` définit les protocoles de backend et simulateur. `core/` possède les
 identités, designs, ledger et analyses sans connaître la CLI. `adapters/`
-charge le YAML, invoque synpp, normalise les artefacts, gère local/SLURM et câble
+charge le YAML, calcule l'empreinte du code d'eqasim, invoque synpp, copie les
+fichiers de sortie déclarés, gère local/SLURM et câble
 l'application. `cli.py` se limite au parsing et aux enveloppes JSON.
 
 Les responsabilités filesystem sont volontairement profondes :
@@ -123,7 +124,7 @@ répertoires `build/` ou `dist/` préexistants reflètent la source actuelle.
 ## Stratégie de test observée
 
 - Tests unitaires des identités, plans, ledger, indicateurs et statistiques.
-- Tests de validation hostile sur schémas Parquet, chemins, liens symboliques et écritures atomiques.
+- Tests de validation hostile sur schémas Parquet du plan et des marqueurs, lecture des sorties CSV, chemins, liens symboliques et écritures atomiques.
 - Tests d'intégration CLI avec un exécutable espion synpp.
 - Pipeline factice pour les runs et analyses de bout en bout.
 - Tests de métadonnées et commandes d'une installation construite.
@@ -144,7 +145,12 @@ la publication atomique (complète ou absente) n'est pas affectée.
 
 ## Invariants importants
 
-- Le YAML modèle doit rester un blob Git propre et suivi.
+- eqasim-sa n'appelle jamais Git. L'empreinte du code d'eqasim
+  (`adapters/eqasim/source_fingerprint.py`) et les octets du YAML modèle sont
+  scellés dans le contexte et revérifiés avant chaque run.
+- synpp reçoit la liste `run:` du YAML modèle sans modification.
+- Les fichiers de sortie déclarés sont archivés à l'octet près ; seuls leur
+  nom, `file` et `separator` sont scellés dans le plan.
 - Le plan est recalculable et immuable sous une racine donnée.
 - Le marqueur de run est publié après les archives et constitue la preuve unique.
 - Les plans et marqueurs de run sont publiés en no-clobber ; un marqueur existant n'est jamais remplacé.
@@ -159,17 +165,22 @@ la publication atomique (complète ou absente) n'est pas affectée.
   pendant le preflight applicatif.
 - Une analyse ne doit pas muter ses sources; le code sauvegarde et restaure en cas d'écart.
 
-## Ajouter un indicateur personnalisé
+## Ajouter un type d'indicateur
 
-Publiez un entry point Python du groupe `eqasim_sa.indicators`. Son nom doit
-correspondre à `indicators[].custom.function`. L'objet chargé peut être une
-classe instanciable sans argument, un callable ou un objet avec
-`compute(artifacts)`. Le résultat doit être exactement un `float` fini. Le nom
-d'analyse sera `function(artifact)`.
+Il n'existe pas de mécanisme d'extension : les types d'indicateur sont
+`tv_distance`, `share` et `value`, tous intégrés. Un utilisateur qui a besoin
+d'une autre grandeur la calcule dans une étape d'analyse eqasim, déclare le
+fichier CSV sous `outputs` et le lit avec `value` ; ce code est alors couvert
+par l'empreinte du code d'eqasim.
 
-Le callable reçoit un `ArtifactSet`; utilisez `artifacts.path("name")` pour
-obtenir un Parquet copié en lecture seule dans l'espace temporaire d'analyse.
-Ajoutez des tests de résolution, erreur, pureté des sources et distribution.
+Un nouveau type intégré est une modification d'eqasim-sa lui-même.
+Implémentez-le dans `core/indicators/` (calcul, définition canonique et
+`KIND_VERSIONS`), analysez-le dans `adapters/meta_config.py`
+(`INDICATOR_KINDS`) et documentez-le dans les deux références YAML. Changer les
+octets d'une définition existante exige une nouvelle version du domaine
+`eqasim-sa:indicator-definition`. Ajoutez des tests d'analyse syntaxique,
+d'erreurs, de calcul sur des colonnes CSV lues comme texte et de pureté des
+sources.
 
 ## Caveats de distribution
 

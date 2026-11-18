@@ -92,7 +92,8 @@ support et cette pondération répondent à la question étudiée.
 - `matching_minimum_age` est l'âge minimal utilisé par la procédure de matching.
 - `sampling_rate` reste fixé à `0.001` et fait l'objet d'un contrôle de robustesse séparé, car il change aussi la taille de population et le bruit numérique.
 
-Les deux clés variées doivent déjà exister sous `config:` dans le modèle scellé.
+Les deux clés variées doivent déjà exister sous `config:` dans votre
+configuration eqasim de Nantes.
 Morris canonique refuse les facteurs qui sont des listes structurées, comme
 plusieurs listes `matching_attributes` nommées.
 
@@ -192,7 +193,7 @@ uv run --project "$ROOT/eqasim-sa" --locked python \
   "$ROOT/eqasim-sa/protocols/nantes-scientific/render_protocol.py" \
   "$ROOT/eqasim-sa/protocols/nantes-scientific/01-canonical-morris-pilot.yml" \
   "$ROOT/rendered/canonical-morris-pilot.yml" \
-  --model-config "$ROOT/eqasim-france/config_local_nantes.yml" \
+  --model-config "$ROOT/eqasim-france/config_nantes.yml" \
   --model-root "$ROOT/eqasim-france" \
   --data-manifest "$ROOT/mon-analyse-sa/manifest.json" \
   --lockfile "$ROOT/eqasim-france/uv.lock" \
@@ -203,6 +204,13 @@ uv run --project "$ROOT/eqasim-sa" --locked python \
 
 Le renderer vérifie notamment les valeurs fixes du modèle et remplace les
 marqueurs sans modifier la question scientifique.
+
+`config_nantes.yml` désigne votre copie de la configuration eqasim de Nantes,
+placée dans le dossier eqasim. Le renderer ne la modifie pas : elle doit
+contenir les valeurs fixées par le protocole, les deux paramètres que l'on fait
+varier (`matching_minimum_observations`, `matching_minimum_age`) et
+`analysis.synthesis.population` dans sa liste `run:` (voir le
+[README du protocole](../protocols/nantes-scientific/README.md)).
 
 Planifiez ensuite la campagne. Si vous possédez une campagne de calibration de
 ressources complète et compatible, fournissez-la explicitement à `check` et
@@ -238,7 +246,7 @@ uv run --project "$ROOT/eqasim-sa" --locked python \
   "$ROOT/eqasim-sa/protocols/nantes-scientific/render_protocol.py" \
   "$ROOT/eqasim-sa/protocols/nantes-scientific/02-canonical-morris-production.yml" \
   "$ROOT/rendered/canonical-morris-production.yml" \
-  --model-config "$ROOT/eqasim-france/config_local_nantes.yml" \
+  --model-config "$ROOT/eqasim-france/config_nantes.yml" \
   --model-root "$ROOT/eqasim-france" \
   --data-manifest "$ROOT/mon-analyse-sa/manifest.json" \
   --lockfile "$ROOT/eqasim-france/uv.lock" \

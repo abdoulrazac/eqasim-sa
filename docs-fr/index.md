@@ -78,6 +78,7 @@ fournit les observations de ressources utilisées par `check` et `estimate`.
 
 - Exécuter la calibration avant `check` ou `estimate` d'une cible qui la référence.
 - Ne jamais modifier `plan.parquet` ni `runs/<runId>.parquet` à la main.
-- Garder le dépôt du modèle propre et sa configuration suivie par Git.
+- Ne pas modifier le code ni la configuration d'eqasim pendant une campagne : ils font partie de son identité.
+- Ajouter `analysis.synthesis.population` à `run:` dans votre configuration eqasim avant d'utiliser les sorties `age`, `distance` ou `nbr_vehicle`.
 - Utiliser un nouveau nom `campaign` (donc un nouveau dossier de campagne) lorsque le contexte ou le design change.
 - Considérer le scratch comme jetable, jamais comme preuve de complétude.
