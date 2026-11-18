@@ -82,7 +82,7 @@ Without `--smoke`, the checks are:
 | `metaConfig` | YAML, eqasim code fingerprint and context, factors, declared outputs, and paths |
 | `sealedPlan` | equality of the plan with the recomputed design |
 | `uniqueConfigSeedPairs` | no Grid duplicates; sealed validation for discrete OAT, canonical Morris, and Sobol |
-| `eqasimEnvironment` | when `execution.invocation` ends with `-m synpp`, the invocation with those two elements replaced by `-c "import synpp"` must exit 0; otherwise the probe is skipped and the check carries `note: synpp probe skipped: invocation does not end with -m synpp` |
+| `eqasimEnvironment` | when `execution.invocation` ends with `-m synpp`, the invocation with those two elements replaced by `-c "import synpp"` must exit 0; otherwise the probe is skipped: the check has `status: skipped` (which keeps the overall status `valid`) and carries `note: synpp probe skipped: invocation does not end with -m synpp` |
 | `diskSpace` | durable and scratch space based on available observations |
 
 The static check has an overall budget of 55 seconds, and the environment probe
@@ -178,11 +178,14 @@ eqasim-sa fake-run --campaign-root PATH --campaign NAME --config JSON \
 eqasim-sa eqasim-run --campaign-root PATH --campaign NAME \
   --config-yaml PATH --eqasim-root PATH --invocation-json JSON \
   --scratch PATH --seed INT --expected-context-hash HASH \
-  --current-context-hash HASH
+  --current-context-hash HASH --outputs-json JSON
 ```
 
-`--invocation-json` must be a JSON array of strings. Response: `runId`,
-`status`, `error`.
+`--invocation-json` must be a JSON array of strings. `--outputs-json` is a JSON
+object mapping each declared output name to exactly
+`{"file": ..., "separator": ...}` (the `file` may use `{prefix}`), for example
+`{"age": {"file": "analysis_population/{prefix}age.csv", "separator": ","}}`;
+the run archives exactly these files. Response: `runId`, `status`, `error`.
 
 ## Exit Codes
 

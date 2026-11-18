@@ -161,8 +161,7 @@ or absent) is unaffected.
 - Named structured factors remain a separate label-to-list mapping across the
   adapter/core boundary: plans expose labels, resolution and `runId` use lists,
   and schema v3 seals the canonical mapping.
-- Only scientific design v3 is accepted; earlier designs are rejected during
-  application preflight.
+- Scientific designs use version v3; application preflight validates it.
 - An analysis must not mutate its sources; the code backs them up and restores them if they differ.
 
 ## Add an indicator kind

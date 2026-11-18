@@ -8,7 +8,7 @@ Cause: a relative `model.config` is read from the eqasim folder (`model.root`),
 not from the directory of the meta-configuration. A path such as
 `../../eqasim-france/config.yml`, written relative to `configs/`, therefore
 points to the wrong place. Remedy: write the path relative to `model.root`
-(`config: config.yml`, or `config: config_nantes.yml` for a copy next to it), or
+(`config: config.yml`, or `config: my_config.yml` for a copy next to it), or
 an absolute path. The message shows the full path that was tried.
 
 ## `no eqasim source files found under ...`
@@ -28,6 +28,35 @@ sealed, or plan a new campaign with the new code. Files written in the eqasim
 `working_directory` and `output_path`, and in virtual or conda environments,
 are ignored. If another tool writes code files inside the eqasim folder, move
 its output elsewhere.
+
+## Campaign identity changes after running eqasim with another configuration
+
+Cause: only the `working_directory` and `output_path` of the configuration named
+by `model.config` are left out of the eqasim code fingerprint. A synpp cache
+written inside the eqasim folder by another configuration (for example a copy
+with a different `working_directory`) is fingerprinted like the code: its
+`matsim.*` stages clone Java projects with `*.java` and `pom.xml` files. The
+campaign identity then changes, so `plan` reports a different plan and a
+running campaign stops with `eqasim source changed after context sealing`.
+Remedy: keep `working_directory` outside the eqasim folder, or use the same
+`working_directory` in every configuration you run from that folder.
+
+## `eqasim source contains a file name that is not valid UTF-8: ...`
+
+Cause: a code file under `model.root` has a name whose bytes are not valid
+UTF-8 (possible on Linux), so its path cannot enter the fingerprint. Remedy:
+rename or remove that file; the message shows the name with the invalid bytes
+escaped.
+
+## `eqasim source changed since plan (eqasimSourceSha256)` and similar
+
+Cause: when a campaign is resumed or read (`run`, `check`, `estimate`, `analyze`), the plan recomputed from the
+current inputs is compared with the sealed `plan.parquet`. The message names
+what differs: `eqasim source` (`eqasimSourceSha256`), `data manifest`
+(`dataManifestSha256`), `lockfile` (`lockfileSha256`), `eqasim-sa version`
+(`eqasimSaVersion`), or an output (`output 'age' changed since plan: file`,
+`... separator`, `output '...' added since plan`, `output '...' removed since
+plan`). Remedy: restore what changed, or plan a new campaign.
 
 ## `model config changed after context sealing`
 
@@ -251,7 +280,9 @@ Cause: the invocation ends with `-m synpp` but its interpreter cannot start or
 cannot `import synpp` (the probe runs the invocation with `-m synpp` replaced by
 `-c "import synpp"` and requires exit code 0; no synpp output is read).
 Remedy: run that command in `model.root`, then check the environment and
-versions. The static probe does not run a complete simulation.
+versions. The static probe does not run a complete simulation. When the
+invocation does not end with `-m synpp`, the check has `status: skipped` and a
+`note`; it does not make the result invalid.
 
 ## `check --smoke` failure
 

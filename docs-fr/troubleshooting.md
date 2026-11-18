@@ -8,7 +8,7 @@ Cause : un `model.config` relatif est lu depuis le dossier eqasim
 (`model.root`), pas depuis le répertoire de la méta-configuration. Un chemin
 comme `../../eqasim-france/config.yml`, écrit relativement à `configs/`, pointe
 donc au mauvais endroit. Remède : écrire le chemin relativement à `model.root`
-(`config: config.yml`, ou `config: config_nantes.yml` pour une copie placée à
+(`config: config.yml`, ou `config: my_config.yml` pour une copie placée à
 côté), ou un chemin absolu. Le message affiche le chemin complet essayé.
 
 ## `no eqasim source files found under ...`
@@ -29,6 +29,38 @@ nouvelle campagne avec le nouveau code. Les fichiers écrits dans le
 `working_directory` et l'`output_path` d'eqasim, ainsi que dans les
 environnements virtuels ou conda, sont ignorés. Si un autre outil écrit des
 fichiers de code dans le dossier eqasim, déplacez ses sorties ailleurs.
+
+## L'identité de la campagne change après avoir lancé eqasim avec une autre configuration
+
+Cause : seuls le `working_directory` et l'`output_path` de la configuration
+désignée par `model.config` sont exclus de l'empreinte du code d'eqasim. Un
+cache synpp écrit dans le dossier eqasim par une autre configuration (par
+exemple une copie avec un autre `working_directory`) est pris dans l'empreinte
+comme le code : ses étapes `matsim.*` clonent des projets Java contenant des
+fichiers `*.java` et `pom.xml`. L'identité de la campagne change alors : `plan`
+signale un plan différent et une campagne en cours s'arrête avec
+`eqasim source changed after context sealing`. Remède : garder le
+`working_directory` hors du dossier eqasim, ou utiliser le même
+`working_directory` dans toutes les configurations lancées depuis ce dossier.
+
+## `eqasim source contains a file name that is not valid UTF-8: ...`
+
+Cause : un fichier de code sous `model.root` a un nom dont les octets ne sont
+pas de l'UTF-8 valide (possible sous Linux) ; son chemin ne peut donc pas
+entrer dans l'empreinte. Remède : renommer ou supprimer ce fichier ; le message
+affiche le nom avec les octets invalides échappés.
+
+## `eqasim source changed since plan (eqasimSourceSha256)` et messages voisins
+
+Cause : à la reprise ou à la lecture d'une campagne (`run`, `check`, `estimate`,
+`analyze`), le plan recalculé à partir
+des entrées actuelles est comparé au `plan.parquet` scellé. Le message nomme ce
+qui diffère : `eqasim source` (`eqasimSourceSha256`), `data manifest`
+(`dataManifestSha256`), `lockfile` (`lockfileSha256`), `eqasim-sa version`
+(`eqasimSaVersion`), ou une sortie (`output 'age' changed since plan: file`,
+`... separator`, `output '...' added since plan`,
+`output '...' removed since plan`). Remède : restaurer ce qui a changé, ou
+planifier une nouvelle campagne.
 
 ## `model config changed after context sealing`
 
@@ -260,6 +292,8 @@ pas ou ne peut pas faire `import synpp` (la sonde exécute l'invocation en
 remplaçant `-m synpp` par `-c "import synpp"` et exige le code de sortie 0 ;
 aucune sortie de synpp n'est lue). Remède : exécuter cette commande dans
 `model.root`, puis vérifier l'environnement et les versions. La sonde statique ne lance pas une simulation complète.
+Quand l'invocation ne se termine pas par `-m synpp`, le contrôle a
+`status: skipped` et une `note` ; il ne rend pas le résultat invalide.
 
 ## Échec de `check --smoke`
 

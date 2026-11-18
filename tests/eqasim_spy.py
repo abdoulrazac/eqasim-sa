@@ -23,15 +23,6 @@ def write(
 
 
 def main() -> int:
-    if (
-        len(sys.argv) == 2
-        and Path(sys.argv[1]).name.startswith(".eqasim-sa-probe-")
-    ):
-        print(f"synpp.general.PipelineError: Config file does not exist: {sys.argv[1]}", file=sys.stderr)
-        return 1
-    if sys.argv[1:] == ["--help"]:
-        print("usage: eqasim-spy CONFIG [--key value ...]")
-        return 0
     output = Path(option("--output_path"))
     prefix = option("--output_prefix")
     output.mkdir(parents=True, exist_ok=True)

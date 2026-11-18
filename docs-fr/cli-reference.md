@@ -81,7 +81,7 @@ Sans `--smoke`, les contrôles sont :
 | `metaConfig` | YAML, empreinte du code d'eqasim et contexte, facteurs, sorties déclarées et chemins |
 | `sealedPlan` | égalité du plan avec le design recalculé |
 | `uniqueConfigSeedPairs` | absence de doublons Grid; validation scellée pour OAT discret, Morris canonique et Sobol |
-| `eqasimEnvironment` | sonde synpp avec un chemin de configuration inexistant |
+| `eqasimEnvironment` | quand `execution.invocation` se termine par `-m synpp`, l'invocation où ces deux éléments sont remplacés par `-c "import synpp"` doit sortir avec le code 0 ; sinon la sonde est sautée : le contrôle a `status: skipped` (le statut global reste `valid`) et porte `note: synpp probe skipped: invocation does not end with -m synpp` |
 | `diskSpace` | espace durable et scratch d'après les observations disponibles |
 
 Le contrôle statique a un budget global de 55 secondes et la sonde
@@ -176,11 +176,15 @@ eqasim-sa fake-run --campaign-root PATH --campaign NAME --config JSON \
 eqasim-sa eqasim-run --campaign-root PATH --campaign NAME \
   --config-yaml PATH --eqasim-root PATH --invocation-json JSON \
   --scratch PATH --seed INT --expected-context-hash HASH \
-  --current-context-hash HASH
+  --current-context-hash HASH --outputs-json JSON
 ```
 
-`--invocation-json` doit être un tableau JSON de chaînes. Réponse : `runId`,
-`status`, `error`.
+`--invocation-json` doit être un tableau JSON de chaînes. `--outputs-json` est
+un objet JSON qui associe à chaque nom de sortie déclarée exactement
+`{"file": ..., "separator": ...}` (le `file` peut utiliser `{prefix}`), par
+exemple
+`{"age": {"file": "analysis_population/{prefix}age.csv", "separator": ","}}` ;
+le run archive exactement ces fichiers. Réponse : `runId`, `status`, `error`.
 
 ## Codes de sortie
 

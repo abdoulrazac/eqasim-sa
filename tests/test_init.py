@@ -454,7 +454,7 @@ def test_init_rejects_modified_and_hardlinked_static_files(tmp_path: Path) -> No
     config = root / "configs/01-grid.yml"
     original = config.read_bytes()
     config.write_text(config.read_text() + "# changed\n")
-    with pytest.raises(FileExistsError, match="init would overwrite modified file .*01-grid.yml"):
+    with pytest.raises(FileExistsError, match=r"init would overwrite .*01-grid\.yml, which differs from what init would write \(file edited or init inputs changed\)"):
         init_from_inputs("project", root, model, data, None, invocation())
     config.write_bytes(original)
     # A separately linked README has matching bytes but is not owned template state.

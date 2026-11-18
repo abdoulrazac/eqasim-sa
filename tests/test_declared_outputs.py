@@ -215,6 +215,97 @@ def test_default_known_output_whose_stage_is_not_in_run_is_rejected(
     )
 
 
+def test_output_whose_archive_name_is_invalid_is_rejected_at_load(
+    tmp_path: Path,
+) -> None:
+    meta, _ = project(tmp_path, {"age": {"file": "analysis_population/{prefix}age.csv~"}})
+    with pytest.raises(ValueError) as error:
+        load_meta_config(meta, verify_data=False)
+    assert str(error.value) == (
+        "output 'age' file suffix cannot name an archive file: "
+        "'analysis_population/nantes_age.csv~'"
+    )
+
+
+def _set_output_formats(config: Path, formats: list[str]) -> None:
+    document = yaml.safe_load(config.read_text())
+    document["config"]["output_formats"] = formats
+    config.write_text(yaml.safe_dump(document, sort_keys=False))
+
+
+@pytest.mark.parametrize(
+    ("outputs", "formats", "message"),
+    [
+        (
+            {"persons": {}},
+            ["parquet", "gpkg"],
+            "output 'persons' is a CSV file but output_formats of {config} "
+            "is ['parquet', 'gpkg']; add csv to output_formats",
+        ),
+        (
+            {"activities_spatial": {"file": "{prefix}activities.gpkg"}},
+            ["csv"],
+            "output 'activities_spatial' is a GeoPackage file but output_formats "
+            "of {config} is ['csv']; add gpkg to output_formats",
+        ),
+    ],
+    ids=["csv", "gpkg"],
+)
+def test_output_missing_from_output_formats_is_rejected(
+    tmp_path: Path, outputs: dict, formats: list, message: str
+) -> None:
+    meta, config = project(tmp_path, outputs)
+    _set_output_formats(config, formats)
+    with pytest.raises(ValueError) as error:
+        load_meta_config(meta, verify_data=False)
+    assert str(error.value) == message.format(config=config.resolve())
+
+
+def test_output_formats_listing_the_format_loads(tmp_path: Path) -> None:
+    meta, config = project(
+        tmp_path,
+        {"persons": {}, "age": {}, "spatial": {"file": "{prefix}activities.gpkg"}},
+    )
+    _set_output_formats(config, ["csv", "gpkg"])
+    assert set(load_meta_config(meta, verify_data=False).outputs) == {
+        "persons",
+        "age",
+        "spatial",
+    }
+
+
+@pytest.mark.parametrize(
+    "indicator",
+    [
+        {"share": {"output": "spatial", "category": "a"}},
+        {"value": {"output": "spatial", "column": "a"}},
+        {"tv_distance": {"output": "spatial"}},
+    ],
+    ids=["share", "value", "tv_distance"],
+)
+def test_indicator_on_a_non_csv_output_is_rejected_at_load(
+    tmp_path: Path, indicator: dict
+) -> None:
+    spatial = {
+        "file": "{prefix}activities.gpkg",
+        "category": "a",
+        "simulated": "b",
+        "references": ["c"],
+    }
+    kind = next(iter(indicator))
+    meta, _ = project(
+        tmp_path,
+        {"spatial": spatial},
+        extra=yaml.safe_dump({"indicators": [indicator]}, sort_keys=False),
+    )
+    with pytest.raises(ValueError) as error:
+        load_meta_config(meta, verify_data=False)
+    assert str(error.value) == (
+        f"indicator 0.{kind} reads output 'spatial', whose file "
+        "'{prefix}activities.gpkg' is not a .csv file; indicators read CSV tables only"
+    )
+
+
 def test_overridden_file_skips_the_stage_check(tmp_path: Path) -> None:
     meta, _ = project(
         tmp_path,
@@ -398,15 +489,48 @@ def test_changing_output_file_after_plan_refuses_resume(
     document["outputs"]["age"].update(change)
     meta.write_text(yaml.safe_dump(document, sort_keys=False))
     loaded = load_meta_config(meta, verify_data=False)
-    with pytest.raises(ValueError, match="plan schema, metadata"):
+    (field,) = change
+    with pytest.raises(ValueError) as error:
         load_run_specs(
             loaded.campaign_root / "plan.parquet", _design(loaded), loaded.campaign
         )
+    assert str(error.value) == f"output 'age' changed since plan: {field}"
     plan_metadata = _design(loaded)
     assert plan_metadata.outputs["age"] == OutputDeclaration(
         change.get("file", "analysis_population/{prefix}age.csv"),
         change.get("separator", ","),
     )
+
+
+def test_editing_eqasim_code_after_plan_names_the_source_change(
+    tmp_path: Path,
+) -> None:
+    meta, config = project(tmp_path, {"age": {}})
+    (config.parent / "synthesis.py").write_text("x = 1\n")
+    plan_from_meta_config(meta)
+    (config.parent / "synthesis.py").write_text("x = 2\n")
+    loaded = load_meta_config(meta, verify_data=False)
+    with pytest.raises(ValueError) as error:
+        load_run_specs(
+            loaded.campaign_root / "plan.parquet", _design(loaded), loaded.campaign
+        )
+    assert str(error.value) == (
+        "eqasim source changed since plan (eqasimSourceSha256)"
+    )
+
+
+def test_adding_an_output_after_plan_names_the_output(tmp_path: Path) -> None:
+    meta, _ = project(tmp_path, {"age": {}})
+    plan_from_meta_config(meta)
+    document = yaml.safe_load(meta.read_text())
+    document["outputs"]["persons"] = {}
+    meta.write_text(yaml.safe_dump(document, sort_keys=False))
+    loaded = load_meta_config(meta, verify_data=False)
+    with pytest.raises(ValueError) as error:
+        load_run_specs(
+            loaded.campaign_root / "plan.parquet", _design(loaded), loaded.campaign
+        )
+    assert str(error.value) == "output 'persons' added since plan"
 
 
 def test_adding_a_reference_after_runs_does_not_block_analyze(

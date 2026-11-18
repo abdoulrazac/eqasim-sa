@@ -51,8 +51,8 @@ must be explicitly present under `config:` in the eqasim configuration named by
 `model.config` before it can be declared as a factor. The official `config.yml`
 sets only a few keys, such as `sampling_rate`; write the others in your copy
 first, with their eqasim default value. `hts` has no eqasim default and is
-required: the official `config.yml` sets `entd`, and a Nantes configuration
-uses `edgt_44`.
+required: the official `config.yml` sets `entd`, and the official
+`config_nantes.yml` (so your copy `config_nantes_sa.yml`) sets `edgt_44`.
 
 | Parameter | Type and eqasim default | What changes | Example domain | Methods |
 | --- | --- | --- | --- | --- |

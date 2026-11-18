@@ -80,8 +80,11 @@ cd "$ROOT/mon-etude"
 
 `init` generates only a template project and `manifest.json`, which hashes the
 data tree. It does not create a plan and does not run synpp, a campaign, or an
-analysis. The starters use the official `config.yml` of the eqasim folder; add
-`--model-config config_nantes.yml` to use a copy of your own.
+analysis. The starters use the official `config.yml` of the eqasim folder; to
+use a copy of your own, make it in the eqasim folder
+(`cp config.yml my_config.yml`, or `cp config_nantes.yml config_nantes_sa.yml`
+for Nantes: eqasim ships `config_nantes.yml` itself) and add
+`--model-config my_config.yml`.
 
 Before planning, add `analysis.synthesis.population` to the `run:` list of that
 eqasim configuration: the `age`, `distance`, and `nbr_vehicle` outputs compared

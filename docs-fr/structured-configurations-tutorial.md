@@ -9,14 +9,17 @@ ne soutiennent aucune revendication inférentielle ou décisionnelle.
 
 ## 1. Préparer la configuration eqasim avant l'initialisation
 
-Travaillez sur une copie de la configuration officielle, placée dans le dossier
-eqasim, pour laisser le fichier officiel intact :
+Travaillez sur une copie de la configuration officielle de Nantes
+`config_nantes.yml`, fournie par eqasim, placée dans le dossier eqasim, pour
+laisser le fichier officiel intact :
 
 ```bash
-cp "$ROOT/eqasim-france/config.yml" "$ROOT/eqasim-france/config_nantes.yml"
+cd "$ROOT/eqasim-france"
+cp config_nantes.yml config_nantes_sa.yml
+cd "$ROOT"
 ```
 
-Dans `config_nantes.yml`, écrivez `config.matching_attributes` sous forme de
+Dans `config_nantes_sa.yml`, écrivez `config.matching_attributes` sous forme de
 liste de chaînes, et vérifiez que `run:` contient
 `analysis.synthesis.population`, qui écrit les sorties `age`, `distance` et
 `nbr_vehicle` comparées par les modèles :
@@ -53,12 +56,12 @@ PY=(uv run --project "$ROOT/eqasim-sa" --locked python)
 "${SA[@]}" init \
   --project-name matching-structures \
   --model-root "$ROOT/eqasim-france" \
-  --model-config config_nantes.yml \
+  --model-config config_nantes_sa.yml \
   --data-path "$ROOT/eqasim-data"
 cd "$ROOT/matching-structures"
 ```
 
-Les fichiers générés contiennent alors `config: config_nantes.yml` sous `model`.
+Les fichiers générés contiennent alors `config: config_nantes_sa.yml` sous `model`.
 Un projet généré existant convient aussi si son `model.config` désigne cette
 configuration et si aucune racine de campagne n'est réutilisée après le changement de
 contexte. Utilisez le tableau `SA=(...)` de son `README.md` s'il diffère.

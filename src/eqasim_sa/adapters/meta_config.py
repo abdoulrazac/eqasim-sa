@@ -7,7 +7,12 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from eqasim_sa.adapters.eqasim.artifacts import KNOWN_OUTPUTS
+from eqasim_sa.core.ledger import archive_file_name
+from eqasim_sa.adapters.eqasim.artifacts import (
+    DEFAULT_OUTPUT_PREFIX,
+    KNOWN_OUTPUTS,
+    POPULATION,
+)
 from eqasim_sa.adapters.eqasim.source_fingerprint import (
     eqasim_source_exclusions,
     model_source_sha256,
@@ -528,6 +533,47 @@ def _require_output_stages(
             )
 
 
+def _require_writable_outputs(
+    outputs: dict[str, OutputDeclaration], model_document: dict, config: Path
+) -> None:
+    """Refuse outputs that cannot be archived or that eqasim is told not to write."""
+
+    nested = model_document.get("config")
+    nested = nested if isinstance(nested, dict) else {}
+    prefix = nested.get("output_prefix", DEFAULT_OUTPUT_PREFIX)
+    if isinstance(prefix, str):
+        for name, declaration in outputs.items():
+            archive_file_name(name, declaration.source_path(prefix))
+    formats = nested.get("output_formats")
+    if not isinstance(formats, list):
+        return
+    population_files = {KNOWN_OUTPUTS[name].file for name in POPULATION}
+    for name, declaration in outputs.items():
+        if declaration.file in population_files and "csv" not in formats:
+            kind, missing = "a CSV", "csv"
+        elif declaration.file.lower().endswith(".gpkg") and "gpkg" not in formats:
+            kind, missing = "a GeoPackage", "gpkg"
+        else:
+            continue
+        raise ValueError(
+            f"output {name!r} is {kind} file but output_formats of {config} "
+            f"is {formats!r}; add {missing} to output_formats"
+        )
+
+
+def _require_csv_output(
+    outputs: dict[str, OutputDeclaration], name: object, label: str
+) -> None:
+    if not isinstance(name, str) or name not in outputs:
+        return
+    file = outputs[name].file
+    if not file.lower().endswith(".csv"):
+        raise ValueError(
+            f"{label} reads output {name!r}, whose file {file!r} is not a .csv "
+            "file; indicators read CSV tables only"
+        )
+
+
 INDICATOR_KINDS = (*SCALARIZERS, "share", "value")
 
 
@@ -634,6 +680,9 @@ def _indicator_blocks(
         kind, raw = next(iter(value.items()))
         label = f"indicator {index}.{kind}"
         declaration = _mapping(raw, label)
+        read = declaration.get("outputs", [declaration.get("output")])
+        for name in read if isinstance(read, list) else []:
+            _require_csv_output(outputs, name, label)
         if kind == "share":
             resolved.append(_share_indicator(declaration, outputs, label))
         elif kind == "value":
@@ -1131,6 +1180,7 @@ def load_meta_config(
     )
     outputs = _outputs(document)
     _require_output_stages(outputs, model_document, config)
+    _require_writable_outputs(outputs, model_document, config)
     indicators = _indicator_blocks(document, outputs)
     if method != "grid" and not indicators:
         raise ValueError(

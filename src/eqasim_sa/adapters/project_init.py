@@ -649,7 +649,10 @@ def init_from_inputs(
                 target = absolute / (
                     "README.md" if name == "README.md" else f"configs/{name}"
                 )
-                raise FileExistsError(f"init would overwrite modified file {target}")
+                raise FileExistsError(
+                    f"init would overwrite {target}, which differs from what "
+                    "init would write (file edited or init inputs changed)"
+                )
         if not regenerate_data_manifest:
             _validate_project_manifest(absolute / "manifest.json")
         _durable_preflight(absolute, expected_artifacts)

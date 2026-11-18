@@ -17,6 +17,7 @@ from eqasim_sa.adapters.data_manifest import (
     verify_data_tree_state,
 )
 from eqasim_sa.adapters.eqasim.source_fingerprint import (
+    SourceFileNameError,
     model_source_sha256 as current_model_source_sha256,
 )
 from eqasim_sa.utils import platform
@@ -255,6 +256,8 @@ class ExecutionSeal:
             current_source = current_model_source_sha256(
                 self.model_root, self.model_source_exclusions
             )
+        except SourceFileNameError as error:
+            raise RuntimeError(str(error)) from error
         except (OSError, ValueError) as error:
             raise RuntimeError(
                 "eqasim source changed after context sealing"

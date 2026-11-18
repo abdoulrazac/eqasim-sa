@@ -227,6 +227,7 @@ def _static_check(path: Path, calibrations: tuple[Path, ...]):  # type: ignore[n
 
     item, skipped = _check("eqasimEnvironment", environment)
     if skipped:
+        item["status"] = "skipped"
         item["note"] = skipped
     checks.append(item)
 

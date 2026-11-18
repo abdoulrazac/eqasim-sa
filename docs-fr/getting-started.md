@@ -56,9 +56,13 @@ dans une méta-configuration entre, lui, dans le contexte scientifique scellé.
 
 `--model-config` désigne la configuration eqasim de votre étude, relative à
 `--model-root` ou absolue ; elle vaut par défaut `config.yml`, le fichier
-officiel. Si vous travaillez sur une copie, par exemple `config_nantes.yml` à
-côté de `config.yml`, ajoutez `--model-config config_nantes.yml`. Les modèles
-contiennent alors `config: config_nantes.yml`.
+officiel pour l'Île-de-France. Travaillez sur une copie faite dans le dossier
+eqasim, pour laisser les fichiers officiels intacts :
+`cp config.yml my_config.yml` en général, ou, pour Nantes,
+`cp config_nantes.yml config_nantes_sa.yml` (eqasim fournit lui-même
+`config_nantes.yml` ; ne l'écrasez pas). Ajoutez ensuite `--model-config my_config.yml` (ou
+`--model-config config_nantes_sa.yml`) ; les modèles contiennent alors
+`config: my_config.yml` (ou `config: config_nantes_sa.yml`).
 
 `init` est strictement un générateur atomique de modèle. Il rend quatre YAML,
 un README et un `manifest.json` contenant la taille et le SHA-256 de chaque

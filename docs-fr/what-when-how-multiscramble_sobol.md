@@ -176,7 +176,7 @@ uv run --project "$ROOT/eqasim-sa" --locked python \
   "$ROOT/eqasim-sa/protocols/nantes-scientific/render_protocol.py" \
   "$ROOT/eqasim-sa/protocols/nantes-scientific/03-multiscramble-fp.yml" \
   "$ROOT/rendered/multiscramble-fp.yml" \
-  --model-config "$ROOT/eqasim-france/config_nantes.yml" \
+  --model-config "$ROOT/eqasim-france/config_nantes_sa.yml" \
   --model-root "$ROOT/eqasim-france" \
   --data-manifest "$ROOT/mon-analyse-sa/manifest.json" \
   --lockfile "$ROOT/eqasim-france/uv.lock" \
@@ -187,7 +187,7 @@ uv run --project "$ROOT/eqasim-sa" --locked python \
 ```
 
 Le renderer refuse de produire le YAML si les preuves de criblage sont absentes,
-incomplètes, instables ou incompatibles. `config_nantes.yml` est la même copie
+incomplètes, instables ou incompatibles. `config_nantes_sa.yml` est la même copie
 de la configuration eqasim de Nantes que pour Morris canonique. Le renderer
 vérifie aussi que la campagne de criblage a été planifiée avec la même
 empreinte du code d'eqasim, le même manifeste de données, le même lockfile et la
@@ -263,7 +263,7 @@ uv run --project "$ROOT/eqasim-sa" --locked python \
   "$ROOT/eqasim-sa/protocols/nantes-scientific/render_protocol.py" \
   "$ROOT/eqasim-sa/protocols/nantes-scientific/04-multiscramble-ff.yml" \
   "$ROOT/rendered/multiscramble-ff.yml" \
-  --model-config "$ROOT/eqasim-france/config_nantes.yml" \
+  --model-config "$ROOT/eqasim-france/config_nantes_sa.yml" \
   --model-root "$ROOT/eqasim-france" \
   --data-manifest "$ROOT/mon-analyse-sa/manifest.json" \
   --lockfile "$ROOT/eqasim-france/uv.lock" \

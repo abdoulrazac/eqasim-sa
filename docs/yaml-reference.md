@@ -225,7 +225,9 @@ must be an existing directory that is not a symbolic link.
 `config` is the eqasim configuration file of your study. A relative path is
 read from `root`, exactly as when you run eqasim yourself from its folder:
 `config: config.yml` designates the official file, and
-`config: config_nantes.yml` a copy you made next to it. An absolute path is
+`config: my_config.yml` a copy you made next to it (for example with
+`cp config.yml my_config.yml`, or `cp config_nantes.yml config_nantes_sa.yml`
+for Nantes, since eqasim ships `config_nantes.yml` itself). An absolute path is
 also accepted, so the file may live outside the eqasim folder. It must be a
 regular file; it does not need to be under version control. Its content is
 part of the campaign identity.
@@ -284,7 +286,7 @@ The eqasim YAML loaded by `model.config` must itself be a JSON-safe mapping with
 at least the following structure:
 
 ```yaml
-working_directory: /chemin/cache
+working_directory: /path/to/cache
 run:
   - synthesis.output
   - analysis.synthesis.population
@@ -324,7 +326,7 @@ stage that writes it is missing from `run:`, loading stops with a message such
 as:
 
 > output 'age' is written by eqasim stage 'analysis.synthesis.population',
-> which is not in run: of /chemin/eqasim-france/config.yml; add it to run: in
+> which is not in run: of /path/to/eqasim-france/config.yml; add it to run: in
 > your eqasim config
 
 The message gives the full path of the configuration that was read.
@@ -790,6 +792,18 @@ to read a file written by your own eqasim stage under a known name; the stage
 check described in [What eqasim runs](#what-eqasim-runs) then does not apply
 to it.
 
+Loading also refuses, with a message naming the output:
+
+- a `file` whose extension, once `{prefix}` is replaced, cannot name an archive
+  file (letters, digits, `_` and `-` only, for example `.csv~` is refused);
+- when your eqasim configuration sets `config.output_formats`, a known
+  population output (`persons`, `households`, `activities`, `trips`,
+  `vehicle_types`, `vehicles`) left at its default `.csv` file while
+  `output_formats` lacks `csv`, or a `.gpkg` output while it lacks `gpkg`;
+  eqasim would not write that file;
+- an indicator (`share`, `value`, `tv_distance`) on an output whose `file` is
+  not a `.csv` file: indicators read CSV tables only.
+
 ### What is archived
 
 At the end of every successful run, each declared file is copied byte for byte
@@ -806,7 +820,8 @@ with the output name, are sealed in the plan. `category`, `simulated`, and
 `references` concern the analysis: you may add or correct them after the runs
 and recompute the analysis without running anything again. Adding, removing, or
 renaming an output, or changing its `file` or `separator`, needs a new
-campaign.
+campaign; resuming the old one stops with a message such as
+`output 'age' changed since plan: separator`.
 
 ### Columns read by indicators
 
@@ -1390,8 +1405,9 @@ execution:
 
 ### Grid with chosen indicators
 
-This variant uses a copy of the eqasim configuration named `config_nantes.yml`
-next to `config.yml`, in which `matching_minimum_age` is written under
+This variant uses a copy of the Nantes eqasim configuration named
+`config_nantes_sa.yml` (made with `cp config_nantes.yml config_nantes_sa.yml`)
+next to `config_nantes.yml`, in which `matching_minimum_age` is written under
 `config:` and `analysis.synthesis.population` is in `run:`. It keeps only two
 distributions, chooses its indicators, writes its own campaign folder, and uses
 the long form for one parameter:
@@ -1421,7 +1437,7 @@ indicators:
   - share: {output: nbr_vehicle, category: "0"}
 model:
   root: ../../eqasim-france
-  config: config_nantes.yml
+  config: config_nantes_sa.yml
   data_manifest: ../manifest.json
 execution:
   workers: 2

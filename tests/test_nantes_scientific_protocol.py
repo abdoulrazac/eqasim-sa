@@ -858,3 +858,6 @@ def test_protocol_readme_requires_user_copy_with_analysis_stage() -> None:
     text = (PROTOCOL / "README.md").read_text(encoding="utf-8")
     assert "analysis.synthesis.population" in text
     assert "your own copy of the Nantes configuration" in text
+    # Upstream eqasim ships config_nantes.yml itself: the copy must not replace it.
+    assert "cp config_nantes.yml config_nantes_sa.yml" in text
+    assert "eqasim-france/config_nantes.yml" not in text

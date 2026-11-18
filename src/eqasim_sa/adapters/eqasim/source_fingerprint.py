@@ -20,6 +20,10 @@ _BUILD_FILES = frozenset({"pom.xml", "pyproject.toml", "uv.lock"})
 _ENVIRONMENT_MARKERS = ("pyvenv.cfg", "conda-meta")
 
 
+class SourceFileNameError(ValueError):
+    """A code file name under the eqasim folder cannot be encoded as UTF-8."""
+
+
 def _check(deadline: float | None) -> None:
     if deadline is not None and deadline - time.monotonic() <= 0:
         raise TimeoutError("model source fingerprint time budget exhausted")
@@ -72,6 +76,13 @@ def model_source_sha256(
             if not _is_code(name) or platform.is_link(path):
                 continue
             relative = unicodedata.normalize("NFC", path.relative_to(root).as_posix())
+            try:
+                relative.encode("utf-8")
+            except UnicodeEncodeError:
+                raise SourceFileNameError(
+                    "eqasim source contains a file name that is not valid UTF-8: "
+                    f"{relative!r}"
+                ) from None
             entries.append((relative, lf_sha256(path)))
     if not entries:
         raise ValueError(f"no eqasim source files found under {root}")

@@ -23,9 +23,7 @@ and `structuredFactors`. Under plan schema v3, demonstration Sobol and multi-scr
 Sobol also copy that complete label-to-payload mapping into their method design
 metadata as a second sealed invariant; both canonical mappings must be exactly equal.
 The plan schema version is independent from the numerical design version.
-Only scientific design v3 (the SALib contract) is accepted; earlier designs are
-rejected before run-state access, and a newly planned v3
-campaign is required. Current scientific v3 analyzers strictly reconstruct the
+Scientific designs use version v3 (the SALib contract). Scientific v3 analyzers strictly reconstruct the
 sealed plan metadata, context, and SALib design. Demonstration analyzers validate
 their method-specific contracts.
 Direct core Grid analysis validates schema-v3 metadata shape and labels but has no
@@ -69,8 +67,10 @@ excluded from FP/FF decision ranks.
 | Structured `seed`, duplicate payload aliases, malformed ordered lists, or a model key that is not a string list | rejected |
 | Structured factor with `discrete_oat` or `canonical_morris` | rejected because nominal label order is arbitrary |
 | Missing, unsupported, noncanonical, tampered, or context-incompatible sealed scientific plan metadata | rejected before analysis publication by the canonical Morris and multi-scramble Sobol analyzers |
-| Scientific design v1/v2 | rejected; replan with scientific design v3 |
 | Known output left at its default `file` whose eqasim stage is missing from `run:` | rejected when the meta-configuration is loaded |
+| Output whose `file` suffix (after `{prefix}` is replaced) cannot name an archive file | rejected when the meta-configuration is loaded |
+| Known population CSV output, or `.gpkg` output, when `output_formats` of the eqasim config is present and lacks `csv`, or `gpkg` | rejected when the meta-configuration is loaded |
+| `share`, `value`, or `tv_distance` indicator on an output whose `file` is not a `.csv` file | rejected when the meta-configuration is loaded |
 | Indicator entry whose key is not `tv_distance`, `share`, or `value` | rejected when the meta-configuration is loaded |
 | `share.category` or a `where` value that is not a quoted YAML string | rejected when the meta-configuration is loaded |
 | Grid plan presented for analysis | direct core analysis validates method, run-marker identity, completeness, and schema-v3 shape/labels; application preflight reconstructs the plan to bind payloads to the model/meta-configuration |

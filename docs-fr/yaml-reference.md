@@ -232,7 +232,10 @@ symbolique.
 `config` est le fichier de configuration eqasim de votre étude. Un chemin
 relatif est lu depuis `root`, exactement comme quand vous lancez eqasim
 vous-même depuis son dossier : `config: config.yml` désigne le fichier
-officiel, et `config: config_nantes.yml` une copie que vous avez faite à côté.
+officiel, et `config: my_config.yml` une copie que vous avez faite à côté (par
+exemple avec `cp config.yml my_config.yml`, ou
+`cp config_nantes.yml config_nantes_sa.yml` pour Nantes, puisque eqasim fournit
+lui-même `config_nantes.yml`).
 Un chemin absolu est aussi accepté : le fichier peut alors se trouver hors du
 dossier eqasim. Il doit s'agir d'un fichier ordinaire ; il n'a pas besoin
 d'être sous gestion de versions. Son contenu fait partie de l'identité de la
@@ -816,6 +819,19 @@ pour lire sous un nom connu un fichier écrit par votre propre étape eqasim ; l
 vérification d'étape décrite dans [Ce qu'eqasim exécute](#ce-queqasim-exécute)
 ne s'applique alors pas à elle.
 
+Le chargement refuse aussi, avec un message qui nomme la sortie :
+
+- un `file` dont l'extension, une fois `{prefix}` remplacé, ne peut pas nommer
+  un fichier d'archive (lettres, chiffres, `_` et `-` seulement ; par exemple
+  `.csv~` est refusé) ;
+- quand votre configuration eqasim fixe `config.output_formats`, une sortie
+  connue de la population (`persons`, `households`, `activities`, `trips`,
+  `vehicle_types`, `vehicles`) laissée à son fichier `.csv` par défaut alors
+  qu'`output_formats` ne contient pas `csv`, ou une sortie `.gpkg` alors qu'il
+  ne contient pas `gpkg` : eqasim n'écrirait pas ce fichier ;
+- un indicateur (`share`, `value`, `tv_distance`) sur une sortie dont le `file`
+  n'est pas un fichier `.csv` : les indicateurs ne lisent que des tables CSV.
+
 ### Ce qui est archivé
 
 À la fin de chaque run réussi, chaque fichier déclaré est copié à l'octet près
@@ -832,7 +848,8 @@ clés, avec le nom de la sortie, sont scellées dans le plan. `category`,
 `simulated` et `references` relèvent de l'analyse : vous pouvez les ajouter ou
 les corriger après les runs et recalculer l'analyse sans rien relancer.
 Ajouter, retirer ou renommer une sortie, ou changer son `file` ou son
-`separator`, demande une nouvelle campagne.
+`separator`, demande une nouvelle campagne ; reprendre l'ancienne s'arrête avec
+un message tel que `output 'age' changed since plan: separator`.
 
 ### Colonnes lues par les indicateurs
 
@@ -1423,8 +1440,9 @@ execution:
 
 ### Grid avec des indicateurs choisis
 
-Cette variante utilise une copie de la configuration eqasim nommée
-`config_nantes.yml`, placée à côté de `config.yml`, dans laquelle
+Cette variante utilise une copie de la configuration eqasim de Nantes nommée
+`config_nantes_sa.yml` (faite avec `cp config_nantes.yml config_nantes_sa.yml`),
+placée à côté de `config_nantes.yml`, dans laquelle
 `matching_minimum_age` est écrit sous `config:` et
 `analysis.synthesis.population` figure dans `run:`. Elle ne garde que deux
 distributions, choisit ses indicateurs, écrit son propre dossier de campagne et
@@ -1455,7 +1473,7 @@ indicators:
   - share: {output: nbr_vehicle, category: "0"}
 model:
   root: ../../eqasim-france
-  config: config_nantes.yml
+  config: config_nantes_sa.yml
   data_manifest: ../manifest.json
 execution:
   workers: 2

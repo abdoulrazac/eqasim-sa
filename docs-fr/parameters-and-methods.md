@@ -51,8 +51,8 @@ eqasim désignée par `model.config` avant de pouvoir être déclarée comme
 facteur. Le `config.yml` officiel ne fixe que quelques clés, comme
 `sampling_rate` ; écrivez d'abord les autres dans votre copie, avec leur valeur
 par défaut dans eqasim. `hts` n'a pas de valeur par défaut dans eqasim et est
-obligatoire : le `config.yml` officiel fixe `entd`, et une configuration de
-Nantes utilise `edgt_44`.
+obligatoire : le `config.yml` officiel fixe `entd`, et le `config_nantes.yml`
+officiel (donc votre copie `config_nantes_sa.yml`) fixe `edgt_44`.
 
 | Paramètre | Type et valeur par défaut dans eqasim | Effet | Domaine d'exemple | Méthodes |
 | --- | --- | --- | --- | --- |

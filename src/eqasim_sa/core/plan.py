@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import itertools
+import json
 import math
 import os
 import re
@@ -901,6 +902,47 @@ def resolve_config(
     return resolved
 
 
+_CONTEXT_DRIFT = {
+    "eqasimSourceSha256": "eqasim source",
+    "dataManifestSha256": "data manifest",
+    "lockfileSha256": "lockfile",
+    "eqasimSaVersion": "eqasim-sa version",
+}
+
+
+def _explain_sealed_drift(
+    expected: Mapping[bytes, bytes] | None, actual: Mapping[bytes, bytes] | None
+) -> None:
+    """Name the first context key or output that differs from the sealed plan."""
+
+    expected = expected or {}
+    actual = actual or {}
+    try:
+        planned = json.loads(actual[b"contextDescriptor"])
+        current = json.loads(expected[b"contextDescriptor"])
+    except (KeyError, TypeError, ValueError):
+        planned = current = None
+    if isinstance(planned, dict) and isinstance(current, dict):
+        for key, label in _CONTEXT_DRIFT.items():
+            if planned.get(key) != current.get(key):
+                raise ValueError(f"{label} changed since plan ({key})")
+    try:
+        planned_outputs = json.loads(actual[b"outputsDeclaration"])
+        current_outputs = json.loads(expected[b"outputsDeclaration"])
+        before = {entry["name"]: entry for entry in planned_outputs}
+        after = {entry["name"]: entry for entry in current_outputs}
+    except (KeyError, TypeError, ValueError):
+        return
+    for name in sorted(set(before) | set(after)):
+        if name not in after:
+            raise ValueError(f"output {name!r} removed since plan")
+        if name not in before:
+            raise ValueError(f"output {name!r} added since plan")
+        for attribute in ("file", "separator"):
+            if before[name].get(attribute) != after[name].get(attribute):
+                raise ValueError(f"output {name!r} changed since plan: {attribute}")
+
+
 def unique_config_seed_pairs(design: Design) -> bool:
     """Report whether every design row maps to a distinct run identity."""
 
@@ -934,6 +976,7 @@ def load_run_specs(
         actual_rows = {row["designId"]: row for row in actual.to_pylist()}
         same = len(actual_rows) == len(actual) and actual_rows == expected_rows
     if not expected.schema.equals(actual.schema, check_metadata=True) or not same:
+        _explain_sealed_drift(expected.schema.metadata, actual.schema.metadata)
         raise ValueError(
             "plan schema, metadata, context, designId, factors, seed, or runId mismatch"
         )

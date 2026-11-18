@@ -191,7 +191,7 @@ uv run --project "$ROOT/eqasim-sa" --locked python \
   "$ROOT/eqasim-sa/protocols/nantes-scientific/render_protocol.py" \
   "$ROOT/eqasim-sa/protocols/nantes-scientific/01-canonical-morris-pilot.yml" \
   "$ROOT/rendered/canonical-morris-pilot.yml" \
-  --model-config "$ROOT/eqasim-france/config_nantes.yml" \
+  --model-config "$ROOT/eqasim-france/config_nantes_sa.yml" \
   --model-root "$ROOT/eqasim-france" \
   --data-manifest "$ROOT/mon-analyse-sa/manifest.json" \
   --lockfile "$ROOT/eqasim-france/uv.lock" \
@@ -203,8 +203,10 @@ uv run --project "$ROOT/eqasim-sa" --locked python \
 Among other checks, the renderer verifies the model's fixed values and replaces
 the placeholders without changing the scientific question.
 
-`config_nantes.yml` stands for your copy of the Nantes eqasim configuration,
-placed in the eqasim folder. The renderer does not edit it: it must contain the
+`config_nantes_sa.yml` stands for your copy of the Nantes eqasim configuration,
+placed in the eqasim folder and made with
+`cp config_nantes.yml config_nantes_sa.yml` (eqasim ships `config_nantes.yml`
+itself; do not overwrite it). The renderer does not edit it: it must contain the
 values fixed by the protocol, the two varied parameters
 (`matching_minimum_observations`, `matching_minimum_age`), and
 `analysis.synthesis.population` in its `run:` list (see the
@@ -243,7 +245,7 @@ uv run --project "$ROOT/eqasim-sa" --locked python \
   "$ROOT/eqasim-sa/protocols/nantes-scientific/render_protocol.py" \
   "$ROOT/eqasim-sa/protocols/nantes-scientific/02-canonical-morris-production.yml" \
   "$ROOT/rendered/canonical-morris-production.yml" \
-  --model-config "$ROOT/eqasim-france/config_nantes.yml" \
+  --model-config "$ROOT/eqasim-france/config_nantes_sa.yml" \
   --model-root "$ROOT/eqasim-france" \
   --data-manifest "$ROOT/mon-analyse-sa/manifest.json" \
   --lockfile "$ROOT/eqasim-france/uv.lock" \

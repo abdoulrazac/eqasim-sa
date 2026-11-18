@@ -85,7 +85,10 @@ cd "$ROOT/mon-etude"
 `init` génère uniquement un projet modèle et `manifest.json`, qui hache l'arbre
 des données. Il ne crée aucun plan et n'exécute ni synpp, ni campagne, ni
 analyse. Les modèles utilisent le `config.yml` officiel du dossier eqasim ;
-ajoutez `--model-config config_nantes.yml` pour utiliser votre propre copie.
+pour utiliser votre propre copie, faites-la dans le dossier eqasim
+(`cp config.yml my_config.yml`, ou `cp config_nantes.yml config_nantes_sa.yml`
+pour Nantes : eqasim fournit lui-même `config_nantes.yml`) et ajoutez
+`--model-config my_config.yml`.
 
 Avant de planifier, ajoutez `analysis.synthesis.population` à la liste `run:` de
 cette configuration eqasim : les sorties `age`, `distance` et `nbr_vehicle`

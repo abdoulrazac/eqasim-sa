@@ -363,7 +363,7 @@ def test_check_reports_a_skipped_synpp_probe(
     )
     assert environment == {
         "name": "eqasimEnvironment",
-        "status": "passed",
+        "status": "skipped",
         "error": None,
         "note": "synpp probe skipped: invocation does not end with -m synpp",
     }

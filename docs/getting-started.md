@@ -55,10 +55,13 @@ in a meta-configuration, however, is part of the sealed scientific context.
 ```
 
 `--model-config` names the eqasim configuration of your study, relative to
-`--model-root` or absolute; it defaults to `config.yml`, the official file. If
-you work on a copy, for example `config_nantes.yml` next to `config.yml`, add
-`--model-config config_nantes.yml`. The starters then contain
-`config: config_nantes.yml`.
+`--model-root` or absolute; it defaults to `config.yml`, the official
+Île-de-France file. Work on a copy made in the eqasim folder, so that the
+official files stay untouched: `cp config.yml my_config.yml` in general, or,
+for Nantes, `cp config_nantes.yml config_nantes_sa.yml` (eqasim ships
+`config_nantes.yml` itself; do not overwrite it). Then add
+`--model-config my_config.yml` (or `--model-config config_nantes_sa.yml`); the
+starters contain `config: my_config.yml` (or `config: config_nantes_sa.yml`).
 
 `init` is strictly an atomic template generator. It renders four YAML files, a
 README, and a `manifest.json` containing the size and SHA-256 of every data
@@ -102,7 +105,7 @@ SA=(...)
 ```
 
 From a source checkout, the rendered command uses
-`uv run --project /chemin/vers/eqasim-sa --locked eqasim-sa`. In an installed
+`uv run --project /path/to/eqasim-sa --locked eqasim-sa`. In an installed
 package where no source `pyproject.toml` can be detected, it uses `eqasim-sa`.
 Always invoke the array with `"${SA[@]}"` to preserve the arguments.
 

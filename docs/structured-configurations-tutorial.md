@@ -9,14 +9,17 @@ does not support inferential or decision claims.
 
 ## 1. Prepare the eqasim configuration before initialization
 
-Work on a copy of the official configuration, placed in the eqasim folder, so
-that the official file stays untouched:
+Work on a copy of the official Nantes configuration `config_nantes.yml`, which
+eqasim ships, placed in the eqasim folder, so that the official file stays
+untouched:
 
 ```bash
-cp "$ROOT/eqasim-france/config.yml" "$ROOT/eqasim-france/config_nantes.yml"
+cd "$ROOT/eqasim-france"
+cp config_nantes.yml config_nantes_sa.yml
+cd "$ROOT"
 ```
 
-In `config_nantes.yml`, write `config.matching_attributes` as a list of strings,
+In `config_nantes_sa.yml`, write `config.matching_attributes` as a list of strings,
 and make sure `run:` contains `analysis.synthesis.population`, which writes the
 `age`, `distance`, and `nbr_vehicle` outputs compared by the starters:
 
@@ -51,12 +54,12 @@ PY=(uv run --project "$ROOT/eqasim-sa" --locked python)
 "${SA[@]}" init \
   --project-name matching-structures \
   --model-root "$ROOT/eqasim-france" \
-  --model-config config_nantes.yml \
+  --model-config config_nantes_sa.yml \
   --data-path "$ROOT/eqasim-data"
 cd "$ROOT/matching-structures"
 ```
 
-The generated files then contain `config: config_nantes.yml` under `model`.
+The generated files then contain `config: config_nantes_sa.yml` under `model`.
 An existing generated project is also usable if its `model.config` names this
 configuration and no campaign root is being reused after the context change. Use
 the `SA=(...)` array rendered in its `README.md` if it differs from the command

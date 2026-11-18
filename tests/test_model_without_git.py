@@ -204,6 +204,33 @@ def test_execution_seal_refuses_code_change(tmp_path: Path) -> None:
         seal.guard()
 
 
+def test_execution_seal_names_a_non_utf8_code_file(tmp_path: Path) -> None:
+    import os
+
+    model = plain_model(tmp_path)
+    meta = project(tmp_path, model, "config_nantes.yml", execution=True)
+    seal = create_execution_seal(load_meta_config(meta))
+    if os.name == "nt" or sys.platform == "darwin":
+        pytest.skip("filesystem refuses file names that are not valid UTF-8")
+    try:
+        with open(os.fsencode(str(model)) + b"/bad\xff.py", "wb") as stream:
+            stream.write(b"x = 1\n")
+    except OSError:
+        pytest.skip("filesystem refuses file names that are not valid UTF-8")
+    with pytest.raises(RuntimeError) as caught:
+        seal.guard()
+    assert str(caught.value) == (
+        "execution provenance guard failed: "
+        "eqasim source contains a file name that is not valid UTF-8: "
+        f"{'bad' + chr(0xDCFF) + '.py'!r}"
+    )
+    with pytest.raises(ValueError) as loading:
+        load_meta_config(meta)
+    assert "eqasim source contains a file name that is not valid UTF-8" in str(
+        loading.value
+    )
+
+
 def _evidence(**changes: object) -> ExecutionEvidence:
     values = dict(
         context_hash="0" * 64,
@@ -301,4 +328,7 @@ def test_init_rerun_names_modified_file(tmp_path: Path) -> None:
     with pytest.raises(FileExistsError) as caught:
         init_from_inputs("study", study, model, data, None, DEFAULT_INVOCATION)
 
-    assert str(caught.value) == f"init would overwrite modified file {grid.resolve()}"
+    assert str(caught.value) == (
+        f"init would overwrite {grid.resolve()}, which differs from what init "
+        "would write (file edited or init inputs changed)"
+    )

@@ -161,8 +161,7 @@ la publication atomique (complète ou absente) n'est pas affectée.
 - Les facteurs structurés nommés restent un mapping label-vers-liste séparé à la
   frontière adaptateur/cœur : le plan expose les labels, la résolution et le
   `runId` utilisent les listes, et le schéma v3 scelle le mapping canonique.
-- Seul le design scientifique v3 est accepté ; les designs antérieurs sont refusés
-  pendant le preflight applicatif.
+- Les designs scientifiques sont en version v3 ; le preflight applicatif la valide.
 - Une analyse ne doit pas muter ses sources; le code sauvegarde et restaure en cas d'écart.
 
 ## Ajouter un type d'indicateur

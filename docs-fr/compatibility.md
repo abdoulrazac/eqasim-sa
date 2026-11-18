@@ -24,10 +24,8 @@ uniquement pour un plan structure et ajoute la paire canonique exacte
 Sobol de demonstration et Sobol multi-scramble recopient aussi le mapping complet
 label-vers-payload dans leurs metadonnees de methode comme second invariant
 scelle ; les deux mappings canoniques doivent etre exactement egaux. La version
-du schema de plan est independante de la version du design numerique. Seul le design
-scientifique v3 (contrat SALib) est accepte ; les designs anterieurs sont rejetes
-avant tout acces aux runs et exigent une nouvelle
-planification v3. Les analyseurs scientifiques v3 reconstruisent strictement les
+du schema de plan est independante de la version du design numerique. Les designs
+scientifiques sont en version v3 (contrat SALib). Les analyseurs scientifiques v3 reconstruisent strictement les
 metadonnees scellees du plan, son contexte et son design SALib. Les analyseurs de
 demonstration valident leurs contrats propres. L'analyse Grid directe valide la forme et les
 labels v3, mais ne dispose d'aucune metadonnee de methode ni configuration modele
@@ -70,8 +68,10 @@ actionnable et exclue des rangs de decision FP/FF.
 | `seed` structuree, alias de payload identique, liste ordonnee mal formee ou cle modele qui n'est pas une liste de chaines | rejete |
 | Facteur structure avec `discrete_oat` ou `canonical_morris` | rejete car l'ordre nominal des labels est arbitraire |
 | Metadonnees scellees d'un plan scientifique absentes, non prises en charge, non canoniques, alterees ou incompatibles avec le contexte | rejete avant publication par les analyseurs Morris canonique et Sobol multi-scramble |
-| Design scientifique v1/v2 | rejete ; replanifier avec le design scientifique v3 |
 | Sortie connue laissée à son `file` par défaut dont l'étape eqasim manque dans `run:` | rejetée au chargement de la méta-configuration |
+| Sortie dont le suffixe de `file` (une fois `{prefix}` remplacé) ne peut pas nommer un fichier d'archive | rejetée au chargement de la méta-configuration |
+| Sortie CSV connue de la population, ou sortie `.gpkg`, quand `output_formats` de la configuration eqasim est présent sans `csv`, ou sans `gpkg` | rejetée au chargement de la méta-configuration |
+| Indicateur `share`, `value` ou `tv_distance` sur une sortie dont le `file` n'est pas un fichier `.csv` | rejeté au chargement de la méta-configuration |
 | Entrée d'indicateur dont la clé n'est pas `tv_distance`, `share` ou `value` | rejetée au chargement de la méta-configuration |
 | `share.category` ou valeur de `where` qui n'est pas une chaîne YAML entre guillemets | rejeté au chargement de la méta-configuration |
 | Plan Grid presente a l'analyse | l'analyse coeur directe valide methode, marqueurs, completude, forme et labels v3 ; le preflight applicatif reconstruit le plan pour lier les payloads au modele et a la meta-configuration |

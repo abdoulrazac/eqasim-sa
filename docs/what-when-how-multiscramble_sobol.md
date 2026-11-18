@@ -176,7 +176,7 @@ uv run --project "$ROOT/eqasim-sa" --locked python \
   "$ROOT/eqasim-sa/protocols/nantes-scientific/render_protocol.py" \
   "$ROOT/eqasim-sa/protocols/nantes-scientific/03-multiscramble-fp.yml" \
   "$ROOT/rendered/multiscramble-fp.yml" \
-  --model-config "$ROOT/eqasim-france/config_nantes.yml" \
+  --model-config "$ROOT/eqasim-france/config_nantes_sa.yml" \
   --model-root "$ROOT/eqasim-france" \
   --data-manifest "$ROOT/mon-analyse-sa/manifest.json" \
   --lockfile "$ROOT/eqasim-france/uv.lock" \
@@ -187,7 +187,7 @@ uv run --project "$ROOT/eqasim-sa" --locked python \
 ```
 
 The renderer refuses to produce the YAML if the screening evidence is missing,
-incomplete, unstable, or incompatible. `config_nantes.yml` is the same copy of
+incomplete, unstable, or incompatible. `config_nantes_sa.yml` is the same copy of
 the Nantes eqasim configuration as for canonical Morris. The renderer also
 checks that the screening campaign was planned with the same eqasim code
 fingerprint, data manifest, lockfile, and `eqasim-sa` version.
@@ -261,7 +261,7 @@ uv run --project "$ROOT/eqasim-sa" --locked python \
   "$ROOT/eqasim-sa/protocols/nantes-scientific/render_protocol.py" \
   "$ROOT/eqasim-sa/protocols/nantes-scientific/04-multiscramble-ff.yml" \
   "$ROOT/rendered/multiscramble-ff.yml" \
-  --model-config "$ROOT/eqasim-france/config_nantes.yml" \
+  --model-config "$ROOT/eqasim-france/config_nantes_sa.yml" \
   --model-root "$ROOT/eqasim-france" \
   --data-manifest "$ROOT/mon-analyse-sa/manifest.json" \
   --lockfile "$ROOT/eqasim-france/uv.lock" \

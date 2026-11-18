@@ -165,3 +165,26 @@ def test_nfd_and_nfc_filenames_give_same_digest(tmp_path):
     write(first, nfc)
     write(second, nfd)
     assert model_source_sha256(first) == model_source_sha256(second)
+
+
+def _non_utf8_code_file(root: Path) -> Path:
+    if os.name == "nt" or sys.platform == "darwin":
+        pytest.skip("filesystem refuses file names that are not valid UTF-8")
+    try:
+        name = os.fsencode(str(root)) + b"/bad\xff.py"
+        with open(name, "wb") as stream:
+            stream.write(b"x = 1\n")
+    except OSError:
+        pytest.skip("filesystem refuses file names that are not valid UTF-8")
+    return Path(os.fsdecode(name))
+
+
+def test_non_utf8_code_file_name_is_its_own_error(tmp_path):
+    base_tree(tmp_path)
+    _non_utf8_code_file(tmp_path)
+    with pytest.raises(ValueError) as error:
+        model_source_sha256(tmp_path)
+    assert str(error.value) == (
+        "eqasim source contains a file name that is not valid UTF-8: "
+        f"{'bad' + chr(0xDCFF) + '.py'!r}"
+    )
