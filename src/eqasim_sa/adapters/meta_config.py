@@ -44,7 +44,10 @@ from eqasim_sa.core.indicators import (
     OutputDeclaration,
     PairDeclaration,
     ProductDeclaration,
+    ShareIndicator,
+    TableArtifact,
     TotalVariationIndicator,
+    ValueIndicator,
     analysis_identity,
     resolve_indicators,
     validate_output_file,
@@ -525,55 +528,137 @@ def _require_output_stages(
             )
 
 
+INDICATOR_KINDS = (*SCALARIZERS, "share", "value")
+
+
+def _declared_output(
+    outputs: dict[str, OutputDeclaration], name: object, label: str
+) -> OutputDeclaration:
+    if not isinstance(name, str) or not name:
+        raise ValueError(f"{label} output must be a non-empty string")
+    if name not in outputs:
+        raise ValueError(f"{label} output {name!r} is not declared in outputs")
+    return outputs[name]
+
+
+def _share_indicator(
+    raw: dict, outputs: dict[str, OutputDeclaration], label: str
+) -> ShareIndicator:
+    if set(raw) != {"output", "category"}:
+        raise ValueError(f"{label} keys must be exactly output and category")
+    output = raw["output"]
+    declaration = _declared_output(outputs, output, label)
+    category = raw["category"]
+    if not isinstance(category, str):
+        raise ValueError('share category must be a quoted string (e.g. "0", "True")')
+    if not category:
+        raise ValueError(f"{label} category must be a non-empty string")
+    if declaration.category is None or declaration.simulated is None:
+        raise ValueError(
+            f"share({output}, {category}) requires output {output!r} "
+            "to declare category and simulated"
+        )
+    return ShareIndicator(
+        TableArtifact(
+            output,
+            declaration.file,
+            declaration.separator,
+            declaration.category,
+            declaration.simulated,
+            declaration.references,
+        ),
+        category,
+    )
+
+
+def _value_indicator(
+    raw: dict, outputs: dict[str, OutputDeclaration], label: str
+) -> ValueIndicator:
+    if not {"output", "column"} <= set(raw) <= {"output", "column", "where"}:
+        raise ValueError(f"{label} keys must be output, column and optionally where")
+    output = raw["output"]
+    declaration = _declared_output(outputs, output, label)
+    column = raw["column"]
+    if not isinstance(column, str) or not column:
+        raise ValueError(f"{label} column must be a non-empty string")
+    where = _mapping(raw.get("where", {}), f"{label} where")
+    if any(not isinstance(key, str) or not key for key in where):
+        raise ValueError(f"{label} where keys must be non-empty strings")
+    if any(not isinstance(item, str) for item in where.values()):
+        raise ValueError("where values must be quoted strings")
+    if column in where:
+        raise ValueError(f"{label} column must not be a where key")
+    return ValueIndicator(
+        output, declaration.file, declaration.separator, column, where
+    )
+
+
+def _scalarizer_declaration(
+    raw: dict, kind: str, label: str
+) -> PairDeclaration | ProductDeclaration:
+    keys = set(raw)
+    if keys not in ({"output", "reference"}, {"output"}, {"outputs"}):
+        raise ValueError(
+            f"{label} keys must be exactly output and reference, output, or outputs"
+        )
+    if keys == {"outputs"}:
+        return ProductDeclaration((kind,), _strings(raw["outputs"], f"{label} outputs"))
+    selected = [raw[key] for key in sorted(keys)]
+    if not all(isinstance(item, str) and item for item in selected):
+        raise ValueError(
+            f"{label} {' and '.join(sorted(keys))} must be non-empty strings"
+        )
+    if "reference" in keys:
+        return PairDeclaration(kind, raw["output"], raw["reference"])
+    return ProductDeclaration((kind,), (raw["output"],))
+
+
 def _indicator_blocks(
     document: dict, outputs: dict[str, OutputDeclaration]
 ) -> tuple[Indicator, ...]:
     raw_indicators = document.get("indicators", [])
     if not isinstance(raw_indicators, list):
         raise TypeError("indicators must be a list")
-    kinds = tuple(SCALARIZERS)
-    declarations = []
+    resolved: list[Indicator] = []
+    combinations: list[str] = []
     for index, value in enumerate(raw_indicators):
         if (
             not isinstance(value, dict)
             or len(value) != 1
-            or next(iter(value)) not in kinds
+            or next(iter(value)) not in INDICATOR_KINDS
         ):
             raise ValueError(
-                f"indicator {index} must contain exactly one key: one of {', '.join(kinds)}"
+                f"indicator {index} must contain exactly one key: "
+                f"one of {', '.join(INDICATOR_KINDS)}"
             )
         kind, raw = next(iter(value.items()))
-        declaration = _mapping(raw, f"indicator {index}.{kind}")
-        keys = set(declaration)
-        if keys not in ({"output", "reference"}, {"output"}, {"outputs"}):
-            raise ValueError(
-                f"indicator {index}.{kind} keys must be exactly output and reference, "
-                "output, or outputs"
-            )
-        if keys == {"outputs"}:
-            declarations.append(
-                ProductDeclaration(
-                    (kind,),
-                    _strings(declaration["outputs"], f"indicator {index}.{kind} outputs"),
+        label = f"indicator {index}.{kind}"
+        declaration = _mapping(raw, label)
+        if kind == "share":
+            resolved.append(_share_indicator(declaration, outputs, label))
+        elif kind == "value":
+            resolved.append(_value_indicator(declaration, outputs, label))
+        else:
+            try:
+                resolved.extend(
+                    resolve_indicators(
+                        [_scalarizer_declaration(declaration, kind, label)],
+                        outputs,
+                        SCALARIZERS,
+                    )
                 )
-            )
-            continue
-        selected = [declaration[key] for key in sorted(keys)]
-        if not all(isinstance(item, str) and item for item in selected):
-            raise ValueError(
-                f"indicator {index}.{kind} {' and '.join(sorted(keys))} must be non-empty strings"
-            )
-        declarations.append(
-            PairDeclaration(kind, declaration["output"], declaration["reference"])
-            if "reference" in keys
-            else ProductDeclaration((kind,), (declaration["output"],))
-        )
-    resolved = resolve_indicators(declarations, outputs, SCALARIZERS)
+            except ValueError as error:
+                prefix = "invalid indicator combinations: "
+                if not str(error).startswith(prefix):
+                    raise
+                combinations.append(str(error).removeprefix(prefix))
+    if combinations:
+        raise ValueError("invalid indicator combinations: " + ", ".join(combinations))
     names = [item.name for item in resolved]
     if len(names) != len(set(names)):
         raise ValueError("resolved indicator names must be unique")
     reject_case_collisions(names, "indicator")
-    return resolved
+    return tuple(resolved)
 
 
 def load_meta_config(

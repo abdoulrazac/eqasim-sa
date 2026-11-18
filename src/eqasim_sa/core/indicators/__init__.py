@@ -22,6 +22,13 @@ from eqasim_sa.core.software_identity import stable_published_identity
 INDICATOR_DEFINITION_DOMAIN = b"eqasim-sa:indicator-definition:v3\0"
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 TOTAL_VARIATION_VERSION = 1
+SHARE_VERSION = 1
+VALUE_VERSION = 1
+KIND_VERSIONS = {
+    "tv_distance": TOTAL_VARIATION_VERSION,
+    "share": SHARE_VERSION,
+    "value": VALUE_VERSION,
+}
 OUTPUT_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
 PREFIX_TEMPLATE = "{prefix}"
 CSV_BLOCK_SIZE = 1 << 20
@@ -268,32 +275,47 @@ def _source_sha256(value: type) -> str | None:
         return None
 
 
+def _output_block(name: str, file: str, separator: str) -> dict[str, object]:
+    return {"name": name, "file": file, "separator": separator}
+
+
 def analysis_identity(indicator: Indicator) -> dict[str, object]:
     """Build and validate the canonical identity of a builtin indicator."""
 
-    if not isinstance(indicator, TotalVariationIndicator):
+    if isinstance(indicator, TotalVariationIndicator):
+        kind, implementation = "tv_distance", TotalVariationIndicator
+        source = indicator.artifact
+        artifact = _output_block(source.name, source.file, source.separator) | {
+            "classColumn": source.class_column,
+            "syntheticColumn": source.synthetic_column,
+            "referenceColumns": [indicator.reference_column],
+        }
+    elif isinstance(indicator, ShareIndicator):
+        kind, implementation = "share", ShareIndicator
+        source = indicator.artifact
+        artifact = _output_block(source.name, source.file, source.separator) | {
+            "classColumn": source.class_column,
+            "syntheticColumn": source.synthetic_column,
+            "category": indicator.category,
+        }
+    elif isinstance(indicator, ValueIndicator):
+        kind, implementation = "value", ValueIndicator
+        artifact = _output_block(
+            indicator.output, indicator.file, indicator.separator
+        ) | {"column": indicator.column, "where": dict(indicator.where)}
+    else:
         raise TypeError(f"unsupported indicator: {type(indicator).__qualname__}")
-    artifact = indicator.artifact
+    version = KIND_VERSIONS[kind]
     definition = {
         "schemaVersion": 1,
         "name": indicator.name,
         "kind": "builtin",
-        "scalarizer": {
-            "name": indicator.identity.scalarizer,
-            "version": TOTAL_VARIATION_VERSION,
-        },
-        "artifact": {
-            "name": artifact.name,
-            "file": artifact.file,
-            "separator": artifact.separator,
-            "classColumn": artifact.class_column,
-            "syntheticColumn": artifact.synthetic_column,
-            "referenceColumns": [indicator.reference_column],
-        },
+        "scalarizer": {"name": kind, "version": version},
+        "artifact": artifact,
         "implementation": {
-            "identity": "eqasim_sa.core.indicators:TotalVariationIndicator",
-            "sha256": _source_sha256(TotalVariationIndicator),
-            "version": TOTAL_VARIATION_VERSION,
+            "identity": f"eqasim_sa.core.indicators:{implementation.__name__}",
+            "sha256": _source_sha256(implementation),
+            "version": version,
         },
     }
     validate_indicator_definition(definition)
@@ -308,14 +330,55 @@ _DEFINITION_KEYS = {
     "artifact",
     "implementation",
 }
+_OUTPUT_KEYS = {"name", "file", "separator"}
 _ARTIFACT_KEYS = {
-    "name",
-    "file",
-    "separator",
-    "classColumn",
-    "syntheticColumn",
-    "referenceColumns",
+    "tv_distance": _OUTPUT_KEYS | {"classColumn", "syntheticColumn", "referenceColumns"},
+    "share": _OUTPUT_KEYS | {"classColumn", "syntheticColumn", "category"},
+    "value": _OUTPUT_KEYS | {"column", "where"},
 }
+
+
+def _non_empty_strings(*values: object) -> bool:
+    return all(isinstance(item, str) and item for item in values)
+
+
+def _validate_definition_artifact(kind: str, artifact: object) -> None:
+    if not isinstance(artifact, dict) or set(artifact) != _ARTIFACT_KEYS[kind]:
+        raise ValueError("indicator definition artifact schema is invalid")
+    try:
+        validate_output_name(artifact["name"])
+        validate_output_file(artifact["file"])
+        validate_separator(artifact["separator"])
+    except ValueError as error:
+        raise ValueError(f"indicator definition artifact is invalid: {error}") from error
+    if kind == "value":
+        where = artifact["where"]
+        if (
+            not _non_empty_strings(artifact["column"])
+            or not isinstance(where, dict)
+            or any(
+                not _non_empty_strings(key) or not isinstance(item, str)
+                for key, item in where.items()
+            )
+            or artifact["column"] in where
+        ):
+            raise ValueError("indicator definition artifact columns are invalid")
+        return
+    columns = (artifact["classColumn"], artifact["syntheticColumn"])
+    if not _non_empty_strings(*columns) or len(set(columns)) != 2:
+        raise ValueError("indicator definition artifact columns are invalid")
+    if kind == "share":
+        if not _non_empty_strings(artifact["category"]):
+            raise ValueError("indicator definition share category is invalid")
+        return
+    references = artifact["referenceColumns"]
+    if (
+        not isinstance(references, list)
+        or len(references) != 1
+        or not _non_empty_strings(*references)
+        or len({*columns, *references}) != 3
+    ):
+        raise ValueError("indicator definition reference columns are invalid")
 
 
 def validate_indicator_definition(
@@ -335,31 +398,13 @@ def validate_indicator_definition(
     if (
         not isinstance(scalarizer, dict)
         or set(scalarizer) != {"name", "version"}
-        or scalarizer["name"] != "tv_distance"
+        or not isinstance(scalarizer["name"], str)
+        or scalarizer["name"] not in KIND_VERSIONS
         or type(scalarizer["version"]) is not int
-        or scalarizer["version"] != TOTAL_VARIATION_VERSION
+        or scalarizer["version"] != KIND_VERSIONS[scalarizer["name"]]
     ):
         raise ValueError("indicator definition scalarizer is invalid")
-    artifact = value["artifact"]
-    if not isinstance(artifact, dict) or set(artifact) != _ARTIFACT_KEYS:
-        raise ValueError("indicator definition artifact schema is invalid")
-    try:
-        validate_output_name(artifact["name"])
-        validate_output_file(artifact["file"])
-        validate_separator(artifact["separator"])
-    except ValueError as error:
-        raise ValueError(f"indicator definition artifact is invalid: {error}") from error
-    columns = (artifact["classColumn"], artifact["syntheticColumn"])
-    if any(not isinstance(item, str) or not item for item in columns):
-        raise ValueError("indicator definition artifact columns are invalid")
-    references = artifact["referenceColumns"]
-    if (
-        not isinstance(references, list)
-        or len(references) != 1
-        or any(not isinstance(item, str) or not item for item in references)
-        or len({*columns, *references}) != 3
-    ):
-        raise ValueError("indicator definition reference columns are invalid")
+    _validate_definition_artifact(scalarizer["name"], value["artifact"])
     implementation = value["implementation"]
     if (
         not isinstance(implementation, dict)
@@ -442,13 +487,7 @@ class TotalVariationIndicator:
             self.reference_column,
         )
         table = self.artifact.read(artifacts, columns)
-        labels = table[columns[0]].to_pylist()
-        if any(label == "" for label in labels):
-            raise ValueError(f"class column {columns[0]!r} contains empty labels")
-        if len(labels) != len(set(labels)):
-            raise ValueError(
-                f"class column {columns[0]!r} contains duplicate class labels"
-            )
+        _class_labels(table, columns[0])
         synthetic = _normalized_masses(numeric_column(table, columns[1]), columns[1])
         reference = _normalized_masses(numeric_column(table, columns[2]), columns[2])
         value = 0.5 * math.fsum(
@@ -457,6 +496,126 @@ class TotalVariationIndicator:
         if not math.isfinite(value) or value < -1e-12 or value > 1.0 + 1e-12:
             raise ValueError("total variation is outside [0, 1]")
         return float(min(1.0, max(0.0, value)))
+
+
+def _class_labels(table: pa.Table, column: str) -> list[str]:
+    labels = table[column].to_pylist()
+    if any(label == "" for label in labels):
+        raise ValueError(f"class column {column!r} contains empty labels")
+    if len(labels) != len(set(labels)):
+        raise ValueError(f"class column {column!r} contains duplicate class labels")
+    return labels
+
+
+@dataclass(frozen=True)
+class ShareIndicator:
+    """Proportion of one class in a distribution output's simulated column."""
+
+    artifact: TableArtifact
+    category: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.category, str) or not self.category:
+            raise ValueError("share category must be a non-empty string")
+
+    @property
+    def name(self) -> str:
+        return f"share({self.artifact.name}, {self.category})"
+
+    def compute(self, artifacts: ArtifactSet) -> float:
+        columns = (self.artifact.class_column, self.artifact.synthetic_column)
+        table = self.artifact.read(artifacts, columns)
+        labels = _class_labels(table, columns[0])
+        if self.category not in labels:
+            raise ValueError(
+                f"share: category {self.category!r} not found in output "
+                f"{self.artifact.name!r}"
+            )
+        masses = _normalized_masses(numeric_column(table, columns[1]), columns[1])
+        return float(masses[labels.index(self.category)])
+
+
+@dataclass(frozen=True)
+class ValueIndicator:
+    """One number read from a table cell, its row selected by ``where``."""
+
+    output: str
+    file: str
+    separator: str
+    column: str
+    where: Mapping[str, str] | tuple[tuple[str, str], ...] = ()
+
+    def __post_init__(self) -> None:
+        validate_output_name(self.output)
+        validate_output_file(self.file)
+        validate_separator(self.separator)
+        if not isinstance(self.column, str) or not self.column:
+            raise ValueError("value column must be a non-empty string")
+        pairs = tuple(
+            self.where.items() if isinstance(self.where, Mapping) else self.where
+        )
+        for pair in pairs:
+            if not isinstance(pair, tuple) or len(pair) != 2:
+                raise ValueError("where must map column names to values")
+            if not isinstance(pair[0], str) or not pair[0]:
+                raise ValueError("where keys must be non-empty strings")
+            if not isinstance(pair[1], str):
+                raise ValueError("where values must be quoted strings")
+        keys = [key for key, _ in pairs]
+        if len(set(keys)) != len(keys):
+            raise ValueError("where keys must be unique")
+        if self.column in keys:
+            raise ValueError("value column must not be a where key")
+        object.__setattr__(self, "where", tuple(sorted(pairs)))
+
+    @property
+    def name(self) -> str:
+        selection = "".join(f", {key}={item}" for key, item in self.where)
+        return f"value({self.output}, {self.column}{selection})"
+
+    def compute(self, artifacts: ArtifactSet) -> float:
+        keys = [key for key, _ in self.where]
+        table = read_csv_table(
+            artifacts.path(self.output),
+            self.separator,
+            self.output,
+            [self.column, *keys],
+        )
+        cells = table[self.column].to_pylist()
+        selectors = [table[key].to_pylist() for key in keys]
+        rows = [
+            index
+            for index in range(len(cells))
+            if all(
+                selector[index] == item
+                for selector, (_, item) in zip(selectors, self.where, strict=True)
+            )
+        ]
+        if not rows:
+            raise ValueError(
+                f"value: no row of output {self.output!r} matches where "
+                f"{dict(self.where)}"
+            )
+        if len(rows) > 1:
+            if not self.where:
+                raise ValueError(
+                    f"value: output {self.output!r} has several rows; "
+                    "add where to select one"
+                )
+            raise ValueError(
+                f"value: several rows of output {self.output!r} match; "
+                "add where to select one"
+            )
+        try:
+            number = float(cells[rows[0]])
+        except (TypeError, ValueError):
+            number = math.nan
+        if not math.isfinite(number):
+            raise ValueError(
+                f"value: {self.column!r} in output {self.output!r} "
+                "is not a finite number"
+            )
+        return number
 
 
 ScalarizerFactory = Callable[[TableArtifact, str], Indicator]
