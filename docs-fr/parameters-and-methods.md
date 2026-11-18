@@ -50,7 +50,9 @@ Une clé doit être explicitement présente sous `config:` dans la configuration
 eqasim désignée par `model.config` avant de pouvoir être déclarée comme
 facteur. Le `config.yml` officiel ne fixe que quelques clés, comme
 `sampling_rate` ; écrivez d'abord les autres dans votre copie, avec leur valeur
-par défaut dans eqasim.
+par défaut dans eqasim. `hts` n'a pas de valeur par défaut dans eqasim et est
+obligatoire : le `config.yml` officiel fixe `entd`, et une configuration de
+Nantes utilise `edgt_44`.
 
 | Paramètre | Type et valeur par défaut dans eqasim | Effet | Domaine d'exemple | Méthodes |
 | --- | --- | --- | --- | --- |
@@ -58,7 +60,7 @@ par défaut dans eqasim.
 | `matching_minimum_observations` | entier, `20` | taille minimale d'une cellule de donneurs acceptée | `[5, 20, 50]` | Grid, OAT discret, Morris canonique, Sobol |
 | `matching_minimum_age` | entier, `5` | âge minimal des personnes cibles entrant dans le matching | `[0, 5, 12]` | Grid, OAT discret, Morris canonique, Sobol |
 | `income_assignation_method` | chaîne, `uniform` | méthode de synthèse du revenu, `uniform` ou `bhepop2` | `[uniform, bhepop2]` | Grid, Sobol |
-| `hts` | chaîne, `edgt_44` | donneurs et distributions de référence de l'enquête | `[edgt_44, entd]` | Grid, Sobol, si les deux jeux existent |
+| `hts` | chaîne, aucune valeur par défaut (`config.yml` officiel : `entd` ; Nantes : `edgt_44`) | donneurs et distributions de référence de l'enquête | `[edgt_44, entd]` | Grid, Sobol, si les deux jeux existent |
 
 Ces valeurs montrent la syntaxe; elles ne constituent pas automatiquement des
 domaines scientifiquement justifiés. En particulier :

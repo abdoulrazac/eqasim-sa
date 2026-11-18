@@ -167,8 +167,7 @@ or absent) is unaffected.
 
 ## Add an indicator kind
 
-There is no plugin mechanism: the indicator kinds are `tv_distance`, `share`,
-and `value`, all built in. A user who needs another quantity computes it in an
+The indicator kinds are `tv_distance`, `share`, and `value`, all built in. A user who needs another quantity computes it in an
 eqasim analysis stage, declares the CSV file under `outputs`, and reads it with
 `value`; that code is then covered by the eqasim code fingerprint.
 

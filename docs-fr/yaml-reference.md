@@ -814,7 +814,7 @@ outputs:
 absolu. Vous pouvez aussi changer le `file` d'une sortie connue, par exemple
 pour lire sous un nom connu un fichier écrit par votre propre étape eqasim ; la
 vérification d'étape décrite dans [Ce qu'eqasim exécute](#ce-queqasim-exécute)
-ne s'applique alors plus à elle.
+ne s'applique alors pas à elle.
 
 ### Ce qui est archivé
 
@@ -970,9 +970,8 @@ entre guillemets (`zone: "44"`, pas `zone: 44`). La sortie n'a besoin ni de
 
 ### Vos propres calculs
 
-eqasim-sa n'a pas de mécanisme d'extension pour les indicateurs. Quand il vous
-faut une grandeur que les trois types ci-dessus ne calculent pas (un revenu
-moyen, un taux par zone, une part modale), calculez-la dans eqasim : écrivez
+Quand il vous faut une grandeur que les trois types ci-dessus ne calculent pas
+(un revenu moyen, un taux par zone, une part modale), calculez-la dans eqasim : écrivez
 une étape d'analyse eqasim qui enregistre une petite table CSV dans le dossier
 de sortie, ajoutez cette étape à `run:` dans votre configuration eqasim,
 déclarez le fichier sous `outputs` et lisez-le avec `value`. Par exemple, si

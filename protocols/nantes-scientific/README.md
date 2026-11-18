@@ -45,7 +45,7 @@ existing output. Use an absolute, phase-specific `--campaign-root`:
 ```bash
 python protocols/nantes-scientific/render_protocol.py \
   protocols/nantes-scientific/01-canonical-morris-pilot.yml rendered/pilot.yml \
-  --model-config "$ROOT/eqasim-france/config.yml" \
+  --model-config "$ROOT/eqasim-france/config_nantes.yml" \
   --model-root "$ROOT/eqasim-france" \
   --data-manifest "$ROOT/study/manifest.json" \
   --lockfile "$ROOT/eqasim-france/uv.lock" \
@@ -60,7 +60,7 @@ allocation itself and derives `R` and the first `R` preregistered seeds:
 ```bash
 python protocols/nantes-scientific/render_protocol.py \
   protocols/nantes-scientific/02-canonical-morris-production.yml rendered/production.yml \
-  --model-config "$ROOT/eqasim-france/config.yml" \
+  --model-config "$ROOT/eqasim-france/config_nantes.yml" \
   --model-root "$ROOT/eqasim-france" --data-manifest "$ROOT/study/manifest.json" \
   --lockfile "$ROOT/eqasim-france/uv.lock" --scratch "$ROOT/scratch" \
   --data-path "$ROOT/eqasim-data" \
@@ -74,7 +74,7 @@ command with template `04-multiscramble-ff.yml` and its own output/root:
 ```bash
 python protocols/nantes-scientific/render_protocol.py \
   protocols/nantes-scientific/03-multiscramble-fp.yml rendered/fp.yml \
-  --model-config "$ROOT/eqasim-france/config.yml" \
+  --model-config "$ROOT/eqasim-france/config_nantes.yml" \
   --model-root "$ROOT/eqasim-france" --data-manifest "$ROOT/study/manifest.json" \
   --lockfile "$ROOT/eqasim-france/uv.lock" --scratch "$ROOT/scratch" \
   --data-path "$ROOT/eqasim-data" \
@@ -93,7 +93,9 @@ model configurations that contradict these exact fixed values:
 `hts: edgt_44`, and `departments: [44]`.
 
 The renderer does not edit your eqasim configuration. The configuration passed
-as `--model-config` must be your own copy of the Nantes configuration. It must
+as `--model-config` must be your own copy of the Nantes configuration, here
+`config_nantes.yml` in the eqasim folder (for example created with
+`cp config.yml config_nantes.yml`). It must
 contain the values fixed by the protocol (above) and the parameters the
 protocol varies (`matching_minimum_observations`, `matching_minimum_age`), and
 its `run:` list must include `analysis.synthesis.population` so that the

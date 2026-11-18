@@ -3,7 +3,7 @@
 **English** | [Francais](../docs-fr/compatibility.md)
 
 This page describes `eqasim-sa` 0.3.0 plus the current Unreleased changes:
-structured factors, and an eqasim model that no longer needs Git. The Python
+structured factors, and an eqasim model identified without Git. The Python
 parser and analysis code are authoritative. There is no backward compatibility:
 only the current formats are read, and nothing is migrated.
 
@@ -70,9 +70,8 @@ excluded from FP/FF decision ranks.
 | Structured factor with `discrete_oat` or `canonical_morris` | rejected because nominal label order is arbitrary |
 | Missing, unsupported, noncanonical, tampered, or context-incompatible sealed scientific plan metadata | rejected before analysis publication by the canonical Morris and multi-scramble Sobol analyzers |
 | Scientific design v1/v2 | rejected; replan with scientific design v3 |
-| Plan, marker, or archive written by an earlier version (context and execution evidence identified by the eqasim commit, Parquet output archives) | rejected; nothing is converted, create a new campaign |
 | Known output left at its default `file` whose eqasim stage is missing from `run:` | rejected when the meta-configuration is loaded |
-| `custom` indicator entry | rejected; only `tv_distance`, `share`, and `value` exist |
+| Indicator entry whose key is not `tv_distance`, `share`, or `value` | rejected when the meta-configuration is loaded |
 | `share.category` or a `where` value that is not a quoted YAML string | rejected when the meta-configuration is loaded |
 | Grid plan presented for analysis | direct core analysis validates method, run-marker identity, completeness, and schema-v3 shape/labels; application preflight reconstructs the plan to bind payloads to the model/meta-configuration |
 | Scientific positions above the declared budget after reserve | rejected before plan publication |
@@ -84,12 +83,11 @@ excluded from FP/FF decision ranks.
 `eqasim-sa` supports Windows 10+, macOS 13+, and Linux natively with the `local`
 backend (verification on Windows and macOS is pending, see
 [Platform verification](platform-verification.md)); `slurm` is Linux only.
-There is no backward compatibility for hashes whose bytes changed: new plans use
-the domains below, and identities computed with earlier domains are refused:
+Plans and their evidence use exactly the domains below:
 
 | Domain | Current |
 | --- | --- |
-| Execution context (`eqasimSourceSha256` replaces the eqasim commit) | `eqasim-sa:context:v3` |
+| Execution context (`eqasimSourceSha256`) | `eqasim-sa:context:v3` |
 | eqasim code fingerprint | `eqasim-sa:model-source:v1` |
 | Execution evidence (`schemaVersion: 3`, `modelSourceSha256`) | `eqasim-sa:execution-evidence:v3` |
 | `eqasim-sa` software identity | `eqasim-sa:software-identity:v2` |
@@ -106,14 +104,14 @@ worker scratch layout changed to `<scratch>/esa/<campaign>/w<slot>/c<12 hex>/`.
   `model.config` is read relative to `model.root` (or as an absolute path).
 - synpp runs the `run:` list of the eqasim configuration unchanged.
 - Each declared output is archived byte for byte as `<name><suffix>` (for
-  example `age.csv`), with its original path in the run manifest. Output
-  archives are no longer converted to Parquet; the analysis results
-  (`indicators.parquet`, sensitivity tables) remain Parquet files.
+  example `age.csv`), with its original path in the run manifest. The analysis
+  results (`indicators.parquet`, sensitivity tables) are Parquet files.
 - The plan seals the declared outputs (`outputsDeclaration`: name, `file`,
   `separator`); `category`, `simulated`, and `references` can change between
   runs and analysis.
-- Indicator plugins are removed. Custom calculations belong in an eqasim
-  analysis stage whose CSV file is read with `value`.
+- The indicator kinds are `tv_distance`, `share`, and `value`. Custom
+  calculations belong in an eqasim analysis stage whose CSV file is read with
+  `value`.
 
 ## Init and Nantes boundaries
 

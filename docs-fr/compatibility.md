@@ -3,7 +3,7 @@
 [English](../docs/compatibility.md) | **Francais**
 
 Cette page décrit `eqasim-sa` 0.3.0 ainsi que les changements non publiés
-courants : facteurs structurés, et modèle eqasim qui n'a plus besoin de Git. Le
+courants : facteurs structurés, et modèle eqasim identifié sans Git. Le
 parseur Python et le code d'analyse sont normatifs. Il n'y a aucune
 compatibilite ascendante : seuls les formats courants sont lus et rien n'est
 migre.
@@ -71,9 +71,8 @@ actionnable et exclue des rangs de decision FP/FF.
 | Facteur structure avec `discrete_oat` ou `canonical_morris` | rejete car l'ordre nominal des labels est arbitraire |
 | Metadonnees scellees d'un plan scientifique absentes, non prises en charge, non canoniques, alterees ou incompatibles avec le contexte | rejete avant publication par les analyseurs Morris canonique et Sobol multi-scramble |
 | Design scientifique v1/v2 | rejete ; replanifier avec le design scientifique v3 |
-| Plan, marqueur ou archive écrits par une version antérieure (contexte et preuves d'exécution identifiés par le commit eqasim, archives de sorties en Parquet) | rejeté ; rien n'est converti, créez une nouvelle campagne |
 | Sortie connue laissée à son `file` par défaut dont l'étape eqasim manque dans `run:` | rejetée au chargement de la méta-configuration |
-| Entrée d'indicateur `custom` | rejetée ; seuls `tv_distance`, `share` et `value` existent |
+| Entrée d'indicateur dont la clé n'est pas `tv_distance`, `share` ou `value` | rejetée au chargement de la méta-configuration |
 | `share.category` ou valeur de `where` qui n'est pas une chaîne YAML entre guillemets | rejeté au chargement de la méta-configuration |
 | Plan Grid presente a l'analyse | l'analyse coeur directe valide methode, marqueurs, completude, forme et labels v3 ; le preflight applicatif reconstruit le plan pour lier les payloads au modele et a la meta-configuration |
 | Positions scientifiques au-dessus du budget declare apres reserve | rejete avant publication du plan |
@@ -89,14 +88,14 @@ actionnable et exclue des rangs de decision FP/FF.
 - synpp exécute la liste `run:` de la configuration eqasim sans la modifier.
 - Chaque sortie déclarée est archivée à l'octet près sous le nom
   `<nom><extension>` (par exemple `age.csv`), avec son chemin d'origine dans le
-  manifeste du run. Les archives de sorties ne sont plus converties en
-  Parquet ; les résultats d'analyse (`indicators.parquet`, tables de
-  sensibilité) restent des fichiers Parquet.
+  manifeste du run. Les résultats d'analyse (`indicators.parquet`, tables de
+  sensibilité) sont des fichiers Parquet.
 - Le plan scelle les sorties déclarées (`outputsDeclaration` : nom, `file`,
   `separator`) ; `category`, `simulated` et `references` peuvent changer entre
   les runs et l'analyse.
-- Les plugins d'indicateur sont supprimés. Les calculs personnalisés se font
-  dans une étape d'analyse eqasim dont le fichier CSV est lu avec `value`.
+- Les types d'indicateur sont `tv_distance`, `share` et `value`. Les calculs
+  personnalisés se font dans une étape d'analyse eqasim dont le fichier CSV est
+  lu avec `value`.
 
 ## Frontieres de init et Nantes
 
@@ -118,13 +117,12 @@ protocole Nantes reel a ete planifie ou execute.
 `eqasim-sa` prend en charge nativement Windows 10+, macOS 13+ et Linux avec le
 backend `local` (vérification sous Windows et macOS en attente, voir la
 [vérification des plateformes](../docs/platform-verification.md)) ; `slurm` est
-réservé à Linux. Il n'y a pas de compatibilité ascendante pour les hash dont
-les octets ont changé : les nouveaux plans utilisent les domaines ci-dessous, et
-les identités calculées avec des domaines antérieurs sont refusées :
+réservé à Linux. Les plans et leurs preuves utilisent exactement les domaines
+ci-dessous :
 
 | Domaine | Courant |
 | --- | --- |
-| Contexte d'exécution (`eqasimSourceSha256` remplace le commit eqasim) | `eqasim-sa:context:v3` |
+| Contexte d'exécution (`eqasimSourceSha256`) | `eqasim-sa:context:v3` |
 | Empreinte du code d'eqasim | `eqasim-sa:model-source:v1` |
 | Preuves d'exécution (`schemaVersion: 3`, `modelSourceSha256`) | `eqasim-sa:execution-evidence:v3` |
 | Identité logicielle d'`eqasim-sa` | `eqasim-sa:software-identity:v2` |

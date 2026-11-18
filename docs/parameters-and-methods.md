@@ -50,7 +50,9 @@ The following eqasim parameters are scientifically meaningful candidates. A key
 must be explicitly present under `config:` in the eqasim configuration named by
 `model.config` before it can be declared as a factor. The official `config.yml`
 sets only a few keys, such as `sampling_rate`; write the others in your copy
-first, with their eqasim default value.
+first, with their eqasim default value. `hts` has no eqasim default and is
+required: the official `config.yml` sets `entd`, and a Nantes configuration
+uses `edgt_44`.
 
 | Parameter | Type and eqasim default | What changes | Example domain | Methods |
 | --- | --- | --- | --- | --- |
@@ -58,7 +60,7 @@ first, with their eqasim default value.
 | `matching_minimum_observations` | integer, `20` | minimum donor-cell size before an exact level is accepted | `[5, 20, 50]` | Grid, discrete OAT, canonical Morris, Sobol |
 | `matching_minimum_age` | integer, `5` | minimum age of target persons entering statistical matching | `[0, 5, 12]` | Grid, discrete OAT, canonical Morris, Sobol |
 | `income_assignation_method` | string, `uniform` | income synthesis stage, `uniform` or `bhepop2` | `[uniform, bhepop2]` | Grid, Sobol |
-| `hts` | string, `edgt_44` | survey donors and survey reference distributions | `[edgt_44, entd]` | Grid, Sobol, if both datasets exist |
+| `hts` | string, no default (official `config.yml`: `entd`; Nantes: `edgt_44`) | survey donors and survey reference distributions | `[edgt_44, entd]` | Grid, Sobol, if both datasets exist |
 
 These example values demonstrate syntax; they are not automatically justified
 scientific domains. In particular:

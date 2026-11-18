@@ -787,8 +787,8 @@ outputs:
 `file` is a relative path written with `/`, without `..`, `\`, `:`, or an
 absolute path. You may also change the `file` of a known output, for example
 to read a file written by your own eqasim stage under a known name; the stage
-check described in [What eqasim runs](#what-eqasim-runs) then no longer
-applies to it.
+check described in [What eqasim runs](#what-eqasim-runs) then does not apply
+to it.
 
 ### What is archived
 
@@ -939,9 +939,8 @@ Like `share.category`, every value in `where` must be a quoted YAML string
 
 ### Your own calculations
 
-eqasim-sa has no plugin mechanism for indicators. When you need a quantity that
-the three kinds above do not compute (a mean income, a rate per zone, a
-modal share), compute it inside eqasim: write an eqasim analysis stage that
+When you need a quantity that the three kinds above do not compute (a mean
+income, a rate per zone, a modal share), compute it inside eqasim: write an eqasim analysis stage that
 saves a small CSV table in the output folder, add that stage to `run:` in your
 eqasim configuration, declare the file under `outputs`, and read it with
 `value`. For example, if your stage writes

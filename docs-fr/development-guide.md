@@ -167,8 +167,7 @@ la publication atomique (complète ou absente) n'est pas affectée.
 
 ## Ajouter un type d'indicateur
 
-Il n'existe pas de mécanisme d'extension : les types d'indicateur sont
-`tv_distance`, `share` et `value`, tous intégrés. Un utilisateur qui a besoin
+Les types d'indicateur sont `tv_distance`, `share` et `value`, tous intégrés. Un utilisateur qui a besoin
 d'une autre grandeur la calcule dans une étape d'analyse eqasim, déclare le
 fichier CSV sous `outputs` et le lit avec `value` ; ce code est alors couvert
 par l'empreinte du code d'eqasim.
