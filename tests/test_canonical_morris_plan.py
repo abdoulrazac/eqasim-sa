@@ -68,7 +68,7 @@ def _scientific_contract(factors: dict[str, list], distributions: dict[str, dict
                 "setting": "Test decision setting",
                 "objective": "screening",
                 "estimand": "Expected indicator over simulation seeds",
-                "primary_indicator": "synthetic(value)",
+                "primary_indicator": "tv_distance(value, ref=reference)",
             },
             "uncertainty": {
                 "dependence": {
@@ -103,11 +103,9 @@ def _scientific_contract(factors: dict[str, list], distributions: dict[str, dict
             },
         },
         set(factors),
-        {"synthetic(value)"},
+        {"tv_distance(value, ref=reference)"},
         {
-            "synthetic(value)": scientific_indicator_definition(
-                "synthetic", "value"
-            )
+            "tv_distance(value, ref=reference)": scientific_indicator_definition("value")
         },
     )
     typed_distributions = {

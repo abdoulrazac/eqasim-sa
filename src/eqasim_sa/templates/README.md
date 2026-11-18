@@ -140,9 +140,9 @@ Adding `matching_minimum_observations` to the generated Grid gives 24 positions:
 two rates by two matching schemes by three thresholds by two replication seeds.
 Use a new `campaign` for that modified design. The starter
 indicators do not measure income directly. The `households` output already
-contains household income; declare it under `outputs` and register a custom
-indicator on it (`custom: {function: ..., output: households}`) before
-interpreting `income_assignation_method`. Note that `bhepop2` can fall back to
+contains household income; compute the income measure you need in an eqasim
+analysis stage, declare its output under `outputs` and add an indicator on it
+before interpreting `income_assignation_method`. Note that `bhepop2` can fall back to
 `uniform` for municipalities with invalid Filosofi distributions, and the
 current output does not retain the applied method.
 

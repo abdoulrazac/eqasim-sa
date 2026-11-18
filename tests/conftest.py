@@ -54,3 +54,16 @@ def pid_alive(pid: int) -> bool:
     except ProcessLookupError:
         return False
     return True
+
+
+@pytest.fixture
+def synthetic_indicator(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make ``tv_distance`` return the first synthetic cell of its artifact.
+
+    For method tests that feed arbitrary (signed or unbounded) indicator
+    values through real archives.
+    """
+
+    from tests.provenance_helpers import control_indicator
+
+    control_indicator(monkeypatch)

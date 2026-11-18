@@ -246,7 +246,7 @@ def test_check_captures_unknown_artifact_producer_as_structured_diagnostic(
         factors={},
         model_document={"config": {}},
         calibration_meta_configs=(),
-        indicator_requirements=(IndicatorRequirement("custom(unknown)", "unknown"),),
+        indicator_requirements=(IndicatorRequirement("tv_distance(unknown, ref=r)", "unknown"),),
         seeds=(1,),
         context_hash="c" * 64,
         context_descriptor={"version": "test"},
@@ -261,7 +261,7 @@ def test_check_captures_unknown_artifact_producer_as_structured_diagnostic(
         item for item in payload["checks"] if item["name"] == "metaConfig"
     )
     assert diagnostic["status"] == "failed"
-    assert "custom(unknown)" in diagnostic["error"] and "unknown" in diagnostic["error"]
+    assert "tv_distance(unknown, ref=r)" in diagnostic["error"] and "unknown" in diagnostic["error"]
 
 
 def test_check_reports_disk_measurements_when_space_is_insufficient(

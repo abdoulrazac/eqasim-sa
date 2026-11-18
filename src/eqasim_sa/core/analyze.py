@@ -25,7 +25,6 @@ from eqasim_sa.core.indicators import (
     Indicator,
     analysis_identity,
     indicator_definition_sha256,
-    verify_indicator_runtime_identity,
 )
 from eqasim_sa.core.methods.canonical_morris import (
     _canonical_morris_tables,
@@ -563,11 +562,7 @@ def _analyze_campaign(
 def _current_indicator_identities(
     indicators: Sequence[Indicator],
 ) -> tuple[dict[str, object], ...]:
-    identities = []
-    for indicator in indicators:
-        verify_indicator_runtime_identity(indicator)
-        identities.append(analysis_identity(indicator))
-    return tuple(identities)
+    return tuple(analysis_identity(indicator) for indicator in indicators)
 
 
 def _validate_scientific_indicator_definitions(

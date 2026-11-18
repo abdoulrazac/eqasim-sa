@@ -13,7 +13,6 @@ import pytest
 
 from eqasim_sa.adapters.fake.simulator import FakeSimulator
 from eqasim_sa.core.analyze import analyze
-from eqasim_sa.core.indicators import RegisteredIndicator
 from eqasim_sa.core.plan import (
     DiscreteOATDesign,
     GridDesign,
@@ -23,7 +22,7 @@ from eqasim_sa.core.plan import (
     load_run_specs,
 )
 from eqasim_sa.core.run import execute_run
-from tests.provenance_helpers import context_hash
+from tests.provenance_helpers import context_hash, scientific_indicator
 
 
 def installed_script(name: str) -> Path:
@@ -246,6 +245,7 @@ def test_installed_init_generates_template_without_campaign_execution(tmp_path: 
     )
 
 
+@pytest.mark.usefixtures("synthetic_indicator")
 def test_installed_wheel_sobol_plan_fake_runs_and_analysis_end_to_end(
     tmp_path: Path,
 ) -> None:
@@ -273,12 +273,9 @@ def test_installed_wheel_sobol_plan_fake_runs_and_analysis_end_to_end(
     planned = build_plan(design)
     specs = load_run_specs(root / "plan.parquet", design, "wheel-sobol")
     results = [execute_run(spec, FakeSimulator(), root, workdir) for spec in specs]
-    indicator = RegisteredIndicator(
-        "value",
-        "population",
-        lambda artifacts: float(
-            pq.read_table(artifacts.path("population"))["value"][0].as_py()
-        ),
+    # The fake pipeline writes one row: its "value" cell is the Sobol output.
+    indicator = scientific_indicator(
+        "population", "seed", class_column="person_id", synthetic_column="value"
     )
     result = analyze(
         root,

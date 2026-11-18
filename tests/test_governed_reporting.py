@@ -16,11 +16,11 @@ from eqasim_sa.core.reporting import (
 from eqasim_sa.utils.filesystem import write_parquet_atomic
 from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.analyze import analyze
-from tests.test_analyze import _custom_indicator, _write_verified_run, root_relative
+from tests.test_analyze import _age_indicator, _write_verified_run, root_relative
 from tests.test_canonical_morris_analyze import _completed_campaign, _design
 from tests.test_multiscramble_sobol_plan import multiscramble_design
 from eqasim_sa.core.plan import build_plan
-from tests.provenance_helpers import execution_evidence, scientific_registered_indicator
+from tests.provenance_helpers import execution_evidence, scientific_indicator
 
 
 def test_output_summary_weights_design_positions_and_uses_declared_formulas() -> None:
@@ -102,6 +102,7 @@ def _grid_with_duplicate_positions(tmp_path: Path) -> Path:
     return root
 
 
+@pytest.mark.usefixtures("synthetic_indicator")
 def test_demonstration_publishes_noninferential_governed_artifacts_and_hashes(
     tmp_path: Path,
 ) -> None:
@@ -109,7 +110,7 @@ def test_demonstration_publishes_noninferential_governed_artifacts_and_hashes(
 
     result = analyze(
         root,
-        (_custom_indicator(),),
+        (_age_indicator(),),
         campaign="test",
         completeness_threshold=1.0,
     )
@@ -136,6 +137,7 @@ def test_demonstration_publishes_noninferential_governed_artifacts_and_hashes(
         ).hexdigest()
 
 
+@pytest.mark.usefixtures("synthetic_indicator")
 def test_demonstration_publishes_no_scientific_convergence_evidence(
     tmp_path: Path,
 ) -> None:
@@ -143,7 +145,7 @@ def test_demonstration_publishes_no_scientific_convergence_evidence(
 
     result = analyze(
         root,
-        (_custom_indicator(),),
+        (_age_indicator(),),
         campaign="test",
         completeness_threshold=1.0,
     )
@@ -354,6 +356,7 @@ def test_unsupported_stopping_metrics_fail_closed(method: str, metric: str) -> N
     assert criteria[0]["status"] == "unsupported"
 
 
+@pytest.mark.usefixtures("synthetic_indicator")
 def test_canonical_pilot_publishes_governed_evidence_exclusions_and_hashes(
     tmp_path: Path,
 ) -> None:
@@ -390,6 +393,7 @@ def test_canonical_pilot_publishes_governed_evidence_exclusions_and_hashes(
     ).hexdigest()
 
 
+@pytest.mark.usefixtures("synthetic_indicator")
 def test_canonical_production_is_conditional_only_after_stopping_passes(
     tmp_path: Path,
 ) -> None:
@@ -440,6 +444,7 @@ def _complete_multiscramble(design) -> None:  # type: ignore[no-untyped-def]
         )
 
 
+@pytest.mark.usefixtures("synthetic_indicator")
 def test_multiscramble_exposes_scientific_status_and_nonactionable_seed(
     tmp_path: Path,
 ) -> None:
@@ -453,7 +458,7 @@ def test_multiscramble_exposes_scientific_status_and_nonactionable_seed(
 
     result = analyze(
         design.campaign_root,
-        (scientific_registered_indicator("synthetic", "age"),),
+        (scientific_indicator("age"),),
         campaign="test",
         completeness_threshold=1.0,
         seed_role="factor",
@@ -521,6 +526,7 @@ def test_invalid_ff_bound_remains_reportable_as_fail_closed_evidence(
     assert json.dumps(report, allow_nan=False)
 
 
+@pytest.mark.usefixtures("synthetic_indicator")
 def test_governed_publication_failure_restores_all_reporting_outputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -552,7 +558,7 @@ def test_governed_publication_failure_restores_all_reporting_outputs(
     with pytest.raises(OSError, match="governed report"):
         analyze(
             root,
-            (_custom_indicator(),),
+            (_age_indicator(),),
             campaign="test",
             completeness_threshold=1.0,
         )

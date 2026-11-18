@@ -1,5 +1,6 @@
 import hashlib
 import os
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import pyarrow as pa
@@ -7,8 +8,9 @@ import pyarrow.parquet as pq
 
 from eqasim_sa.core.context_identity import ExecutionContextIdentity
 from eqasim_sa.core.indicators import (
-    RegisteredIndicator,
+    ArtifactSet,
     TableArtifact,
+    TotalVariationIndicator,
     analysis_identity,
 )
 from eqasim_sa.core.ledger import ArtifactManifestEntry, RunRecord, write_run
@@ -34,34 +36,91 @@ def context_hash(descriptor: dict[str, str]) -> str:
     return ExecutionContextIdentity.from_descriptor(descriptor).sha256
 
 
-def _test_indicator_compute(artifacts) -> float:  # type: ignore[no-untyped-def]
-    path = next(iter(artifacts.paths.values()))
-    return float(pq.read_table(path, columns=["synthetic"])["synthetic"][0].as_py())
-
-
-def scientific_registered_indicator(
-    name: str,
-    artifact: str,
-    implementation=_test_indicator_compute,  # type: ignore[no-untyped-def]
+def scientific_indicator(
+    artifact: str = "age",
+    reference: str = "reference",
     *,
     class_column: str = "class",
     synthetic_column: str = "synthetic",
-    reference_columns: tuple[str, ...] = (),
     producing_stage: str = "test.producer",
-) -> RegisteredIndicator:
+) -> TotalVariationIndicator:
+    """Return the real ``tv_distance`` indicator used as the shared test double.
+
+    It reads the table written by :func:`write_artifact` under ``artifact``.
+    """
+
     declaration = TableArtifact(
         artifact,
         class_column,
         synthetic_column,
-        bool(reference_columns),
-        reference_columns,
+        True,
+        (reference,),
         producing_stage,
     )
-    return RegisteredIndicator(name, artifact, implementation, None, declaration)
+    return TotalVariationIndicator(declaration, reference)
 
 
-def scientific_indicator_definition(name: str, artifact: str) -> dict[str, object]:
-    return analysis_identity(scientific_registered_indicator(name, artifact))
+def scientific_indicator_definition(
+    artifact: str = "age", reference: str = "reference"
+) -> dict[str, object]:
+    """Scientific definition of :func:`scientific_indicator`."""
+
+    return analysis_identity(scientific_indicator(artifact, reference))
+
+
+def artifact_table(
+    synthetic: Sequence[float], reference: Sequence[float] | None = None
+) -> pa.Table:
+    """Small class/synthetic/reference table read by :func:`scientific_indicator`."""
+
+    masses = [float(value) for value in synthetic]
+    return pa.table(
+        {
+            "class": [f"c{index}" for index in range(len(masses))],
+            "synthetic": masses,
+            "reference": (
+                [1.0] * len(masses)
+                if reference is None
+                else [float(value) for value in reference]
+            ),
+        }
+    )
+
+
+def tv_table(value: float) -> pa.Table:
+    """Table whose total-variation distance to its reference is ``value`` in [0, 1]."""
+
+    return artifact_table([1.0 - value, value], [1.0, 0.0])
+
+
+def write_artifact(archive: Path, name: str, table: pa.Table) -> Path:
+    """Write one archived artifact table ``<archive>/<name>.parquet``."""
+
+    archive.mkdir(parents=True, exist_ok=True)
+    path = archive / f"{name}.parquet"
+    pq.write_table(table, path, compression="zstd")
+    return path
+
+
+def synthetic_value(indicator: TotalVariationIndicator, artifacts: ArtifactSet) -> float:
+    """First synthetic cell of the indicator's artifact, as a float."""
+
+    path = artifacts.path(indicator.artifact.name)
+    column = indicator.artifact.synthetic_column
+    return float(pq.read_table(path, columns=[column])[column][0].as_py())
+
+
+def control_indicator(
+    monkeypatch,  # type: ignore[no-untyped-def]
+    compute: Callable[[TotalVariationIndicator, ArtifactSet], float] = synthetic_value,
+) -> None:
+    """Replace ``TotalVariationIndicator.compute`` for tests needing controlled values.
+
+    The default returns the first synthetic cell, so method tests can feed
+    arbitrary signed or unbounded indicator values through real archives.
+    """
+
+    monkeypatch.setattr(TotalVariationIndicator, "compute", compute)
 
 
 def execution_evidence(context_hash: str) -> ExecutionEvidence:

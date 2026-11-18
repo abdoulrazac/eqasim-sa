@@ -1,7 +1,6 @@
 """Parse and validate campaign meta-configuration files and identities."""
 
 import hashlib
-import importlib.metadata
 import math
 import os
 import time
@@ -41,13 +40,10 @@ from eqasim_sa.utils import platform
 from eqasim_sa.utils.text_identity import canonical_json_sha256, lf_sha256
 from eqasim_sa.core.indicators import (
     ArtifactDeclaration,
-    CustomDeclaration,
     PairDeclaration,
     ProductDeclaration,
-    RegisteredIndicatorFactory,
     TotalVariationIndicator,
     analysis_identity,
-    plugin_identity_from_entry_point,
     resolve_indicators,
 )
 from eqasim_sa.core.plan import (
@@ -500,9 +496,8 @@ def _indicator_blocks(
     raw_indicators = document.get("indicators", [])
     if not isinstance(raw_indicators, list):
         raise TypeError("indicators must be a list")
-    kinds = (*SCALARIZERS, "custom")
+    kinds = tuple(SCALARIZERS)
     declarations = []
-    custom_names = set()
     for index, value in enumerate(raw_indicators):
         if (
             not isinstance(value, dict)
@@ -515,19 +510,6 @@ def _indicator_blocks(
         kind, raw = next(iter(value.items()))
         declaration = _mapping(raw, f"indicator {index}.{kind}")
         keys = set(declaration)
-        if kind == "custom":
-            if keys != {"function", "output"}:
-                raise ValueError(
-                    f"indicator {index}.custom keys must be exactly function, output"
-                )
-            function, output = declaration["function"], declaration["output"]
-            if not all(isinstance(item, str) and item for item in (function, output)):
-                raise ValueError(
-                    f"indicator {index}.custom function and output must be non-empty strings"
-                )
-            declarations.append(CustomDeclaration(function, output))
-            custom_names.add(function)
-            continue
         if keys not in ({"output", "reference"}, {"output"}, {"outputs"}):
             raise ValueError(
                 f"indicator {index}.{kind} keys must be exactly output and reference, "
@@ -551,37 +533,13 @@ def _indicator_blocks(
             if "reference" in keys
             else ProductDeclaration((kind,), (declaration["output"],))
         )
-    custom = {}
-    entries = importlib.metadata.entry_points()
-    selected = entries.select(group="eqasim_sa.indicators")
-    for name in custom_names:
-        matches = [entry for entry in selected if entry.name == name]
-        if len(matches) != 1:
-            raise ValueError(
-                f"custom indicator {name!r} must have exactly one eqasim_sa.indicators entry point"
-            )
-        identity = plugin_identity_from_entry_point(matches[0])
-        custom[name] = RegisteredIndicatorFactory(
-            matches[0],
-            identity,
-        )
-    resolved = resolve_indicators(
-        declarations,
-        artifacts,
-        SCALARIZERS,
-        custom,
-    )
+    resolved = resolve_indicators(declarations, artifacts, SCALARIZERS)
     names = [item.name for item in resolved]
     if len(names) != len(set(names)):
         raise ValueError("resolved indicator names must be unique")
     reject_case_collisions(names, "indicator")
     requirements = tuple(
-        IndicatorRequirement(
-            item.name,
-            item.identity.artifact
-            if isinstance(item, TotalVariationIndicator)
-            else item.artifact,
-        )
+        IndicatorRequirement(item.name, item.identity.artifact)
         for item in resolved
     )
     return artifacts, resolved, requirements

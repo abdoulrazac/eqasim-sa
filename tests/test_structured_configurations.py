@@ -21,7 +21,6 @@ from eqasim_sa.adapters.application import analyze_from_meta_config, plan_from_m
 from eqasim_sa.adapters.worker import Indexed, WorkerBatch
 from eqasim_sa.core.analyze import analyze
 from eqasim_sa.core.methods.multiscramble_sobol import _multiscramble_sobol_tables
-from eqasim_sa.core.indicators import ArtifactSet, RegisteredIndicator
 from eqasim_sa.utils.filesystem import write_parquet_atomic
 from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.plan import DiscreteOATDesign, GridDesign, SobolDesign, build_plan, load_run_specs
@@ -31,7 +30,7 @@ from eqasim_sa.ports.simulator import SimulationError
 from tests.test_multiscramble_sobol_plan import multiscramble_meta_document
 from tests.test_multiscramble_sobol_plan import multiscramble_design
 from tests.test_plan import meta_fixture
-from tests.provenance_helpers import write_verified_run
+from tests.provenance_helpers import scientific_indicator, write_verified_run
 
 
 CONFIGURATIONS = {
@@ -501,10 +500,6 @@ def test_structured_sobol_cli_preflight_rejects_payload_only_tampering(
     assert called == []
 
 
-def _artifact_value(artifacts: ArtifactSet) -> float:
-    return float(pq.read_table(artifacts.path("age"))["synthetic"][0].as_py())
-
-
 @pytest.mark.parametrize("tamper", ["unrelated", "missing", "extra", "reordered"])
 def test_structured_sobol_analysis_rejects_structured_support_tampering(
     tmp_path: Path, tamper: str
@@ -534,7 +529,7 @@ def test_structured_sobol_analysis_rejects_structured_support_tampering(
     with pytest.raises(ValueError, match="structured"):
         analyze(
             root,
-            (RegisteredIndicator("value", "age", _artifact_value),),
+            (scientific_indicator("age"),),
             campaign="demo",
             completeness_threshold=1.0,
             seed_role="factor",
@@ -570,7 +565,7 @@ def test_structured_sobol_direct_analysis_rejects_payload_only_tampering(
     with pytest.raises(ValueError, match="Sobol|structured|designId"):
         analyze(
             root,
-            (RegisteredIndicator("value", "age", _artifact_value),),
+            (scientific_indicator("age"),),
             campaign="demo",
             completeness_threshold=1.0,
             seed_role="factor",

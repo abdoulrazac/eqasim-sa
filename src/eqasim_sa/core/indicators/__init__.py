@@ -1,4 +1,4 @@
-"""Declare, resolve, identify, and execute campaign indicators."""
+"""Declare, resolve, identify, and execute builtin campaign indicators."""
 
 import hashlib
 import inspect
@@ -7,8 +7,6 @@ import math
 import os
 import re
 import stat
-import sys
-import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,24 +16,12 @@ from typing import Mapping, Protocol
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from eqasim_sa.utils import platform
-from eqasim_sa.core.software_identity import (
-    SoftwareSourceState,
-    stable_published_identity,
-)
-from eqasim_sa.utils.text_identity import is_text_name
+from eqasim_sa.core.software_identity import stable_published_identity
 
 
 INDICATOR_DEFINITION_DOMAIN = b"eqasim-sa:indicator-definition:v2\0"
-PLUGIN_DISTRIBUTION_DOMAIN = b"eqasim-sa:plugin-distribution:v2\0"
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
-ENTRY_POINT_TARGET = re.compile(
-    r"^(?P<module>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*):"
-    r"(?P<attr>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
-    r"(?:\s*\[[^]]+\])?$"
-)
 TOTAL_VARIATION_VERSION = 1
-CUSTOM_INDICATOR_API_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -163,20 +149,6 @@ class ProductDeclaration:
             raise ValueError("product scalarizers and artifacts must not be empty")
 
 
-@dataclass(frozen=True)
-class CustomDeclaration:
-    """Custom indicator entry-point name and required artifact."""
-
-    function: str
-    artifact: str
-
-    def __post_init__(self) -> None:
-        if not all(
-            isinstance(value, str) and value for value in (self.function, self.artifact)
-        ):
-            raise ValueError("custom values must be non-empty strings")
-
-
 class Indicator(Protocol):
     """Scalar analysis computed from a validated set of artifacts."""
 
@@ -184,67 +156,6 @@ class Indicator(Protocol):
     def name(self) -> str: ...
 
     def compute(self, artifacts: ArtifactSet) -> float: ...
-
-
-@dataclass(frozen=True)
-class PluginIdentity:
-    """Immutable entry-point, distribution, implementation, and source identity."""
-
-    implementation: str
-    entry_point: str | None = None
-    distribution: str | None = None
-    distribution_version: str | None = None
-    implementation_sha256: str | None = None
-    distribution_sha256: str | None = None
-    implementation_path: Path | None = None
-    source_states: tuple[SoftwareSourceState, ...] = ()
-    entry_point_group: str | None = None
-    entry_point_name: str | None = None
-    entry_point_value: str | None = None
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.implementation, str) or not self.implementation:
-            raise ValueError("plugin implementation identity must not be empty")
-        optional = (
-            self.entry_point,
-            self.distribution,
-            self.distribution_version,
-            self.entry_point_group,
-            self.entry_point_name,
-            self.entry_point_value,
-        )
-        if any(
-            value is not None and (not isinstance(value, str) or not value)
-            for value in optional
-        ):
-            raise ValueError("plugin identity values must be non-empty strings when present")
-        if (self.distribution is None) != (self.distribution_version is None):
-            raise ValueError("plugin distribution name and version must be provided together")
-        if any(
-            value is not None
-            and (not isinstance(value, str) or SHA256.fullmatch(value) is None)
-            for value in (self.implementation_sha256, self.distribution_sha256)
-        ):
-            raise ValueError("plugin hashes must be lowercase SHA-256 digests")
-        if self.implementation_path is not None and not isinstance(
-            self.implementation_path, Path
-        ):
-            raise ValueError("plugin implementation path must be a Path")
-        if not isinstance(self.source_states, tuple) or any(
-            not isinstance(value, SoftwareSourceState) for value in self.source_states
-        ):
-            raise ValueError("plugin source states are invalid")
-
-    @property
-    def immutable(self) -> bool:
-        return (
-            self.entry_point is not None
-            and self.distribution is not None
-            and self.implementation_sha256 is not None
-            and self.distribution_sha256 is not None
-            and self.implementation_path is not None
-            and bool(self.source_states)
-        )
 
 
 def _canonical(value: object) -> bytes:
@@ -257,394 +168,48 @@ def _canonical(value: object) -> bytes:
     ).encode("ascii")
 
 
-def _entry_value(entry_point: object) -> tuple[str, str, str]:
-    group = getattr(entry_point, "group", "eqasim_sa.indicators")
-    name = getattr(entry_point, "name", None)
-    value = getattr(entry_point, "value", None)
-    if not all(isinstance(item, str) and item for item in (group, name, value)):
-        raise ValueError("custom indicator entry-point metadata is incomplete")
-    if "\0" in group or "\0" in name or "\0" in value:
-        raise ValueError("custom indicator entry-point metadata contains NUL")
-    return group, name, value
-
-
-def _distribution_inventory(
-    distribution: object,
-) -> tuple[tuple[SoftwareSourceState, int, str], ...]:
-    """Raw stability states paired with published (size, sha256) per file.
-
-    Text files publish LF-normalized digests; binary files are hashed raw.
-    """
-    raw_files = getattr(distribution, "files", None)
-    if raw_files is None:
-        raise ValueError("plugin distribution has no immutable file inventory")
-    states = []
-    seen = set()
-    for raw in raw_files:
-        relative = Path(str(raw))
-        if (
-            relative.is_absolute()
-            or not relative.parts
-            or ".." in relative.parts
-            or "\0" in relative.as_posix()
-            or "__pycache__" in relative.parts
-            or relative.suffix == ".pyc"
-        ):
-            continue
-        relative_name = relative.as_posix()
-        if relative_name in seen:
-            raise ValueError("plugin distribution file inventory contains duplicates")
-        seen.add(relative_name)
-        path = Path(distribution.locate_file(raw))
-        try:
-            visible = path.lstat()
-        except OSError as error:
-            raise ValueError(
-                f"plugin distribution file is unavailable: {relative_name}"
-            ) from error
-        if stat.S_ISDIR(visible.st_mode):
-            continue
-        if not stat.S_ISREG(visible.st_mode) or platform.is_link(path):
-            raise ValueError(
-                f"plugin distribution file must be regular and non-symlinked: {relative_name}"
-            )
-        snapshot, published_size, published_sha256 = stable_published_identity(
-            path, text=is_text_name(relative_name)
-        )
-        states.append(
-            (
-                SoftwareSourceState(
-                    relative_name,
-                    path.resolve(strict=True),
-                    snapshot.state,
-                    snapshot.size,
-                    snapshot.sha256,
-                ),
-                published_size,
-                published_sha256,
-            )
-        )
-    states.sort(key=lambda item: item[0].relative_path.encode("utf-8"))
-    if not states:
-        raise ValueError("plugin distribution has no stable regular files")
-    return tuple(states)
-
-
-def plugin_identity_from_entry_point(entry_point: object) -> PluginIdentity:
-    """Seal an installed custom-indicator entry point and its distribution."""
-
-    group, name, value = _entry_value(entry_point)
-    target = ENTRY_POINT_TARGET.fullmatch(value)
-    if target is None:
-        raise ValueError("custom indicator entry point must use module:attribute syntax")
-    implementation = f"{target['module']}:{target['attr']}"
-    canonical_entry = f"{group}:{name}={value}"
-    distribution = getattr(entry_point, "dist", None)
-    distribution_name = getattr(distribution, "name", None)
-    distribution_version = getattr(distribution, "version", None)
-    if not all(
-        isinstance(item, str) and item
-        for item in (distribution_name, distribution_version)
-    ):
-        raise ValueError(
-            "custom indicator entry point is not backed by an identified distribution"
-        )
-    inventory = _distribution_inventory(distribution)
-    states = tuple(item for item, _, _ in inventory)
-    published = {
-        item.relative_path: (size, sha256) for item, size, sha256 in inventory
-    }
-    descriptor = {
-        "files": [
-            {
-                "path": item.relative_path,
-                "sha256": published[item.relative_path][1],
-                "size": published[item.relative_path][0],
-            }
-            for item in states
-        ],
-        "name": distribution_name,
-        "version": distribution_version,
-    }
-    distribution_sha256 = hashlib.sha256(
-        PLUGIN_DISTRIBUTION_DOMAIN + _canonical(descriptor)
-    ).hexdigest()
-    module_path = Path(*target["module"].split("."))
-    candidates = {
-        module_path.with_suffix(".py").as_posix(),
-        (module_path / "__init__.py").as_posix(),
-    }
-    matches = [item for item in states if item.relative_path in candidates]
-    if len(matches) != 1:
-        raise ValueError("plugin target module is not uniquely present in its distribution")
-    implementation_state = matches[0]
-    return PluginIdentity(
-        implementation,
-        canonical_entry,
-        distribution_name,
-        distribution_version,
-        published[implementation_state.relative_path][1],
-        distribution_sha256,
-        implementation_state.path,
-        states,
-        group,
-        name,
-        value,
-    )
-
-
-def verify_plugin_identity(entry_point: object, identity: PluginIdentity) -> None:
-    """Fail if a custom-indicator entry point changed after sealing."""
-
-    group, name, value = _entry_value(entry_point)
-    distribution = getattr(entry_point, "dist", None)
-    if (
-        (group, name, value)
-        != (
-            identity.entry_point_group,
-            identity.entry_point_name,
-            identity.entry_point_value,
-        )
-        or getattr(distribution, "name", None) != identity.distribution
-        or getattr(distribution, "version", None) != identity.distribution_version
-    ):
-        raise RuntimeError("custom indicator entry-point or distribution identity changed")
-    if not identity.immutable:
-        raise RuntimeError("custom indicator plugin identity is not immutable")
-    current = plugin_identity_from_entry_point(entry_point)
-    if (
-        current.implementation != identity.implementation
-        or current.implementation_sha256 != identity.implementation_sha256
-        or current.distribution_sha256 != identity.distribution_sha256
-        or current.implementation_path != identity.implementation_path
-        or current.source_states != identity.source_states
-    ):
-        raise RuntimeError("custom indicator implementation or distribution changed")
-
-
-class LazyPluginImplementation:
-    """Verify and load a custom indicator only when it is first evaluated."""
-
-    def __init__(self, entry_point: object, identity: PluginIdentity) -> None:
-        self.entry_point = entry_point
-        self.identity = identity
-        self._implementation: object | None = None
-        self._lock = threading.Lock()
-
-    def _load(self) -> object:
-        with self._lock:
-            if self._implementation is not None:
-                return self._implementation
-            verify_plugin_identity(self.entry_point, self.identity)
-            loaded = self.entry_point.load()  # type: ignore[attr-defined]
-            module = getattr(loaded, "__module__", None)
-            implementation = loaded
-            if isinstance(loaded, type):
-                try:
-                    implementation = loaded()
-                except TypeError as error:
-                    raise TypeError(
-                        f"custom indicator {self.identity.entry_point_name!r} class "
-                        "must be instantiable without arguments"
-                    ) from error
-            compute = getattr(implementation, "compute", implementation)
-            if not callable(compute):
-                raise TypeError("custom indicator must provide compute(artifacts)")
-            module_file = getattr(sys.modules.get(str(module)), "__file__", None)
-            if self.identity.implementation_path is not None and (
-                module_file is None
-                or Path(module_file).resolve(strict=True)
-                != self.identity.implementation_path
-            ):
-                raise RuntimeError("loaded custom indicator module path changed")
-            verify_plugin_identity(self.entry_point, self.identity)
-            self._implementation = implementation
-            return implementation
-
-    def compute(self, artifacts: ArtifactSet) -> float:
-        implementation = self._load()
-        compute = getattr(implementation, "compute", implementation)
-        return compute(artifacts)
-
-
-@dataclass(frozen=True)
-class RegisteredIndicatorFactory:
-    """Bind an immutable plugin implementation to an artifact declaration."""
-
-    implementation: object
-    plugin_identity: PluginIdentity
-
-    def __call__(self, artifact: "TableArtifact") -> object:
-        return LazyPluginImplementation(self.implementation, self.plugin_identity)
-
-
-@dataclass(frozen=True)
-class RegisteredIndicator:
-    """Validated custom indicator with optional immutable plugin provenance."""
-
-    function: str
-    artifact: str
-    implementation: object
-    plugin_identity: PluginIdentity | None = None
-    artifact_declaration: TableArtifact | None = None
-
-    @property
-    def name(self) -> str:
-        return f"{self.function}({self.artifact})"
-
-    @property
-    def identity(self) -> tuple[str, str]:
-        return self.function, self.artifact
-
-    def compute(self, artifacts: ArtifactSet) -> float:
-        artifacts.path(self.artifact)
-        compute = getattr(self.implementation, "compute", self.implementation)
-        if not callable(compute):
-            raise TypeError(
-                f"custom indicator {self.function!r} must provide compute(artifacts)"
-            )
-        value = compute(artifacts)
-        if type(value) is not float or not math.isfinite(value):
-            raise TypeError(
-                f"custom indicator {self.function!r} must return a finite float"
-            )
-        return value
-
-
-def _implementation_identity(value: object) -> str | None:
-    implementation = getattr(value, "compute", value)
-    module = getattr(implementation, "__module__", None)
-    qualname = getattr(implementation, "__qualname__", None)
-    if qualname is None:
-        kind = type(value)
-        module = getattr(kind, "__module__", None)
-        qualname = getattr(kind, "__qualname__", None)
-    if isinstance(module, str) and module and isinstance(qualname, str) and qualname:
-        return f"{module}:{qualname}"
-    return None
-
-
-def _implementation_hash(value: object) -> tuple[str | None, str | None]:
-    identity = _implementation_identity(value)
-    implementation = getattr(value, "compute", value)
+def _source_sha256(value: type) -> str | None:
     try:
-        source = inspect.getsourcefile(implementation) or inspect.getsourcefile(type(value))
+        source = inspect.getsourcefile(value)
         if source is None:
-            return identity, None
+            return None
         _, _, sha256 = stable_published_identity(
             Path(source).resolve(strict=True), text=True
         )
-        return identity, sha256
+        return sha256
     except (OSError, TypeError, ValueError):
-        return identity, None
-
-
-def _artifact_identity(artifact: TableArtifact | None, name: str) -> dict[str, object]:
-    return {
-        "name": name,
-        "classColumn": artifact.class_column if artifact is not None else None,
-        "syntheticColumn": artifact.synthetic_column if artifact is not None else None,
-        "referenceColumns": list(artifact.reference_columns) if artifact is not None else [],
-        "producingStage": artifact.producing_stage if artifact is not None else None,
-    }
+        return None
 
 
 def analysis_identity(indicator: Indicator) -> dict[str, object]:
-    """Build and validate the canonical identity of an indicator implementation."""
+    """Build and validate the canonical identity of a builtin indicator."""
 
-    if isinstance(indicator, TotalVariationIndicator):
-        _, implementation_sha256 = _implementation_hash(TotalVariationIndicator)
-        definition = {
-            "schemaVersion": 1,
-            "name": indicator.name,
-            "kind": "builtin",
-            "scalarizer": {
-                "name": indicator.identity.scalarizer,
-                "version": TOTAL_VARIATION_VERSION,
-            },
-            "artifact": {
-                **_artifact_identity(indicator.artifact, indicator.artifact.name),
-                "referenceColumns": [indicator.reference_column],
-            },
-            "implementation": {
-                "identity": "eqasim_sa.core.indicators:TotalVariationIndicator",
-                "sha256": implementation_sha256,
-                "version": TOTAL_VARIATION_VERSION,
-            },
-            "plugin": None,
-        }
-    elif isinstance(indicator, RegisteredIndicator):
-        plugin = indicator.plugin_identity
-        implementation, implementation_sha256 = _implementation_hash(
-            indicator.implementation
-        )
-        if plugin is not None:
-            implementation = plugin.implementation
-            implementation_sha256 = plugin.implementation_sha256
-        definition = {
-            "schemaVersion": 1,
-            "name": indicator.name,
-            "kind": "custom",
-            "scalarizer": {
-                "name": indicator.function,
-                "version": CUSTOM_INDICATOR_API_VERSION,
-            },
-            "artifact": _artifact_identity(
-                indicator.artifact_declaration, indicator.artifact
-            ),
-            "implementation": {
-                "identity": implementation,
-                "sha256": implementation_sha256,
-                "version": CUSTOM_INDICATOR_API_VERSION,
-            },
-            "plugin": (
-                {
-                    "entryPoint": plugin.entry_point,
-                    "distribution": {
-                        "name": plugin.distribution,
-                        "version": plugin.distribution_version,
-                        "sha256": plugin.distribution_sha256,
-                    },
-                }
-                if plugin is not None
-                else None
-            ),
-        }
-    else:
-        implementation, implementation_sha256 = _implementation_hash(indicator)
-        definition = {
-            "schemaVersion": 1,
-            "name": indicator.name,
-            "kind": "python",
-            "scalarizer": {"name": indicator.name, "version": 1},
-            "artifact": None,
-            "implementation": {
-                "identity": implementation,
-                "sha256": implementation_sha256,
-                "version": 1,
-            },
-            "plugin": None,
-        }
+    if not isinstance(indicator, TotalVariationIndicator):
+        raise TypeError(f"unsupported indicator: {type(indicator).__qualname__}")
+    artifact = indicator.artifact
+    definition = {
+        "schemaVersion": 1,
+        "name": indicator.name,
+        "kind": "builtin",
+        "scalarizer": {
+            "name": indicator.identity.scalarizer,
+            "version": TOTAL_VARIATION_VERSION,
+        },
+        "artifact": {
+            "name": artifact.name,
+            "classColumn": artifact.class_column,
+            "syntheticColumn": artifact.synthetic_column,
+            "referenceColumns": [indicator.reference_column],
+            "producingStage": artifact.producing_stage,
+        },
+        "implementation": {
+            "identity": "eqasim_sa.core.indicators:TotalVariationIndicator",
+            "sha256": _source_sha256(TotalVariationIndicator),
+            "version": TOTAL_VARIATION_VERSION,
+        },
+    }
     validate_indicator_definition(definition)
     return definition
-
-
-def verify_indicator_runtime_identity(indicator: Indicator) -> None:
-    """Recheck immutable plugin provenance immediately before computation."""
-
-    if not isinstance(indicator, RegisteredIndicator):
-        return
-    plugin = indicator.plugin_identity
-    implementation = indicator.implementation
-    if plugin is None:
-        return
-    if isinstance(implementation, LazyPluginImplementation):
-        verify_plugin_identity(implementation.entry_point, plugin)
-        return
-    if plugin.immutable:
-        raise ValueError(
-            "immutable plugin provenance requires the verified lazy entry-point wrapper"
-        )
 
 
 def validate_indicator_definition(
@@ -659,14 +224,13 @@ def validate_indicator_definition(
         "scalarizer",
         "artifact",
         "implementation",
-        "plugin",
     }:
         raise ValueError("indicator definition has an invalid schema")
     if value["schemaVersion"] != 1 or type(value["schemaVersion"]) is not int:
         raise ValueError("indicator definition schemaVersion must equal 1")
     if not isinstance(value["name"], str) or not value["name"]:
         raise ValueError("indicator definition name must be non-empty")
-    if value["kind"] not in {"builtin", "custom", "python"}:
+    if value["kind"] != "builtin":
         raise ValueError("indicator definition kind is unsupported")
     scalarizer = value["scalarizer"]
     if (
@@ -728,37 +292,6 @@ def validate_indicator_definition(
         implementation["identity"] is None or implementation["sha256"] is None
     ):
         raise ValueError("scientific indicator implementation must be immutable")
-    plugin = value["plugin"]
-    if plugin is not None:
-        if (
-            not isinstance(plugin, dict)
-            or set(plugin) != {"entryPoint", "distribution"}
-            or plugin["entryPoint"] is not None
-            and (not isinstance(plugin["entryPoint"], str) or not plugin["entryPoint"])
-            or not isinstance(plugin["distribution"], dict)
-            or set(plugin["distribution"]) != {"name", "version", "sha256"}
-        ):
-            raise ValueError("indicator definition plugin schema is invalid")
-        distribution = plugin["distribution"]
-        for key in ("name", "version"):
-            if distribution[key] is not None and (
-                not isinstance(distribution[key], str) or not distribution[key]
-            ):
-                raise ValueError("indicator definition distribution identity is invalid")
-        if distribution["sha256"] is not None and (
-            not isinstance(distribution["sha256"], str)
-            or SHA256.fullmatch(distribution["sha256"]) is None
-        ):
-            raise ValueError("indicator definition distribution hash is invalid")
-        if require_scientific and (
-            plugin["entryPoint"] is None
-            or distribution["name"] is None
-            or distribution["version"] is None
-            or distribution["sha256"] is None
-        ):
-            raise ValueError("scientific custom indicator plugin must be immutable")
-    # Direct core indicators are not entry-point plugins. Their implementation
-    # file hash still provides an immutable scientific definition.
     try:
         if _canonical(value) != _canonical(json.loads(_canonical(value))):
             raise ValueError
@@ -848,18 +381,16 @@ class TotalVariationIndicator:
 
 
 ScalarizerFactory = Callable[[TableArtifact, str], Indicator]
-CustomFactory = Callable[[TableArtifact], object]
 
 
 def resolve_indicators(
-    declarations: Sequence[PairDeclaration | ProductDeclaration | CustomDeclaration],
+    declarations: Sequence[PairDeclaration | ProductDeclaration],
     artifacts: Mapping[str, ArtifactDeclaration],
     scalarizers: Mapping[str, ScalarizerFactory],
-    custom: Mapping[str, CustomFactory],
-) -> tuple[object, ...]:
-    """Resolve builtin and custom declarations to executable indicators."""
+) -> tuple[Indicator, ...]:
+    """Resolve builtin declarations to executable indicators."""
 
-    resolved: list[object] = []
+    resolved: list[Indicator] = []
     errors: list[str] = []
 
     def table(name: str) -> TableArtifact | None:
@@ -901,28 +432,10 @@ def resolve_indicators(
     for declaration in declarations:
         if isinstance(declaration, PairDeclaration):
             pair(declaration.scalarizer, declaration.artifact, declaration.reference)
-        elif isinstance(declaration, ProductDeclaration):
+        else:
             for scalarizer in declaration.scalarizers:
                 for artifact in declaration.artifacts:
                     pair(scalarizer, artifact)
-        else:
-            factory, source = (
-                custom.get(declaration.function),
-                table(declaration.artifact),
-            )
-            if factory is None or source is None:
-                errors.append(f"{declaration.function}({declaration.artifact})")
-            else:
-                implementation = factory(source)
-                resolved.append(
-                    RegisteredIndicator(
-                        declaration.function,
-                        declaration.artifact,
-                        implementation,
-                        getattr(factory, "plugin_identity", None),
-                        source,
-                    )
-                )
     if errors:
         raise ValueError("invalid indicator combinations: " + ", ".join(errors))
     return tuple(resolved)

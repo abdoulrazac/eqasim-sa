@@ -71,7 +71,7 @@ def multiscramble_design(root: Path, **changes) -> MultiScrambleSobolDesign:
                 "setting": "test",
                 "objective": "fp",
                 "estimand": "Sobol indices",
-                "primary_indicator": "synthetic(age)",
+                "primary_indicator": "tv_distance(age, ref=reference)",
             },
             "uncertainty": {
                 "dependence": {"kind": "independent", "rationale": "design assumption"},
@@ -90,11 +90,9 @@ def multiscramble_design(root: Path, **changes) -> MultiScrambleSobolDesign:
             "robustness": {"checks": [{"name": "support", "rationale": "declared"}]},
         },
         set(full_factors),
-        {"synthetic(age)"},
+        {"tv_distance(age, ref=reference)"},
         {
-            "synthetic(age)": scientific_indicator_definition(
-                "synthetic", "age"
-            )
+            "tv_distance(age, ref=reference)": scientific_indicator_definition("age")
         },
     )
     typed = {name: parse_distribution(value, name) for name, value in distributions.items()}

@@ -18,7 +18,7 @@ from eqasim_sa.utils.filesystem import write_parquet_atomic
 from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.plan import build_plan
 from tests.test_analyze import (
-    _custom_indicator,
+    _age_indicator,
     _sobol_campaign,
     _write_verified_run,
 )
@@ -37,7 +37,7 @@ from tests.test_nantes_scientific_protocol import (
 from tests.test_plan import design as grid_design
 from tests.test_plan import meta_fixture, sobol_design
 from tests.test_structured_configurations import _grid_design as structured_grid_design
-from tests.provenance_helpers import execution_evidence, scientific_registered_indicator
+from tests.provenance_helpers import execution_evidence, scientific_indicator
 
 
 def _metadata(root: Path, design) -> dict[bytes, bytes]:  # type: ignore[no-untyped-def]
@@ -161,11 +161,12 @@ def test_release_init_and_package_boundaries(tmp_path: Path) -> None:
     assert all(not (package_templates / name).exists() for name in TEMPLATES)
 
 
+@pytest.mark.usefixtures("synthetic_indicator")
 def test_release_analysis_status_and_governed_report_matrix(tmp_path: Path) -> None:
     demonstration = _grid_with_duplicate_positions(tmp_path / "demonstration")
     demonstration_result = analyze(
         demonstration,
-        (_custom_indicator(),),
+        (_age_indicator(),),
         campaign="test",
         completeness_threshold=1.0,
     )
@@ -182,7 +183,7 @@ def test_release_analysis_status_and_governed_report_matrix(tmp_path: Path) -> N
     sobol = _sobol_campaign(tmp_path / "sobol", n=8)
     sobol_result = analyze(
         sobol,
-        (_custom_indicator(),),
+        (_age_indicator(),),
         campaign="test",
         completeness_threshold=1.0,
         seed_role="factor",
@@ -235,7 +236,7 @@ def test_release_analysis_status_and_governed_report_matrix(tmp_path: Path) -> N
 
     original_multiscramble = multiscramble_design(tmp_path / "unused-multiscramble")
     multiscramble_contract = copy.deepcopy(original_multiscramble.scientific_contract)
-    multiscramble_contract["charter"]["decision"]["primary_indicator"] = "synthetic(age)"
+    multiscramble_contract["charter"]["decision"]["primary_indicator"] = "tv_distance(age, ref=reference)"
     multiscramble_contract["charter"]["stopping"][0]["threshold"] = 1e-12
     multiscramble = multiscramble_design(
         tmp_path / "multiscramble-analysis",
@@ -266,7 +267,7 @@ def test_release_analysis_status_and_governed_report_matrix(tmp_path: Path) -> N
         )
     multiscramble_result = analyze(
         multiscramble.campaign_root,
-        (scientific_registered_indicator("synthetic", "age"),),
+        (scientific_indicator("age"),),
         campaign="test",
         completeness_threshold=1.0,
         seed_role="factor",

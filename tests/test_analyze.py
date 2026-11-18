@@ -35,7 +35,7 @@ from eqasim_sa.core.methods.sobol import (
     _sobol_estimates,
     _sobol_ranking,
 )
-from eqasim_sa.core.indicators import ArtifactSet, PluginIdentity, RegisteredIndicator
+from eqasim_sa.core.indicators import ArtifactSet, TotalVariationIndicator
 from eqasim_sa.utils.filesystem import PublicationOutcomeUnknown, write_parquet_atomic
 from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.plan import (
@@ -52,29 +52,24 @@ from tests.provenance_helpers import (
     context_hash,
     execution_evidence,
     scientific_context_descriptor,
-    scientific_registered_indicator,
+    control_indicator,
+    scientific_indicator,
     write_verified_run,
 )
 from tests.conftest import make_symlink
 
 
-def _artifact_value(artifacts: ArtifactSet) -> float:
-    return float(pq.read_table(artifacts.path("age"))["synthetic"][0].as_py())
+AGE = "tv_distance(age, ref=reference)"
+# tv_distance of the two completed runs of ``_campaign``: [2, 1] and [4, 1]
+# against a uniform reference.
+CAMPAIGN_VALUES = (1 / 6, 0.3)
 
 
-def _custom_indicator() -> RegisteredIndicator:
-    return RegisteredIndicator("custom", "age", _artifact_value)
-
-
-def _constant_indicator(artifacts: ArtifactSet) -> float:
-    return 1.0
+def _age_indicator(reference: str = "reference") -> TotalVariationIndicator:
+    return scientific_indicator("age", reference)
 
 
 _write_verified_run = write_verified_run
-
-
-def _scientific_indicator() -> RegisteredIndicator:
-    return scientific_registered_indicator("synthetic", "age")
 
 
 def _analyze(root: Path, indicators=(), **changes):  # type: ignore[no-untyped-def]
@@ -103,15 +98,18 @@ def _tree_snapshot(root: Path) -> dict[str, bytes | None]:
     }
 
 
-def _mutating_indicator(campaign: Path):  # type: ignore[no-untyped-def]
-    def mutate(artifacts: ArtifactSet) -> float:
+def _mutating_indicator(
+    campaign: Path, monkeypatch: pytest.MonkeyPatch
+) -> TotalVariationIndicator:
+    def mutate(self, artifacts: ArtifactSet) -> float:  # type: ignore[no-untyped-def]
         assert artifacts.path("age").stat().st_mode & 0o222 == 0
         (campaign / "plan.parquet").write_bytes(b"damaged plan")
         (campaign / "runs" / ("f" * 32 + ".parquet")).write_bytes(b"foreign")
         (campaign / "indicators.parquet").write_bytes(b"damaged previous")
         return 1.0
 
-    return RegisteredIndicator("mutator", "age", mutate)
+    control_indicator(monkeypatch, mutate)
+    return _age_indicator()
 
 
 class ForbiddenSimulator:
@@ -142,6 +140,7 @@ def _campaign(tmp_path: Path) -> tuple[Path, tuple[str, str]]:
                     "class": ["x", "y"],
                     "synthetic": [synthetic, 1.0],
                     "reference": [1.0, 1.0],
+                    "alternate": [1.0, 3.0],
                 }
             ),
             root / "archives" / run_id / "age.parquet",
@@ -365,13 +364,14 @@ def test_sobol_bootstrap_matches_paired_seeded_percentile_reference(
     )
 
 
+@pytest.mark.usefixtures("synthetic_indicator")
 def test_sobol_analysis_is_deterministic_permutation_invariant_and_has_exact_schema(
     tmp_path: Path,
 ) -> None:
     root = _sobol_campaign(tmp_path)
     first = _analyze(
         root,
-        (_custom_indicator(),),
+        (_age_indicator(),),
         completeness_threshold=1.0,
         seed_role="factor",
         method="sobol",
@@ -411,7 +411,7 @@ def test_sobol_analysis_is_deterministic_permutation_invariant_and_has_exact_sch
     )
     replay = _analyze(
         root,
-        (_custom_indicator(),),
+        (_age_indicator(),),
         completeness_threshold=1.0,
         seed_role="factor",
         method="sobol",
@@ -476,7 +476,7 @@ def test_sobol_sealed_validation_rejects_tampering_and_preserves_outputs(
     with pytest.raises(ValueError, match="Sobol|role|design|metadata|runId|sealed"):
         _analyze(
             root,
-            (_custom_indicator(),),
+            (_age_indicator(),),
             completeness_threshold=1.0,
             seed_role="factor",
             method="sobol",
@@ -489,8 +489,9 @@ def test_sobol_sealed_validation_rejects_tampering_and_preserves_outputs(
 @pytest.mark.parametrize(
     "method", ["canonical_morris", "multiscramble_sobol", "discrete_oat"]
 )
-def test_all_scientific_and_oat_plans_are_fully_validated_before_run_state_or_plugins(
+def test_all_scientific_and_oat_plans_are_fully_validated_before_run_state_or_indicators(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     method: str,
 ) -> None:
     descriptor = scientific_context_descriptor()
@@ -523,11 +524,10 @@ def test_all_scientific_and_oat_plans_are_fully_validated_before_run_state_or_pl
     runs.mkdir()
     (runs / "foreign").write_text("run state must not be consulted")
     calls = []
-    indicator = RegisteredIndicator(
-        "forbidden",
-        "missing",
-        lambda artifacts: calls.append(artifacts) or 1.0,
+    control_indicator(
+        monkeypatch, lambda self, artifacts: calls.append(artifacts) or 1.0
     )
+    indicator = scientific_indicator("missing")
     options = {
         "campaign": "test",
         "completeness_threshold": 1.0,
@@ -560,7 +560,7 @@ def test_all_scientific_and_oat_plans_are_fully_validated_before_run_state_or_pl
 
 
 @pytest.mark.parametrize("limit", ["resamples", "work"])
-def test_sobol_bootstrap_caps_precede_qmc_artifact_capture_and_plugins(
+def test_sobol_bootstrap_caps_precede_qmc_artifact_capture_and_indicators(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     limit: str,
@@ -569,11 +569,10 @@ def test_sobol_bootstrap_caps_precede_qmc_artifact_capture_and_plugins(
     root = _sobol_campaign(tmp_path)
     before = _tree_snapshot(root)
     calls = []
-    indicator = RegisteredIndicator(
-        "forbidden",
-        "age",
-        lambda artifacts: calls.append(artifacts) or 1.0,
+    control_indicator(
+        monkeypatch, lambda self, artifacts: calls.append(artifacts) or 1.0
     )
+    indicator = _age_indicator()
     bootstrap_resamples = 31
     if limit == "resamples":
         bootstrap_resamples = MAX_BOOTSTRAP_RESAMPLES + 1
@@ -605,6 +604,7 @@ def test_sobol_bootstrap_caps_precede_qmc_artifact_capture_and_plugins(
     assert not (root / "analysis").exists()
 
 
+@pytest.mark.usefixtures("synthetic_indicator")
 def test_multiscramble_descriptive_only_publishes_partial_campaign_without_inference(
     tmp_path: Path,
 ) -> None:
@@ -637,12 +637,12 @@ def test_multiscramble_descriptive_only_publishes_partial_campaign_without_infer
     }
 
     with pytest.raises(ValueError, match="below threshold"):
-        analyze(design.campaign_root, (_scientific_indicator(),), **options)
+        analyze(design.campaign_root, (_age_indicator(),), **options)
     assert not (design.campaign_root / "analysis").exists()
 
     result = analyze(
         design.campaign_root,
-        (_scientific_indicator(),),
+        (_age_indicator(),),
         descriptive_only=True,
         **options,
     )
@@ -800,7 +800,7 @@ def test_sobol_analysis_rejects_unplanned_degenerate_hybrid_contrasts(
     with pytest.raises(ValueError, match="no effective hybrid contrast"):
         _analyze(
             root,
-            (_custom_indicator(),),
+            (_age_indicator(),),
             completeness_threshold=1.0,
             seed_role="factor",
             method="sobol",
@@ -914,10 +914,13 @@ def test_sobol_constant_output_is_named_and_transaction_restores_stale_views(
     stale.write_bytes(b"old effects")
     manifest = root / "analysis-generation.json"
     manifest.write_bytes(b"old manifest")
-    with pytest.raises(ValueError, match="constant.*variance"):
+    control_indicator(monkeypatch, lambda self, artifacts: 1.0)
+    with pytest.raises(
+        ValueError, match=r"tv_distance\(age, ref=reference\).*constant.*variance"
+    ):
         _analyze(
             root,
-            (RegisteredIndicator("constant", "age", _constant_indicator),),
+            (_age_indicator(),),
             completeness_threshold=1.0,
             seed_role="factor",
             method="sobol",
@@ -937,7 +940,7 @@ def test_multiscramble_uses_independent_estimates_student_t_and_diagnostics(
     plan = pq.read_table(design.campaign_root / "plan.parquet")
     unique = {row["runId"]: row for row in plan.to_pylist()}
     rows = [
-        (run_id, "synthetic(age)", float(row["a"] + row["seed"] / 10 + row["a"] * row["seed"] / 20))
+        (run_id, AGE, float(row["a"] + row["seed"] / 10 + row["a"] * row["seed"] / 20))
         for run_id, row in unique.items()
     ]
     monkeypatch.setattr(
@@ -992,7 +995,7 @@ def test_multiscramble_uses_independent_estimates_student_t_and_diagnostics(
                 role_values("B"),
                 np.asarray([role_values("AB", factor) for factor in ("a", "seed")]),
                 np.asarray([role_values("BA", factor) for factor in ("a", "seed")]),
-                indicator="synthetic(age)",
+                indicator=AGE,
             )
             for index, factor in enumerate(("a", "seed")):
                 assert by_key[checkpoint, scramble, factor]["first_order"] == pytest.approx(
@@ -1031,7 +1034,7 @@ def test_multiscramble_indices_are_invariant_for_low_amplitude_outputs(
     rows = [
         (
             run_id,
-            "synthetic(age)",
+            AGE,
             float(row["a"] + row["seed"] / 10 + row["a"] * row["seed"] / 20),
         )
         for run_id, row in {row["runId"]: row for row in plan.to_pylist()}.items()
@@ -1123,7 +1126,7 @@ def test_multiscramble_ff_classifies_only_the_primary_indicator(tmp_path: Path) 
     plan = pq.read_table(design.campaign_root / "plan.parquet")
     unique = {row["runId"]: row for row in plan.to_pylist()}
     primary_rows = [
-        (run_id, "synthetic(age)", float(row["a"] + row["seed"] / 10 + row["a"] * row["seed"] / 20))
+        (run_id, AGE, float(row["a"] + row["seed"] / 10 + row["a"] * row["seed"] / 20))
         for run_id, row in unique.items()
     ]
     rows = primary_rows + [
@@ -1136,19 +1139,19 @@ def test_multiscramble_ff_classifies_only_the_primary_indicator(tmp_path: Path) 
         (row["indicator"], row["factor"]): row for row in indices.to_pylist()
     }
     assert all(row["objective"] == "ff" for row in convergence.to_pylist())
-    assert final["synthetic(age)", "a"]["within_practical_tolerance"] == (
-        final["synthetic(age)", "a"]["total_order_ci_high"] <= 1.0
+    assert final[AGE, "a"]["within_practical_tolerance"] == (
+        final[AGE, "a"]["total_order_ci_high"] <= 1.0
     )
-    assert final["synthetic(age)", "seed"]["within_practical_tolerance"] is None
-    assert final["synthetic(age)", "seed"]["rank"] is None
-    assert final["synthetic(age)", "seed"]["is_actionable"] is False
-    assert final["synthetic(age)", "a"]["is_actionable"] is True
+    assert final[AGE, "seed"]["within_practical_tolerance"] is None
+    assert final[AGE, "seed"]["rank"] is None
+    assert final[AGE, "seed"]["is_actionable"] is False
+    assert final[AGE, "a"]["is_actionable"] is True
     assert all(
         final["diagnostic", factor]["within_practical_tolerance"] is None
         for factor in ("a", "seed")
     )
     assert all(
-        row["is_primary_indicator"] == (row["indicator"] == "synthetic(age)")
+        row["is_primary_indicator"] == (row["indicator"] == AGE)
         for row in convergence.to_pylist()
     )
     assert not indices.schema.field("is_primary_indicator").nullable
@@ -1156,7 +1159,7 @@ def test_multiscramble_ff_classifies_only_the_primary_indicator(tmp_path: Path) 
     primary = [
         row
         for row in final.values()
-        if row["indicator"] == "synthetic(age)" and row["is_actionable"]
+        if row["indicator"] == AGE and row["is_actionable"]
     ]
     ordered = sorted(primary, key=lambda row: (row["total_order_ci_high"], row["factor"]))
     assert [row["rank"] for row in ordered] == sorted(row["rank"] for row in ordered)
@@ -1183,6 +1186,7 @@ def test_multiscramble_analyzer_rejects_tampered_ff_tolerance_above_one(
         )
 
 
+@pytest.mark.usefixtures("synthetic_indicator")
 def test_multiscramble_transactionally_publishes_outputs_and_manifest_v7(
     tmp_path: Path,
 ) -> None:
@@ -1206,7 +1210,7 @@ def test_multiscramble_transactionally_publishes_outputs_and_manifest_v7(
         )
     result = analyze(
         design.campaign_root,
-        (_scientific_indicator(),),
+        (_age_indicator(),),
         campaign="test",
         completeness_threshold=1.0,
         seed_role="factor",
@@ -1254,7 +1258,7 @@ def test_scientific_analysis_refuses_evidence_from_other_eqasim_source(
     with pytest.raises(ValueError, match="eqasim source does not match plan"):
         analyze(
             design.campaign_root,
-            (_scientific_indicator(),),
+            (_age_indicator(),),
             campaign="test",
             completeness_threshold=1.0,
             seed_role="factor",
@@ -1301,7 +1305,7 @@ def test_analyze_rebuilds_long_zstd_view_for_complete_runs_only(tmp_path: Path) 
     root, run_ids = _campaign(tmp_path)
     before = _snapshot(root)
 
-    result = _analyze(root, (_custom_indicator(),))
+    result = _analyze(root, (_age_indicator(),))
 
     assert result.path.name == "indicators.parquet"
     assert result.path.parent.parent.name == "generations"
@@ -1311,10 +1315,12 @@ def test_analyze_rebuilds_long_zstd_view_for_complete_runs_only(tmp_path: Path) 
     assert parquet.schema_arrow == pa.schema(
         [("runId", pa.string()), ("indicator", pa.string()), ("value", pa.float64())]
     )
-    assert parquet.read().to_pylist() == [
-        {"runId": run_ids[0], "indicator": "custom(age)", "value": 2.0},
-        {"runId": run_ids[1], "indicator": "custom(age)", "value": 4.0},
+    rows = parquet.read().to_pylist()
+    assert [(row["runId"], row["indicator"]) for row in rows] == [
+        (run_ids[0], AGE),
+        (run_ids[1], AGE),
     ]
+    assert [row["value"] for row in rows] == pytest.approx(CAMPAIGN_VALUES)
     assert {
         parquet.metadata.row_group(group).column(column).compression
         for group in range(parquet.metadata.num_row_groups)
@@ -1323,10 +1329,10 @@ def test_analyze_rebuilds_long_zstd_view_for_complete_runs_only(tmp_path: Path) 
     assert _snapshot(root) == before
 
     first = result.path.read_bytes()
-    rebuilt = _analyze(root, (_custom_indicator(),))
+    rebuilt = _analyze(root, (_age_indicator(),))
     assert rebuilt.path.read_bytes() == first
     assert rebuilt.path == result.path
-    replayed = _analyze(root, (_custom_indicator(),))
+    replayed = _analyze(root, (_age_indicator(),))
     assert replayed.path.read_bytes() == first
     assert _snapshot(root) == before
 
@@ -1342,7 +1348,7 @@ def test_analyze_rejects_foreign_analysis_directory_without_modification(
     before = _tree_snapshot(root)
 
     with pytest.raises(ValueError, match="unexpected root content"):
-        _analyze(root, (_custom_indicator(),))
+        _analyze(root, (_age_indicator(),))
 
     assert _tree_snapshot(root) == before
     assert note.read_text() == "do not adopt\n"
@@ -1359,7 +1365,7 @@ def test_analyze_rejects_nonempty_analysis_staging_before_creating_generations(
     before = _tree_snapshot(root)
 
     with pytest.raises(ValueError, match="staging must be empty"):
-        _analyze(root, (_custom_indicator(),))
+        _analyze(root, (_age_indicator(),))
 
     assert _tree_snapshot(root) == before
     assert not (root / "analysis/generations").exists()
@@ -1375,7 +1381,7 @@ def test_analyze_preflights_existing_analysis_children_before_creating_missing_o
     before = _tree_snapshot(root)
 
     with pytest.raises(ValueError, match="regular non-symlink directory"):
-        _analyze(root, (_custom_indicator(),))
+        _analyze(root, (_age_indicator(),))
 
     assert _tree_snapshot(root) == before
     assert not (state / "staging").exists()
@@ -1391,7 +1397,7 @@ def test_analyze_rejects_foreign_generation_inventory_before_creating_staging(
     before = _tree_snapshot(root)
 
     with pytest.raises(ValueError, match="generations contain unexpected content"):
-        _analyze(root, (_custom_indicator(),))
+        _analyze(root, (_age_indicator(),))
 
     assert _tree_snapshot(root) == before
     assert not (root / "analysis/staging").exists()
@@ -1401,17 +1407,7 @@ def test_manifest_v7_seals_immutable_outputs_and_complete_provenance(
     tmp_path: Path,
 ) -> None:
     root, _ = _campaign(tmp_path)
-    indicator = RegisteredIndicator(
-        "custom",
-        "age",
-        _artifact_value,
-        PluginIdentity(
-            "example_plugin.indicators:compute",
-            "eqasim_sa.indicators:custom=example_plugin.indicators:compute",
-            "example-plugin",
-            "1.2.3",
-        ),
-    )
+    indicator = _age_indicator()
 
     result = _analyze(root, (indicator,), meta_config_sha256="a" * 64)
     manifest_path = root / "analysis-generation.json"
@@ -1455,37 +1451,27 @@ def test_manifest_v7_seals_immutable_outputs_and_complete_provenance(
         "python",
         "scipy",
     }
-    assert provenance["indicators"] == [
-        {
-            "schemaVersion": 1,
-            "name": "custom(age)",
-            "kind": "custom",
-            "scalarizer": {"name": "custom", "version": 1},
-            "artifact": {
-                "name": "age",
-                "classColumn": None,
-                "syntheticColumn": None,
-                "referenceColumns": [],
-                "producingStage": None,
-            },
-            "implementation": {
-                "identity": "example_plugin.indicators:compute",
-                "sha256": None,
-                "version": 1,
-            },
-            "plugin": {
-                "entryPoint": (
-                    "eqasim_sa.indicators:custom="
-                    "example_plugin.indicators:compute"
-                ),
-                "distribution": {
-                    "name": "example-plugin",
-                    "version": "1.2.3",
-                    "sha256": None,
-                },
-            },
-        }
-    ]
+    [definition] = provenance["indicators"]
+    implementation_sha256 = definition["implementation"]["sha256"]
+    assert re.fullmatch(r"[0-9a-f]{64}", implementation_sha256)
+    assert definition == {
+        "schemaVersion": 1,
+        "name": AGE,
+        "kind": "builtin",
+        "scalarizer": {"name": "tv_distance", "version": 1},
+        "artifact": {
+            "name": "age",
+            "classColumn": "class",
+            "syntheticColumn": "synthetic",
+            "referenceColumns": ["reference"],
+            "producingStage": "test.producer",
+        },
+        "implementation": {
+            "identity": "eqasim_sa.core.indicators:TotalVariationIndicator",
+            "sha256": implementation_sha256,
+            "version": 1,
+        },
+    }
     expected_provenance_hash = hashlib.sha256(
         b"eqasim-sa:analysis-provenance:v1\0"
         + json.dumps(
@@ -1502,23 +1488,24 @@ def test_manifest_v7_seals_immutable_outputs_and_complete_provenance(
 
 
 def test_additional_completion_after_capture_is_ignored_until_next_generation(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root, _ = _campaign(tmp_path)
     entered, release = threading.Event(), threading.Event()
     results, errors = [], []
+    compute = TotalVariationIndicator.compute
 
-    def wait(artifacts: ArtifactSet) -> float:
+    def wait(self, artifacts: ArtifactSet) -> float:  # type: ignore[no-untyped-def]
         if not entered.is_set():
             entered.set()
             assert release.wait(5)
-        return _artifact_value(artifacts)
+        return compute(self, artifacts)
+
+    control_indicator(monkeypatch, wait)
 
     def run() -> None:
         try:
-            results.append(
-                _analyze(root, (RegisteredIndicator("wait", "age", wait),))
-            )
+            results.append(_analyze(root, (_age_indicator(),)))
         except BaseException as error:
             errors.append(error)
 
@@ -1539,30 +1526,33 @@ def test_additional_completion_after_capture_is_ignored_until_next_generation(
         "1" * 32,
         "2" * 32,
     }
-    replay = _analyze(root, (RegisteredIndicator("wait", "age", wait),))
+    replay = _analyze(root, (_age_indicator(),))
     assert replay.completed == replay.runs == 3
     assert replay.path != captured.path
 
 
 def test_selected_archive_mutation_aborts_without_changing_current_generation(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root, run_ids = _campaign(tmp_path)
-    current = _analyze(root, (_custom_indicator(),))
+    current = _analyze(root, (_age_indicator(),))
     pointer_before = (root / "analysis-generation.json").read_bytes()
     output_before = current.path.read_bytes()
     entered, release = threading.Event(), threading.Event()
     errors = []
+    compute = TotalVariationIndicator.compute
 
-    def wait(artifacts: ArtifactSet) -> float:
+    def wait(self, artifacts: ArtifactSet) -> float:  # type: ignore[no-untyped-def]
         if not entered.is_set():
             entered.set()
             assert release.wait(5)
-        return _artifact_value(artifacts)
+        return compute(self, artifacts)
+
+    control_indicator(monkeypatch, wait)
 
     def run() -> None:
         try:
-            _analyze(root, (RegisteredIndicator("changed", "age", wait),))
+            _analyze(root, (_age_indicator("alternate"),))
         except BaseException as error:
             errors.append(error)
 
@@ -1584,13 +1574,14 @@ def test_selected_archive_mutation_aborts_without_changing_current_generation(
 def test_analyze_accepts_partial_campaign_and_empty_result(tmp_path: Path) -> None:
     root, run_ids = _campaign(tmp_path)
     (root / "runs" / f"{run_ids[1]}.parquet").unlink()
-    assert _analyze(root, (_custom_indicator(),)).runs == 1
+    assert _analyze(root, (_age_indicator(),)).runs == 1
     (root / "runs" / f"{run_ids[0]}.parquet").unlink()
-    result = _analyze(root, (_custom_indicator(),))
+    result = _analyze(root, (_age_indicator(),))
     assert result.runs == 0
     assert pq.read_table(result.path).num_rows == 0
 
 
+@pytest.mark.usefixtures("synthetic_indicator")
 def test_analyze_writes_replication_dispersion_for_partial_groups(
     tmp_path: Path,
 ) -> None:
@@ -1628,7 +1619,7 @@ def test_analyze_writes_replication_dispersion_for_partial_groups(
             )
     before = _snapshot(root)
 
-    result = _analyze(root, (_custom_indicator(),))
+    result = _analyze(root, (_age_indicator(),))
 
     dispersion = result.dispersion_path
     assert dispersion.name == "replication-dispersion.parquet"
@@ -1667,7 +1658,7 @@ def test_analyze_writes_replication_dispersion_for_partial_groups(
     assert rows[0]["ci95_low"] == -margin and rows[0]["ci95_high"] == margin
     assert rows[1] == {
         "rate": 0.2,
-        "indicator": "custom(age)",
+        "indicator": AGE,
         "n": 1,
         "mean": 7.0,
         "std": None,
@@ -1677,17 +1668,18 @@ def test_analyze_writes_replication_dispersion_for_partial_groups(
     }
     assert _snapshot(root) == before
     first = (result.path.read_bytes(), dispersion.read_bytes())
-    replayed = _analyze(root, (_custom_indicator(),))
+    replayed = _analyze(root, (_age_indicator(),))
     assert (replayed.path.read_bytes(), dispersion.read_bytes()) == first
 
 
+@pytest.mark.usefixtures("synthetic_indicator")
 def test_discrete_oat_ranking_has_exact_effects_schema_order_and_manifest(
     tmp_path: Path,
 ) -> None:
     root = _discrete_oat_campaign(tmp_path)
 
     result = _analyze(
-        root, (_custom_indicator(),), completeness_threshold=1.0, method="discrete_oat"
+        root, (_age_indicator(),), completeness_threshold=1.0, method="discrete_oat"
     )
 
     ranking = result.sensitivity_path
@@ -1712,7 +1704,7 @@ def test_discrete_oat_ranking_has_exact_effects_schema_order_and_manifest(
     assert [row["factor"] for row in rows] == ["a", "b"]
     assert rows[0] == pytest.approx(
         {
-            "indicator": "custom(age)",
+            "indicator": AGE,
             "factor": "a",
             "rank": 1,
             "trajectories": 2,
@@ -1726,7 +1718,7 @@ def test_discrete_oat_ranking_has_exact_effects_schema_order_and_manifest(
     )
     assert rows[1] == pytest.approx(
         {
-            "indicator": "custom(age)",
+            "indicator": AGE,
             "factor": "b",
             "rank": 2,
             "trajectories": 2,
@@ -1803,10 +1795,11 @@ def test_discrete_oat_ranking_rejects_incoherent_sealed_plan(
         _discrete_oat_effects(table, indicator_rows)
 
 
+@pytest.mark.usefixtures("synthetic_indicator")
 def test_discrete_oat_ranking_is_independent_of_plan_and_run_order(tmp_path: Path) -> None:
     root = _discrete_oat_campaign(tmp_path)
     first = _analyze(
-        root, (_custom_indicator(),), completeness_threshold=1.0, method="discrete_oat"
+        root, (_age_indicator(),), completeness_threshold=1.0, method="discrete_oat"
     )
     expected = first.sensitivity_path.read_bytes()
     plan = pq.read_table(root / "plan.parquet")
@@ -1814,16 +1807,17 @@ def test_discrete_oat_ranking_is_independent_of_plan_and_run_order(tmp_path: Pat
     write_parquet_atomic(shuffled, root / "plan.parquet")
 
     replay = _analyze(
-        root, (_custom_indicator(),), completeness_threshold=1.0, method="discrete_oat"
+        root, (_age_indicator(),), completeness_threshold=1.0, method="discrete_oat"
     )
 
     assert replay.sensitivity_path.read_bytes() == expected
 
 
+@pytest.mark.usefixtures("synthetic_indicator")
 def test_discrete_oat_single_replication_uses_null_sample_statistics(tmp_path: Path) -> None:
     root = _discrete_oat_campaign(tmp_path, (11,))
     result = _analyze(
-        root, (_custom_indicator(),), completeness_threshold=1.0, method="discrete_oat"
+        root, (_age_indicator(),), completeness_threshold=1.0, method="discrete_oat"
     )
     rows = pq.read_table(result.sensitivity_path).to_pylist()
     assert all(row["n"] == 2 and row["sigma"] == 0.0 for row in rows)
@@ -1862,7 +1856,7 @@ def test_discrete_oat_invalid_structure_preserves_all_previous_outputs(
         ValueError, match="Discrete OAT|role|rank|domain|runId|indicator|complet|marker"
     ):
         _analyze(
-            root, (_custom_indicator(),), completeness_threshold=1.0, method="discrete_oat"
+            root, (_age_indicator(),), completeness_threshold=1.0, method="discrete_oat"
         )
     assert {path: path.read_bytes() for path in outputs} == outputs
 
@@ -1872,13 +1866,13 @@ def test_analysis_refuses_grid_discrete_oat_method_mismatch_before_publication(
 ) -> None:
     root, _ = _campaign(tmp_path)
     with pytest.raises(ValueError, match="grid.*discrete_oat"):
-        _analyze(root, (_custom_indicator(),), method="discrete_oat")
+        _analyze(root, (_age_indicator(),), method="discrete_oat")
     assert not (root / "indicators.parquet").exists()
 
     discrete_oat = _discrete_oat_campaign(tmp_path)
     with pytest.raises(ValueError, match="discrete_oat.*grid"):
         _analyze(
-            discrete_oat, (_custom_indicator(),), completeness_threshold=1.0, method="grid"
+            discrete_oat, (_age_indicator(),), completeness_threshold=1.0, method="grid"
         )
     assert not (discrete_oat / "indicators.parquet").exists()
 
@@ -1887,7 +1881,7 @@ def test_analysis_refuses_grid_discrete_oat_method_mismatch_before_publication(
     "indicators,seed_role,message",
     [
         ((), "replication", "indicator"),
-        ((_custom_indicator(),), "factor", "replication"),
+        ((_age_indicator(),), "factor", "replication"),
     ],
 )
 def test_discrete_oat_analysis_requires_indicator_and_replication_seed_role(
@@ -1908,6 +1902,7 @@ def test_discrete_oat_analysis_requires_indicator_and_replication_seed_role(
     assert not (root / "indicators.parquet").exists()
 
 
+@pytest.mark.usefixtures("synthetic_indicator")
 def test_discrete_oat_restores_all_views_if_ranking_publication_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1935,7 +1930,7 @@ def test_discrete_oat_restores_all_views_if_ranking_publication_fails(
     monkeypatch.setattr(publication_module, "write_parquet_exclusive", fail_ranking)
     with pytest.raises(OSError, match="injected ranking"):
         _analyze(
-            root, (_custom_indicator(),), completeness_threshold=1.0, method="discrete_oat"
+            root, (_age_indicator(),), completeness_threshold=1.0, method="discrete_oat"
         )
     assert {path: path.read_bytes() for path in outputs} == outputs
 
@@ -1966,7 +1961,7 @@ def test_analysis_publication_rejects_filename_role_collisions_before_writing(
     monkeypatch.setattr(analyze_module, "AnalysisArtifact", replace_filename)
 
     with pytest.raises(ValueError, match=message):
-        _analyze(root, (_custom_indicator(),))
+        _analyze(root, (_age_indicator(),))
 
     assert not (root / "analysis-generation.json").exists()
 
@@ -1992,7 +1987,7 @@ def test_analysis_publication_rejects_owned_role_and_never_overwrites_owned_docu
         publication_module.AnalysisPublication, "publish", inject_reserved_role
     )
     with pytest.raises(ValueError, match="owns governed"):
-        _analyze(root, (_custom_indicator(),))
+        _analyze(root, (_age_indicator(),))
 
     monkeypatch.setattr(publication_module.AnalysisPublication, "publish", real_publish)
 
@@ -2009,7 +2004,7 @@ def test_analysis_publication_rejects_owned_role_and_never_overwrites_owned_docu
         precreate_owned_document,
     )
     with pytest.raises(FileExistsError):
-        _analyze(root, (_custom_indicator(),))
+        _analyze(root, (_age_indicator(),))
 
 
 def test_grid_analysis_manifest_records_no_sensitivity_output(
@@ -2017,7 +2012,7 @@ def test_grid_analysis_manifest_records_no_sensitivity_output(
 ) -> None:
     root, _ = _campaign(tmp_path)
 
-    _analyze(root, (_custom_indicator(),))
+    _analyze(root, (_age_indicator(),))
 
     manifest = json.loads((root / "analysis-generation.json").read_text())
     assert manifest["sensitivityMethod"] is None
@@ -2031,7 +2026,7 @@ def test_manifest_failure_keeps_previous_pointer_and_leaves_only_immutable_orpha
 ) -> None:
     import eqasim_sa.core.analysis_publication as publication_module
     root, _ = _campaign(tmp_path)
-    current = _analyze(root, (_custom_indicator(),))
+    current = _analyze(root, (_age_indicator(),))
     pointer = (root / "analysis-generation.json").read_bytes()
     stale = root / "discrete-oat-effects.parquet"
     stale.write_bytes(b"stale ranking")
@@ -2046,7 +2041,7 @@ def test_manifest_failure_keeps_previous_pointer_and_leaves_only_immutable_orpha
     with pytest.raises(OSError, match="manifest"):
         _analyze(
             root,
-            (RegisteredIndicator("alternate", "age", _artifact_value),),
+            (_age_indicator("alternate"),),
         )
     assert (root / "analysis-generation.json").read_bytes() == pointer
     assert current.path.is_file()
@@ -2062,7 +2057,7 @@ def test_manifest_post_replace_fsync_failure_restores_previous_pointer(
     import eqasim_sa.utils.filesystem as durable_module
 
     root, _ = _campaign(tmp_path)
-    _analyze(root, (_custom_indicator(),))
+    _analyze(root, (_age_indicator(),))
     pointer = root / "analysis-generation.json"
     before = pointer.read_bytes()
     real_fsync = durable_module.os.fsync
@@ -2086,7 +2081,7 @@ def test_manifest_post_replace_fsync_failure_restores_previous_pointer(
     with pytest.raises(OSError, match="post-replace"):
         _analyze(
             root,
-            (RegisteredIndicator("alternate", "age", _artifact_value),),
+            (_age_indicator("alternate"),),
         )
 
     assert failed
@@ -2120,7 +2115,7 @@ def test_manifest_post_replace_fsync_failure_removes_new_pointer_when_none_exist
     monkeypatch.setattr(durable_module.os, "fsync", fail_new_pointer)
 
     with pytest.raises(OSError, match="post-replace"):
-        _analyze(root, (_custom_indicator(),))
+        _analyze(root, (_age_indicator(),))
 
     assert failed and not pointer.exists()
 
@@ -2132,7 +2127,7 @@ def test_manifest_failed_rollback_raises_distinct_outcome_unknown_error(
     import eqasim_sa.utils.filesystem as durable_module
 
     root, _ = _campaign(tmp_path)
-    _analyze(root, (_custom_indicator(),))
+    _analyze(root, (_age_indicator(),))
     pointer = root / "analysis-generation.json"
     before = pointer.read_bytes()
     real_fsync = durable_module.os.fsync
@@ -2163,7 +2158,7 @@ def test_manifest_failed_rollback_raises_distinct_outcome_unknown_error(
     with pytest.raises(PublicationOutcomeUnknown):
         _analyze(
             root,
-            (RegisteredIndicator("alternate", "age", _artifact_value),),
+            (_age_indicator("alternate"),),
         )
 
     assert fsync_failed
@@ -2175,7 +2170,7 @@ def test_generation_rename_failure_keeps_previous_pointer_and_generation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root, _ = _campaign(tmp_path)
-    current = _analyze(root, (_custom_indicator(),))
+    current = _analyze(root, (_age_indicator(),))
     pointer = (root / "analysis-generation.json").read_bytes()
     real_rename = os.rename
 
@@ -2188,7 +2183,7 @@ def test_generation_rename_failure_keeps_previous_pointer_and_generation(
     with pytest.raises(OSError, match="generation rename"):
         _analyze(
             root,
-            (RegisteredIndicator("alternate", "age", _artifact_value),),
+            (_age_indicator("alternate"),),
         )
 
     assert (root / "analysis-generation.json").read_bytes() == pointer
@@ -2199,6 +2194,7 @@ def test_generation_rename_failure_keeps_previous_pointer_and_generation(
     )
 
 
+@pytest.mark.usefixtures("synthetic_indicator")
 def test_discrete_oat_fake_pipeline_end_to_end_deduplicates_runs_and_ranks(
     tmp_path: Path,
 ) -> None:
@@ -2229,12 +2225,9 @@ def test_discrete_oat_fake_pipeline_end_to_end_deduplicates_runs_and_ranks(
     specs = load_run_specs(root / "plan.parquet", design, "test")
 
     results = [execute_run(spec, FakeSimulator(), root, workdir) for spec in specs]
-    indicator = RegisteredIndicator(
-        "value",
-        "population",
-        lambda artifacts: float(
-            pq.read_table(artifacts.path("population"))["value"][0].as_py()
-        ),
+    # The fake pipeline writes one row: its "value" cell is the OAT output.
+    indicator = scientific_indicator(
+        "population", "seed", class_column="person_id", synthetic_column="value"
     )
     analyzed = _analyze(root, (indicator,), completeness_threshold=1.0, method="discrete_oat")
 
@@ -2265,14 +2258,14 @@ def test_analyze_keeps_previous_commit_if_dispersion_writer_fails(
 
     monkeypatch.setattr(publication_module, "write_parquet_exclusive", fail_second)
     with pytest.raises(OSError, match="injected dispersion"):
-        _analyze(root, (_custom_indicator(),))
+        _analyze(root, (_age_indicator(),))
     assert indicators.read_bytes() == b"old indicators"
     assert dispersion.read_bytes() == b"old dispersion"
 
 
 def test_seed_factor_produces_no_replication_dispersion(tmp_path: Path) -> None:
     root, _ = _campaign(tmp_path)
-    result = _analyze(root, (_custom_indicator(),), seed_role="factor")
+    result = _analyze(root, (_age_indicator(),), seed_role="factor")
     assert result.dispersion_path is None
     assert not (root / "replication-dispersion.parquet").exists()
 
@@ -2291,7 +2284,7 @@ def test_missing_artifact_names_run_indicator_and_preserves_previous(
         ValueError,
         match=rf"invalid completion marker.*{run_ids[0]}.*artifact manifest",
     ):
-        _analyze(root, (_custom_indicator(),))
+        _analyze(root, (_age_indicator(),))
 
     assert output.read_bytes() == b"previous"
     assert _snapshot(root) == after_removal
@@ -2341,7 +2334,7 @@ def test_adapter_preflights_current_plan_and_uses_committed_generation_paths(
         {
             "campaign_root": root,
             "campaign": "test",
-            "indicators": (_custom_indicator(),),
+            "indicators": (_age_indicator(),),
             "seed_role": "replication",
             "method": "grid",
             "completeness_threshold": 0.0,
@@ -2381,7 +2374,7 @@ def test_analyze_rejects_invalid_completion_marker_without_publication(
     pq.write_table(pa.table({"runId": [run_ids[0]], "status": ["completed"]}), marker)
 
     with pytest.raises(ValueError, match="invalid completion marker"):
-        _analyze(root, (_custom_indicator(),))
+        _analyze(root, (_age_indicator(),))
 
     assert not (root / "indicators.parquet").exists()
 
@@ -2398,7 +2391,7 @@ def test_analyze_rejects_foreign_and_full_contract_invalid_markers(
     )
     pq.write_table(table, marker, compression="zstd")
     with pytest.raises(ValueError, match="invalid completion marker.*context"):
-        _analyze(root, (_custom_indicator(),))
+        _analyze(root, (_age_indicator(),))
 
     marker.unlink()
     _write_verified_run(
@@ -2409,29 +2402,30 @@ def test_analyze_rejects_foreign_and_full_contract_invalid_markers(
         root / "runs" / ("f" * 32 + ".parquet"),
     )
     with pytest.raises(ValueError, match="invalid completion marker names.*ffffffff"):
-        _analyze(root, (_custom_indicator(),))
+        _analyze(root, (_age_indicator(),))
 
 
-def test_registered_indicator_requires_declared_artifact_before_plugin(
+def test_indicator_requires_declared_artifact(
     tmp_path: Path,
 ) -> None:
     root, run_ids = _campaign(tmp_path)
-    indicator = RegisteredIndicator("constant", "missing", _constant_indicator)
+    indicator = scientific_indicator("missing")
     with pytest.raises(
         ValueError,
-        match=rf"run {run_ids[0]}.*constant\(missing\).*artifact 'missing' is not available",
+        match=rf"run {run_ids[0]}.*tv_distance\(missing, ref=reference\)"
+        r".*artifact 'missing' is not available",
     ):
         _analyze(root, (indicator,))
 
 
-def test_custom_receives_read_only_copy_and_source_mutation_aborts_without_restore(
-    tmp_path: Path,
+def test_indicator_receives_read_only_copy_and_source_mutation_aborts_without_restore(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root, _ = _campaign(tmp_path)
     output = root / "indicators.parquet"
     output.write_bytes(b"previous")
     with pytest.raises(RuntimeError, match="selected analysis source changed"):
-        _analyze(root, (_mutating_indicator(root),))
+        _analyze(root, (_mutating_indicator(root, monkeypatch),))
     assert (root / "plan.parquet").read_bytes() == b"damaged plan"
     assert output.read_bytes() == b"damaged previous"
     assert (root / "runs" / ("f" * 32 + ".parquet")).read_bytes() == b"foreign"
@@ -2442,8 +2436,8 @@ def test_analyze_rejects_duplicate_resolved_names_and_identities(
     tmp_path: Path,
 ) -> None:
     root, _ = _campaign(tmp_path)
-    duplicate = (_custom_indicator(), _custom_indicator())
-    with pytest.raises(ValueError, match=r"duplicate indicator name.*custom\(age\)"):
+    duplicate = (_age_indicator(), _age_indicator())
+    with pytest.raises(ValueError, match=r"duplicate indicator name.*tv_distance\(age, ref=reference\)"):
         _analyze(root, duplicate)
 
 
@@ -2467,8 +2461,8 @@ def test_completeness_boundary_failures_duplicates_and_rate_report(
     (root / "logs" / f"{run_ids[0]}.log").write_text("stale failure\n")
 
     with pytest.raises(ValueError, match=r"missing=1.*failed=1"):
-        _analyze(root, (_custom_indicator(),), completeness_threshold=0.34)
-    result = _analyze(root, (_custom_indicator(),), completeness_threshold=1 / 3)
+        _analyze(root, (_age_indicator(),), completeness_threshold=0.34)
+    result = _analyze(root, (_age_indicator(),), completeness_threshold=1 / 3)
     assert (result.expected, result.completed, result.missing, result.failed) == (
         3,
         1,
@@ -2488,8 +2482,8 @@ def test_completeness_boundary_failures_duplicates_and_rate_report(
     }
 
 
-def test_completeness_refusal_calls_no_plugin_and_preserves_outputs(
-    tmp_path: Path,
+def test_completeness_refusal_calls_no_indicator_and_preserves_outputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root, run_ids = _campaign(tmp_path)
     (root / "runs" / f"{run_ids[1]}.parquet").unlink()
@@ -2502,13 +2496,14 @@ def test_completeness_refusal_calls_no_plugin_and_preserves_outputs(
         path.write_bytes(content)
     before = _tree_snapshot(root)
 
-    def forbidden(artifacts: ArtifactSet) -> float:
-        raise AssertionError("plugin called")
+    def forbidden(self, artifacts: ArtifactSet) -> float:  # type: ignore[no-untyped-def]
+        raise AssertionError("indicator called")
 
+    control_indicator(monkeypatch, forbidden)
     with pytest.raises(ValueError, match=r"missing=2.*failed=0"):
         analyze(
             root,
-            (RegisteredIndicator("forbidden", "age", forbidden),),
+            (_age_indicator(),),
             campaign="test",
             completeness_threshold=0.5,
         )
@@ -2551,14 +2546,16 @@ def test_zero_threshold_accepts_no_completed_runs_but_empty_plan_is_rejected(
 
 
 def _hold_analysis(root: str, entered, release) -> None:  # type: ignore[no-untyped-def]
-    def wait_for_release(artifacts: ArtifactSet) -> float:
+    # Runs in a spawned child process, which owns its own class object.
+    def wait_for_release(self, artifacts: ArtifactSet) -> float:  # type: ignore[no-untyped-def]
         entered.set()
         release.wait(5)
         return 1.0
 
+    TotalVariationIndicator.compute = wait_for_release  # type: ignore[method-assign]
     analyze(
         Path(root),
-        (RegisteredIndicator("wait", "age", wait_for_release),),
+        (_age_indicator(),),
         campaign="test",
         completeness_threshold=0.0,
     )
@@ -2580,7 +2577,7 @@ def test_analyze_serializes_concurrent_publications(
 
     second = context.Process(
         target=analyze,
-        args=(root, (_custom_indicator(),)),
+        args=(root, (_age_indicator(),)),
         kwargs={"campaign": "test", "completeness_threshold": 0.0},
     )
     second.start()

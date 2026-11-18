@@ -2,12 +2,7 @@
 
 import hashlib
 import json
-from pathlib import Path, PurePosixPath
-
-
-TEXT_SUFFIXES = frozenset(
-    {".py", ".pyi", ".txt", ".md", ".yml", ".yaml", ".json", ".toml", ".cfg", ".ini"}
-)
+from pathlib import Path
 
 
 def lf_bytes(content: bytes) -> bytes:
@@ -20,21 +15,6 @@ def lf_sha256(path: Path) -> str:
     """Hash a file's content after CRLF to LF normalization."""
 
     return hashlib.sha256(lf_bytes(Path(path).read_bytes())).hexdigest()
-
-
-def is_text_name(relative_path: str) -> bool:
-    """True for files whose identity must ignore line endings.
-
-    Known text suffixes, plus suffixless metadata files (RECORD, METADATA,
-    WHEEL, ...) inside a ``*.dist-info`` directory. Everything else is binary.
-    """
-
-    path = PurePosixPath(relative_path)
-    if path.suffix.lower() in TEXT_SUFFIXES:
-        return True
-    return not path.suffix and any(
-        part.endswith(".dist-info") for part in path.parts[:-1]
-    )
 
 
 def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:

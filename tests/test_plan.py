@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import json
+import importlib.metadata
 import math
 import os
 import threading
@@ -18,7 +19,6 @@ from eqasim_sa.adapters.eqasim.config import load_yaml_document
 from eqasim_sa.adapters.eqasim.source_fingerprint import model_source_sha256
 from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator, eqasim_requirements
 from eqasim_sa.adapters.meta_config import load_meta_config
-from eqasim_sa.core.indicators import ArtifactSet
 from eqasim_sa.core.plan import GridDesign, build_plan
 from eqasim_sa.core.run import compute_run_id
 from eqasim_sa.ports.simulator import IndicatorRequirement
@@ -27,15 +27,6 @@ from tests.provenance_helpers import (
     scientific_context_descriptor,
 )
 from tests.conftest import make_symlink
-
-
-class _PluginDistribution:
-    name = "test-indicator-plugin"
-    version = "1.0.0"
-    files = (Path("tests/test_plan.py"),)
-
-    def locate_file(self, path: Path) -> Path:
-        return Path(__file__).parent.parent / path
 
 
 def _context() -> tuple[dict[str, str], str]:
@@ -431,7 +422,7 @@ def test_sobol_meta_config_rejects_non_int64_cardinalities(
 
 
 @pytest.mark.parametrize("limit", ["resamples", "work"])
-def test_sobol_bootstrap_caps_precede_indicator_plugin_resolution(
+def test_sobol_bootstrap_caps_precede_indicator_resolution(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     limit: str,
@@ -447,7 +438,7 @@ def test_sobol_bootstrap_caps_precede_indicator_plugin_resolution(
     )
     monkeypatch.setattr(
         "eqasim_sa.adapters.meta_config._indicator_blocks",
-        lambda *args: (_ for _ in ()).throw(AssertionError("plugins resolved")),
+        lambda *args: (_ for _ in ()).throw(AssertionError("indicators resolved")),
     )
     if limit == "work":
         monkeypatch.setattr(
@@ -1464,11 +1455,9 @@ def test_each_context_input_changes_context_hash(
     (model / "lock.yml").write_text("changed\n")
     changed_lock = load_meta_config(meta).context_hash
     assert changed_lock != baseline
-    real_version = __import__(
-        "eqasim_sa.adapters.meta_config", fromlist=["importlib"]
-    ).importlib.metadata.version
+    real_version = importlib.metadata.version
     monkeypatch.setattr(
-        "eqasim_sa.adapters.meta_config.importlib.metadata.version",
+        "importlib.metadata.version",
         lambda name: "9.9.9" if name == "eqasim-sa" else real_version(name),
     )
     assert load_meta_config(meta).context_hash != changed_lock
@@ -1493,34 +1482,15 @@ def test_requirements_are_pure_and_delegated() -> None:
 
 
 def test_eqasim_requirements_reject_unknown_artifact_with_indicator_name() -> None:
-    with pytest.raises(ValueError, match="custom.*unknown"):
-        eqasim_requirements((IndicatorRequirement("custom", "unknown"),))
+    with pytest.raises(ValueError, match=r"tv_distance\(unknown, ref=r\).*unknown"):
+        eqasim_requirements(
+            (IndicatorRequirement("tv_distance(unknown, ref=r)", "unknown"),)
+        )
 
 
-def test_meta_config_parses_strict_artifacts_and_three_indicator_forms(
+def test_meta_config_parses_strict_artifacts_and_both_indicator_forms(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    loads = []
-
-    class EntryPoint:
-        group = "eqasim_sa.indicators"
-        name = "extension"
-        value = "tests.test_plan:extension"
-        dist = _PluginDistribution()
-
-        def load(self):  # type: ignore[no-untyped-def]
-            loads.append(self.name)
-            return lambda artifacts: 1.0
-
-    class EntryPoints(tuple):
-        def select(self, **selection):  # type: ignore[no-untyped-def]
-            return self if selection == {"group": "eqasim_sa.indicators"} else ()
-
-    monkeypatch.setattr(
-        "eqasim_sa.adapters.meta_config.importlib.metadata.entry_points",
-        lambda: EntryPoints((EntryPoint(),)),
-    )
     meta, _, _, _ = meta_fixture(tmp_path)
     meta.write_text(
         meta.read_text()
@@ -1531,15 +1501,12 @@ def test_meta_config_parses_strict_artifacts_and_three_indicator_forms(
             "indicators:\n"
             "  - tv_distance: {output: age, reference: INSEE}\n"
             "  - tv_distance: {outputs: [distance]}\n"
-            "  - custom: {function: extension, output: age}\n"
         )
     )
     loaded = load_meta_config(meta)
-    assert loads == []
     assert loaded.indicator_requirements == (
         IndicatorRequirement("tv_distance(age, ref=INSEE)", "age"),
         IndicatorRequirement("tv_distance(distance, ref=HTS)", "distance"),
-        IndicatorRequirement("extension(age)", "age"),
     )
 
 
@@ -1560,113 +1527,6 @@ def test_meta_config_rejects_malformed_artifacts_and_indicators(
     meta.write_text(meta.read_text() + addition)
     with pytest.raises((TypeError, ValueError), match="output|indicator"):
         load_meta_config(meta)
-
-
-def test_custom_indicator_must_be_registered_by_entry_point(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "eqasim_sa.adapters.meta_config.importlib.metadata.entry_points",
-        lambda: type("Entries", (tuple,), {"select": lambda self, **kwargs: ()})(),
-    )
-    meta, _, _, _ = meta_fixture(tmp_path)
-    meta.write_text(
-        meta.read_text()
-        + (
-            "outputs:\n  age: {category: c, simulated: s, references: []}\n"
-            "indicators:\n  - custom: {function: missing, output: age}\n"
-        )
-    )
-    with pytest.raises(ValueError, match="missing.*eqasim_sa.indicators"):
-        load_meta_config(meta)
-
-
-def test_custom_indicator_entry_point_class_is_instantiated_without_arguments(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    loads = []
-
-    class Extension:
-        def compute(self, artifacts):  # type: ignore[no-untyped-def]
-            return 1.0
-
-    class EntryPoint:
-        group = "eqasim_sa.indicators"
-        name = "extension"
-        value = "tests.test_plan:extension"
-        dist = _PluginDistribution()
-
-        def load(self):  # type: ignore[no-untyped-def]
-            loads.append(self.name)
-            return Extension
-
-    class EntryPoints(tuple):
-        def select(self, **selection):  # type: ignore[no-untyped-def]
-            return self if selection == {"group": "eqasim_sa.indicators"} else ()
-
-    monkeypatch.setattr(
-        "eqasim_sa.adapters.meta_config.importlib.metadata.entry_points",
-        lambda: EntryPoints((EntryPoint(),)),
-    )
-    meta, _, _, _ = meta_fixture(tmp_path)
-    meta.write_text(
-        meta.read_text()
-        + (
-            "outputs:\n  age: {category: c, simulated: s, references: []}\n"
-            "indicators:\n  - custom: {function: extension, output: age}\n"
-        )
-    )
-    loaded = load_meta_config(meta)
-    assert loads == []
-    artifact = tmp_path / "age.parquet"
-    pq.write_table(pa.table({"value": [1]}), artifact)
-    assert loaded.indicators[0].compute(ArtifactSet({"age": artifact})) == 1.0
-    assert loads == ["extension"]
-
-
-def test_custom_indicator_entry_point_class_requiring_arguments_is_rejected(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class Extension:
-        def __init__(self, required):  # type: ignore[no-untyped-def]
-            self.required = required
-
-        def compute(self, artifacts):  # type: ignore[no-untyped-def]
-            return 1.0
-
-    class EntryPoint:
-        group = "eqasim_sa.indicators"
-        name = "extension"
-        value = "tests.test_plan:extension"
-        dist = _PluginDistribution()
-
-        def load(self):  # type: ignore[no-untyped-def]
-            return Extension
-
-    class EntryPoints(tuple):
-        def select(self, **selection):  # type: ignore[no-untyped-def]
-            return self if selection == {"group": "eqasim_sa.indicators"} else ()
-
-    monkeypatch.setattr(
-        "eqasim_sa.adapters.meta_config.importlib.metadata.entry_points",
-        lambda: EntryPoints((EntryPoint(),)),
-    )
-    meta, _, _, _ = meta_fixture(tmp_path)
-    meta.write_text(
-        meta.read_text()
-        + (
-            "outputs:\n  age: {category: c, simulated: s, references: []}\n"
-            "indicators:\n  - custom: {function: extension, output: age}\n"
-        )
-    )
-    loaded = load_meta_config(meta)
-    artifact = tmp_path / "age.parquet"
-    pq.write_table(pa.table({"value": [1]}), artifact)
-    with pytest.raises(TypeError, match="extension.*without arguments"):
-        loaded.indicators[0].compute(ArtifactSet({"age": artifact}))
 
 
 def test_load_run_specs_rejects_symlinked_technical_directory(

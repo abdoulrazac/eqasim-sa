@@ -9,10 +9,8 @@ import pytest
 from eqasim_sa.core.indicators import (
     ArtifactDeclaration,
     ArtifactSet,
-    CustomDeclaration,
     PairDeclaration,
     ProductDeclaration,
-    RegisteredIndicator,
     TableArtifact,
     TotalVariationIndicator,
     resolve_indicators,
@@ -277,19 +275,17 @@ def test_computes_from_isolated_archive(tmp_path: Path) -> None:
     assert indicator().compute(ArtifactSet({"distribution": path})) == 0.0
 
 
-def test_pair_product_and_custom_resolve_to_one_uniform_sequence() -> None:
+def test_pair_and_product_resolve_to_one_uniform_sequence() -> None:
     artifacts = {
         "age": ArtifactDeclaration("Age class", "Proportion_EQASIM", ("INSEE",)),
         "distance": ArtifactDeclaration(
             "Distance class", "Proportion_EQASIM", ("HTS", "adjusted")
         ),
     }
-    custom = object()
     resolved = resolve_indicators(
         (
             PairDeclaration("tv_distance", "age", "INSEE"),
             ProductDeclaration(("tv_distance",), ("distance",)),
-            CustomDeclaration("my_indicator", "age"),
         ),
         artifacts,
         {
@@ -297,29 +293,17 @@ def test_pair_product_and_custom_resolve_to_one_uniform_sequence() -> None:
                 artifact, reference
             )
         },
-        {"my_indicator": lambda artifact: custom},
     )
     assert [item.name for item in resolved] == [
         "tv_distance(age, ref=INSEE)",
         "tv_distance(distance, ref=HTS)",
         "tv_distance(distance, ref=adjusted)",
-        "my_indicator(age)",
     ]
 
 
-def test_registered_indicator_checks_declared_artifact_before_plugin(
-    tmp_path: Path,
-) -> None:
-    called = False
-
-    def constant(artifacts: ArtifactSet) -> float:
-        nonlocal called
-        called = True
-        return 1.0
-
-    with pytest.raises(ValueError, match="artifact 'missing' is not available"):
-        RegisteredIndicator("constant", "missing", constant).compute(ArtifactSet({}))
-    assert not called
+def test_indicator_checks_declared_artifact_before_reading() -> None:
+    with pytest.raises(ValueError, match="artifact 'distribution' is not available"):
+        indicator().compute(ArtifactSet({}))
 
 
 def test_product_names_every_invalid_combination() -> None:
@@ -336,7 +320,6 @@ def test_product_names_every_invalid_combination() -> None:
                     artifact, reference
                 )
             },
-            {},
         )
     message = str(failure.value)
     assert all(
@@ -358,7 +341,6 @@ def test_product_names_every_reference_for_unknown_scalarizer() -> None:
         resolve_indicators(
             (ProductDeclaration(("unknown",), ("distance",)),),
             artifacts,
-            {},
             {},
         )
     assert "unknown(distance, ref=HTS)" in str(failure.value)

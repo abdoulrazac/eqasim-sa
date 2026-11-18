@@ -19,14 +19,13 @@ from eqasim_sa.core.methods.canonical_morris import (
     _canonical_morris_tables,
     _replication_allocation,
 )
-from eqasim_sa.core.indicators import ArtifactSet
 from eqasim_sa.utils.filesystem import write_parquet_atomic
 from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.plan import build_plan
 from eqasim_sa.core.sensitivity import morris_statistics
 from tests.test_analyze import (
     _campaign,
-    _custom_indicator,
+    _age_indicator,
     _write_verified_run,
     root_relative,
 )
@@ -35,8 +34,14 @@ from tests.provenance_helpers import (
     context_hash,
     execution_evidence,
     scientific_context_descriptor,
-    scientific_registered_indicator,
+    scientific_indicator,
 )
+
+# Canonical Morris and discrete OAT tests feed arbitrary signed indicator
+# values through real archives: tv_distance returns their synthetic cell.
+pytestmark = pytest.mark.usefixtures("synthetic_indicator")
+
+VALUE = "tv_distance(value, ref=reference)"
 
 
 def _descriptor() -> tuple[dict[str, str], str]:
@@ -68,7 +73,7 @@ def _rows(table: pa.Table) -> list[tuple[str, str, float]]:
         value = (2.0 + 2.0 * replication) * row["a"] + 3.0 * category[row["b"]]
         values.setdefault(row["runId"], value)
         assert values[row["runId"]] == value
-    return [(run_id, "synthetic(value)", value) for run_id, value in values.items()]
+    return [(run_id, VALUE, value) for run_id, value in values.items()]
 
 
 def _tables(tmp_path: Path, **changes):  # type: ignore[no-untyped-def]
@@ -374,7 +379,7 @@ def test_discrete_oat_analyzer_preserves_adjacent_effects_under_new_identity(
             ),
             execution_evidence(design.context_hash),
         )
-    indicator = scientific_registered_indicator("synthetic", "value")
+    indicator = scientific_indicator("value")
     result = analyze(
         design.campaign_root,
         (indicator,),
@@ -393,10 +398,6 @@ def test_discrete_oat_analyzer_preserves_adjacent_effects_under_new_identity(
     )
     assert manifest["version"] == 7
     assert manifest["sensitivityMethod"] == "discrete_oat"
-
-
-def _artifact_value(artifacts: ArtifactSet) -> float:
-    return float(pq.read_table(artifacts.path("value"))["synthetic"][0].as_py())
 
 
 def _completed_campaign(tmp_path: Path, **changes):  # type: ignore[no-untyped-def]
@@ -423,7 +424,7 @@ def _completed_campaign(tmp_path: Path, **changes):  # type: ignore[no-untyped-d
             ),
             execution_evidence(design.context_hash),
         )
-    indicator = scientific_registered_indicator("synthetic", "value")
+    indicator = scientific_indicator("value")
     return design, indicator
 
 
@@ -453,7 +454,7 @@ def test_canonical_descriptive_only_publishes_partial_or_empty_outputs_without_i
                 {"a": row["a"], "b": row["b"]},
             ),
         )
-    indicator = scientific_registered_indicator("synthetic", "value")
+    indicator = scientific_indicator("value")
     options = {
         "campaign": "test",
         "completeness_threshold": 1.0,
@@ -632,7 +633,7 @@ def test_canonical_transactionally_publishes_noise_allocation_and_manifest_v7(
     assert recommendation == {
         "version": 1,
         "status": "capped",
-        "primaryIndicator": "synthetic(value)",
+        "primaryIndicator": VALUE,
         "varianceQuantile": 0.9,
         "varianceQuantileValue": quantile,
         "targetMcse": 0.5,
@@ -857,7 +858,7 @@ def test_other_method_publishes_no_canonical_outputs(tmp_path: Path) -> None:
     root, _ = _campaign(tmp_path)
     result = analyze(
         root,
-        (_custom_indicator(),),
+        (_age_indicator(),),
         campaign="test",
         completeness_threshold=0.0,
     )
