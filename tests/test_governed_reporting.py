@@ -20,6 +20,7 @@ from tests.test_analyze import _age_indicator, _write_verified_run, root_relativ
 from tests.test_canonical_morris_analyze import _completed_campaign, _design
 from tests.test_multiscramble_sobol_plan import multiscramble_design
 from eqasim_sa.core.plan import build_plan
+from tests.provenance_helpers import write_csv
 from tests.provenance_helpers import execution_evidence, scientific_indicator
 
 
@@ -93,8 +94,8 @@ def _grid_with_duplicate_positions(tmp_path: Path) -> Path:
         root / "plan.parquet",
     )
     for run_id, value in zip(run_ids, (1.0, 5.0), strict=True):
-        write_parquet_atomic(
-            pa.table({"synthetic": [value]}), root / "archives" / run_id / "age.parquet"
+        write_csv(
+            pa.table({"synthetic": [value]}), root / "archives" / run_id / "age.csv"
         )
         _write_verified_run(
             root, RunRecord(run_id, "test", 1, "hash", "node", 1.0, {})
@@ -433,9 +434,9 @@ def _complete_multiscramble(design) -> None:  # type: ignore[no-untyped-def]
     plan = pq.read_table(design.campaign_root / "plan.parquet")
     for run_id, row in {row["runId"]: row for row in plan.to_pylist()}.items():
         value = float(row["a"] + row["seed"] / 10 + row["a"] * row["seed"] / 20)
-        write_parquet_atomic(
+        write_csv(
             pa.table({"synthetic": [value]}),
-            design.campaign_root / "archives" / run_id / "age.parquet",
+            design.campaign_root / "archives" / run_id / "age.csv",
         )
         _write_verified_run(
             design.campaign_root,

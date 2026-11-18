@@ -25,6 +25,7 @@ from eqasim_sa.core.indicators import (
     Indicator,
     analysis_identity,
     indicator_definition_sha256,
+    validate_outputs_declaration,
 )
 from eqasim_sa.core.methods.canonical_morris import (
     _canonical_morris_tables,
@@ -683,6 +684,7 @@ def _validate_grid_plan(
             b"planSchemaVersion",
             b"canonicalizationVersion",
             b"contextDescriptor",
+            b"outputsDeclaration",
         }
         if structured:
             required |= {b"structuredFactorsVersion", b"structuredFactors"}
@@ -693,6 +695,7 @@ def _validate_grid_plan(
             != (b"3" if structured else b"1")
         ):
             raise ValueError("Grid plan metadata is missing or unsupported")
+        validate_outputs_declaration(metadata[b"outputsDeclaration"])
         try:
             descriptor = json.loads(metadata[b"contextDescriptor"])
         except Exception as error:

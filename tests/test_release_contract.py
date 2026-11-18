@@ -14,7 +14,6 @@ import yaml
 
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.core.analyze import analyze
-from eqasim_sa.utils.filesystem import write_parquet_atomic
 from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.plan import build_plan
 from tests.test_analyze import (
@@ -37,6 +36,7 @@ from tests.test_nantes_scientific_protocol import (
 from tests.test_plan import design as grid_design
 from tests.test_plan import meta_fixture, sobol_design
 from tests.test_structured_configurations import _grid_design as structured_grid_design
+from tests.provenance_helpers import write_csv
 from tests.provenance_helpers import execution_evidence, scientific_indicator
 
 
@@ -248,9 +248,9 @@ def test_release_analysis_status_and_governed_report_matrix(tmp_path: Path) -> N
         row["runId"]: row for row in plan.to_pylist()
     }.items():
         value = float(row["a"] + row["seed"] / 10 + row["a"] * row["seed"] / 20)
-        write_parquet_atomic(
+        write_csv(
             pa.table({"synthetic": [value]}),
-            multiscramble.campaign_root / "archives" / run_id / "age.parquet",
+            multiscramble.campaign_root / "archives" / run_id / "age.csv",
         )
         _write_verified_run(
             multiscramble.campaign_root,

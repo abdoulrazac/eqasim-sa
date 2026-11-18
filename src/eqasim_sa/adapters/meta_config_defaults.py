@@ -5,6 +5,8 @@ from __future__ import annotations
 import copy
 import hashlib
 
+from eqasim_sa.adapters.eqasim.artifacts import KNOWN_OUTPUTS
+
 DEFAULT_INVOCATION: tuple[str, ...] = ("uv", "run", "--locked", "python", "-m", "synpp")
 
 _KEY_ORDER = (
@@ -14,6 +16,7 @@ _KEY_ORDER = (
 _SEEDED_METHODS = {"discrete_oat", "canonical_morris", "sobol"}
 _BOOTSTRAP_METHODS = {"sobol", "canonical_morris"}
 _CONFIDENCE_METHODS = {"sobol", "canonical_morris", "multiscramble_sobol"}
+UNKNOWN_OUTPUT_SEPARATOR = ","
 
 
 def default_design_seed(campaign: str) -> int:
@@ -57,8 +60,21 @@ def resolve_meta_config_document(document: object) -> object:
         if method in _CONFIDENCE_METHODS:
             analysis.setdefault("confidence_level", 0.95)
 
+    outputs = resolved.get("outputs")
+    if isinstance(outputs, dict):
+        for name, output in outputs.items():
+            if output is None:
+                output = outputs[name] = {}
+            if not isinstance(output, dict):
+                continue
+            known = KNOWN_OUTPUTS.get(name) if isinstance(name, str) else None
+            if known is not None:
+                output.setdefault("file", known.file)
+                output.setdefault("separator", known.separator)
+            elif "file" in output:
+                output.setdefault("separator", UNKNOWN_OUTPUT_SEPARATOR)
+
     if "indicators" not in resolved:
-        outputs = resolved.get("outputs")
         referenced = (
             [
                 name

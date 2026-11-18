@@ -19,7 +19,6 @@ from eqasim_sa.core.methods.canonical_morris import (
     _canonical_morris_tables,
     _replication_allocation,
 )
-from eqasim_sa.utils.filesystem import write_parquet_atomic
 from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.plan import build_plan
 from eqasim_sa.core.sensitivity import morris_statistics
@@ -30,6 +29,7 @@ from tests.test_analyze import (
     root_relative,
 )
 from tests.test_canonical_morris_plan import canonical_design, canonical_meta, discrete_design
+from tests.provenance_helpers import write_csv
 from tests.provenance_helpers import (
     context_hash,
     execution_evidence,
@@ -362,9 +362,9 @@ def test_discrete_oat_analyzer_preserves_adjacent_effects_under_new_identity(
     unique = {row["runId"]: row for row in table.to_pylist()}
     for run_id, row in unique.items():
         value = 2.0 * row["a"] - 3.0 * row["b"]
-        write_parquet_atomic(
+        write_csv(
             pa.table({"synthetic": [value]}),
-            design.campaign_root / "archives" / run_id / "value.parquet",
+            design.campaign_root / "archives" / run_id / "value.csv",
         )
         _write_verified_run(
             design.campaign_root,
@@ -407,9 +407,9 @@ def _completed_campaign(tmp_path: Path, **changes):  # type: ignore[no-untyped-d
     plan_rows = {row["runId"]: row for row in table.to_pylist()}
     for run_id, value in values.items():
         row = plan_rows[run_id]
-        write_parquet_atomic(
+        write_csv(
             pa.table({"synthetic": [value]}),
-            design.campaign_root / "archives" / run_id / "value.parquet",
+            design.campaign_root / "archives" / run_id / "value.csv",
         )
         _write_verified_run(
             design.campaign_root,
@@ -438,9 +438,9 @@ def test_canonical_descriptive_only_publishes_partial_or_empty_outputs_without_i
     plan_rows = {row["runId"]: row for row in table.to_pylist()}
     for run_id in sorted(values)[:completed_count]:
         row = plan_rows[run_id]
-        write_parquet_atomic(
+        write_csv(
             pa.table({"synthetic": [values[run_id]]}),
-            design.campaign_root / "archives" / run_id / "value.parquet",
+            design.campaign_root / "archives" / run_id / "value.csv",
         )
         _write_verified_run(
             design.campaign_root,

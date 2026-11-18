@@ -17,11 +17,13 @@ from eqasim_sa.core.methods.common import MAX_BOOTSTRAP_RESAMPLES
 from eqasim_sa.adapters.application import plan_from_meta_config
 from eqasim_sa.adapters.eqasim.config import load_yaml_document
 from eqasim_sa.adapters.eqasim.source_fingerprint import model_source_sha256
-from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator, eqasim_requirements
+from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator
+from eqasim_sa.adapters.fake.simulator import FakeSimulator
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.core.plan import GridDesign, build_plan
 from eqasim_sa.core.run import compute_run_id
-from eqasim_sa.ports.simulator import IndicatorRequirement
+from eqasim_sa.core.plan import load_run_specs
+from eqasim_sa.adapters.campaign_design import _design
 from tests.provenance_helpers import (
     context_hash as provenance_context_hash,
     scientific_context_descriptor,
@@ -62,7 +64,7 @@ def design(root: Path, **changes) -> GridDesign:
         base_config=base(),
         factors={"b": ["x", "y", "z"], "a": [1, 2]},
         seeds=(41, 42),
-        requirements={"run": ["stage"]},
+        requirements={},
         context_hash=context_hash,
         context_descriptor=descriptor,
         campaign_root=root,
@@ -77,7 +79,7 @@ def discrete_oat_design(root: Path, **changes):  # type: ignore[no-untyped-def]
         base_config=base(),
         factors={"b": [-1.0, 1.0], "a": [0, 2, 5]},
         seeds=(41, 42),
-        requirements={"run": ["stage"]},
+        requirements={},
         context_hash=context_hash,
         context_descriptor=descriptor,
         campaign_root=root,
@@ -94,7 +96,7 @@ def sobol_design(root: Path, **changes):  # type: ignore[no-untyped-def]
         base_config=base(),
         factors={"b": ["x", "y", "z"], "a": [1, 2]},
         seeds=(101, 102, 103),
-        requirements={"run": ["stage"]},
+        requirements={},
         context_hash=context_hash,
         context_descriptor=descriptor,
         campaign_root=root,
@@ -125,7 +127,7 @@ def _sobol_meta(meta: Path, **changes: object) -> None:
         f"  base_sample_size: {values['base_sample_size']}\n"
         f"  design_seed: {values['design_seed']}\n",
     )
-    text += (
+    text = text.replace(DEFAULT_OUTPUTS, "") + (
         "outputs:\n  age: {category: c, simulated: s, references: [ref]}\n"
         "indicators:\n  - tv_distance: {output: age, reference: ref}\n"
     )
@@ -194,6 +196,7 @@ def test_sobol_exact_qmc_mapping_roles_identity_metadata_and_cardinality(
     assert table.schema.metadata == {
         b"planSchemaVersion": b"1",
         b"canonicalizationVersion": b"1",
+        b"outputsDeclaration": b"[]",
         b"contextDescriptor": json.dumps(
             current.context_descriptor, sort_keys=True, separators=(",", ":")
         ).encode(),
@@ -478,7 +481,7 @@ def _discrete_oat_meta(
         "",
     )
     meta.write_text(
-        text
+        text.replace(DEFAULT_OUTPUTS, "")
         + (
             "outputs:\n  age: {category: c, simulated: s, references: [ref]}\n"
             "indicators:\n  - tv_distance: {output: age, reference: ref}\n"
@@ -518,6 +521,7 @@ def test_grid_schema_order_identity_and_no_mutation(tmp_path: Path) -> None:
     assert table.schema.metadata == {
         b"planSchemaVersion": b"1",
         b"canonicalizationVersion": b"1",
+        b"outputsDeclaration": b"[]",
         b"contextDescriptor": b'{"dataManifestSha256":"b","eqasimSaVersion":"0.1.0","eqasimSourceSha256":"a","lockfileSha256":"c"}',
     }
     rows = table.to_pylist()
@@ -529,7 +533,7 @@ def test_grid_schema_order_identity_and_no_mutation(tmp_path: Path) -> None:
     assert rows[0]["runId"] == compute_run_id(
         {
             "working_directory": "/ignored",
-            "run": ["stage"],
+            "run": ["old"],
             "config": {"a": 1, "b": "x", "random_seed": 41},
         },
         41,
@@ -678,6 +682,7 @@ def test_discrete_oat_exact_mixed_radix_factoradic_rows_and_metadata(tmp_path: P
     assert table.schema.metadata == {
         b"planSchemaVersion": b"1",
         b"canonicalizationVersion": b"1",
+        b"outputsDeclaration": b"[]",
         b"contextDescriptor": json.dumps(
             current.context_descriptor, sort_keys=True, separators=(",", ":")
         ).encode(),
@@ -779,8 +784,8 @@ def test_discrete_oat_meta_config_preserves_explicit_design_contract(tmp_path: P
 def test_discrete_oat_meta_config_requires_at_least_one_indicator(tmp_path: Path) -> None:
     meta, _, _, _ = meta_fixture(tmp_path)
     _discrete_oat_meta(meta)
-    text = meta.read_text()
-    meta.write_text(text[: text.index("outputs:\n")])
+    text = meta.read_text().replace("references: [ref]", "references: []")
+    meta.write_text(text[: text.index("indicators:\n")])
     with pytest.raises(ValueError, match="discrete_oat.*indicator"):
         load_meta_config(meta)
 
@@ -882,7 +887,7 @@ def test_duplicates_preserve_exact_plan_and_memoize_resolved_runs(
     before, mtime = path.read_bytes(), path.stat().st_mtime_ns
     assert calls == {"resolve": 2, "run_id": 2}
     assert hashlib.sha256(before).hexdigest() == (
-        "2b019c23b82309433cc4ff92a335c0060b1fa53533e5bbc48e1dfc2b17a521bd"
+        "bf69bcde56860bad84fe874fe595bcb72ff6cb543961a6367ef6dbed1d038cc4"
     )
     second = build_plan(current)
     rows = pq.read_table(path).to_pylist()
@@ -986,9 +991,10 @@ def test_core_rejects_invalid_contract(
     "requirements",
     [
         {"other": 1},
-        {"config": []},
-        {"config": {"a": 2}},
+        {"run": ["stage"]},
+        {"config": {}},
         {"config": {"random_seed": 2}},
+        [],
     ],
 )
 def test_core_rejects_invalid_requirements(tmp_path: Path, requirements: dict) -> None:
@@ -1025,16 +1031,23 @@ def test_run_id_collision_prevents_publication(
     assert not (tmp_path / "campaign" / "plan.parquet").exists()
 
 
-def test_requirements_infrastructure_is_rejected_by_adapter(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_adapter_adds_no_requirements_and_keeps_the_eqasim_run_list(
+    tmp_path: Path,
 ) -> None:
-    meta, _, _, _ = meta_fixture(tmp_path)
-    monkeypatch.setattr(
-        "eqasim_sa.adapters.application.eqasim_requirements",
-        lambda indicators: {"config": {"output_path": "/tmp"}},
+    meta, _, config, _ = meta_fixture(tmp_path)
+    plan_from_meta_config(meta)
+    loaded = load_meta_config(meta)
+    design = _design(loaded)
+    specs = load_run_specs(
+        loaded.campaign_root / "plan.parquet", design, loaded.campaign
     )
-    with pytest.raises(ValueError, match="infrastructure"):
-        plan_from_meta_config(meta)
+    assert design.requirements == {}
+    assert {tuple(spec.resolved_config["run"]) for spec in specs} == {
+        tuple(load_yaml_document(config)["run"])
+    }
+    assert all(
+        "output_path" not in spec.resolved_config["config"] for spec in specs
+    )
 
 
 def test_design_id_collision_prevents_publication(
@@ -1286,12 +1299,17 @@ def test_yaml_loader_rejects_alias_duplicate_non_string_and_non_finite(
             load_yaml_document(path)
 
 
+DEFAULT_OUTPUTS = "outputs:\n  persons: {}\n"
+
+
 def meta_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     model = tmp_path / "model"
     model.mkdir()
     config = model / "config.yml"
     config.write_text(
-        "working_directory: /ignored\nrun: [old]\nconfig:\n  a: 0\n  b: x\n  random_seed: 9\n"
+        "working_directory: /ignored\n"
+        "run: [synthesis.output, analysis.synthesis.population]\n"
+        "config:\n  a: 0\n  b: x\n  random_seed: 9\n"
     )
     lock = model / "lock.yml"
     lock.write_text("locked\n")
@@ -1305,6 +1323,7 @@ def meta_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
         "analysis:\n  completeness_threshold: 1.0\n"
         "experiment:\n  method: grid\n  seeds: [41, 42]\n"
         "parameters:\n  a:\n    values: [1, 2]\n  b:\n    values: [x, y]\n"
+        + DEFAULT_OUTPUTS
     )
     return meta, model, config, manifest
 
@@ -1471,21 +1490,21 @@ def test_context_rejects_missing_files(tmp_path: Path, missing: str) -> None:
         load_meta_config(meta)
 
 
-def test_requirements_are_pure_and_delegated() -> None:
-    indicators = [IndicatorRequirement("a", "age")]
-    assert eqasim_requirements(indicators) == {
-        "run": ["synthesis.output", "analysis.synthesis.population"]
-    }
-    assert indicators == [IndicatorRequirement("a", "age")]
-    simulator = object.__new__(EqasimSimulator)
-    assert simulator.requirements(indicators) == eqasim_requirements(indicators)
+def test_simulators_derive_no_requirements_from_indicators() -> None:
+    assert not hasattr(EqasimSimulator, "requirements")
+    assert not hasattr(FakeSimulator, "requirements")
 
 
-def test_eqasim_requirements_reject_unknown_artifact_with_indicator_name() -> None:
-    with pytest.raises(ValueError, match=r"tv_distance\(unknown, ref=r\).*unknown"):
-        eqasim_requirements(
-            (IndicatorRequirement("tv_distance(unknown, ref=r)", "unknown"),)
-        )
+def test_indicator_on_undeclared_output_is_rejected_with_its_name(
+    tmp_path: Path,
+) -> None:
+    meta, _, _, _ = meta_fixture(tmp_path)
+    meta.write_text(
+        meta.read_text()
+        + "indicators:\n  - tv_distance: {output: unknown, reference: r}\n"
+    )
+    with pytest.raises(ValueError, match=r"tv_distance\(unknown"):
+        load_meta_config(meta)
 
 
 def test_meta_config_parses_strict_artifacts_and_both_indicator_forms(
@@ -1493,7 +1512,7 @@ def test_meta_config_parses_strict_artifacts_and_both_indicator_forms(
 ) -> None:
     meta, _, _, _ = meta_fixture(tmp_path)
     meta.write_text(
-        meta.read_text()
+        meta.read_text().replace(DEFAULT_OUTPUTS, "")
         + (
             "outputs:\n"
             "  age:\n    category: Age class\n    simulated: Proportion_EQASIM\n    references: [INSEE]\n"
@@ -1504,10 +1523,10 @@ def test_meta_config_parses_strict_artifacts_and_both_indicator_forms(
         )
     )
     loaded = load_meta_config(meta)
-    assert loaded.indicator_requirements == (
-        IndicatorRequirement("tv_distance(age, ref=INSEE)", "age"),
-        IndicatorRequirement("tv_distance(distance, ref=HTS)", "distance"),
-    )
+    assert [(item.name, item.artifact.name) for item in loaded.indicators] == [
+        ("tv_distance(age, ref=INSEE)", "age"),
+        ("tv_distance(distance, ref=HTS)", "distance"),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -1524,7 +1543,7 @@ def test_meta_config_rejects_malformed_artifacts_and_indicators(
     tmp_path: Path, addition: str
 ) -> None:
     meta, _, _, _ = meta_fixture(tmp_path)
-    meta.write_text(meta.read_text() + addition)
+    meta.write_text(meta.read_text().replace(DEFAULT_OUTPUTS, "") + addition)
     with pytest.raises((TypeError, ValueError), match="output|indicator"):
         load_meta_config(meta)
 

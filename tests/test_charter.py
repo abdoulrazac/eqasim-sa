@@ -517,7 +517,7 @@ def test_robustness_contract(tmp_path: Path, mutate, message: str) -> None:  # t
 def test_scientific_requires_an_indicator(tmp_path: Path) -> None:
     def mutate(document):  # type: ignore[no-untyped-def]
         document.pop("indicators")
-        document.pop("outputs")
+        document["outputs"] = {"persons": {}}
 
     with pytest.raises(ValueError, match="scientific.*indicator"):
         _load_scientific(tmp_path, mutate)

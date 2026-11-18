@@ -9,7 +9,7 @@ import stat
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -31,7 +31,7 @@ from eqasim_sa.utils.filesystem import (
     short_name,
     write_parquet_exclusive,
 )
-from eqasim_sa.ports.simulator import ExecutionEvidence
+from eqasim_sa.ports.simulator import Artifact, ExecutionEvidence
 
 _PARQUET_FILE = pq.ParquetFile
 
@@ -49,7 +49,8 @@ RESERVED_COLUMNS = (
 Scalar = bool | int | float | str
 RUN_ID = re.compile(r"^[0-9a-f]{32}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
-ARTIFACT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.parquet$")
+ARTIFACT_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
+ARCHIVE_FILE_NAME = re.compile(r"^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)?$")
 COMPLETION_MARKER_VERSION = b"completionMarkerVersion"
 ARTIFACT_MANIFEST = b"artifactManifest"
 EXECUTION_EVIDENCE = b"executionEvidence"
@@ -73,13 +74,47 @@ class RunRecord:
     scratch_bytes: int = 0
 
 
+def validate_source_path(value: object) -> str:
+    """Validate a POSIX path relative to the simulator's output folder."""
+
+    if (
+        type(value) is not str
+        or not value
+        or "\\" in value
+        or "\0" in value
+        or ":" in value
+        or value.startswith("/")
+        or any(part in {"", ".", ".."} for part in value.split("/"))
+    ):
+        raise ValueError(f"invalid artifact source path: {value!r}")
+    return value
+
+
+def archive_file_name(name: str, source_path: str) -> str:
+    """Name of a declared output in its run archive: ``<name><suffix>``."""
+
+    if type(name) is not str or not ARTIFACT_NAME.fullmatch(name):
+        raise ValueError(f"invalid artifact name: {name!r}")
+    file_name = name + PurePosixPath(validate_source_path(source_path)).suffix
+    if not ARCHIVE_FILE_NAME.fullmatch(file_name):
+        raise ValueError(
+            f"output {name!r} file suffix cannot name an archive file: {source_path!r}"
+        )
+    return file_name
+
+
 @dataclass(frozen=True)
 class ArtifactManifestEntry:
-    """Name, size, and digest of one durable run artifact."""
+    """Output name, original relative path, size, and digest of one archived file."""
 
     name: str
+    source_path: str
     size: int
     sha256: str
+
+    @property
+    def file_name(self) -> str:
+        return archive_file_name(self.name, self.source_path)
 
 
 @dataclass(frozen=True)
@@ -142,7 +177,12 @@ def _regular_path_is_current(path: Path, expected: FileState) -> bool:
 def _manifest_bytes(entries: Sequence[ArtifactManifestEntry]) -> bytes:
     return json.dumps(
         [
-            {"name": entry.name, "size": entry.size, "sha256": entry.sha256}
+            {
+                "name": entry.name,
+                "sourcePath": entry.source_path,
+                "size": entry.size,
+                "sha256": entry.sha256,
+            }
             for entry in entries
         ],
         sort_keys=True,
@@ -169,9 +209,15 @@ def _validated_manifest_entries(
             or not SHA256.fullmatch(entry.sha256)
         ):
             raise ValueError("artifact manifest contains an invalid entry")
+        try:
+            entry.file_name
+        except ValueError as error:
+            raise ValueError("artifact manifest contains an invalid entry") from error
     names = [entry.name for entry in validated]
     if len(names) != len(set(names)):
         raise ValueError("artifact manifest contains duplicate names")
+    if len({entry.file_name.casefold() for entry in validated}) != len(validated):
+        raise ValueError("artifact manifest contains colliding archive file names")
     return tuple(sorted(validated, key=lambda entry: entry.name.encode("utf-8")))
 
 
@@ -182,10 +228,17 @@ def _parse_manifest(payload: bytes) -> tuple[ArtifactManifestEntry, ...]:
             raise ValueError
         entries = []
         for item in document:
-            if not isinstance(item, dict) or set(item) != {"name", "size", "sha256"}:
+            if not isinstance(item, dict) or set(item) != {
+                "name",
+                "sourcePath",
+                "size",
+                "sha256",
+            }:
                 raise ValueError
             entries.append(
-                ArtifactManifestEntry(item["name"], item["size"], item["sha256"])
+                ArtifactManifestEntry(
+                    item["name"], item["sourcePath"], item["size"], item["sha256"]
+                )
             )
         validated = _validated_manifest_entries(entries)
         if [entry.name for entry in entries] != [entry.name for entry in validated]:
@@ -224,13 +277,15 @@ def _verify_archive(
     initial_directory = os.lstat(archive.path)
     if file_identity(initial_directory) != archive.identity:
         raise RuntimeError("archive changed while opening")
-    expected_names = [entry.name for entry in artifacts]
+    expected_names = sorted(
+        (entry.file_name for entry in artifacts), key=lambda name: os.fsencode(name)
+    )
     names = os.listdir(archive.path)
     if sorted(names, key=lambda name: os.fsencode(name)) != expected_names:
         raise ValueError("archive inventory does not match artifact manifest")
     captured = []
     for entry in artifacts:
-        path = archive.path / entry.name
+        path = archive.path / entry.file_name
         visible = os.lstat(path)
         if not stat.S_ISREG(visible.st_mode) or platform.is_link(path):
             raise ValueError(f"archive artifact {entry.name!r} is not a regular file")
@@ -250,8 +305,6 @@ def _verify_archive(
                 raise ValueError(
                     f"archive artifact {entry.name!r} size does not match manifest"
                 )
-            with os.fdopen(os.dup(descriptor), "rb") as stream:
-                pq.ParquetFile(stream).metadata
             digest = descriptor_sha256(descriptor)
             final = os.fstat(descriptor)
         finally:
@@ -268,7 +321,7 @@ def _verify_archive(
             )
         captured.append(
             StableFile(
-                campaign_root / "archives" / run_id / entry.name,
+                campaign_root / "archives" / run_id / entry.file_name,
                 file_state(initial),
                 initial.st_size,
                 digest,
@@ -468,35 +521,15 @@ def _write_all(descriptor: int, data: bytes) -> None:
         view = view[written:]
 
 
-def _parquet_codecs(parquet: pq.ParquetFile) -> set[str]:
-    return {
-        parquet.metadata.row_group(group).column(column).compression
-        for group in range(parquet.metadata.num_row_groups)
-        for column in range(parquet.metadata.row_group(group).num_columns)
-    }
-
-
-def _scan_parquet_descriptor(
-    descriptor: int, interrupted: Callable[[], bool] | None
-) -> None:
-    os.lseek(descriptor, 0, os.SEEK_SET)
-    with os.fdopen(os.dup(descriptor), "rb") as stream:
-        parquet = pq.ParquetFile(stream)
-        if _parquet_codecs(parquet) - {"ZSTD"}:
-            raise ValueError("published artifacts must use zstd compression")
-        for _ in parquet.iter_batches(batch_size=65536):
-            if interrupted is not None and interrupted():
-                raise KeyboardInterrupt
-
-
-def _copy_parquet_artifact(
-    source: Path,
+def _copy_artifact(
+    artifact: Artifact,
     destination_directory: DirectoryAnchor,
-    name: str,
     interrupted: Callable[[], bool] | None,
 ) -> ArtifactManifestEntry:
-    """Copy one artifact into staging; every handle is closed on return."""
+    """Copy one artifact byte for byte into staging; handles closed on return."""
 
+    name = archive_file_name(artifact.name, artifact.source_path)
+    source = artifact.path
     destination = destination_directory.path / name
     source_descriptor = open_regular(source)
     destination_descriptor = -1
@@ -505,28 +538,13 @@ def _copy_parquet_artifact(
         source_initial = os.fstat(source_descriptor)
         destination_descriptor = os.open(destination, _CREATE_FLAGS, 0o600)
         created = True
-        with os.fdopen(os.dup(source_descriptor), "rb") as source_stream:
-            parquet = pq.ParquetFile(source_stream)
-            already_zstd = not (_parquet_codecs(parquet) - {"ZSTD"})
-            if already_zstd:
-                os.lseek(source_descriptor, 0, os.SEEK_SET)
-                while True:
-                    if interrupted is not None and interrupted():
-                        raise KeyboardInterrupt
-                    chunk = os.read(source_descriptor, 1024 * 1024)
-                    if not chunk:
-                        break
-                    _write_all(destination_descriptor, chunk)
-            else:
-                with os.fdopen(os.dup(destination_descriptor), "wb") as output:
-                    with pq.ParquetWriter(
-                        output, parquet.schema_arrow, compression="zstd"
-                    ) as writer:
-                        for batch in parquet.iter_batches(batch_size=65536):
-                            if interrupted is not None and interrupted():
-                                raise KeyboardInterrupt
-                            writer.write_batch(batch)
-                    output.flush()
+        while True:
+            if interrupted is not None and interrupted():
+                raise KeyboardInterrupt
+            chunk = os.read(source_descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            _write_all(destination_descriptor, chunk)
         source_final = os.fstat(source_descriptor)
         source_visible = os.lstat(absolute(source))
         if (
@@ -536,7 +554,6 @@ def _copy_parquet_artifact(
         ):
             raise RuntimeError(f"artifact changed while publishing: {source}")
         os.fsync(destination_descriptor)
-        _scan_parquet_descriptor(destination_descriptor, interrupted)
         digest = descriptor_sha256(destination_descriptor, interrupted)
         final = os.fstat(destination_descriptor)
         os.close(destination_descriptor)
@@ -548,7 +565,11 @@ def _copy_parquet_artifact(
             or not destination_directory.is_current()
         ):
             raise RuntimeError(f"staged artifact changed while publishing: {name}")
-        return ArtifactManifestEntry(name, final.st_size, digest)
+        if final.st_size != source_initial.st_size:
+            raise RuntimeError(f"staged artifact is incomplete: {name}")
+        return ArtifactManifestEntry(
+            artifact.name, artifact.source_path, final.st_size, digest
+        )
     except BaseException:
         if destination_descriptor >= 0:
             os.close(destination_descriptor)
@@ -613,27 +634,35 @@ class ArchiveTransaction:
         self,
         campaign_root: Path,
         run_id: str,
-        artifacts: Sequence[tuple[str, Path]],
+        artifacts: Sequence[Artifact],
         interrupted: Callable[[], bool] | None,
     ) -> None:
         run_path(campaign_root, run_id)
         sources = tuple(artifacts)
         if not sources:
             raise ValueError("manifest must contain at least one artifact")
-        if any(
-            type(name) is not str
-            or not ARTIFACT_NAME.fullmatch(name)
-            or not isinstance(path, Path)
-            for name, path in sources
-        ):
-            raise ValueError("archive transaction contains an invalid artifact")
-        names = [name for name, _ in sources]
-        if len(names) != len(set(names)):
+        try:
+            if any(
+                not isinstance(artifact, Artifact)
+                or not isinstance(artifact.path, Path)
+                for artifact in sources
+            ):
+                raise ValueError
+            file_names = [
+                archive_file_name(artifact.name, artifact.source_path)
+                for artifact in sources
+            ]
+        except ValueError as error:
+            raise ValueError("archive transaction contains an invalid artifact") from error
+        names = [artifact.name for artifact in sources]
+        if len(names) != len(set(names)) or len(
+            {name.casefold() for name in file_names}
+        ) != len(file_names):
             raise ValueError("archive transaction contains duplicate artifacts")
         self.campaign_root = campaign_root
         self.run_id = run_id
         self.sources = tuple(
-            sorted(sources, key=lambda item: item[0].encode("utf-8"))
+            sorted(sources, key=lambda item: item.name.encode("utf-8"))
         )
         self.interrupted = interrupted
         self.manifest: tuple[ArtifactManifestEntry, ...] = ()
@@ -675,8 +704,8 @@ class ArchiveTransaction:
         if not self._publication_is_current():
             raise RuntimeError("campaign publication directories changed")
         self.manifest = tuple(
-            _copy_parquet_artifact(source, self._staging, name, self.interrupted)
-            for name, source in self.sources
+            _copy_artifact(artifact, self._staging, self.interrupted)
+            for artifact in self.sources
         )
         fsync_directory(self._staging.path)
 
@@ -801,7 +830,7 @@ class ArchiveTransaction:
 def archive_transaction(
     campaign_root: Path,
     run_id: str,
-    artifacts: Sequence[tuple[str, Path]],
+    artifacts: Sequence[Artifact],
     interrupted: Callable[[], bool] | None = None,
 ) -> Iterator[ArchiveTransaction]:
     """Prepare an archive transaction and guarantee staging cleanup."""

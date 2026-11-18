@@ -48,6 +48,7 @@ from eqasim_sa.core.run import execute_run
 from eqasim_sa.core.sensitivity import engine_descriptor, sobol_symmetric_indices
 from tests.test_canonical_morris_plan import canonical_design, discrete_design
 from tests.test_multiscramble_sobol_plan import multiscramble_design
+from tests.provenance_helpers import write_csv
 from tests.provenance_helpers import (
     context_hash,
     execution_evidence,
@@ -134,7 +135,7 @@ def _campaign(tmp_path: Path) -> tuple[Path, tuple[str, str]]:
         root / "plan.parquet",
     )
     for run_id, synthetic in zip(run_ids, (2.0, 4.0), strict=True):
-        write_parquet_atomic(
+        write_csv(
             pa.table(
                 {
                     "class": ["x", "y"],
@@ -143,14 +144,14 @@ def _campaign(tmp_path: Path) -> tuple[Path, tuple[str, str]]:
                     "alternate": [1.0, 3.0],
                 }
             ),
-            root / "archives" / run_id / "age.parquet",
+            root / "archives" / run_id / "age.csv",
         )
         _write_verified_run(
             root, RunRecord(run_id, "test", 1, "hash", "node", 1.0, {})
         )
-    write_parquet_atomic(
+    write_csv(
         pa.table({"class": ["x"], "synthetic": [99.0], "reference": [1.0]}),
-        root / "archives" / ("3" * 32) / "age.parquet",
+        root / "archives" / ("3" * 32) / "age.csv",
     )
     return root, run_ids
 
@@ -185,8 +186,8 @@ def _discrete_oat_campaign(tmp_path: Path, seeds: tuple[int, ...] = (11, 12)) ->
     for run_id, row in unique.items():
         coefficient = 2.0 if row["seed"] == seeds[0] else 4.0
         value = coefficient * row["a"] - 3.0 * row["b"]
-        write_parquet_atomic(
-            pa.table({"synthetic": [value]}), root / "archives" / run_id / "age.parquet"
+        write_csv(
+            pa.table({"synthetic": [value]}), root / "archives" / run_id / "age.csv"
         )
         _write_verified_run(
             root,
@@ -232,8 +233,8 @@ def _sobol_campaign(tmp_path: Path, n: int = 8) -> Path:
         unique.setdefault(row["runId"], row)
     for run_id, row in unique.items():
         value = float(row["a"] + row["seed"] / 10 + row["a"] * row["seed"] / 20)
-        write_parquet_atomic(
-            pa.table({"synthetic": [value]}), root / "archives" / run_id / "age.parquet"
+        write_csv(
+            pa.table({"synthetic": [value]}), root / "archives" / run_id / "age.csv"
         )
         _write_verified_run(
             root,
@@ -612,9 +613,9 @@ def test_multiscramble_descriptive_only_publishes_partial_campaign_without_infer
     build_plan(design)
     plan = pq.read_table(design.campaign_root / "plan.parquet")
     row = next(iter({item["runId"]: item for item in plan.to_pylist()}.values()))
-    write_parquet_atomic(
+    write_csv(
         pa.table({"synthetic": [float(row["a"] + row["seed"])]}),
-        design.campaign_root / "archives" / row["runId"] / "age.parquet",
+        design.campaign_root / "archives" / row["runId"] / "age.csv",
     )
     _write_verified_run(
         design.campaign_root,
@@ -778,9 +779,9 @@ def test_sobol_analysis_rejects_unplanned_degenerate_hybrid_contrasts(
     for row in pq.read_table(root / "plan.parquet").to_pylist():
         unique.setdefault(row["runId"], row)
     for run_id, row in unique.items():
-        write_parquet_atomic(
+        write_csv(
             pa.table({"synthetic": [float(row["seed"])]}),
-            root / "archives" / run_id / "age.parquet",
+            root / "archives" / run_id / "age.csv",
         )
         _write_verified_run(
             root,
@@ -1196,9 +1197,9 @@ def test_multiscramble_transactionally_publishes_outputs_and_manifest_v7(
     unique = {row["runId"]: row for row in plan.to_pylist()}
     for run_id, row in unique.items():
         value = float(row["a"] + row["seed"] / 10 + row["a"] * row["seed"] / 20)
-        write_parquet_atomic(
+        write_csv(
             pa.table({"synthetic": [value]}),
-            design.campaign_root / "archives" / run_id / "age.parquet",
+            design.campaign_root / "archives" / run_id / "age.csv",
         )
         _write_verified_run(
             design.campaign_root,
@@ -1242,9 +1243,9 @@ def test_scientific_analysis_refuses_evidence_from_other_eqasim_source(
         execution_evidence(design.context_hash), model_source_sha256="f" * 64
     )
     for run_id, row in unique.items():
-        write_parquet_atomic(
+        write_csv(
             pa.table({"synthetic": [float(row["a"])]}),
-            design.campaign_root / "archives" / run_id / "age.parquet",
+            design.campaign_root / "archives" / run_id / "age.csv",
         )
         _write_verified_run(
             design.campaign_root,
@@ -1461,10 +1462,11 @@ def test_manifest_v7_seals_immutable_outputs_and_complete_provenance(
         "scalarizer": {"name": "tv_distance", "version": 1},
         "artifact": {
             "name": "age",
+            "file": "age.csv",
+            "separator": ",",
             "classColumn": "class",
             "syntheticColumn": "synthetic",
             "referenceColumns": ["reference"],
-            "producingStage": "test.producer",
         },
         "implementation": {
             "identity": "eqasim_sa.core.indicators:TotalVariationIndicator",
@@ -1559,7 +1561,7 @@ def test_selected_archive_mutation_aborts_without_changing_current_generation(
     thread = threading.Thread(target=run)
     thread.start()
     assert entered.wait(5)
-    source = root / "archives" / run_ids[0] / "age.parquet"
+    source = root / "archives" / run_ids[0] / "age.csv"
     source.write_bytes(b"mutated source")
     release.set()
     thread.join(5)
@@ -1608,9 +1610,9 @@ def test_analyze_writes_replication_dispersion_for_partial_groups(
         (-1.0, 1.0, 99.0, 7.0),
         strict=True,
     ):
-        write_parquet_atomic(
+        write_csv(
             pa.table({"class": ["x"], "synthetic": [value], "reference": [1.0]}),
-            root / "archives" / run_id / "age.parquet",
+            root / "archives" / run_id / "age.csv",
         )
         if seed != 13:
             _write_verified_run(
@@ -2214,7 +2216,7 @@ def test_discrete_oat_fake_pipeline_end_to_end_deduplicates_runs_and_ranks(
         {"config": {"a": 0}},
         {"a": [0, 1]},
         (7,),
-        {"run": ["population"]},
+        {},
         context_hash,
         descriptor,
         root,
@@ -2277,7 +2279,7 @@ def test_missing_artifact_names_run_indicator_and_preserves_previous(
     output = root / "indicators.parquet"
     output.write_bytes(b"previous")
     before = _snapshot(root)
-    (root / "archives" / run_ids[0] / "age.parquet").unlink()
+    (root / "archives" / run_ids[0] / "age.csv").unlink()
     after_removal = _snapshot(root)
 
     with pytest.raises(
@@ -2288,7 +2290,7 @@ def test_missing_artifact_names_run_indicator_and_preserves_previous(
 
     assert output.read_bytes() == b"previous"
     assert _snapshot(root) == after_removal
-    assert set(before) - set(after_removal) == {f"archives/{run_ids[0]}/age.parquet"}
+    assert set(before) - set(after_removal) == {f"archives/{run_ids[0]}/age.csv"}
     assert not tuple(root.glob(".t????????"))
 
 

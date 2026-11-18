@@ -9,6 +9,7 @@ import statistics
 import pyarrow as pa
 
 from eqasim_sa.core.context_identity import ExecutionContextIdentity
+from eqasim_sa.core.indicators import validate_outputs_declaration
 from eqasim_sa.core.methods.common import _json, trajectory_role
 from eqasim_sa.core.methods.discrete_oat_plan import (
     DISCRETE_OAT_DOMAIN,
@@ -32,6 +33,7 @@ def _discrete_oat_effects(
         b"planSchemaVersion",
         b"canonicalizationVersion",
         b"contextDescriptor",
+        b"outputsDeclaration",
         design_version_key,
         design_key,
     }
@@ -51,6 +53,7 @@ def _discrete_oat_effects(
         )
     except Exception as error:
         raise ValueError("Discrete OAT metadata is invalid") from error
+    validate_outputs_declaration(metadata[b"outputsDeclaration"])
     context_identity.as_dict()
     context_hash = context_identity.sha256
     if set(design) != {"designSeed", "trajectories", "factors"}:

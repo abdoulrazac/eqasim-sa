@@ -20,16 +20,20 @@ from eqasim_sa.adapters.application import analyze_from_meta_config, run_from_me
 from eqasim_sa.adapters.backends.local import LocalBackend
 from eqasim_sa.adapters.data_manifest import generate_data_manifest
 from eqasim_sa.adapters.eqasim.config import EqasimSettings
-from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator, eqasim_requirements
+from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator
 from eqasim_sa.adapters.execution_seal import create_execution_seal
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.adapters.worker import Indexed, WorkerBatch
+from eqasim_sa.core.indicators import OutputDeclaration
 from eqasim_sa.core.plan import GridDesign, build_plan, load_run_specs
 from eqasim_sa.core.run import RunResult, summarize_runs
 from eqasim_sa.core.software_identity import read_software_identity
 from eqasim_sa.ports.simulator import ExecutionEvidence
 from tests.provenance_helpers import context_hash, scientific_context_descriptor
 from tests.conftest import make_symlink, pid_alive
+
+
+PERSONS = {"persons": OutputDeclaration("{prefix}persons.csv", ";")}
 
 
 def meta_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
@@ -40,7 +44,8 @@ def meta_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     data.mkdir()
     (data / "input.txt").write_text("sealed data\n")
     config.write_text(
-        "working_directory: /ignored\nrun: [old]\nconfig:\n  a: 0\n  b: x\n"
+        "working_directory: /ignored\n"
+        "run: [synthesis.output, analysis.synthesis.population]\nconfig:\n  a: 0\n  b: x\n"
         "  data_path: ../data\n  processes: 1\n  random_seed: 9\n"
     )
     (model / "lock.yml").write_text("locked\n")
@@ -53,6 +58,7 @@ def meta_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
         "  data_manifest: manifest.json\n  lockfile: model/lock.yml\n"
         "experiment:\n  method: grid\n  seeds: [41, 42]\n"
         "parameters:\n  a: [1, 2]\n  b: [x, y]\n"
+        "outputs:\n  persons: {}\n"
     )
     return meta, model, config, manifest
 
@@ -334,6 +340,7 @@ def test_execution_seal_freezes_child_environment_and_absolute_invocation(
         loaded.model_document,
         loaded.model_bytes,
         execution_seal=seal,
+        outputs=loaded.outputs,
     )
 
     manifest = adapter.simulate(resolved, 41, settings.workdir)
@@ -555,10 +562,11 @@ def test_slurm_campaign_resumes_only_missing_runs_and_complete_campaign_is_noop(
         loaded.model_document,
         loaded.factors,
         loaded.seeds,
-        dict(application.eqasim_requirements(loaded.indicator_requirements)),
+        {},
         loaded.context_hash,
         loaded.context_descriptor,
         loaded.campaign_root,
+        outputs=loaded.outputs,
     )
     specs = load_run_specs(
         loaded.campaign_root / "plan.parquet", design, loaded.campaign
@@ -635,7 +643,6 @@ def test_remote_jobs_survive_workdir_loss_and_resume_only_from_runs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from eqasim_sa.adapters import application
     from eqasim_sa.adapters import data_manifest
     from eqasim_sa.adapters.application import plan_from_meta_config
     from eqasim_sa.adapters.backends.slurm import EqasimSlurmJob
@@ -661,10 +668,11 @@ def test_remote_jobs_survive_workdir_loss_and_resume_only_from_runs(
         loaded.model_document,
         loaded.factors,
         loaded.seeds,
-        dict(application.eqasim_requirements(loaded.indicator_requirements)),
+        {},
         loaded.context_hash,
         loaded.context_descriptor,
         loaded.campaign_root,
+        outputs=loaded.outputs,
     )
     specs = load_run_specs(
         loaded.campaign_root / "plan.parquet", design, loaded.campaign
@@ -869,10 +877,11 @@ def test_plan_reconstruction_deduplicates_first_occurrence(tmp_path: Path) -> No
         loaded.model_document,
         loaded.factors,
         loaded.seeds,
-        dict(eqasim_requirements(loaded.indicator_requirements)),
+        {},
         loaded.context_hash,
         loaded.context_descriptor,
         loaded.campaign_root,
+        outputs=loaded.outputs,
     )
     specs = load_run_specs(
         loaded.campaign_root / "plan.parquet", design, loaded.campaign
@@ -892,7 +901,7 @@ def test_discrete_oat_plan_reconstruction_deduplicates_coincident_structural_pos
         {"config": {"a": 0}},
         {"a": [0, 1]},
         (11,),
-        {"run": ["stage"]},
+        {},
         context_hash(descriptor),
         descriptor,
         root,
@@ -922,7 +931,7 @@ def test_sobol_plan_reconstruction_deduplicates_without_losing_positions(
         {"config": {"a": 0}},
         {"a": [0, 1]},
         (11, 12),
-        {"run": ["stage"]},
+        {},
         context_hash(descriptor),
         descriptor,
         root,
@@ -962,10 +971,11 @@ def test_plan_reconstruction_rejects_tampering_before_effect(tmp_path: Path) -> 
             loaded.model_document,
             loaded.factors,
             loaded.seeds,
-            {"run": ["synthesis.output", "analysis.synthesis.population"]},
+            {},
             loaded.context_hash,
             loaded.context_descriptor,
             loaded.campaign_root,
+            outputs=loaded.outputs,
         )
         load_run_specs(path, design, loaded.campaign)
     assert not any(
@@ -1005,10 +1015,11 @@ def test_plan_reconstruction_rejects_unsafe_files(tmp_path: Path, damage: str) -
         loaded.model_document,
         loaded.factors,
         loaded.seeds,
-        {"run": ["synthesis.output", "analysis.synthesis.population"]},
+        {},
         loaded.context_hash,
         loaded.context_descriptor,
         loaded.campaign_root,
+        outputs=loaded.outputs,
     )
     if damage == "missing":
         path.unlink()
@@ -1150,7 +1161,7 @@ def test_sobol_capacity_warning_is_exact_and_precedes_backend_submission(
         model_document={"config": {}},
         model_bytes=b"x",
         context_hash="c" * 64,
-        indicator_requirements=(),
+        outputs=PERSONS,
         factors={"a": [1, 2]},
         seeds=(1, 2),
         context_descriptor={"version": "test"},
@@ -1232,7 +1243,7 @@ def test_sobol_capacity_warning_is_absent_when_work_fits_or_is_complete(
         campaign="demo",
         campaign_root=root,
         execution=SimpleNamespace(backend="local", workers=2, overrides={}),
-        indicator_requirements=(),
+        outputs=PERSONS,
         factors={},
         seeds=(1, 2),
         context_hash="c" * 64,
@@ -1398,10 +1409,11 @@ def test_campaign_resume_filters_before_simulator_backend_and_preflight(
         loaded.model_document,
         loaded.factors,
         loaded.seeds,
-        dict(application.eqasim_requirements(loaded.indicator_requirements)),
+        {},
         loaded.context_hash,
         loaded.context_descriptor,
         loaded.campaign_root,
+        outputs=loaded.outputs,
     )
     specs = load_run_specs(
         loaded.campaign_root / "plan.parquet", design, loaded.campaign

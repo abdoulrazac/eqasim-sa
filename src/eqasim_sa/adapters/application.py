@@ -22,12 +22,7 @@ from eqasim_sa.adapters.eqasim.execution import (
     EqasimBatchExecutor,
     _apply_execution_overrides,
 )
-from eqasim_sa.adapters.eqasim.simulator import (
-    DEDICATED,
-    EqasimSimulator,
-    eqasim_requirements,
-    validate_transport,
-)
+from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator
 from eqasim_sa.adapters.fake.simulator import FakeSimulator
 from eqasim_sa.adapters.estimate import estimate_from_meta_config
 from eqasim_sa.adapters.meta_config import load_meta_config
@@ -37,6 +32,7 @@ from eqasim_sa.adapters.worker import ordered_results, worker_batches
 from eqasim_sa.cli import dispatch
 from eqasim_sa.core.analyze import analyze
 from eqasim_sa.core.context_identity import ExecutionContextIdentity
+from eqasim_sa.core.indicators import OutputDeclaration
 from eqasim_sa.core.plan import (
     PlanResult,
     build_plan,
@@ -46,7 +42,6 @@ from eqasim_sa.adapters.execution_seal import current_machine_identity
 from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
 from eqasim_sa.core.run import (
     require_same_machine,
-    EXCLUDED_PATHS,
     compute_run_id,
     pending_run_specs,
     summarize_runs,
@@ -71,8 +66,25 @@ def build_eqasim(arguments: Namespace) -> tuple[EqasimSimulator, dict, object]:
         arguments.current_context_hash,
     )
     config = load_config(settings.config_path, arguments.seed)
-    simulator = EqasimSimulator(settings, config)
+    simulator = EqasimSimulator(
+        settings, config, outputs=_outputs_argument(arguments.outputs_json)
+    )
     return simulator, config, simulator.workspace.root
+
+
+def _outputs_argument(value: str) -> dict[str, OutputDeclaration]:
+    document = json.loads(value)
+    if not isinstance(document, dict) or not all(
+        isinstance(item, dict) and set(item) == {"file", "separator"}
+        for item in document.values()
+    ):
+        raise TypeError(
+            "outputs-json must map output names to {file, separator} objects"
+        )
+    return {
+        name: OutputDeclaration(item["file"], item["separator"])
+        for name, item in document.items()
+    }
 
 
 def plan_from_meta_config(path: Path) -> PlanResult:
@@ -87,15 +99,7 @@ def plan_from_meta_config(path: Path) -> PlanResult:
     except ValueError:
         raise ValueError("context descriptor does not match contextHash")
     verify_software_source_states(meta.software_identity)
-    requirements = dict(eqasim_requirements(meta.indicator_requirements))
-    config_requirements = requirements.get("config", {})
-    if not isinstance(config_requirements, dict):
-        raise TypeError("requirements config must be a mapping")
-    for name, value in config_requirements.items():
-        if f"config.{name}" in EXCLUDED_PATHS or name in DEDICATED:
-            raise ValueError(f"requirements contain infrastructure option: {name!r}")
-        validate_transport(name, value)
-    result = build_plan(_design(meta, requirements))
+    result = build_plan(_design(meta))
     verify_software_source_states(meta.software_identity)
     return result
 
@@ -128,7 +132,7 @@ def enforce_same_machine(meta, specs=None) -> None:  # type: ignore[no-untyped-d
     """
 
     if specs is None:
-        design = _design(meta, dict(eqasim_requirements(meta.indicator_requirements)))
+        design = _design(meta)
         specs = load_run_specs(
             meta.campaign_root / "plan.parquet", design, meta.campaign
         )
@@ -155,8 +159,7 @@ def run_from_meta_config(path: Path) -> dict:
     verify_software_source_states(meta.software_identity)
     if getattr(meta.execution, "data_path", None) is not None:
         load_data_manifest(meta.data_manifest)
-    requirements = dict(eqasim_requirements(meta.indicator_requirements))
-    design = _design(meta, requirements)
+    design = _design(meta)
     specs = load_run_specs(meta.campaign_root / "plan.parquet", design, meta.campaign)
     unique_runs = len(specs)
     meta.campaign_root.resolve(strict=True)

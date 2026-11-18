@@ -21,6 +21,7 @@ from eqasim_sa.adapters.eqasim.source_fingerprint import (
     eqasim_source_exclusions,
     model_source_sha256,
 )
+from eqasim_sa.core.indicators import validate_outputs_declaration
 from eqasim_sa.core.sensitivity import engine_descriptor, morris_unit_trajectories
 from eqasim_sa.core.software_identity import read_software_identity
 from eqasim_sa.utils import platform
@@ -224,6 +225,7 @@ def _sealed_morris_plan(
         b"planSchemaVersion",
         b"canonicalizationVersion",
         b"contextDescriptor",
+        b"outputsDeclaration",
         b"canonicalMorrisDesignVersion",
         b"canonicalMorrisDesign",
     }
@@ -234,6 +236,7 @@ def _sealed_morris_plan(
         or metadata.get(b"canonicalMorrisDesignVersion") != b"3"
     ):
         raise ValueError("canonical Morris plan metadata is missing or unsupported")
+    validate_outputs_declaration(metadata[b"outputsDeclaration"])
     try:
         descriptor = json.loads(
             metadata[b"contextDescriptor"], object_pairs_hook=_object

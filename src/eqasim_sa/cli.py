@@ -114,6 +114,11 @@ def parser() -> argparse.ArgumentParser:
     eqasim.add_argument("--seed", type=int, required=True)
     eqasim.add_argument("--expected-context-hash", required=True)
     eqasim.add_argument("--current-context-hash", required=True)
+    eqasim.add_argument(
+        "--outputs-json",
+        required=True,
+        help='declared outputs as {"name": {"file": ..., "separator": ...}}',
+    )
     return result
 
 

@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 
 import pyarrow as pa
@@ -5,6 +6,7 @@ import pyarrow.parquet as pq
 import pytest
 
 import eqasim_sa.core.ledger as ledger_module
+from eqasim_sa.ports.simulator import Artifact
 from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
 from eqasim_sa.core.ledger import RunRecord, archive_transaction
 from eqasim_sa.core.run import RunSpec, compute_run_id
@@ -37,8 +39,8 @@ def plan(root: Path, specs: tuple[RunSpec, ...]) -> Path:
 
 def complete(root: Path, current: RunSpec, value: int) -> None:
     run_id = compute_run_id(current.resolved_config, current.seed)
-    source = root / f"source-{value}.parquet"
-    pq.write_table(pa.table({"value": [value]}), source, compression="zstd")
+    source = root / f"source-{value}.csv"
+    source.write_bytes(f"value\n{value}\n".encode())
     record = RunRecord(
         run_id,
         current.campaign,
@@ -49,7 +51,7 @@ def complete(root: Path, current: RunSpec, value: int) -> None:
         current.parameters,
         128,
     )
-    with archive_transaction(root, run_id, (("output.parquet", source),)) as publication:
+    with archive_transaction(root, run_id, (Artifact("output", source, "output.csv"),)) as publication:
         publication.commit(record)
 
 
@@ -67,8 +69,15 @@ def test_snapshot_captures_plan_runs_archives_and_measurements(tmp_path: Path) -
     }
     assert snapshot.completed_ids == {run_id}
     assert snapshot.measurements == ((2.5, snapshot.runs[run_id].durable_bytes, 128),)
-    assert pq.read_table(materialized.artifacts[run_id].path("output")).to_pylist() == [
-        {"value": 10}
+    assert materialized.artifacts[run_id].path("output").read_bytes() == b"value\n10\n"
+    assert materialized.artifacts[run_id].path("output").name == "output.csv"
+    assert materialized.run_set_document["runs"][0]["artifacts"] == [
+        {
+            "name": "output",
+            "sourcePath": "output.csv",
+            "size": len(b"value\n10\n"),
+            "sha256": hashlib.sha256(b"value\n10\n").hexdigest(),
+        }
     ]
     snapshot.verify()
 

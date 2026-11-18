@@ -17,6 +17,7 @@ if sys.platform == "win32":
         allow_module_level=True,
     )
 
+from eqasim_sa.core.indicators import OutputDeclaration
 from eqasim_sa.adapters.backends import slurm  # noqa: E402
 from eqasim_sa.adapters.backends.slurm import EqasimSlurmJob, SlurmBackend  # noqa: E402
 from eqasim_sa.adapters.worker import Indexed, WorkerBatch
@@ -463,6 +464,7 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
         model_bytes=b"config",
         campaign_root=tmp_path,
         structured_factors={},
+        outputs={"persons": OutputDeclaration("{prefix}persons.csv", ";")},
         software_identity=software_identity,
         eqasim_sa_sha256=software_identity.sha256,
     )
@@ -488,7 +490,7 @@ def test_remote_job_is_named_serializable_and_revalidates_context(
             raise RuntimeError("interrupt failed")
 
     simulator = Simulator()
-    monkeypatch.setattr(eqasim_execution, "EqasimSimulator", lambda *args: simulator)
+    monkeypatch.setattr(eqasim_execution, "EqasimSimulator", lambda *args, **kwargs: simulator)
     observed = []
     monkeypatch.setattr(
         eqasim_execution,

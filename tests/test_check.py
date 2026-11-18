@@ -7,11 +7,16 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pyarrow as pa
-import pyarrow.parquet as pq
+import pyarrow.csv as pa_csv
 import pytest
 
 from eqasim_sa.adapters import checks as check_service
-from eqasim_sa.core.indicators import TableArtifact, TotalVariationIndicator
+from eqasim_sa.adapters.eqasim.artifacts import KNOWN_OUTPUTS
+from eqasim_sa.core.indicators import (
+    OutputDeclaration,
+    TableArtifact,
+    TotalVariationIndicator,
+)
 from eqasim_sa.core.plan import GridDesign, unique_config_seed_pairs
 from eqasim_sa.core.software_identity import read_software_identity
 from eqasim_sa.ports.simulator import Artifact, Manifest
@@ -31,12 +36,12 @@ def design(
     return GridDesign(
         {
             "working_directory": "/ignored",
-            "run": [],
+            "run": ["synthesis.output", "analysis.synthesis.population"],
             "config": {"rate": 1, "sampling_rate": 1},
         },
         factors,
         seeds,
-        {"run": ["stage"]},
+        {},
         context_hash(descriptor),
         descriptor,
         root,
@@ -75,7 +80,7 @@ def test_static_check_accepts_sealed_structural_coincidences_but_grid_still_reje
         execution=SimpleNamespace(invocation=("spy",), scratch=tmp_path, workers=1),
         model_root=tmp_path,
         calibration_meta_configs=(),
-        indicator_requirements=(),
+        outputs={},
         software_identity=read_software_identity(),
     )
     monkeypatch.setattr(check_service, "load_meta_config", lambda *args, **kwargs: meta)
@@ -122,7 +127,7 @@ def test_discrete_oat_position_check_fails_when_sealed_plan_validation_failed(
         execution=None,
         model_root=tmp_path,
         calibration_meta_configs=(),
-        indicator_requirements=(),
+        outputs={},
     )
     monkeypatch.setattr(check_service, "load_meta_config", lambda *args, **kwargs: meta)
     monkeypatch.setattr(
@@ -210,7 +215,7 @@ def test_check_aggregates_duplicate_and_disk_errors(
         model_config=tmp_path / "config.yml",
         model_bytes=b"config: {}",
         calibration_meta_configs=(),
-        indicator_requirements=(),
+        outputs={},
     )
     monkeypatch.setattr(
         check_service,
@@ -235,33 +240,26 @@ def test_check_aggregates_duplicate_and_disk_errors(
     assert payload["elapsedSeconds"] < 60
 
 
-def test_check_captures_unknown_artifact_producer_as_structured_diagnostic(
+def test_check_captures_indicator_on_undeclared_output_as_structured_diagnostic(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from eqasim_sa.adapters import application
-    from eqasim_sa.ports.simulator import IndicatorRequirement
+    from tests.test_campaign_run import meta_fixture
 
-    meta = SimpleNamespace(
-        factors={},
-        model_document={"config": {}},
-        calibration_meta_configs=(),
-        indicator_requirements=(IndicatorRequirement("tv_distance(unknown, ref=r)", "unknown"),),
-        seeds=(1,),
-        context_hash="c" * 64,
-        context_descriptor={"version": "test"},
-        campaign_root=tmp_path / "campaign",
+    meta, _, _, _ = meta_fixture(tmp_path)
+    meta.write_text(
+        meta.read_text()
+        + "indicators:\n  - tv_distance: {output: unknown, reference: r}\n"
     )
-    monkeypatch.setattr(check_service, "load_meta_config", lambda *args, **kwargs: meta)
 
-    payload = application.check_from_meta_config(Path("meta.yml"), (), False)
+    payload = application.check_from_meta_config(meta, (), False)
 
     assert payload["status"] == "invalid"
     diagnostic = next(
         item for item in payload["checks"] if item["name"] == "metaConfig"
     )
     assert diagnostic["status"] == "failed"
-    assert "tv_distance(unknown, ref=r)" in diagnostic["error"] and "unknown" in diagnostic["error"]
+    assert "tv_distance(unknown" in diagnostic["error"]
 
 
 def test_check_reports_disk_measurements_when_space_is_insufficient(
@@ -285,7 +283,7 @@ def test_check_reports_disk_measurements_when_space_is_insufficient(
         model_root=tmp_path,
         control_states=(),
         calibration_meta_configs=(),
-        indicator_requirements=(),
+        outputs={},
     )
     monkeypatch.setattr(check_service, "load_meta_config", lambda *args, **kwargs: meta)
     monkeypatch.setattr(check_service, "load_run_specs", lambda *args: ())
@@ -406,7 +404,7 @@ def test_static_check_never_touches_referenced_data(
         execution=SimpleNamespace(invocation=("spy",), scratch=tmp_path, workers=1),
         model_root=tmp_path,
         calibration_meta_configs=(),
-        indicator_requirements=(),
+        outputs={},
         software_identity=read_software_identity(),
     )
     monkeypatch.setattr(
@@ -478,7 +476,9 @@ def test_smoke_applies_run_overrides_and_computes_every_indicator(
         if indicator_case is None
         else (
             TotalVariationIndicator(
-                TableArtifact("age", "class", "synthetic", True),
+                TableArtifact(
+                    "age", "age.csv", ",", "class", "synthetic", ("reference",)
+                ),
                 "reference",
             ),
         )
@@ -497,6 +497,10 @@ def test_smoke_applies_run_overrides_and_computes_every_indicator(
         model_document=config,
         model_bytes=b"x",
         structured_factors={},
+        outputs={
+            name: OutputDeclaration(known.file, known.separator)
+            for name, known in KNOWN_OUTPUTS.items()
+        },
         indicators=indicators,
         software_identity=read_software_identity(),
         context_hash="c" * 64,
@@ -544,7 +548,7 @@ def test_smoke_applies_run_overrides_and_computes_every_indicator(
             )
             artifacts = []
             for name in names:
-                artifact = attempt / f"{name}.parquet"
+                artifact = attempt / f"{name}.csv"
                 if name == "age" and indicator_case == "duplicate-class":
                     table = pa.table(
                         {
@@ -555,8 +559,8 @@ def test_smoke_applies_run_overrides_and_computes_every_indicator(
                     )
                 else:
                     table = pa.table({"value": [seed]})
-                pq.write_table(table, artifact)
-                artifacts.append(Artifact(artifact.name, artifact))
+                pa_csv.write_csv(table, artifact)
+                artifacts.append(Artifact(name, artifact, f"{name}.csv"))
             return Manifest(tuple(artifacts), attempt)
 
     monkeypatch.setattr(eqasim_execution, "EqasimSimulator", Simulator)
@@ -603,7 +607,7 @@ def _static_payload(
         ),
         model_root=tmp_path,
         calibration_meta_configs=(),
-        indicator_requirements=(),
+        outputs={},
         software_identity=read_software_identity(),
     )
     monkeypatch.setattr(check_service, "load_meta_config", lambda *args, **kwargs: meta)

@@ -14,13 +14,14 @@ from eqasim_sa.core import ledger
 import eqasim_sa.utils.filesystem as durable_publication
 from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
 from eqasim_sa.core.ledger import ArtifactManifestEntry, RunRecord, run_path, write_run
+from eqasim_sa.ports.simulator import Artifact
 from eqasim_sa.core.run import RunSpec, compute_run_id, pending_run_specs
 from eqasim_sa.ports.simulator import EXECUTION_EVIDENCE_DOMAIN, ExecutionEvidence
 from tests.conftest import make_symlink
 from tests.provenance_helpers import write_archive, write_verified_run
 
 # Any well-formed manifest: record validation must fail before it is used.
-UNUSED_MANIFEST = (ArtifactManifestEntry("output.parquet", 1, "0" * 64),)
+UNUSED_MANIFEST = (ArtifactManifestEntry("output", "output.csv", 1, "0" * 64),)
 
 
 def is_complete(campaign_root: Path, current: RunSpec) -> bool:
@@ -339,8 +340,8 @@ def complete_v2(
     root: Path, spec: RunSpec, evidence: ExecutionEvidence | None = None
 ) -> tuple[Path, Path, bytes]:
     root.mkdir(parents=True, exist_ok=True)
-    source = root / "source.parquet"
-    pq.write_table(pa.table({"value": [1, 2]}), source, compression="zstd")
+    source = root / "source.csv"
+    source.write_bytes(b"value\n1\n2\n")
     source_bytes = source.read_bytes()
     run_id = compute_run_id(spec.resolved_config, spec.seed)
     record = RunRecord(
@@ -353,10 +354,10 @@ def complete_v2(
         spec.parameters,
     )
     with ledger.archive_transaction(
-        root, run_id, (("output.parquet", source),)
+        root, run_id, (Artifact("output", source, "output.csv"),)
     ) as publication:
         marker = publication.commit(record, execution_evidence=evidence)
-    return marker, root / "archives" / run_id / "output.parquet", source_bytes
+    return marker, root / "archives" / run_id / "output.csv", source_bytes
 
 
 def test_archive_transaction_never_replaces_a_competing_marker(
@@ -364,12 +365,12 @@ def test_archive_transaction_never_replaces_a_competing_marker(
 ) -> None:
     spec = run_spec(rate=1)
     tmp_path.mkdir(exist_ok=True)
-    source = tmp_path / "source.parquet"
-    pq.write_table(pa.table({"value": [1]}), source, compression="zstd")
+    source = tmp_path / "source.csv"
+    source.write_bytes(b"value\n1\n")
     record = replace(expected_record(spec), node="node", duration=1.0)
 
     with ledger.archive_transaction(
-        tmp_path, record.run_id, (("output.parquet", source),)
+        tmp_path, record.run_id, (Artifact("output", source, "output.csv"),)
     ) as publication:
         source_bytes = source.read_bytes()
         marker = write_run(
@@ -377,7 +378,8 @@ def test_archive_transaction_never_replaces_a_competing_marker(
             record,
             (
                 ArtifactManifestEntry(
-                    "output.parquet",
+                    "output",
+                    "output.csv",
                     len(source_bytes),
                     hashlib.sha256(source_bytes).hexdigest(),
                 ),
@@ -396,12 +398,12 @@ def test_archive_marker_commit_uses_only_anchors_captured_during_prepare(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     spec = run_spec(rate=1)
-    source = tmp_path / "source.parquet"
-    pq.write_table(pa.table({"value": [1]}), source, compression="zstd")
+    source = tmp_path / "source.csv"
+    source.write_bytes(b"value\n1\n")
     record = replace(expected_record(spec), node="node", duration=1.0)
 
     with ledger.archive_transaction(
-        tmp_path, record.run_id, (("output.parquet", source),)
+        tmp_path, record.run_id, (Artifact("output", source, "output.csv"),)
     ) as publication:
         monkeypatch.setattr(
             ledger,
@@ -423,8 +425,8 @@ def test_archive_transaction_marker_race_is_no_clobber_and_self_consistent(
     tmp_path.mkdir(exist_ok=True)
     sources = []
     for value in (1, 2):
-        source = tmp_path / f"source-{value}.parquet"
-        pq.write_table(pa.table({"value": [value]}), source, compression="zstd")
+        source = tmp_path / f"source-{value}.csv"
+        source.write_bytes(f"value\n{value}\n".encode())
         sources.append(source)
     record = replace(expected_record(spec), node="node", duration=1.0)
     barrier = threading.Barrier(2)
@@ -443,7 +445,7 @@ def test_archive_transaction_marker_race_is_no_clobber_and_self_consistent(
             with ledger.archive_transaction(
                 tmp_path,
                 record.run_id,
-                (("output.parquet", sources[value - 1]),),
+                (Artifact("output", sources[value - 1], "output.csv"),),
             ) as publication:
                 publication.commit(record)
             committed.append(value)
@@ -462,8 +464,8 @@ def test_archive_transaction_marker_race_is_no_clobber_and_self_consistent(
     completion = ledger.completion_state(tmp_path, expected_record(spec))
     assert completion is not None
     assert completion.archive == tmp_path / "archives" / record.run_id
-    archive = tmp_path / "archives" / record.run_id / "output.parquet"
-    assert pq.read_table(archive).to_pylist() == [{"value": committed[0]}]
+    archive = tmp_path / "archives" / record.run_id / "output.csv"
+    assert archive.read_bytes() == f"value\n{committed[0]}\n".encode()
     assert not tuple((tmp_path / "archives").glob(".b????????"))
     assert not tuple((tmp_path / "archives").glob(".s????????"))
 
@@ -513,7 +515,7 @@ def expected_record(spec: RunSpec) -> RunRecord:
     )
 
 
-def test_v2_marker_has_canonical_manifest_and_copies_zstd_bytes(
+def test_v2_marker_has_canonical_manifest_and_copies_bytes(
     tmp_path: Path,
 ) -> None:
     spec = run_spec(rate=1)
@@ -528,7 +530,8 @@ def test_v2_marker_has_canonical_manifest_and_copies_zstd_bytes(
     assert metadata[ledger.ARTIFACT_MANIFEST] == canonical
     assert manifest == [
         {
-            "name": "output.parquet",
+            "name": "output",
+            "sourcePath": "output.csv",
             "sha256": hashlib.sha256(source_bytes).hexdigest(),
             "size": len(source_bytes),
         }
@@ -538,7 +541,8 @@ def test_v2_marker_has_canonical_manifest_and_copies_zstd_bytes(
     assert state is not None
     assert state.artifacts == (
         ArtifactManifestEntry(
-            "output.parquet",
+            "output",
+            "output.csv",
             len(source_bytes),
             hashlib.sha256(source_bytes).hexdigest(),
         ),
@@ -621,11 +625,9 @@ def test_v2_reader_rejects_archive_inventory_and_content_damage(
     elif damage == "missing":
         artifact.unlink()
     elif damage == "extra":
-        pq.write_table(
-            pa.table({"extra": [1]}), artifact.parent / "extra.parquet"
-        )
+        (artifact.parent / "extra.csv").write_bytes(b"extra\n1\n")
     elif damage == "symlink":
-        source = tmp_path / "source.parquet"
+        source = tmp_path / "source.csv"
         artifact.unlink()
         make_symlink(artifact, source)
     elif damage == "directory":

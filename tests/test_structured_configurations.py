@@ -11,6 +11,7 @@ import pyarrow.parquet as pq
 import pytest
 import yaml
 
+from eqasim_sa.core.indicators import OutputDeclaration
 from eqasim_sa.adapters.eqasim.config import EqasimSettings, load_config, load_yaml_document
 from eqasim_sa.adapters.eqasim import execution as eqasim_execution
 from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator
@@ -21,7 +22,6 @@ from eqasim_sa.adapters.application import analyze_from_meta_config, plan_from_m
 from eqasim_sa.adapters.worker import Indexed, WorkerBatch
 from eqasim_sa.core.analyze import analyze
 from eqasim_sa.core.methods.multiscramble_sobol import _multiscramble_sobol_tables
-from eqasim_sa.utils.filesystem import write_parquet_atomic
 from eqasim_sa.core.ledger import RunRecord
 from eqasim_sa.core.plan import DiscreteOATDesign, GridDesign, SobolDesign, build_plan, load_run_specs
 from eqasim_sa.core.run import RunResult, RunSpec, compute_run_id
@@ -30,6 +30,7 @@ from eqasim_sa.ports.simulator import SimulationError
 from tests.test_multiscramble_sobol_plan import multiscramble_meta_document
 from tests.test_multiscramble_sobol_plan import multiscramble_design
 from tests.test_plan import meta_fixture
+from tests.provenance_helpers import write_csv
 from tests.provenance_helpers import scientific_indicator, write_verified_run
 
 
@@ -244,7 +245,7 @@ def _grid_design(root: Path, *, structured_factors=None) -> GridDesign:  # type:
     return GridDesign(
         base_config={
             "working_directory": "/ignored",
-            "run": ["old"],
+            "run": ["synthesis.output", "analysis.synthesis.population"],
             "config": {
                 "matching_attributes": CONFIGURATIONS["default"],
                 "random_seed": 9,
@@ -252,7 +253,7 @@ def _grid_design(root: Path, *, structured_factors=None) -> GridDesign:  # type:
         },
         factors={"matching_attributes": ["default", "reduced", "age_priority"]},
         seeds=(41,),
-        requirements={"run": ["stage"]},
+        requirements={},
         context_hash=hashlib.sha256(
             b"eqasim-sa:context:v3\0" + encoded
         ).hexdigest(),
@@ -448,9 +449,9 @@ def _structured_sobol_campaign(root: Path) -> Path:
     table = pq.read_table(root / "plan.parquet")
     for row in {row["runId"]: row for row in table.to_pylist()}.values():
         value = float(support.index(row["matching_attributes"]) + row["seed"] / 10)
-        write_parquet_atomic(
+        write_csv(
             pa.table({"synthetic": [value]}),
-            root / "archives" / row["runId"] / "age.parquet",
+            root / "archives" / row["runId"] / "age.csv",
         )
         write_verified_run(
             root,
@@ -641,7 +642,7 @@ def _simulator(tmp_path: Path) -> tuple[EqasimSimulator, dict]:
     config = tmp_path / "config.yml"
     config.write_text(
         "working_directory: /ignored\n"
-        "run: [old.stage]\n"
+        "run: [synthesis.output, analysis.synthesis.population]\n"
         "config:\n"
         "  random_seed: 1\n"
         "  output_prefix: nantes_\n"
@@ -669,6 +670,7 @@ def _simulator(tmp_path: Path) -> tuple[EqasimSimulator, dict]:
                 "reduced": ["sex"],
             }
         },
+        outputs={"persons": OutputDeclaration("{prefix}persons.csv", ";")},
     )
     return simulator, base
 
@@ -784,6 +786,7 @@ def test_slurm_callable_preserves_structured_snapshot_without_list_cli(
         model_bytes=(tmp_path / "model" / "config.yml").read_bytes(),
         campaign_root=campaign,
         structured_factors=mapping,
+        outputs={"persons": OutputDeclaration("{prefix}persons.csv", ";")},
         software_identity=software_identity,
         eqasim_sa_sha256=software_identity.sha256,
     )
@@ -806,7 +809,6 @@ def test_slurm_callable_preserves_structured_snapshot_without_list_cli(
         eqasim_execution, "execute_run", _failed_execution_spy(observed)
     )
     resolved = copy.deepcopy(base)
-    resolved["run"] = ["synthesis.output"]
     resolved["config"]["matching_attributes"] = ["sex"]
     resolved["config"]["random_seed"] = 41
     monkeypatch.setattr(
@@ -852,11 +854,11 @@ def test_public_smoke_check_preserves_structured_snapshot_without_list_cli(
         model_document=base,
         model_bytes=(tmp_path / "model" / "config.yml").read_bytes(),
         structured_factors=mapping,
+        outputs={"persons": OutputDeclaration("{prefix}persons.csv", ";")},
         software_identity=software_identity,
         context_hash="c" * 64,
     )
     resolved = copy.deepcopy(base)
-    resolved["run"] = ["synthesis.output"]
     resolved["config"]["matching_attributes"] = ["sex"]
     spec = RunSpec("demo", resolved, 41, "c" * 64, {"matching_attributes": "reduced"})
     payload = {"status": "valid", "checks": []}

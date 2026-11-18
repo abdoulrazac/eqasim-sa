@@ -25,6 +25,14 @@ from eqasim_sa.core.run import execute_run
 from tests.provenance_helpers import context_hash, scientific_indicator
 
 
+
+OUTPUTS_JSON = json.dumps(
+    {
+        "age": {"file": "analysis_population/{prefix}age.csv", "separator": ","},
+        "persons": {"file": "{prefix}persons.csv", "separator": ";"},
+    }
+)
+
 def installed_script(name: str) -> Path:
     suffix = ".exe" if sys.platform == "win32" else ""
     script = Path(sys.executable).with_name(name + suffix)
@@ -200,7 +208,7 @@ def test_installed_init_generates_template_without_campaign_execution(tmp_path: 
     model.mkdir()
     data.mkdir()
     (model / "config.yml").write_text(
-        "working_directory: /cache\nrun: []\nconfig:\n"
+        "working_directory: /cache\nrun: [synthesis.output, analysis.synthesis.population]\nconfig:\n"
         "  sampling_rate: 0.001\n  random_seed: 1\n"
         "  matching_age_scheme: matching_6\n  analysis_age_scheme: analysis_7\n"
     )
@@ -263,7 +271,7 @@ def test_installed_wheel_sobol_plan_fake_runs_and_analysis_end_to_end(
         {"config": {"a": 0}},
         {"a": [0, 1]},
         (11, 12),
-        {"run": ["population"]},
+        {},
         context_hash,
         descriptor,
         root,
@@ -310,7 +318,7 @@ def test_installed_plan_creates_replays_and_refuses_conflict(tmp_path: Path) -> 
     model = tmp_path / "model"
     model.mkdir()
     (model / "config.yml").write_text(
-        "working_directory: /ignored\nrun: [old]\nconfig:\n  rate: 0.1\n  sampling_rate: 0.1\n  random_seed: 9\n"
+        "working_directory: /ignored\nrun: [synthesis.output, analysis.synthesis.population]\nconfig:\n  rate: 0.1\n  sampling_rate: 0.1\n  random_seed: 9\n"
     )
     (model / "lock.yml").write_text("locked\n")
     (model / "pipeline.py").write_text("STAGES = []\n")
@@ -322,6 +330,7 @@ def test_installed_plan_creates_replays_and_refuses_conflict(tmp_path: Path) -> 
         "analysis:\n  completeness_threshold: 1.0\n"
         "experiment:\n  method: grid\n  seeds: [41, 42]\n"
         "parameters:\n  rate:\n    values: [{values}]\n"
+        "outputs:\n  persons: {{}}\n"
     )
     meta.write_text(template.format(root="campaign", values="0.1, 0.2"))
     command = [installed_script("eqasim-sa"), "plan", "--meta-config", meta]
@@ -399,7 +408,8 @@ def test_installed_plan_creates_replays_and_refuses_conflict(tmp_path: Path) -> 
     )
     archive_bytes = sum(
         path.stat().st_size
-        for path in (tmp_path / "campaign-2" / "archives").rglob("*.parquet")
+        for path in (tmp_path / "campaign-2" / "archives").rglob("*")
+        if path.is_file()
     )
     assert payload["status"] == "estimated" and payload["runs"] == 4
     assert payload["designPositions"] == 4 and payload["calibrationRuns"] == 4
@@ -496,7 +506,7 @@ def test_installed_campaign_interrupts_resumes_then_is_noop(tmp_path: Path) -> N
     model = tmp_path / "model"
     model.mkdir()
     (model / "config.yml").write_text(
-        "working_directory: /x\nrun: []\nconfig:\n  rate: 0.1\n  random_seed: 9\n"
+        "working_directory: /x\nrun: [synthesis.output, analysis.synthesis.population]\nconfig:\n  rate: 0.1\n  random_seed: 9\n"
     )
     (model / "lock.yml").write_text("locked\n")
     (model / "pipeline.py").write_text("STAGES = []\n")
@@ -509,6 +519,7 @@ def test_installed_campaign_interrupts_resumes_then_is_noop(tmp_path: Path) -> N
         "  data_manifest: manifest.json\n  lockfile: model/lock.yml\n"
         "analysis:\n  completeness_threshold: 1.0\n"
         "experiment:\n  method: grid\n  seeds: [41]\nparameters:\n  rate:\n    values: [0.1]\n"
+        "outputs:\n  persons: {}\n"
         f"execution:\n  backend: local\n  workers: 1\n  scratch: {scratch}\n"
         f"  invocation: [{sys.executable}, {Path(__file__).with_name('eqasim_spy.py')}]\n"
     )
@@ -692,7 +703,7 @@ def test_fake_executable_requires_request_and_manifest(tmp_path: Path) -> None:
 def test_installed_cli_runs_eqasim_subprocess_then_skips(tmp_path: Path) -> None:
     config = tmp_path / "config.yml"
     config.write_text(
-        "working_directory: /ignored\nrun: [old.stage]\nconfig:\n"
+        "working_directory: /ignored\nrun: [synthesis.output, analysis.synthesis.population]\nconfig:\n"
         "  sampling_rate: 0.001\n  random_seed: 9\n"
         "  hts: edgt_44\n  income_assignation_method: bhepop2\n"
         "  gtfs_path: secret/path\n  output_prefix: nantes_\n  output_path: /ignored\n",
@@ -725,6 +736,8 @@ def test_installed_cli_runs_eqasim_subprocess_then_skips(tmp_path: Path) -> None
         "c" * 64,
         "--current-context-hash",
         "c" * 64,
+        "--outputs-json",
+        OUTPUTS_JSON,
     ]
     first = subprocess.run(
         command,
@@ -750,14 +763,10 @@ def test_installed_cli_runs_eqasim_subprocess_then_skips(tmp_path: Path) -> None
     assert first_record["cwd"] == str(tmp_path)
     assert not record.exists()
     archives = tmp_path / "campaign" / "archives" / first_result["runId"]
-    assert len(tuple(archives.glob("*.parquet"))) == 12
-    assert all(
-        pq.ParquetFile(path).metadata.row_group(row).column(column).compression
-        == "ZSTD"
-        for path in archives.glob("*.parquet")
-        for row in range(pq.ParquetFile(path).metadata.num_row_groups)
-        for column in range(pq.ParquetFile(path).metadata.row_group(row).num_columns)
-    )
+    assert sorted(path.name for path in archives.iterdir()) == [
+        "age.csv",
+        "persons.csv",
+    ]
     ledger = pq.read_table(
         tmp_path / "campaign" / "runs" / f"{first_result['runId']}.parquet"
     )
@@ -772,7 +781,7 @@ def test_installed_cli_runs_eqasim_subprocess_then_skips(tmp_path: Path) -> None
 def test_installed_cli_publishes_eqasim_failure_log(tmp_path: Path) -> None:
     config = tmp_path / "config.yml"
     config.write_text(
-        "working_directory: /ignored\nrun: []\nconfig:\n  output_prefix: nantes_\n",
+        "working_directory: /ignored\nrun: [synthesis.output, analysis.synthesis.population]\nconfig:\n  output_prefix: nantes_\n",
         encoding="utf-8",
     )
     scratch = tmp_path / "scratch"
@@ -807,6 +816,8 @@ def test_installed_cli_publishes_eqasim_failure_log(tmp_path: Path) -> None:
             "c" * 64,
             "--current-context-hash",
             "c" * 64,
+            "--outputs-json",
+            OUTPUTS_JSON,
         ],
         cwd=tmp_path,
         env=environment,

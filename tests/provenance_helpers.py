@@ -4,7 +4,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import pyarrow as pa
-import pyarrow.parquet as pq
+import pyarrow.csv as pa_csv
 
 from eqasim_sa.core.context_identity import ExecutionContextIdentity
 from eqasim_sa.core.indicators import (
@@ -12,6 +12,7 @@ from eqasim_sa.core.indicators import (
     TableArtifact,
     TotalVariationIndicator,
     analysis_identity,
+    read_csv_table,
 )
 from eqasim_sa.core.ledger import ArtifactManifestEntry, RunRecord, write_run
 from eqasim_sa.core.software_identity import read_software_identity
@@ -42,20 +43,20 @@ def scientific_indicator(
     *,
     class_column: str = "class",
     synthetic_column: str = "synthetic",
-    producing_stage: str = "test.producer",
+    file: str | None = None,
 ) -> TotalVariationIndicator:
     """Return the real ``tv_distance`` indicator used as the shared test double.
 
-    It reads the table written by :func:`write_artifact` under ``artifact``.
+    It reads the CSV written by :func:`write_artifact` under ``artifact``.
     """
 
     declaration = TableArtifact(
         artifact,
+        f"{artifact}.csv" if file is None else file,
+        ",",
         class_column,
         synthetic_column,
-        True,
         (reference,),
-        producing_stage,
     )
     return TotalVariationIndicator(declaration, reference)
 
@@ -94,20 +95,30 @@ def tv_table(value: float) -> pa.Table:
 
 
 def write_artifact(archive: Path, name: str, table: pa.Table) -> Path:
-    """Write one archived artifact table ``<archive>/<name>.parquet``."""
+    """Write one archived output ``<archive>/<name>.csv`` (``,``-separated)."""
 
     archive.mkdir(parents=True, exist_ok=True)
-    path = archive / f"{name}.parquet"
-    pq.write_table(table, path, compression="zstd")
+    path = archive / f"{name}.csv"
+    pa_csv.write_csv(table, path)
+    return path
+
+
+def write_csv(table: pa.Table, path: Path) -> Path:
+    """Write ``table`` as a ``,``-separated CSV archive file at ``path``."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pa_csv.write_csv(table, path)
     return path
 
 
 def synthetic_value(indicator: TotalVariationIndicator, artifacts: ArtifactSet) -> float:
     """First synthetic cell of the indicator's artifact, as a float."""
 
-    path = artifacts.path(indicator.artifact.name)
     column = indicator.artifact.synthetic_column
-    return float(pq.read_table(path, columns=[column])[column][0].as_py())
+    table = read_csv_table(
+        artifacts.path(indicator.artifact.name), ",", indicator.artifact.name, [column]
+    )
+    return float(table[column][0].as_py())
 
 
 def control_indicator(
@@ -139,10 +150,14 @@ def execution_evidence(context_hash: str) -> ExecutionEvidence:
 
 
 def archive_manifest(archive: Path) -> tuple[ArtifactManifestEntry, ...]:
-    """Describe every file of an archive directory as v2 manifest entries."""
+    """Describe every ``<name><suffix>`` file of an archive as manifest entries.
+
+    Each file is recorded as the output ``<name>`` produced at ``<name><suffix>``.
+    """
 
     return tuple(
         ArtifactManifestEntry(
+            path.name.split(".", 1)[0],
             path.name,
             path.stat().st_size,
             hashlib.sha256(path.read_bytes()).hexdigest(),
@@ -155,15 +170,13 @@ def write_archive(root: Path, run_id: str) -> tuple[ArtifactManifestEntry, ...]:
     """Return the manifest of ``archives/<run_id>``, creating a default artifact.
 
     An existing archive directory is described as-is; a missing one receives a
-    single zstd ``output.parquet`` artifact.
+    single CSV ``output.csv`` artifact.
     """
 
     archive = root / "archives" / run_id
     if not archive.exists():
         archive.mkdir(parents=True)
-        pq.write_table(
-            pa.table({"value": [1]}), archive / "output.parquet", compression="zstd"
-        )
+        (archive / "output.csv").write_bytes(b"value\n1\n")
     return archive_manifest(archive)
 
 

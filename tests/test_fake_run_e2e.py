@@ -3,13 +3,12 @@ import threading
 import time
 from pathlib import Path
 
-import pyarrow as pa
-import pyarrow.parquet as pq
 import pytest
 
 from eqasim_sa.adapters.backends.local import LocalBackend
 from eqasim_sa.adapters.fake.simulator import FakeSimulator
 from eqasim_sa.core import ledger
+from eqasim_sa.core.indicators import read_csv_table
 from eqasim_sa.core.run import RunSpec, execute_run, run_one, validate_manifest
 from eqasim_sa.ports.simulator import Artifact, Manifest, SimulationError
 from tests.conftest import make_symlink
@@ -53,18 +52,13 @@ def test_real_subprocess_archives_then_skips(tmp_path: Path) -> None:
     campaign = tmp_path / "campaign"
     first = run_one(spec(), simulator, backend, campaign, tmp_path / "work", "ctx")
     assert first.status == "completed"
-    archive = campaign / "archives" / first.run_id / "population.parquet"
+    archive = campaign / "archives" / first.run_id / "population.csv"
     run_file = campaign / "runs" / f"{first.run_id}.parquet"
     assert archive.is_file() and run_file.is_file()
-    row = pq.read_table(archive).to_pylist()[0]
-    assert row["producer_pid"] != os.getpid()
-    assert row["seed"] == 42
-    metadata = pq.ParquetFile(archive).metadata
-    assert {
-        metadata.row_group(group).column(column).compression
-        for group in range(metadata.num_row_groups)
-        for column in range(metadata.row_group(group).num_columns)
-    } == {"ZSTD"}
+    row = read_csv_table(archive, ",", "population").to_pylist()[0]
+    assert int(row["producer_pid"]) != os.getpid()
+    assert row["seed"] == "42"
+    assert archive.read_bytes().startswith(b"person_id,value,seed,producer_pid")
     before = archive.read_bytes()
     second = run_one(spec(), simulator, backend, campaign, tmp_path / "work", "ctx")
     assert second == type(second)(first.run_id, "skipped")
@@ -147,7 +141,7 @@ def test_zstd_artifact_uses_bounded_validation_and_exact_copy(
         / "campaign"
         / "archives"
         / result.run_id
-        / "population.parquet"
+        / "population.csv"
     )
     assert result.status == "completed"
     assert archive.read_bytes() == simulator.source_bytes
@@ -182,21 +176,21 @@ def test_failure_after_first_staged_artifact_leaves_no_partial_archive(
             manifest = super().simulate(config, seed, workdir)
             first = manifest.artifacts[0]
             return Manifest(
-                (first, Artifact("second.parquet", first.path)),
+                (first, Artifact("second", first.path, "second.csv")),
                 manifest.attempt_directory,
             )
 
-    original = ledger._copy_parquet_artifact
+    original = ledger._copy_artifact
     calls = 0
 
-    def fail_second(source, destination, name, interrupted):  # type: ignore[no-untyped-def]
+    def fail_second(artifact, destination, interrupted):  # type: ignore[no-untyped-def]
         nonlocal calls
         calls += 1
         if calls == 2:
             raise OSError("second artifact failed")
-        return original(source, destination, name, interrupted)
+        return original(artifact, destination, interrupted)
 
-    monkeypatch.setattr(ledger, "_copy_parquet_artifact", fail_second)
+    monkeypatch.setattr(ledger, "_copy_artifact", fail_second)
     campaign = tmp_path / "campaign"
     result = run_one(
         spec(), TwoArtifacts(), LocalBackend(), campaign, tmp_path / "work", "ctx"
@@ -287,8 +281,12 @@ def test_invalid_parameters_fail_before_backend_or_simulator(tmp_path: Path) -> 
 @pytest.mark.parametrize(
     "artifact",
     [
-        Artifact("../escape.parquet", Path("missing")),
-        Artifact("bad.txt", Path("missing")),
+        Artifact("../escape", Path("missing"), "escape.csv"),
+        Artifact("bad.txt", Path("missing"), "bad.txt"),
+        Artifact("population", Path("missing"), "../escape.csv"),
+        Artifact("population", Path("missing"), "/absolute.csv"),
+        Artifact("population", Path("missing"), "a\\b.csv"),
+        Artifact("population", Path("missing"), "population.c sv"),
     ],
 )
 def test_rejects_malicious_manifests(tmp_path: Path, artifact: Artifact) -> None:
@@ -301,17 +299,18 @@ def test_rejects_malicious_manifests(tmp_path: Path, artifact: Artifact) -> None
 def test_rejects_duplicate_and_symlink_escape(tmp_path: Path) -> None:
     attempt = tmp_path / "attempt"
     attempt.mkdir()
-    outside = tmp_path / "outside.parquet"
+    outside = tmp_path / "outside.csv"
     outside.write_bytes(b"outside")
-    link = attempt / "population.parquet"
+    link = attempt / "population.csv"
     make_symlink(link, outside)
     with pytest.raises(ValueError, match="escapes"):
         validate_manifest(
-            Manifest((Artifact("population.parquet", link),), attempt), tmp_path
+            Manifest((Artifact("population", link, "population.csv"),), attempt),
+            tmp_path,
         )
-    inside = attempt / "inside.parquet"
+    inside = attempt / "inside.csv"
     inside.write_bytes(b"inside")
-    duplicate = Artifact("inside.parquet", inside)
+    duplicate = Artifact("inside", inside, "inside.csv")
     with pytest.raises(ValueError, match="duplicate"):
         validate_manifest(Manifest((duplicate, duplicate), attempt), tmp_path)
 
@@ -320,14 +319,17 @@ def test_rejects_artifact_with_symlinked_parent(tmp_path: Path) -> None:
     attempt = tmp_path / "attempt"
     real = attempt / "real"
     real.mkdir(parents=True)
-    source = real / "population.parquet"
-    pq.write_table(pa.table({"value": [1]}), source, compression="zstd")
+    source = real / "population.csv"
+    source.write_bytes(b"value\n1\n")
     linked = attempt / "linked"
     make_symlink(linked, real, target_is_directory=True)
 
     with pytest.raises(ValueError, match="escapes"):
         validate_manifest(
-            Manifest((Artifact("population.parquet", linked / source.name),), attempt),
+            Manifest(
+                (Artifact("population", linked / source.name, "population.csv"),),
+                attempt,
+            ),
             tmp_path,
         )
 
@@ -337,17 +339,19 @@ def test_rejects_attempt_directory_outside_workdir(tmp_path: Path) -> None:
     workdir.mkdir()
     outside = tmp_path / "outside"
     outside.mkdir()
-    source = outside / "population.parquet"
+    source = outside / "population.csv"
     source.write_bytes(b"not inspected")
     with pytest.raises(ValueError, match="workdir"):
         validate_manifest(
-            Manifest((Artifact("population.parquet", source),), outside), workdir
+            Manifest((Artifact("population", source, "population.csv"),), outside),
+            workdir,
         )
-    source = workdir / "population.parquet"
+    source = workdir / "population.csv"
     source.write_bytes(b"not inspected")
     with pytest.raises(ValueError, match="workdir"):
         validate_manifest(
-            Manifest((Artifact("population.parquet", source),), workdir), workdir
+            Manifest((Artifact("population", source, "population.csv"),), workdir),
+            workdir,
         )
 
 
@@ -355,12 +359,16 @@ def test_rejects_lexical_parent_segment_inside_attempt(tmp_path: Path) -> None:
     attempt = tmp_path / "attempt"
     child = attempt / "child"
     child.mkdir(parents=True)
-    source = attempt / "population.parquet"
-    pq.write_table(pa.table({"x": [1]}), source)
+    source = attempt / "population.csv"
+    source.write_bytes(b"x\n1\n")
     with pytest.raises(ValueError, match="parent segment"):
         validate_manifest(
             Manifest(
-                (Artifact("population.parquet", child / ".." / "population.parquet"),),
+                (
+                    Artifact(
+                        "population", child / ".." / "population.csv", "population.csv"
+                    ),
+                ),
                 attempt,
             ),
             tmp_path,
@@ -605,10 +613,10 @@ def test_run_file_is_published_last_and_archive_failure_is_incomplete(
     assert result.status == "completed"
     assert events == ["archive", "marker"]
 
-    def fail_archive(source, destination, name, interrupted):  # type: ignore[no-untyped-def]
+    def fail_archive(artifact, destination, interrupted):  # type: ignore[no-untyped-def]
         raise OSError("archive failure")
 
-    monkeypatch.setattr(ledger, "_copy_parquet_artifact", fail_archive)
+    monkeypatch.setattr(ledger, "_copy_artifact", fail_archive)
     failed = run_one(
         RunSpec("other", spec().resolved_config, 43, "ctx", {}),
         FakeSimulator(),
@@ -636,11 +644,11 @@ def test_partial_publication_replays_without_cleanup(
     (campaign / "plan.parquet").parent.mkdir(parents=True)
     (campaign / "plan.parquet").write_bytes(b"sealed-plan")
     before = (campaign / "plan.parquet").read_bytes()
-    real_archive = ledger._copy_parquet_artifact
+    real_archive = ledger._copy_artifact
     real_marker = ledger.write_parquet_exclusive
     calls = 0
 
-    def fail_archive(source, destination, name, interrupted):  # type: ignore[no-untyped-def]
+    def fail_archive(artifact, destination, interrupted):  # type: ignore[no-untyped-def]
         nonlocal calls
         calls += 1
         if calls == 1:
@@ -648,10 +656,10 @@ def test_partial_publication_replays_without_cleanup(
                 errno.ENOSPC if failure == "enospc" else errno.EIO,
                 "injected publication",
             )
-        return real_archive(source, destination, name, interrupted)
+        return real_archive(artifact, destination, interrupted)
 
     if failure in {"archive", "enospc"}:
-        monkeypatch.setattr(ledger, "_copy_parquet_artifact", fail_archive)
+        monkeypatch.setattr(ledger, "_copy_artifact", fail_archive)
     else:
         monkeypatch.setattr(
             ledger,
@@ -671,16 +679,17 @@ def test_partial_publication_replays_without_cleanup(
             in (campaign / "logs" / f"{first.run_id}.log").read_text()
         )
     archive = campaign / "archives" / first.run_id
-    stale = archive / "population.parquet"
+    stale = archive / "population.csv"
     if stale.exists():
         stale.write_bytes(b"stale")
     log = campaign / "logs" / f"{first.run_id}.log"
     log.parent.mkdir(exist_ok=True)
     log.write_text("old failure")
-    monkeypatch.setattr(ledger, "_copy_parquet_artifact", real_archive)
+    monkeypatch.setattr(ledger, "_copy_artifact", real_archive)
     monkeypatch.setattr(ledger, "write_parquet_exclusive", real_marker)
     replay = run_one(spec(), FakeSimulator(), LocalBackend(), campaign, work, "ctx")
-    assert replay.status == "completed" and pq.read_table(stale).to_pylist()
+    assert replay.status == "completed"
+    assert stale.read_bytes().startswith(b"person_id,")
     assert (campaign / "runs" / f"{replay.run_id}.parquet").is_file()
     assert not log.exists() and (campaign / "plan.parquet").read_bytes() == before
     assert not any(path.name.endswith(".tmp") for path in (campaign / "runs").iterdir())

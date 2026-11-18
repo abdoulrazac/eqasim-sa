@@ -4,7 +4,6 @@ import hashlib
 import json
 import os
 import re
-from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, TypeAlias
@@ -173,25 +172,15 @@ class ExecutionEvidence:
 
 @dataclass(frozen=True)
 class Artifact:
-    """Named simulator output path offered for durable publication."""
+    """Declared simulator output offered for durable publication.
+
+    ``name`` is the declared output name, ``path`` the file to archive and
+    ``source_path`` its POSIX path relative to the simulator's output folder.
+    """
 
     name: str
     path: Path
-
-
-@dataclass(frozen=True)
-class IndicatorRequirement:
-    """Indicator name paired with the artifact it requires."""
-
-    indicator: str
-    artifact: str
-
-    def __post_init__(self) -> None:
-        if not all(
-            isinstance(value, str) and value
-            for value in (self.indicator, self.artifact)
-        ):
-            raise ValueError("indicator requirement names must be non-empty strings")
+    source_path: str
 
 
 @dataclass(frozen=True)
@@ -228,12 +217,8 @@ class SimulationError(RuntimeError):
 
 
 class Simulator(Protocol):
-    """Execute resolved configurations and declare indicator requirements."""
+    """Execute resolved configurations into declared output files."""
 
     def simulate(
         self, config: ResolvedConfig, seed: int, workdir: Path
     ) -> Manifest: ...
-
-    def requirements(
-        self, indicators: Sequence[IndicatorRequirement]
-    ) -> Mapping[str, JsonValue]: ...

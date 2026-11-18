@@ -14,7 +14,6 @@ from eqasim_sa.utils.names import validate_portable_name
 from eqasim_sa.ports.simulator import ResolvedConfig
 
 CAMPAIGN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-STAGES = ["synthesis.output", "analysis.synthesis.population"]
 
 
 @dataclass(frozen=True)
@@ -71,12 +70,14 @@ class EqasimSettings:
 
 
 def load_config(path: Path, seed: int) -> ResolvedConfig:
-    """Resolve a model YAML for execution and inject the requested run seed."""
+    """Resolve a model YAML for execution and inject the requested run seed.
+
+    The ``run:`` list is kept as written: synpp reads it from the config.
+    """
 
     document = load_yaml_document(path)
     validate_eqasim_document(document)
     resolved = copy.deepcopy(document)
-    resolved["run"] = list(STAGES)
     resolved["config"]["random_seed"] = seed
     return resolved
 
@@ -88,10 +89,29 @@ def validate_eqasim_document(document: object) -> None:
         raise TypeError("eqasim YAML root must be a mapping")
     if not isinstance(document.get("working_directory"), str):
         raise TypeError("working_directory must be a string")
-    if not isinstance(document.get("run"), list):
-        raise TypeError("run must be a list")
+    run_stages(document.get("run"))
     if not isinstance(document.get("config"), dict):
         raise TypeError("config must be a mapping")
+
+
+def run_stages(run: object) -> tuple[str, ...]:
+    """Return the stage names of an eqasim ``run:`` list.
+
+    Each item is a stage name or a one-entry ``{stage: parameters}`` mapping.
+    """
+
+    if not isinstance(run, list) or not run:
+        raise TypeError("run must be a non-empty list of stages")
+    stages = []
+    for item in run:
+        if isinstance(item, dict) and len(item) == 1:
+            item = next(iter(item))
+        if not isinstance(item, str) or not item:
+            raise TypeError(
+                "run items must be stage names or one-entry {stage: parameters} mappings"
+            )
+        stages.append(item)
+    return tuple(stages)
 
 
 def load_yaml_document(path: Path) -> object:

@@ -1,0 +1,5 @@
+person_id;household_id;age;employed;studies;sex;socioprofessional_class;professional_activity;has_driving_license;has_pt_subscription;census_person_id;hts_person_id
+1116;533;9;False;True;male;8;under14;False;False;257;26467
+1117;533;48;True;False;female;4;full_time_worker;True;False;258;29200
+1118;533;38;True;False;male;6;full_time_worker;True;False;259;676
+4104;1826;75;False;False;female;7;retired;False;False;933;21226

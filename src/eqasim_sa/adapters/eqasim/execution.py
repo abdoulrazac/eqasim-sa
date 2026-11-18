@@ -111,6 +111,7 @@ class EqasimBatchExecutor:
             self.meta.structured_factors,
             self.execution_seal,
             self.software_guard,
+            outputs=self.meta.outputs,
         )
         with self._simulators_lock:
             self._simulators.add(simulator)

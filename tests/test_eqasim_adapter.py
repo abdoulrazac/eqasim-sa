@@ -5,21 +5,28 @@ import shutil
 import sys
 from pathlib import Path
 
-import pyarrow.parquet as pq
 import pytest
 
 import eqasim_sa.adapters.eqasim.artifacts as artifacts_module
-from eqasim_sa.adapters.eqasim.artifacts import normalize_outputs
+import eqasim_sa.core.indicators as indicators_module
+from eqasim_sa.adapters.eqasim.artifacts import KNOWN_OUTPUTS, collect_outputs
 from eqasim_sa.adapters.eqasim.config import EqasimSettings, load_config
 from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator
-from eqasim_sa.ports.simulator import IndicatorRequirement, SimulationError
+from eqasim_sa.core.indicators import OutputDeclaration, read_csv_table
+from eqasim_sa.ports.simulator import SimulationError
 from tests.conftest import make_symlink, pid_alive
+
+ALL_OUTPUTS = {
+    name: OutputDeclaration(known.file, known.separator)
+    for name, known in KNOWN_OUTPUTS.items()
+}
+PERSONS = {"persons": ALL_OUTPUTS["persons"]}
 
 
 def write_yaml(path: Path, *, prefix: str = "nantes_") -> None:
     path.write_text(
         "working_directory: /ignored\n"
-        "run: [old.stage]\n"
+        "run: [synthesis.output, analysis.synthesis.population]\n"
         "config:\n"
         "  sampling_rate: 0.001\n"
         "  random_seed: 12345678\n"
@@ -45,8 +52,14 @@ def settings(tmp_path: Path) -> EqasimSettings:
     )
 
 
-def simulator(current: EqasimSettings, seed: int = 42) -> EqasimSimulator:
-    return EqasimSimulator(current, load_config(current.config_path, seed))
+def simulator(
+    current: EqasimSettings, seed: int = 42, outputs=None  # type: ignore[no-untyped-def]
+) -> EqasimSimulator:
+    return EqasimSimulator(
+        current,
+        load_config(current.config_path, seed),
+        outputs=ALL_OUTPUTS if outputs is None else outputs,
+    )
 
 
 def test_workdir_is_derived_only_from_scratch_and_campaign(tmp_path: Path) -> None:
@@ -140,7 +153,9 @@ def test_context_cache_state_isolation_prevents_cross_context_reuse(
             current.scratch,
             context_hash,
         )
-        return EqasimSimulator(scoped, load_config(scoped.config_path, 42))
+        return EqasimSimulator(
+            scoped, load_config(scoped.config_path, 42), outputs=ALL_OUTPUTS
+        )
 
     first, second = adapter("a" * 64), adapter("b" * 64)
     with first.workspace.session():
@@ -176,12 +191,18 @@ def test_simulator_recreates_deleted_workdir_and_preserves_confinement(
         simulator(current).simulate(resolved, 42, tmp_path / "outside")
 
 
-def test_loads_yaml_read_only_and_resolves_seed_and_stages(tmp_path: Path) -> None:
+def test_loads_yaml_read_only_and_keeps_its_run_list(tmp_path: Path) -> None:
     config = tmp_path / "config.yml"
     write_yaml(config)
+    config.write_text(
+        config.read_text().replace(
+            "run: [synthesis.output, analysis.synthesis.population]",
+            "run: [user.stage, {synthesis.output: {x: 1}}, user.stage]",
+        )
+    )
     before = hashlib.sha256(config.read_bytes()).hexdigest()
     resolved = load_config(config, 42)
-    assert resolved["run"] == ["synthesis.output", "analysis.synthesis.population"]
+    assert resolved["run"] == ["user.stage", {"synthesis.output": {"x": 1}}, "user.stage"]
     assert resolved["config"]["random_seed"] == 42
     assert resolved["config"]["departments"] == [44]
     assert hashlib.sha256(config.read_bytes()).hexdigest() == before
@@ -199,7 +220,7 @@ def test_rejects_unsafe_output_prefix(tmp_path: Path, prefix: str) -> None:
         adapter.simulate(load_config(current.config_path, 42), 42, current.workdir)
 
 
-def test_real_spy_subprocess_normalizes_exact_inventory(
+def test_real_spy_subprocess_collects_exact_declared_inventory(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -208,22 +229,15 @@ def test_real_spy_subprocess_normalizes_exact_inventory(
     monkeypatch.setenv("EQASIM_SPY_RECORD", str(record))
     before = current.config_path.read_bytes()
     resolved = load_config(current.config_path, 42)
-    adapter = EqasimSimulator(current, resolved, before)
+    adapter = EqasimSimulator(current, resolved, before, outputs=ALL_OUTPUTS)
     current.config_path.write_text("config:\n  replaced: true\n", encoding="utf-8")
     manifest = adapter.simulate(resolved, 42, current.workdir)
-    assert {artifact.name for artifact in manifest.artifacts} == {
-        "persons.parquet",
-        "households.parquet",
-        "activities.parquet",
-        "trips.parquet",
-        "vehicle_types.parquet",
-        "vehicles.parquet",
-        "age.parquet",
-        "age_purpose.parquet",
-        "distance.parquet",
-        "license.parquet",
-        "nbr_vehicle.parquet",
-        "travel.parquet",
+    assert {
+        (artifact.name, artifact.path.name, artifact.source_path)
+        for artifact in manifest.artifacts
+    } == {
+        (name, f"{name}.csv", known.file.replace("{prefix}", "nantes_"))
+        for name, known in KNOWN_OUTPUTS.items()
     }
     observed = json.loads(record.read_text())
     assert observed["pid"] != os.getpid()
@@ -233,10 +247,6 @@ def test_real_spy_subprocess_normalizes_exact_inventory(
         str(attempt / "config.yml"),
         "--working-directory",
         str(current.workspace(0).cache),
-        "--run",
-        "synthesis.output",
-        "--run",
-        "analysis.synthesis.population",
         "--random_seed",
         "42",
         "--output_path",
@@ -246,22 +256,26 @@ def test_real_spy_subprocess_normalizes_exact_inventory(
     ]
     assert current.config_path.read_bytes() != before
     assert (attempt / "config.yml").read_bytes() == before
-    age = pq.read_table(
-        next(a.path for a in manifest.artifacts if a.name == "age.parquet")
-    )
+    age_path = next(a.path for a in manifest.artifacts if a.name == "age")
+    assert age_path.read_bytes() == (
+        attempt / "output" / "analysis_population" / "nantes_age.csv"
+    ).read_bytes()
+    age = read_csv_table(age_path, ",", "age")
     assert age.column_names == [
         "Age class",
         "HTS adjust with INSEE population weights",
         "Proportion_EQASIM",
     ]
-    purpose = pq.read_table(
-        next(a.path for a in manifest.artifacts if a.name == "age_purpose.parquet")
+    purpose = read_csv_table(
+        next(a.path for a in manifest.artifacts if a.name == "age_purpose"),
+        ",",
+        "age_purpose",
     )
     assert purpose.column_names == ["age_class", "Home<>Work"]
     assert age["Age class"].to_pylist() == ["65+", "(99.0, inf]"]
-    assert age["HTS adjust with INSEE population weights"].null_count == 1
-    assert {path.name for path in (attempt / "normalized").iterdir()} == {
-        artifact.name for artifact in manifest.artifacts
+    assert age["HTS adjust with INSEE population weights"].to_pylist() == ["0.5", ""]
+    assert {path.name for path in (attempt / "collected").iterdir()} == {
+        artifact.path.name for artifact in manifest.artifacts
     }
 
 
@@ -287,6 +301,7 @@ def test_execution_guard_wraps_the_complete_simulation_and_supplies_child_env(
         current,
         load_config(current.config_path, 42),
         execution_seal=seal,  # type: ignore[arg-type]
+        outputs=ALL_OUTPUTS,
     )
     manifest = adapter.simulate(
         load_config(current.config_path, 42), 42, current.workdir
@@ -318,6 +333,7 @@ def test_post_simulation_guard_failure_leaves_cache_state_active(
         current,
         load_config(current.config_path, 42),
         execution_seal=Seal(),  # type: ignore[arg-type]
+        outputs=ALL_OUTPUTS,
     )
 
     with pytest.raises(RuntimeError, match="post-simulation drift"):
@@ -349,7 +365,7 @@ def test_post_simulation_cache_validation_precedes_measurement_and_clean_state(
     assert adapter.workspace.status() == "active"
 
 
-def test_executes_config_run_and_normalizes_only_requested_stage_artifacts(
+def test_collects_only_declared_outputs_and_passes_no_run_argument(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -357,23 +373,28 @@ def test_executes_config_run_and_normalizes_only_requested_stage_artifacts(
     record = tmp_path / "record.json"
     monkeypatch.setenv("EQASIM_SPY_RECORD", str(record))
     resolved = load_config(current.config_path, 42)
-    resolved["run"] = ["synthesis.output"]
-    manifest = simulator(current).simulate(resolved, 42, current.workdir)
-    assert {artifact.name for artifact in manifest.artifacts} == {
-        "persons.parquet",
-        "households.parquet",
-        "activities.parquet",
-        "trips.parquet",
-        "vehicle_types.parquet",
-        "vehicles.parquet",
+    population = {
+        name: ALL_OUTPUTS[name]
+        for name in (
+            "persons",
+            "households",
+            "activities",
+            "trips",
+            "vehicle_types",
+            "vehicles",
+        )
     }
+    manifest = simulator(current, outputs=population).simulate(
+        resolved, 42, current.workdir
+    )
+    assert {artifact.name for artifact in manifest.artifacts} == set(population)
     arguments = json.loads(record.read_text())["argv"]
-    assert arguments[arguments.index("--run") + 1] == "synthesis.output"
+    assert "--run" not in arguments
     assert "analysis.synthesis.population" not in arguments
 
 
 @pytest.mark.parametrize("stages", [[], ["unknown.stage"]])
-def test_rejects_empty_or_unknown_run_before_preflight(
+def test_rejects_run_that_differs_from_the_config_before_preflight(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     stages: list[str],
@@ -388,15 +409,14 @@ def test_rejects_empty_or_unknown_run_before_preflight(
     assert not record.exists()
 
 
-def test_requirements_deduplicate_stages_in_request_order() -> None:
-    adapter = object.__new__(EqasimSimulator)
-    assert adapter.requirements(
-        (
-            IndicatorRequirement("distance", "distance"),
-            IndicatorRequirement("persons", "persons"),
-            IndicatorRequirement("age", "age"),
-        )
-    ) == {"run": ["synthesis.output", "analysis.synthesis.population"]}
+def test_simulator_requires_declared_outputs(tmp_path: Path) -> None:
+    current = settings(tmp_path)
+    resolved = load_config(current.config_path, 42)
+    with pytest.raises(ValueError, match="at least one declared output"):
+        EqasimSimulator(current, resolved, outputs={})
+    with pytest.raises(ValueError, match="output name"):
+        EqasimSimulator(current, resolved, outputs={"a.b": ALL_OUTPUTS["age"]})
+    assert not hasattr(EqasimSimulator, "requirements")
 
 
 def test_failed_process_leaves_active_marker_and_next_run_purges_cache(
@@ -550,126 +570,105 @@ def test_process_launch_failure_has_recoverable_log(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "case", ["nonsequential-index", "duplicate-empty-header", "malformed-csv"]
 )
-def test_rejects_invalid_analysis_csv(
+def test_unusual_analysis_csv_is_archived_as_is_and_judged_when_read(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     case: str,
 ) -> None:
-    from eqasim_sa.ports.simulator import SimulationError
-
     current = settings(tmp_path)
     before = current.config_path.read_bytes()
     monkeypatch.setenv("EQASIM_SPY_RECORD", str(tmp_path / "record.json"))
     monkeypatch.setenv("EQASIM_SPY_CASE", case)
-    with pytest.raises(SimulationError):
-        simulator(current).simulate(
-            load_config(current.config_path, 42), 42, current.workdir
-        )
+    manifest = simulator(current).simulate(
+        load_config(current.config_path, 42), 42, current.workdir
+    )
+    age = next(a.path for a in manifest.artifacts if a.name == "age")
+    assert age.read_bytes() == (
+        manifest.attempt_directory
+        / "output"
+        / "analysis_population"
+        / "nantes_age.csv"
+    ).read_bytes()
+    if case == "nonsequential-index":
+        assert read_csv_table(age, ",", "age").to_pylist() == [{"Age class": "65+"}]
+    else:
+        with pytest.raises(ValueError, match="artifact 'age'"):
+            read_csv_table(age, ",", "age")
     assert current.config_path.read_bytes() == before
 
 
-def test_analysis_csv_streams_multiple_batches_with_global_anonymous_index(
+def test_analysis_csv_streams_multiple_blocks_and_drops_the_anonymous_index(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    attempt = tmp_path / "attempt"
-    output, normalized = attempt / "output", attempt / "normalized"
-    output.mkdir(parents=True)
-    normalized.mkdir()
     values = [f"value-{index:03d}" for index in range(200)]
-    source = output / "age.csv"
+    source = tmp_path / "age.csv"
     source.write_text(
         ",value\n"
         + "".join(f"{index},{value}\n" for index, value in enumerate(values)),
         encoding="utf-8",
     )
-    monkeypatch.setattr(artifacts_module, "CSV_BLOCK_SIZE", 64)
+    monkeypatch.setattr(indicators_module, "CSV_BLOCK_SIZE", 64)
 
-    artifact = artifacts_module._normalize(
-        source, output, normalized, "age", ",", True
-    )
-    parquet = pq.ParquetFile(artifact.path)
+    table = read_csv_table(source, ",", "age")
 
-    assert parquet.metadata.num_row_groups > 1
-    table = parquet.read()
     assert table.column_names == ["value"]
     assert table["value"].to_pylist() == values
 
 
-def test_cross_batch_anonymous_index_failure_removes_partial_parquet(
+def test_anonymous_index_values_are_not_interpreted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    attempt = tmp_path / "attempt"
-    output, normalized = attempt / "output", attempt / "normalized"
-    output.mkdir(parents=True)
-    normalized.mkdir()
     indices = list(range(200))
     indices[150] = 0
-    source = output / "age.csv"
+    source = tmp_path / "age.csv"
     source.write_text(
         ",value\n" + "".join(f"{index},x\n" for index in indices),
         encoding="utf-8",
     )
-    monkeypatch.setattr(artifacts_module, "CSV_BLOCK_SIZE", 64)
+    monkeypatch.setattr(indicators_module, "CSV_BLOCK_SIZE", 64)
 
-    with pytest.raises(ValueError, match="anonymous index is not sequential"):
-        artifacts_module._normalize(
-            source, output, normalized, "age", ",", True
-        )
+    table = read_csv_table(source, ",", "age")
 
-    assert not (normalized / "age.parquet").exists()
+    assert table.column_names == ["value"]
+    assert table.num_rows == 200
 
 
-def test_streaming_writer_failure_removes_partial_parquet(
+def test_copy_failure_removes_partial_output(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     attempt = tmp_path / "attempt"
-    output, normalized = attempt / "output", attempt / "normalized"
+    output = attempt / "output"
     output.mkdir(parents=True)
-    normalized.mkdir()
-    source = output / "persons.csv"
-    source.write_text(
+    (output / "nantes_persons.csv").write_text(
         "id;value\n" + "".join(f"{index};x\n" for index in range(200)),
         encoding="utf-8",
     )
-    monkeypatch.setattr(artifacts_module, "CSV_BLOCK_SIZE", 64)
-    real_writer = artifacts_module.pq.ParquetWriter
+    real_copy = artifacts_module.shutil.copyfileobj
 
-    class FailingWriter:
-        def __init__(self, *args, **kwargs):  # type: ignore[no-untyped-def]
-            self.writer = real_writer(*args, **kwargs)
-            self.writes = 0
+    def failing_copy(source, target, length=0):  # type: ignore[no-untyped-def]
+        target.write(source.read(10))
+        raise OSError("injected copy failure")
 
-        def __enter__(self):  # type: ignore[no-untyped-def]
-            return self
-
-        def __exit__(self, *args):  # type: ignore[no-untyped-def]
-            self.writer.close()
-
-        def write_batch(self, batch):  # type: ignore[no-untyped-def]
-            self.writes += 1
-            if self.writes == 2:
-                raise OSError("injected writer failure")
-            self.writer.write_batch(batch)
-
-    monkeypatch.setattr(artifacts_module.pq, "ParquetWriter", FailingWriter)
-
-    with pytest.raises(OSError, match="injected writer failure"):
-        artifacts_module._normalize(
-            source, output, normalized, "persons", ";", False
-        )
-
-    assert not (normalized / "persons.parquet").exists()
+    monkeypatch.setattr(artifacts_module.shutil, "copyfileobj", failing_copy)
+    with pytest.raises(OSError, match="injected copy failure"):
+        collect_outputs(output, attempt / "collected", "nantes_", PERSONS)
+    assert not (attempt / "collected" / "persons.csv").exists()
+    monkeypatch.setattr(artifacts_module.shutil, "copyfileobj", real_copy)
 
 
 def test_rejects_output_symlink_escaping_attempt(tmp_path: Path) -> None:
     output = tmp_path / "output"
-    normalized = tmp_path / "normalized"
+    collected = tmp_path / "collected"
     output.mkdir()
     outside = tmp_path / "outside.csv"
     outside.write_text("id;label\n1;x\n", encoding="utf-8")
     make_symlink(output / "nantes_persons.csv", outside)
-    with pytest.raises(ValueError, match="escapes"):
-        normalize_outputs(output, normalized, "nantes_")
+    with pytest.raises(ValueError, match="symlink escapes"):
+        collect_outputs(output, collected, "nantes_", PERSONS)
+    nested = {"age": ALL_OUTPUTS["age"]}
+    make_symlink(output / "analysis_population", tmp_path, target_is_directory=True)
+    with pytest.raises(ValueError, match="symlink escapes"):
+        collect_outputs(output, tmp_path / "again", "nantes_", nested)
 
 
 def test_rejects_output_csv_symlink_even_when_target_stays_inside_output(
@@ -681,9 +680,7 @@ def test_rejects_output_csv_symlink_even_when_target_stays_inside_output(
     target.write_text("id;label\n1;x\n", encoding="utf-8")
     make_symlink(output / "nantes_persons.csv", target)
     with pytest.raises(ValueError, match="symlink"):
-        normalize_outputs(
-            output, tmp_path / "normalized", "nantes_", ("synthesis.output",)
-        )
+        collect_outputs(output, tmp_path / "collected", "nantes_", PERSONS)
 
 
 def test_rejects_removed_and_reserved_config_keys_before_process(
@@ -724,7 +721,9 @@ def test_rejects_added_null_override_before_process(
         ("[]\n", "root"),
         ("working_directory: 2\nrun: []\nconfig: {}\n", "working_directory"),
         ("working_directory: /x\nrun: x\nconfig: {}\n", "run"),
-        ("working_directory: /x\nrun: []\nconfig: []\n", "config"),
+        ("working_directory: /x\nrun: []\nconfig: {}\n", "run"),
+        ("working_directory: /x\nrun: [{a: 1, b: 2}]\nconfig: {}\n", "run"),
+        ("working_directory: /x\nrun: [a]\nconfig: []\n", "config"),
     ],
 )
 def test_rejects_invalid_yaml_structures(
@@ -798,7 +797,7 @@ def test_rejects_output_directory_symlink_escaping_attempt(tmp_path: Path) -> No
     output = attempt / "output"
     make_symlink(output, outside, target_is_directory=True)
     with pytest.raises(ValueError, match="output directory escapes"):
-        normalize_outputs(output, attempt / "normalized", "nantes_")
+        collect_outputs(output, attempt / "collected", "nantes_", PERSONS)
 
 
 def option_value(arguments: list[str], name: str) -> str:

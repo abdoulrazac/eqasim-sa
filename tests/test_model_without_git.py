@@ -17,7 +17,7 @@ from eqasim_sa.ports.simulator import EXECUTION_EVIDENCE_DOMAIN, ExecutionEviden
 
 
 MODEL_CONFIG = (
-    "working_directory: cache\nrun: [synthesis.output]\nconfig:\n  a: 0\n  b: x\n"
+    "working_directory: cache\nrun: [synthesis.output, analysis.synthesis.population]\nconfig:\n  a: 0\n  b: x\n"
     "  data_path: ../data\n  output_path: output\n  processes: 1\n"
     "  random_seed: 9\n"
 )
@@ -49,6 +49,7 @@ def project(root: Path, model: Path, config: str, *, execution: bool = False) ->
         "  data_manifest: manifest.json\n"
         "experiment:\n  method: grid\n  seeds: [41, 42]\n"
         "parameters:\n  a: [1, 2]\n  b: [x, y]\n"
+        "outputs:\n  persons: {}\n"
     )
     if execution:
         scratch = root / "scratch"
@@ -246,7 +247,7 @@ def test_evidence_v3_round_trip_and_v2_rejected() -> None:
 
 
 INIT_MODEL_CONFIG = (
-    "working_directory: cache\nrun: [synthesis.output]\nconfig:\n"
+    "working_directory: cache\nrun: [synthesis.output, analysis.synthesis.population]\nconfig:\n"
     "  processes: 4\n  sampling_rate: 0.001\n  random_seed: 1234\n"
     "  matching_age_scheme: matching_6\n  analysis_age_scheme: analysis_7\n"
     "  data_path: /data\n  output_path: /output\n  output_prefix: nantes_\n"

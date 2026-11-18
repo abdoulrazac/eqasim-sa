@@ -288,18 +288,26 @@ class CampaignSnapshot:
             run_destination.mkdir(parents=True, mode=0o700)
             copied = {}
             captured_artifacts = []
-            for artifact in selected.artifacts:
-                target = run_destination / artifact.path.name
+            # Captured files follow the manifest order: the manifest names them.
+            for entry, artifact in zip(
+                selected.completion.artifacts, selected.artifacts, strict=True
+            ):
+                if artifact.path.name != entry.file_name:
+                    raise RuntimeError(
+                        f"selected run {run_id} archive does not match its manifest"
+                    )
+                target = run_destination / entry.file_name
                 captured = capture_stable_file(
                     artifact.path,
                     target,
                     expected_size=artifact.size,
                     expected_sha256=artifact.sha256,
                 )
-                copied[artifact.path.stem] = target
+                copied[entry.name] = target
                 captured_artifacts.append(
                     {
-                        "name": artifact.path.name,
+                        "name": entry.name,
+                        "sourcePath": entry.source_path,
                         "size": captured.size,
                         "sha256": captured.sha256,
                     }
@@ -415,7 +423,12 @@ def completion_descriptor(run_id: str, completion: CompletionState) -> dict:
     return {
         "runId": run_id,
         "artifacts": [
-            {"name": item.name, "size": item.size, "sha256": item.sha256}
+            {
+                "name": item.name,
+                "sourcePath": item.source_path,
+                "size": item.size,
+                "sha256": item.sha256,
+            }
             for item in completion.artifacts
         ],
         "executionEvidenceSha256": (

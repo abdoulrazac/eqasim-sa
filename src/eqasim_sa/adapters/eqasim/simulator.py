@@ -7,18 +7,20 @@ import re
 import subprocess
 import threading
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from pathlib import Path
 
 import yaml
 
-from eqasim_sa.adapters.eqasim.artifacts import ARTIFACT_STAGE, normalize_outputs
-from eqasim_sa.adapters.eqasim.config import STAGES, EqasimSettings
+from eqasim_sa.adapters.eqasim.artifacts import (
+    DEFAULT_OUTPUT_PREFIX,
+    collect_outputs,
+)
+from eqasim_sa.adapters.eqasim.config import EqasimSettings
 from eqasim_sa.adapters.execution_seal import ExecutionSeal
+from eqasim_sa.core.indicators import OutputDeclaration, validate_output_name
 from eqasim_sa.core.software_identity import SoftwareSourceGuard
 from eqasim_sa.ports.simulator import (
-    IndicatorRequirement,
-    JsonValue,
     Manifest,
     ResolvedConfig,
     SimulationError,
@@ -32,7 +34,10 @@ TERMINATION_GRACE_SECONDS = 2.0
 
 
 class EqasimSimulator:
-    """Run synpp in an isolated workspace and return normalized artifacts."""
+    """Run synpp in an isolated workspace and return the declared outputs.
+
+    synpp reads the ``run:`` list from the configuration snapshot as written.
+    """
 
     def __init__(
         self,
@@ -43,7 +48,16 @@ class EqasimSimulator:
         structured_factors: dict[str, dict[str, list[str]]] | None = None,
         execution_seal: ExecutionSeal | None = None,
         software_guard: SoftwareSourceGuard | None = None,
+        *,
+        outputs: Mapping[str, OutputDeclaration],
     ) -> None:
+        if not isinstance(outputs, Mapping) or not outputs:
+            raise ValueError("eqasim simulator requires at least one declared output")
+        for name, declaration in outputs.items():
+            validate_output_name(name)
+            if not isinstance(declaration, OutputDeclaration):
+                raise TypeError(f"output {name!r} must be an OutputDeclaration")
+        self.outputs = dict(outputs)
         self.settings = settings
         self.base_config = copy.deepcopy(base_config)
         self.config_bytes = (
@@ -65,11 +79,6 @@ class EqasimSimulator:
             trees = tuple(self._trees)
         for tree in trees:
             tree.terminate(TERMINATION_GRACE_SECONDS)
-
-    def requirements(
-        self, indicators: Sequence[IndicatorRequirement]
-    ) -> Mapping[str, JsonValue]:
-        return eqasim_requirements(indicators)
 
     def simulate(self, config: ResolvedConfig, seed: int, workdir: Path) -> Manifest:
         with self.workspace.session():
@@ -102,7 +111,7 @@ class EqasimSimulator:
             raise ValueError("workdir escapes scratch")
         attempt = self.workspace.create_attempt()
         output = attempt / "output"
-        normalized = attempt / "normalized"
+        collected = attempt / "collected"
         output.mkdir(parents=True)
         snapshot = attempt / "config.yml"
         log = attempt / "run.log"
@@ -116,20 +125,11 @@ class EqasimSimulator:
         base_nested = base.get("config")
         if not isinstance(nested, dict) or not isinstance(base_nested, dict):
             raise TypeError("resolved config block must be a mapping")
-        stages = config.get("run")
-        if not isinstance(stages, list) or not all(
-            isinstance(stage, str) and stage for stage in stages
-        ):
-            raise TypeError(
-                "resolved run block must be a list of non-empty stage names"
+        if not _same_value(config.get("run"), self.base_config.get("run")):
+            raise ValueError(
+                "resolved run block must equal run: of the eqasim config"
             )
-        requested_stages = tuple(dict.fromkeys(stages))
-        if not requested_stages:
-            raise ValueError("resolved run block must not be empty")
-        unknown_stages = [stage for stage in requested_stages if stage not in STAGES]
-        if unknown_stages:
-            raise ValueError(f"unsupported producing stage: {unknown_stages[0]!r}")
-        prefix = nested.get("output_prefix", "ile_de_france_")
+        prefix = nested.get("output_prefix", DEFAULT_OUTPUT_PREFIX)
         if (
             not isinstance(prefix, str)
             or ".." in prefix
@@ -167,8 +167,6 @@ class EqasimSimulator:
             "--working-directory",
             str(self.workspace.cache),
         ]
-        for stage in requested_stages:
-            command.extend(("--run", stage))
         command.extend(
             (
                 "--random_seed",
@@ -221,10 +219,10 @@ class EqasimSimulator:
                 f"eqasim process exited with code {completed.returncode}", log, attempt
             )
         try:
-            artifacts = normalize_outputs(output, normalized, prefix, requested_stages)
+            artifacts = collect_outputs(output, collected, prefix, self.outputs)
         except Exception as error:
             with log.open("a", encoding="utf-8") as stream:
-                stream.write(f"normalization failed: {error}\n")
+                stream.write(f"output collection failed: {error}\n")
             raise SimulationError(str(error), log, attempt) from error
         if self._interrupted.is_set():
             raise KeyboardInterrupt
@@ -262,24 +260,6 @@ class EqasimSimulator:
         if self._interrupted.is_set():
             raise KeyboardInterrupt
         return subprocess.CompletedProcess(command, returncode, stdout, stderr)
-
-
-def eqasim_requirements(
-    indicators: Sequence[IndicatorRequirement],
-) -> Mapping[str, JsonValue]:
-    """Derive the minimal ordered synpp stages required by indicators."""
-
-    stages = ["synthesis.output"]
-    for requirement in indicators:
-        stage = ARTIFACT_STAGE.get(requirement.artifact)
-        if stage is None:
-            raise ValueError(
-                f"indicator {requirement.indicator!r} requires artifact {requirement.artifact!r} "
-                "with no producing stage"
-            )
-        if stage not in stages:
-            stages.append(stage)
-    return {"run": stages}
 
 
 def probe_environment(

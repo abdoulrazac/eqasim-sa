@@ -207,7 +207,7 @@ def _fixture_paths(
         yaml.safe_dump(
             {
                 "working_directory": "/ignored",
-                "run": ["old"],
+                "run": ["synthesis.output", "analysis.synthesis.population"],
                 "config": {
                     "matching_minimum_observations": 20,
                     "matching_minimum_age": 5,

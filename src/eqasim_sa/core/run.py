@@ -5,7 +5,6 @@ import hashlib
 import json
 import math
 import os
-import re
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -24,12 +23,14 @@ from eqasim_sa.utils.filesystem import (
 )
 from eqasim_sa.core.ledger import (
     RunRecord,
+    archive_file_name,
     archive_transaction,
     run_lease,
     validate_parameters,
 )
 from eqasim_sa.ports.backend import Backend
 from eqasim_sa.ports.simulator import (
+    Artifact,
     ExecutionEvidence,
     JsonValue,
     MachineIdentity,
@@ -51,7 +52,6 @@ EXCLUDED_PATHS = (
     "working_directory",
 )
 DOMAIN = b"eqasim-sa:run:v1\0"
-ARTIFACT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 @dataclass(frozen=True)
@@ -132,9 +132,7 @@ def compute_run_id(config: ResolvedConfig, seed: int) -> str:
     return hashlib.sha256(DOMAIN + encoded).hexdigest()[:32]
 
 
-def validate_manifest(
-    manifest: Manifest, workdir: Path
-) -> tuple[tuple[str, Path], ...]:
+def validate_manifest(manifest: Manifest, workdir: Path) -> tuple[Artifact, ...]:
     """Validate simulator artifacts and confine them to one attempt directory."""
 
     attempt = Path(os.path.abspath(os.fspath(manifest.attempt_directory)))
@@ -154,15 +152,12 @@ def validate_manifest(
         raise ValueError("attempt directory or workdir traverses a symlink") from error
     if not manifest.artifacts:
         raise ValueError("manifest must contain at least one artifact")
-    validated: dict[str, Path] = {}
+    validated: dict[str, Artifact] = {}
     for artifact in manifest.artifacts:
-        if (
-            type(artifact.name) is not str
-            or not ARTIFACT_NAME.fullmatch(artifact.name)
-            or not artifact.name.endswith(".parquet")
-        ):
-            raise ValueError(f"invalid artifact name: {artifact.name!r}")
-        validate_portable_name(artifact.name, "artifact")
+        if not isinstance(artifact, Artifact):
+            raise TypeError("manifest artifacts must be Artifact objects")
+        file_name = archive_file_name(artifact.name, artifact.source_path)
+        validate_portable_name(file_name, "artifact")
         if artifact.name in validated:
             raise ValueError(f"duplicate artifact name: {artifact.name!r}")
         if not isinstance(artifact.path, Path):
@@ -181,8 +176,10 @@ def validate_manifest(
             raise ValueError(
                 f"artifact escapes attempt directory: {artifact.path}"
             ) from error
-        validated[artifact.name] = source
-    return tuple(sorted(validated.items(), key=lambda item: item[0].encode("utf-8")))
+        validated[artifact.name] = Artifact(artifact.name, source, artifact.source_path)
+    return tuple(
+        sorted(validated.values(), key=lambda item: item.name.encode("utf-8"))
+    )
 
 
 def execute_run(

@@ -9,10 +9,8 @@ import time
 import uuid
 from pathlib import Path
 
-import pyarrow.parquet as pq
-
 from eqasim_sa.adapters.campaign_design import _design
-from eqasim_sa.adapters.eqasim.artifacts import ANALYSIS, POPULATION
+from eqasim_sa.adapters.eqasim.artifacts import DEFAULT_OUTPUT_PREFIX
 from eqasim_sa.adapters.eqasim.execution import (
     EqasimBatchExecutor,
     _apply_execution_overrides,
@@ -24,6 +22,7 @@ from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.adapters.worker import ordered_results, worker_batches
 from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
 from eqasim_sa.core.indicators import ArtifactSet
+from eqasim_sa.core.ledger import archive_file_name
 from eqasim_sa.core.plan import load_run_specs, unique_config_seed_pairs
 from eqasim_sa.adapters.execution_seal import current_machine_identity
 from eqasim_sa.core.run import RunSpec, require_same_machine
@@ -401,18 +400,14 @@ def _smoke_in(meta, seeds, specs, owned: Path) -> None:  # type: ignore[no-untyp
                 if archive.is_dir() and not platform.is_link(archive)
                 else ()
             )
-            requested = set(
-                result
-                for stage in smoke_specs[0].resolved_config["run"]
-                for result in (
-                    {
-                        "synthesis.output": POPULATION,
-                        "analysis.synthesis.population": ANALYSIS,
-                    }[stage]
-                )
+            prefix = smoke_specs[0].resolved_config["config"].get(
+                "output_prefix", DEFAULT_OUTPUT_PREFIX
             )
-            expected = {f"{name}.parquet" for name in requested}
-            if {item.name for item in entries} != expected or any(
+            expected = {
+                archive_file_name(name, declaration.source_path(prefix)): name
+                for name, declaration in meta.outputs.items()
+            }
+            if {item.name for item in entries} != set(expected) or any(
                 platform.is_link(item) or not item.is_file() for item in entries
             ):
                 message = (
@@ -422,14 +417,7 @@ def _smoke_in(meta, seeds, specs, owned: Path) -> None:  # type: ignore[no-untyp
                 raise RuntimeError(
                     f"{result.run_id}: {message}"
                 )
-            states = tuple((item, path_state(item)) for item in entries)
-            for item in entries:
-                pq.ParquetFile(item).metadata
-            if states != tuple((item, path_state(item)) for item in entries):
-                raise RuntimeError(
-                    f"{result.run_id}: smoke archive mutated while validating"
-                )
-            artifacts = ArtifactSet({item.stem: item for item in entries})
+            artifacts = ArtifactSet({expected[item.name]: item for item in entries})
             for indicator in getattr(meta, "indicators", ()):
                 try:
                     value = indicator.compute(artifacts)

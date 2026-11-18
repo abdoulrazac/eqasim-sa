@@ -13,6 +13,7 @@ from scipy.stats import t as student_t
 
 from eqasim_sa.core.charter import validate_scientific_stopping
 from eqasim_sa.core.context_identity import ExecutionContextIdentity
+from eqasim_sa.core.indicators import validate_outputs_declaration
 from eqasim_sa.core.methods.common import _json
 from eqasim_sa.core.methods.multiscramble_sobol_plan import (
     MAX_MULTISCRAMBLE_DESIGN_POSITIONS,
@@ -92,6 +93,7 @@ def _multiscramble_sobol_tables(
         b"planSchemaVersion",
         b"canonicalizationVersion",
         b"contextDescriptor",
+        b"outputsDeclaration",
         b"multiScrambleSobolDesignVersion",
         b"multiScrambleSobolDesign",
     }
@@ -106,6 +108,7 @@ def _multiscramble_sobol_tables(
         or metadata.get(b"multiScrambleSobolDesignVersion") != b"3"
     ):
         raise ValueError("multi-scramble Sobol plan metadata is missing or unsupported")
+    validate_outputs_declaration(metadata[b"outputsDeclaration"])
     try:
         design = json.loads(metadata[b"multiScrambleSobolDesign"])
         descriptor = json.loads(metadata[b"contextDescriptor"])

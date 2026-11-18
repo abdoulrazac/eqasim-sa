@@ -1,13 +1,11 @@
 """Command-line fake pipeline used by integration and packaging tests."""
 
 import argparse
+import csv
 import hashlib
 import json
 import os
 from pathlib import Path
-
-import pyarrow as pa
-import pyarrow.parquet as pq
 
 
 def parser() -> argparse.ArgumentParser:
@@ -36,23 +34,21 @@ def main() -> int:
         ensure_ascii=False,
     ).encode("utf-8")
     value = int.from_bytes(hashlib.sha256(material).digest()[:8], "big") & (2**63 - 1)
-    output = arguments.manifest.parent / "population.parquet"
-    pq.write_table(
-        pa.table(
-            {
-                "person_id": ["person-0"],
-                "value": [value],
-                "seed": [seed],
-                "producer_pid": [os.getpid()],
-            }
-        ),
-        output,
-        compression="zstd",
-    )
+    output = arguments.manifest.parent / "population.csv"
+    with output.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(["person_id", "value", "seed", "producer_pid"])
+        writer.writerow(["person-0", value, seed, os.getpid()])
     arguments.manifest.write_text(
         json.dumps(
             {
-                "artifacts": [{"name": "population.parquet", "path": str(output)}],
+                "artifacts": [
+                    {
+                        "name": "population",
+                        "path": str(output),
+                        "sourcePath": "population.csv",
+                    }
+                ],
             }
         ),
         encoding="utf-8",

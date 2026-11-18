@@ -8,6 +8,7 @@ import os
 import re
 import stat
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
@@ -20,6 +21,7 @@ from eqasim_sa.core.charter import (
     validate_scientific_stopping,
 )
 from eqasim_sa.core.context_identity import ExecutionContextIdentity
+from eqasim_sa.core.indicators import OutputDeclaration, validate_output_name
 from eqasim_sa.core.methods.canonical_morris_plan import (
     CANONICAL_MORRIS_DOMAIN,
     MAX_CANONICAL_MORRIS_CANDIDATES,
@@ -84,6 +86,7 @@ class GridDesign:
     campaign_root: Path
     method: str = "grid"
     structured_factors: dict[str, dict[str, list[str]]] = field(default_factory=dict)
+    outputs: Mapping[str, OutputDeclaration] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -101,6 +104,7 @@ class DiscreteOATDesign:
     design_seed: int
     method: str = "discrete_oat"
     structured_factors: dict[str, dict[str, list[str]]] = field(default_factory=dict)
+    outputs: Mapping[str, OutputDeclaration] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -126,6 +130,7 @@ class CanonicalMorrisDesign:
     screening_top_k: int
     method: str = "canonical_morris"
     structured_factors: dict[str, dict[str, list[str]]] = field(default_factory=dict)
+    outputs: Mapping[str, OutputDeclaration] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -143,6 +148,7 @@ class SobolDesign:
     design_seed: int
     method: str = "sobol"
     structured_factors: dict[str, dict[str, list[str]]] = field(default_factory=dict)
+    outputs: Mapping[str, OutputDeclaration] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -163,6 +169,7 @@ class MultiScrambleSobolDesign:
     confidence_level: float
     method: str = "multiscramble_sobol"
     structured_factors: dict[str, dict[str, list[str]]] = field(default_factory=dict)
+    outputs: Mapping[str, OutputDeclaration] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -454,12 +461,11 @@ def _validate(design: Design) -> tuple[str, ...]:
         raise ValueError("context_descriptor must contain exactly four string keys")
     if context_identity.sha256 != design.context_hash:
         raise ValueError("context_hash does not match context_descriptor")
-    config = design.requirements.get("config", {})
-    if set(design.requirements) - {"run", "config"} or not isinstance(config, dict):
-        raise ValueError("requirements may contain only run and config")
-    if set(config) & (set(names) | {"random_seed"}):
-        raise ValueError("requirements config collides with a factor or random_seed")
-    _json(design.requirements)
+    if not isinstance(design.requirements, dict) or design.requirements:
+        raise ValueError(
+            "requirements must be empty: the eqasim config run: list is used as is"
+        )
+    _outputs_declaration(design)
     if design.method == "discrete_oat":
         if type(design.trajectories) is not int or design.trajectories <= 0:
             raise ValueError("trajectories must be a strictly positive integer")
@@ -665,6 +671,23 @@ def _validate(design: Design) -> tuple[str, ...]:
     return names
 
 
+def _outputs_declaration(design: Design) -> bytes:
+    """Canonical sealed outputs: name, file and separator, sorted by name."""
+
+    if not isinstance(design.outputs, Mapping):
+        raise TypeError("outputs must be a mapping")
+    entries = []
+    for name, declaration in design.outputs.items():
+        validate_output_name(name)
+        if not isinstance(declaration, OutputDeclaration):
+            raise TypeError(f"output {name!r} must be an OutputDeclaration")
+        entries.append({"name": name, **declaration.sealed()})
+    folded = [entry["name"].casefold() for entry in entries]
+    if len(set(folded)) != len(folded):
+        raise ValueError("output names must not differ only by case")
+    return _json(sorted(entries, key=lambda entry: entry["name"].encode("utf-8")))
+
+
 def _table(design: Design, names: tuple[str, ...]) -> pa.Table:
     metadata = {
         b"planSchemaVersion": b"1",
@@ -672,6 +695,7 @@ def _table(design: Design, names: tuple[str, ...]) -> pa.Table:
         b"contextDescriptor": ExecutionContextIdentity.from_descriptor(
             design.context_descriptor
         ).canonical_bytes,
+        b"outputsDeclaration": _outputs_declaration(design),
     }
     if design.structured_factors:
         metadata.update(
@@ -874,9 +898,6 @@ def resolve_config(
             else value
         )
     nested["random_seed"] = seed
-    if "run" in design.requirements:
-        resolved["run"] = copy.deepcopy(design.requirements["run"])
-    nested.update(copy.deepcopy(design.requirements.get("config", {})))
     return resolved
 
 

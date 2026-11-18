@@ -7,6 +7,7 @@ import yaml
 
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.adapters.meta_config_defaults import DEFAULT_INVOCATION
+from eqasim_sa.core.indicators import OutputDeclaration
 from tests.test_campaign_run import add_execution, meta_fixture
 
 
@@ -32,7 +33,8 @@ def test_minimal_new_format_loads_with_defaults(tmp_path: Path) -> None:
     assert loaded.completeness_threshold == 1.0
     assert loaded.campaign_root.name == "campaign"
     assert loaded.factors == {"a": [1, 2], "b": ["x", "y"]}
-    assert loaded.indicators == () and loaded.artifacts == {}
+    assert loaded.indicators == ()
+    assert loaded.outputs == {"persons": OutputDeclaration("{prefix}persons.csv", ";")}
     assert loaded.execution is None
 
 
@@ -99,7 +101,8 @@ def test_execution_defaults_fill_backend_workers_invocation(tmp_path: Path) -> N
                 _with_outputs(d, age=["INSEE"]),
                 d["outputs"]["age"].update({"class": "c"}),
             ),
-            "output 'age' keys must be exactly category, simulated, references",
+            "output 'age' keys must be among file, separator, category, simulated, "
+            "references; unknown: class",
         ),
         (
             lambda d: d["model"].update(extra="x"),
@@ -347,13 +350,14 @@ def test_default_indicators_skip_outputs_without_references(tmp_path: Path) -> N
 
     def change(document: dict) -> None:
         _with_outputs(document, age=["INSEE"], custom_only=[])
+        document["outputs"]["custom_only"]["file"] = "custom_only.csv"
         document.pop("indicators", None)
 
     _edit(meta, change)
     loaded = load_meta_config(meta)
 
     assert {item.name for item in loaded.indicators} == {"tv_distance(age, ref=INSEE)"}
-    assert set(loaded.artifacts) == {"age", "custom_only"}
+    assert set(loaded.outputs) == {"age", "custom_only"}
 
 
 def test_factor_transport_errors_name_the_factor(tmp_path: Path) -> None:

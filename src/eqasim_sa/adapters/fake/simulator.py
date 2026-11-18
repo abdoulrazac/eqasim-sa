@@ -5,25 +5,13 @@ import shutil
 import subprocess
 import sys
 import uuid
-from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from eqasim_sa.ports.simulator import (
-    Artifact,
-    IndicatorRequirement,
-    JsonValue,
-    Manifest,
-    ResolvedConfig,
-)
+from eqasim_sa.ports.simulator import Artifact, Manifest, ResolvedConfig
 
 
 class FakeSimulator:
     """Invoke the installed fake pipeline through the simulator interface."""
-
-    def requirements(
-        self, indicators: Sequence[IndicatorRequirement]
-    ) -> Mapping[str, JsonValue]:
-        return {"run": [item.artifact for item in indicators]}
 
     def simulate(self, config: ResolvedConfig, seed: int, workdir: Path) -> Manifest:
         attempt = workdir / f"a{uuid.uuid4().hex[:12]}"
@@ -59,6 +47,7 @@ class FakeSimulator:
         )
         document = json.loads(manifest_path.read_text(encoding="utf-8"))
         artifacts = tuple(
-            Artifact(item["name"], Path(item["path"])) for item in document["artifacts"]
+            Artifact(item["name"], Path(item["path"]), item["sourcePath"])
+            for item in document["artifacts"]
         )
         return Manifest(artifacts, attempt)

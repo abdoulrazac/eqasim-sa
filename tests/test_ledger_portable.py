@@ -5,10 +5,9 @@ import shutil
 import stat
 from pathlib import Path
 
-import pyarrow as pa
-import pyarrow.parquet as pq
 import pytest
 
+from eqasim_sa.ports.simulator import Artifact
 from eqasim_sa.adapters import data_manifest, project_init
 from eqasim_sa.adapters.backends.local import LocalBackend
 from eqasim_sa.adapters.eqasim import simulator, workspace
@@ -74,15 +73,15 @@ def _record() -> RunRecord:
 
 def _source(directory: Path, value: int) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
-    source = directory / f"source-{value}.parquet"
-    pq.write_table(pa.table({"value": [value]}), source, compression="zstd")
+    source = directory / f"source-{value}.csv"
+    source.write_bytes(f"value\n{value}\n".encode())
     return source
 
 
 def _publish(campaign: Path, value: int, **options: object) -> Path:
     source = _source(campaign.parent / "sources", value)
     with ledger.archive_transaction(
-        campaign, RUN_ID, (("output.parquet", source),)
+        campaign, RUN_ID, (Artifact("output", source, "output.csv"),)
     ) as publication:
         return publication.commit(_record(), **options)
 
@@ -92,9 +91,8 @@ def _archive_entries(campaign: Path) -> list[str]:
 
 
 def _archived_value(campaign: Path) -> list[dict[str, int]]:
-    return pq.read_table(
-        campaign / "archives" / RUN_ID / "output.parquet"
-    ).to_pylist()
+    lines = (campaign / "archives" / RUN_ID / "output.csv").read_text().splitlines()
+    return [{lines[0]: int(line)} for line in lines[1:]]
 
 
 def test_republish_existing_archive_replaces_it(tmp_path: Path) -> None:
@@ -108,7 +106,7 @@ def test_republish_existing_archive_replaces_it(tmp_path: Path) -> None:
     assert _archived_value(campaign) == [{"value": 2}]
     state = ledger.completion_state(campaign, _record())
     assert state is not None
-    assert [entry.name for entry in state.artifacts] == ["output.parquet"]
+    assert [entry.file_name for entry in state.artifacts] == ["output.csv"]
 
 
 def test_commit_rolls_back_when_marker_write_fails(tmp_path: Path) -> None:
@@ -131,7 +129,7 @@ def test_commit_refuses_campaign_replaced_after_prepare(tmp_path: Path) -> None:
     campaign = tmp_path / "campaign"
     source = _source(tmp_path / "sources", 1)
     with ledger.archive_transaction(
-        campaign, RUN_ID, (("output.parquet", source),)
+        campaign, RUN_ID, (Artifact("output", source, "output.csv"),)
     ) as publication:
         campaign.rename(tmp_path / "detached")
         campaign.mkdir()
@@ -154,7 +152,7 @@ def test_transaction_refuses_linked_managed_directory(
     source = _source(tmp_path / "sources", 1)
 
     with pytest.raises(NotADirectoryError):
-        with ledger.archive_transaction(campaign, RUN_ID, (("output.parquet", source),)):
+        with ledger.archive_transaction(campaign, RUN_ID, (Artifact("output", source, "output.csv"),)):
             pass
 
     assert not tuple(outside.iterdir())
@@ -183,7 +181,7 @@ def test_reader_accepts_links_among_campaign_ancestors(tmp_path: Path) -> None:
     state = ledger.completion_state(tmp_path / "alias" / "campaign", _record())
 
     assert state is not None
-    assert [entry.name for entry in state.artifacts] == ["output.parquet"]
+    assert [entry.file_name for entry in state.artifacts] == ["output.csv"]
 
 
 def test_transaction_accepts_links_among_campaign_ancestors(
@@ -197,10 +195,10 @@ def test_transaction_accepts_links_among_campaign_ancestors(
     marker = _publish(campaign, 1)
 
     assert marker == campaign / "runs" / f"{RUN_ID}.parquet"
-    assert (real / "campaign" / "archives" / RUN_ID / "output.parquet").is_file()
+    assert (real / "campaign" / "archives" / RUN_ID / "output.csv").is_file()
     state = ledger.completion_state(campaign, _record())
     assert state is not None
-    assert [entry.name for entry in state.artifacts] == ["output.parquet"]
+    assert [entry.file_name for entry in state.artifacts] == ["output.csv"]
 
 
 def test_close_removes_staging_that_could_not_be_anchored(
@@ -218,7 +216,7 @@ def test_close_removes_staging_that_could_not_be_anchored(
     monkeypatch.setattr(filesystem.DirectoryAnchor, "child", refuse_staging)
     with pytest.raises(RuntimeError, match="staging anchor failed"):
         with ledger.archive_transaction(
-            campaign, RUN_ID, (("output.parquet", source),)
+            campaign, RUN_ID, (Artifact("output", source, "output.csv"),)
         ):
             pass
 

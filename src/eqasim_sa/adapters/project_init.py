@@ -11,17 +11,20 @@ from pathlib import Path
 import pyarrow.parquet as pq
 
 from eqasim_sa.adapters.data_manifest import generate_data_manifest, load_data_manifest
-from eqasim_sa.adapters.eqasim.artifacts import ANALYSIS, POPULATION
+from eqasim_sa.adapters.eqasim.artifacts import DEFAULT_OUTPUT_PREFIX
 from eqasim_sa.adapters.eqasim.config import (
     load_yaml_document,
+    load_yaml_source,
     validate_eqasim_document,
 )
+from eqasim_sa.adapters.meta_config_defaults import resolve_meta_config_document
 from eqasim_sa.adapters.eqasim.workspace import WorkerWorkspace
 from eqasim_sa.adapters.templates import render_project
 from eqasim_sa.core.analysis_publication import (
     ANALYSIS_STATE_DIRECTORY,
     OUTPUT_FILENAMES,
 )
+from eqasim_sa.core.ledger import archive_file_name
 from eqasim_sa.utils import platform
 from eqasim_sa.utils.filesystem import (
     owned_by_current_user,
@@ -497,6 +500,29 @@ def _publish_scaffold(
             platform.remove_tree(staging)
 
 
+def _declared_archive_files(rendered: dict[str, bytes], prefix: str) -> set[str]:
+    """Archive file names of the outputs declared by the rendered starters."""
+
+    names = set()
+    for name, content in rendered.items():
+        if not name.endswith(".yml"):
+            continue
+        document = resolve_meta_config_document(
+            load_yaml_source(content.decode("utf-8"))
+        )
+        outputs = document.get("outputs") if isinstance(document, dict) else None
+        for output, declaration in (outputs or {}).items():
+            if isinstance(declaration, dict) and isinstance(
+                declaration.get("file"), str
+            ):
+                names.add(
+                    archive_file_name(
+                        output, declaration["file"].replace("{prefix}", prefix)
+                    )
+                )
+    return names
+
+
 def _durable_preflight(directory: Path, expected_artifacts: set[str]) -> None:
     for method in INIT_METHODS:
         root = directory / "campaigns" / method
@@ -591,9 +617,10 @@ def init_from_inputs(
         absolute, project_name, model, data, selected_scratch,
         invocation, model_config,
     )
-    expected_artifacts = {
-        f"{name}.parquet" for name in (*POPULATION, *ANALYSIS)
-    }
+    prefix = model_document["config"].get("output_prefix", DEFAULT_OUTPUT_PREFIX)
+    expected_artifacts = _declared_archive_files(
+        expected, prefix if isinstance(prefix, str) else DEFAULT_OUTPUT_PREFIX
+    )
     if new_project:
         created_external_scratch = False
         if scratch_relative is None:

@@ -26,7 +26,7 @@ def inputs(tmp_path: Path) -> tuple[Path, Path]:
     model = tmp_path / "model"
     model.mkdir()
     (model / "config.yml").write_text(
-        "working_directory: /cache\nrun: [old]\nconfig:\n"
+        "working_directory: /cache\nrun: [synthesis.output, analysis.synthesis.population]\nconfig:\n"
         "  processes: 4\n  sampling_rate: 0.001\n  random_seed: 1234\n"
         "  matching_age_scheme: matching_6\n  analysis_age_scheme: analysis_7\n"
         "  data_path: /data\n  output_path: /output\n  output_prefix: nantes_\n"
@@ -137,7 +137,7 @@ def test_init_accepts_a_custom_model_config(
 ) -> None:
     model, data = inputs(tmp_path)
     (model / "custom.yml").write_text(
-        "working_directory: /cache\nrun: []\nconfig:\n"
+        "working_directory: /cache\nrun: [synthesis.output, analysis.synthesis.population]\nconfig:\n"
         "  sampling_rate: 0.001\n  matching_age_scheme: matching_6\n"
         "  analysis_age_scheme: analysis_7\n"
     )
@@ -287,11 +287,9 @@ def test_init_rerun_accepts_user_created_campaign_state(
     marker = runs / f"{run_id}.parquet"
     backup = runs / f".{run_id}.parquet.safe.backup"
     os.link(marker, backup)
-    for name in (
-        "persons", "households", "activities", "trips", "vehicle_types", "vehicles",
-        "age", "distance", "license", "nbr_vehicle", "travel", "age_purpose",
-    ):
-        (archive / f"{name}.parquet").write_bytes(b"owned")
+    # Archive files are the outputs the starters declare, named <name><suffix>.
+    for name in ("age", "distance", "nbr_vehicle"):
+        (archive / f"{name}.csv").write_bytes(b"owned")
     pq.write_table(pa.table({"value": [1.0]}), campaign / "indicators.parquet")
     (campaign / "analysis-generation.json").write_text("{}\n")
     analysis_state = campaign / analysis_state_name

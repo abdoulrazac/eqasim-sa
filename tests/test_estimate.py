@@ -4,7 +4,6 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
@@ -19,7 +18,6 @@ from eqasim_sa.core.plan import (
     load_run_specs,
 )
 from eqasim_sa.core.run import compute_run_id
-from eqasim_sa.ports.simulator import IndicatorRequirement
 from tests.provenance_helpers import context_hash, write_verified_run
 from tests.conftest import make_symlink
 
@@ -141,7 +139,7 @@ def test_application_estimate_passes_sobol_formula_inputs_and_unique_runs(
         {"config": {"rate": 0}},
         {"rate": [0, 1]},
         (7, 8),
-        {"run": ["synthesis.output", "analysis.synthesis.population"]},
+        {},
         sealed_context_hash,
         descriptor,
         root,
@@ -174,7 +172,7 @@ def test_application_estimate_passes_sobol_formula_inputs_and_unique_runs(
         marker=marker,
         execution=SimpleNamespace(workers=3),
         calibration_meta_configs=(),
-        indicator_requirements=(IndicatorRequirement("value", "age"),),
+        outputs={},
         method="sobol",
         trajectories=None,
         design_seed=7,
@@ -205,7 +203,7 @@ def campaign(
         {"config": {"rate": 0}},
         {"rate": [0, 1] if discrete_oat else [1, 1]},
         (7,),
-        {"run": ["synthesis.output", "analysis.synthesis.population"]},
+        {},
         sealed_context_hash,
         descriptor,
         root,
@@ -242,7 +240,7 @@ def campaign(
         marker=marker,
         execution=SimpleNamespace(workers=3),
         calibration_meta_configs=(),
-        indicator_requirements=(IndicatorRequirement("value", "age"),),
+        outputs={},
         method=design.method,
         trajectories=getattr(design, "trajectories", None),
         design_seed=getattr(design, "design_seed", None),
@@ -283,9 +281,9 @@ def test_application_estimate_collects_complete_runs_once_and_is_read_only(
             path.stat().st_size
             for path in (
                 target.marker,
-                next((target.campaign_root / "archives").rglob("*.parquet")),
+                next((target.campaign_root / "archives").rglob("output.csv")),
                 calibration.marker,
-                next((calibration.campaign_root / "archives").rglob("*.parquet")),
+                next((calibration.campaign_root / "archives").rglob("output.csv")),
             )
         )
         / 2
@@ -310,7 +308,7 @@ def test_application_estimate_rejects_unsafe_archive(
 
     meta = campaign(tmp_path / "campaign")
     archive = next((meta.campaign_root / "archives").iterdir())
-    parquet = archive / "output.parquet"
+    parquet = archive / "output.csv"
     if damage == "missing":
         __import__("shutil").rmtree(archive)
     elif damage == "empty":
@@ -320,7 +318,7 @@ def test_application_estimate_rejects_unsafe_archive(
     elif damage == "foreign":
         (archive / "notes.txt").write_text("x")
     elif damage == "truncated":
-        parquet.write_bytes(b"PAR1")
+        parquet.write_bytes(b"val")
     else:
         parquet.unlink()
         make_symlink(parquet, meta.marker)
@@ -351,7 +349,7 @@ def test_application_estimate_rejects_archive_mutation(
         result = original(campaign_root, record)
         if result is not None and not mutated:
             mutated = True
-            pq.write_table(pa.table({"value": [2]}), result.archive / "added.parquet")
+            (result.archive / "added.csv").write_bytes(b"value\n2\n")
         return result
 
     monkeypatch.setattr(

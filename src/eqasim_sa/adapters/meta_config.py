@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from eqasim_sa.adapters.eqasim.artifacts import ARTIFACT_STAGE
+from eqasim_sa.adapters.eqasim.artifacts import KNOWN_OUTPUTS
 from eqasim_sa.adapters.eqasim.source_fingerprint import (
     eqasim_source_exclusions,
     model_source_sha256,
@@ -17,6 +17,7 @@ from eqasim_sa.adapters.eqasim.config import (
     CAMPAIGN,
     load_yaml_document,
     load_yaml_source,
+    run_stages,
     validate_eqasim_document,
 )
 from eqasim_sa.adapters.eqasim.workspace import CAMPAIGN_MAX
@@ -39,12 +40,16 @@ from eqasim_sa.utils.filesystem import FileState, path_state
 from eqasim_sa.utils import platform
 from eqasim_sa.utils.text_identity import canonical_json_sha256, lf_sha256
 from eqasim_sa.core.indicators import (
-    ArtifactDeclaration,
+    Indicator,
+    OutputDeclaration,
     PairDeclaration,
     ProductDeclaration,
     TotalVariationIndicator,
     analysis_identity,
     resolve_indicators,
+    validate_output_file,
+    validate_output_name,
+    validate_separator,
 )
 from eqasim_sa.core.plan import (
     MAX_CANONICAL_MORRIS_CANDIDATES,
@@ -62,7 +67,6 @@ from eqasim_sa.core.software_identity import (
     read_software_identity,
     verify_software_source_states,
 )
-from eqasim_sa.ports.simulator import IndicatorRequirement
 
 EXPERIMENT_METHODS = (
     "grid",
@@ -112,7 +116,7 @@ EXPERIMENT_KEYS = {
         "seeds_provenance",
     ),
 }
-OUTPUT_KEYS = ("category", "simulated", "references")
+OUTPUT_KEYS = ("file", "separator", "category", "simulated", "references")
 SEED_FACTOR_METHODS = {"sobol", "multiscramble_sobol"}
 
 
@@ -176,9 +180,8 @@ class MetaConfig:
     execution: Execution | None
     calibration_meta_configs: tuple[Path, ...]
     control_states: tuple[tuple[Path, FileState], ...]
-    artifacts: dict[str, ArtifactDeclaration]
-    indicators: tuple[object, ...]
-    indicator_requirements: tuple[IndicatorRequirement, ...]
+    outputs: dict[str, OutputDeclaration]
+    indicators: tuple[Indicator, ...]
     software_identity: SoftwareIdentity
     model_source_exclusions: tuple[Path, ...]
     structured_factors: dict[str, dict[str, list[str]]] = field(default_factory=dict)
@@ -452,47 +455,79 @@ def _strings(value: object, name: str, allow_empty: bool = False) -> tuple[str, 
     return tuple(value)
 
 
-def _indicator_blocks(
-    document: dict,
-) -> tuple[
-    dict[str, ArtifactDeclaration], tuple[object, ...], tuple[IndicatorRequirement, ...]
-]:
+def _outputs(document: dict) -> dict[str, OutputDeclaration]:
     raw_outputs = _mapping(document.get("outputs", {}), "outputs")
+    if not raw_outputs:
+        raise ValueError(
+            "outputs must declare at least one output (for example age: {})"
+        )
     for name in raw_outputs:
-        if isinstance(name, str):
-            validate_portable_name(name, "output")
-    reject_case_collisions(
-        [name for name in raw_outputs if isinstance(name, str)], "output"
-    )
-    artifacts = {}
+        validate_output_name(name)
+        validate_portable_name(name, "output")
+    reject_case_collisions(list(raw_outputs), "output")
+    outputs = {}
     for name, value in raw_outputs.items():
         declaration = _mapping(value, f"output {name!r}")
-        if (
-            not isinstance(name, str)
-            or not name
-            or set(declaration) != set(OUTPUT_KEYS)
-        ):
+        unknown = sorted(str(key) for key in declaration if key not in OUTPUT_KEYS)
+        if unknown:
             raise ValueError(
-                f"output {name!r} keys must be exactly {', '.join(OUTPUT_KEYS)}"
+                f"output {name!r} keys must be among {', '.join(OUTPUT_KEYS)}; "
+                f"unknown: {', '.join(unknown)}"
             )
-        category, simulated = declaration["category"], declaration["simulated"]
-        if not all(isinstance(item, str) and item for item in (category, simulated)):
+        if "file" not in declaration:
             raise ValueError(
-                f"output {name!r} category and simulated must be non-empty strings"
+                f"output {name!r} is not a known eqasim output; declare its file "
+                "(relative to eqasim's output_path, e.g. "
+                f"analysis_population/{{prefix}}{name}.csv)"
             )
+        file, separator = declaration["file"], declaration["separator"]
+        try:
+            validate_output_file(file)
+        except ValueError as error:
+            raise ValueError(f"output {name!r} file: {error}") from error
+        try:
+            validate_separator(separator)
+        except ValueError as error:
+            raise ValueError(f"output {name!r} separator: {error}") from error
+        category, simulated = declaration.get("category"), declaration.get("simulated")
+        for label, item in (("category", category), ("simulated", simulated)):
+            if item is not None and (not isinstance(item, str) or not item):
+                raise ValueError(f"output {name!r} {label} must be a non-empty string")
         references = _strings(
-            declaration["references"], f"output {name!r} references", True
+            declaration.get("references", []), f"output {name!r} references", True
         )
-        if category == simulated or set(references) & {category, simulated}:
+        named = [item for item in (category, simulated) if item is not None]
+        if len(set(named)) != len(named) or set(references) & set(named):
             raise ValueError(
                 f"output {name!r} category, simulated and references must be distinct"
             )
-        artifacts[name] = ArtifactDeclaration(
-            category,
-            simulated,
-            references,
-            ARTIFACT_STAGE.get(name),
+        outputs[name] = OutputDeclaration(
+            file, separator, category, simulated, references
         )
+    return outputs
+
+
+def _require_output_stages(
+    outputs: dict[str, OutputDeclaration], model_document: dict, config: Path
+) -> None:
+    """Refuse a known output left at its default file whose stage is not run."""
+
+    stages = set(run_stages(model_document.get("run")))
+    for name, declaration in outputs.items():
+        known = KNOWN_OUTPUTS.get(name)
+        if known is None or declaration.file != known.file:
+            continue
+        if known.stage not in stages:
+            raise ValueError(
+                f"output {name!r} is written by eqasim stage {known.stage!r}, "
+                f"which is not in run: of {config}; "
+                "add it to run: in your eqasim config"
+            )
+
+
+def _indicator_blocks(
+    document: dict, outputs: dict[str, OutputDeclaration]
+) -> tuple[Indicator, ...]:
     raw_indicators = document.get("indicators", [])
     if not isinstance(raw_indicators, list):
         raise TypeError("indicators must be a list")
@@ -533,16 +568,12 @@ def _indicator_blocks(
             if "reference" in keys
             else ProductDeclaration((kind,), (declaration["output"],))
         )
-    resolved = resolve_indicators(declarations, artifacts, SCALARIZERS)
+    resolved = resolve_indicators(declarations, outputs, SCALARIZERS)
     names = [item.name for item in resolved]
     if len(names) != len(set(names)):
         raise ValueError("resolved indicator names must be unique")
     reject_case_collisions(names, "indicator")
-    requirements = tuple(
-        IndicatorRequirement(item.name, item.identity.artifact)
-        for item in resolved
-    )
-    return artifacts, resolved, requirements
+    return resolved
 
 
 def load_meta_config(
@@ -1013,7 +1044,9 @@ def load_meta_config(
         if "calibration" in document
         else ()
     )
-    artifacts, indicators, indicator_requirements = _indicator_blocks(document)
+    outputs = _outputs(document)
+    _require_output_stages(outputs, model_document, config)
+    indicators = _indicator_blocks(document, outputs)
     if method != "grid" and not indicators:
         raise ValueError(
             f"{method} requires at least one indicator; "
@@ -1105,9 +1138,8 @@ def load_meta_config(
         execution,
         calibrations,
         control_states,
-        artifacts,
+        outputs,
         indicators,
-        indicator_requirements,
         software_identity,
         model_source_exclusions,
         structured_factors,

@@ -1,6 +1,5 @@
 """Translate a validated meta-configuration into a campaign design."""
 
-from eqasim_sa.adapters.eqasim.simulator import eqasim_requirements
 from eqasim_sa.core.charter import serialize_scientific_contract
 from eqasim_sa.core.plan import (
     CanonicalMorrisDesign,
@@ -20,16 +19,17 @@ def _validate_scientific_method(meta) -> None:  # type: ignore[no-untyped-def]
         )
 
 
-def _design(meta, requirements=None):  # type: ignore[no-untyped-def]
+def _design(meta):  # type: ignore[no-untyped-def]
+    """Build the design whose base config carries the eqasim ``run:`` list as is."""
+
     _validate_scientific_method(meta)
     structured_factors = getattr(meta, "structured_factors", {})
+    outputs = dict(meta.outputs)
     common = (
         meta.model_document,
         meta.factors,
         meta.seeds,
-        requirements
-        if requirements is not None
-        else dict(eqasim_requirements(meta.indicator_requirements)),
+        {},
         meta.context_hash,
         meta.context_descriptor,
         meta.campaign_root,
@@ -40,6 +40,7 @@ def _design(meta, requirements=None):  # type: ignore[no-untyped-def]
             meta.trajectories,
             meta.design_seed,
             structured_factors=structured_factors,
+            outputs=outputs,
         )
     if getattr(meta, "method", "grid") == "canonical_morris":
         distributions = {
@@ -70,6 +71,7 @@ def _design(meta, requirements=None):  # type: ignore[no-untyped-def]
             meta.convergence_checkpoints,
             meta.screening_top_k,
             structured_factors=structured_factors,
+            outputs=outputs,
         )
     if getattr(meta, "method", "grid") == "sobol":
         return SobolDesign(
@@ -77,6 +79,7 @@ def _design(meta, requirements=None):  # type: ignore[no-untyped-def]
             meta.base_sample_size,
             meta.design_seed,
             structured_factors=structured_factors,
+            outputs=outputs,
         )
     if getattr(meta, "method", "grid") == "multiscramble_sobol":
         full_factors = {**meta.factors, "seed": list(meta.seeds)}
@@ -103,5 +106,8 @@ def _design(meta, requirements=None):  # type: ignore[no-untyped-def]
             contract,
             meta.confidence_level,
             structured_factors=structured_factors,
+            outputs=outputs,
         )
-    return GridDesign(*common, structured_factors=structured_factors)
+    return GridDesign(
+        *common, structured_factors=structured_factors, outputs=outputs
+    )

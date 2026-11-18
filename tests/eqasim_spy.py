@@ -89,7 +89,15 @@ def main() -> int:
                 "HTS adjust with INSEE population weights",
                 "Proportion_EQASIM",
             ],
-            [[0, "65+", 0.5, 0.4], [1, "(99.0, inf]", None, 0.6]],
+            [
+                [0, "65+", 0.5, 0.4],
+                [
+                    1,
+                    "(99.0, inf]",
+                    0.5 if case == "complete-references" else None,
+                    0.6,
+                ],
+            ],
         )
     write(
         output / "analysis_population" / f"{prefix}age_purpose.csv",
@@ -104,6 +112,7 @@ def main() -> int:
         write(age, ",", ["", "", "Age class"], [[0, 1, "65+"]])
     elif case == "malformed-csv":
         age.write_text(',"unterminated\n', encoding="utf-8")
+    (output / f"{prefix}activities.gpkg").write_bytes(b"GPKG\0\x01\x02spatial\r\n")
     (output / "stale.csv").write_text("ignored\n", encoding="utf-8")
     (output / "analysis_population" / "other_age.csv").write_text(
         "ignored\n", encoding="utf-8"

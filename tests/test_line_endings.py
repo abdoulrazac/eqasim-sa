@@ -20,7 +20,8 @@ from eqasim_sa.utils.text_identity import (
 
 
 MODEL_CONFIG = (
-    b"working_directory: /ignored\nrun: [old]\nconfig:\n  a: 0\n  b: x\n"
+    b"working_directory: /ignored\nrun: [synthesis.output, analysis.synthesis.population]\n"
+    b"config:\n  a: 0\n  b: x\n"
     b"  data_path: ../data\n  processes: 1\n  random_seed: 9\n"
 )
 
@@ -54,7 +55,8 @@ def _project(root: Path, model: Path, data: Path, *, crlf: bool) -> Path:
         "  data_manifest: manifest.json\n  lockfile: uv.lock\n"
         "analysis:\n  completeness_threshold: 1.0\n"
         "experiment:\n  method: grid\n  seeds: [41, 42]\n"
-        "parameters:\n  a:\n    values: [1, 2]\n  b:\n    values: [x, y]\n",
+        "parameters:\n  a:\n    values: [1, 2]\n  b:\n    values: [x, y]\n"
+        "outputs:\n  persons: {}\n",
         encoding="utf-8",
     )
     return meta
@@ -167,7 +169,10 @@ def _builtin_indicator():  # type: ignore[no-untyped-def]
     from eqasim_sa.core.indicators import TableArtifact, TotalVariationIndicator
 
     return TotalVariationIndicator(
-        TableArtifact("distribution", "class", "synthetic", True), "reference"
+        TableArtifact(
+            "distribution", "distribution.csv", ",", "class", "synthetic", ("reference",)
+        ),
+        "reference",
     )
 
 
@@ -195,7 +200,7 @@ def test_builtin_indicator_definition_ignores_crlf(
         hashlib.sha256(lf_bytes(original.read_bytes())).hexdigest()
     ) == 1
     assert indicators.INDICATOR_DEFINITION_DOMAIN == (
-        b"eqasim-sa:indicator-definition:v2\0"
+        b"eqasim-sa:indicator-definition:v3\0"
     )
 
 
