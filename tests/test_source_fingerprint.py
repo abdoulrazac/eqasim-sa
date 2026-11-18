@@ -1,4 +1,7 @@
+import os
+import sys
 import time
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -130,3 +133,29 @@ def test_deadline_is_honoured(tmp_path, monkeypatch):
     with pytest.raises(TimeoutError):
         model_source_sha256(tmp_path, deadline=time.monotonic() - 1)
     assert model_source_sha256(tmp_path, deadline=time.monotonic() + 60)
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+    reason="needs POSIX permissions and a non-root user",
+)
+def test_unreadable_directory_is_an_error(tmp_path):
+    base_tree(tmp_path)
+    write(tmp_path, "locked/x.py")
+    locked = tmp_path / "locked"
+    locked.chmod(0)
+    try:
+        with pytest.raises(OSError):
+            model_source_sha256(tmp_path)
+    finally:
+        locked.chmod(0o700)
+
+
+def test_nfd_and_nfc_filenames_give_same_digest(tmp_path):
+    nfc = unicodedata.normalize("NFC", "café.py")
+    nfd = unicodedata.normalize("NFD", "café.py")
+    assert nfc != nfd
+    first, second = tmp_path / "one", tmp_path / "two"
+    write(first, nfc)
+    write(second, nfd)
+    assert model_source_sha256(first) == model_source_sha256(second)

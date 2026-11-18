@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import time
+import unicodedata
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -42,6 +43,10 @@ def _skip_directory(
     return directory.resolve() in excluded
 
 
+def _raise(error: OSError) -> None:
+    raise error
+
+
 def model_source_sha256(
     root: Path,
     excluded: Iterable[Path] = (),
@@ -54,7 +59,7 @@ def model_source_sha256(
         raise ValueError(f"model root is not a directory: {root}")
     skipped = frozenset(Path(path).resolve() for path in excluded)
     entries: list[tuple[str, str]] = []
-    for current, directories, files in os.walk(root, followlinks=False):
+    for current, directories, files in os.walk(root, followlinks=False, onerror=_raise):
         current_path = Path(current)
         directories[:] = [
             name
@@ -66,7 +71,8 @@ def model_source_sha256(
             path = current_path / name
             if not _is_code(name) or platform.is_link(path):
                 continue
-            entries.append((path.relative_to(root).as_posix(), lf_sha256(path)))
+            relative = unicodedata.normalize("NFC", path.relative_to(root).as_posix())
+            entries.append((relative, lf_sha256(path)))
     if not entries:
         raise ValueError(f"no eqasim source files found under {root}")
     entries.sort()
