@@ -143,7 +143,7 @@ def test_unreadable_directory_is_an_error(tmp_path):
     base_tree(tmp_path)
     write(tmp_path, "locked/x.py")
     locked = tmp_path / "locked"
-    locked.chmod(0)
+    locked.chmod(0o300)
     try:
         with pytest.raises(OSError):
             model_source_sha256(tmp_path)
@@ -155,6 +155,12 @@ def test_nfd_and_nfc_filenames_give_same_digest(tmp_path):
     nfc = unicodedata.normalize("NFC", "café.py")
     nfd = unicodedata.normalize("NFD", "café.py")
     assert nfc != nfd
+    probe = tmp_path / "probe"
+    probe.mkdir()
+    (probe / nfc).write_text("")
+    (probe / nfd).write_text("")
+    if len(list(probe.iterdir())) != 2:
+        pytest.skip("filesystem does not keep NFC and NFD names distinct")
     first, second = tmp_path / "one", tmp_path / "two"
     write(first, nfc)
     write(second, nfd)
