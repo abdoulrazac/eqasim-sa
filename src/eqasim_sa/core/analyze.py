@@ -19,7 +19,7 @@ from eqasim_sa.core.analysis_publication import (
     validate_descriptive_execution_evidence,
     validate_scientific_execution_evidence,
 )
-from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
+from eqasim_sa.core.campaign_snapshot import CampaignSnapshot, DerivedOutputs
 from eqasim_sa.core.context_identity import ExecutionContextIdentity
 from eqasim_sa.core.run import validate_model_document
 from eqasim_sa.core.indicators import (
@@ -94,8 +94,15 @@ def analyze(
     screening_top_k: int | None = None,
     meta_config_sha256: str | None = None,
     descriptive_only: bool = False,
+    derived_outputs: DerivedOutputs | None = None,
+    derived_workers: int = 1,
 ) -> AnalyzeResult:
-    """Analyze a campaign and publish outputs under its governed contract."""
+    """Analyze a campaign and publish outputs under its governed contract.
+
+    ``derived_outputs`` computes the analysis outputs indicators read, for each
+    captured run (``derived_workers`` runs at a time), under the analysis
+    lease; any error fails the analysis whatever the completeness threshold.
+    """
 
     campaign_root = campaign_root.resolve(strict=True)
     return _analyze_campaign(
@@ -111,6 +118,8 @@ def analyze(
         screening_top_k,
         meta_config_sha256,
         descriptive_only,
+        derived_outputs,
+        derived_workers,
     )
 
 
@@ -127,6 +136,8 @@ def _analyze_campaign(
     screening_top_k: int | None,
     meta_config_sha256: str | None,
     descriptive_only: bool,
+    derived_outputs: DerivedOutputs | None,
+    derived_workers: int,
 ) -> AnalyzeResult:
     if type(descriptive_only) is not bool:
         raise ValueError("descriptive_only must be boolean")
@@ -292,6 +303,8 @@ def _analyze_campaign(
             snapshot,
             sealed_scientific_contract,
             allow_empty_scientific_evidence=descriptive_only,
+            derived_outputs=derived_outputs,
+            derived_workers=derived_workers,
         )
         expected_ids = set(run_capture.expected_ids)
         completed_ids = set(run_capture.completed_ids)

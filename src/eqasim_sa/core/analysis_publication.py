@@ -18,6 +18,7 @@ import pyarrow as pa
 
 from eqasim_sa.core.campaign_snapshot import (
     CampaignSnapshot,
+    DerivedOutputs,
     context_descriptor,
     expected_records,
 )
@@ -94,6 +95,16 @@ class RunCapture:
     run_set_sha256: str
     run_set_document: Mapping[str, object]
     scientific_execution_evidence_sha256: str | None
+
+    @property
+    def analyses(self) -> dict[str, dict[str, dict]]:
+        """Provenance of each analysis output, by analysis then runId."""
+
+        analyses: dict[str, dict[str, dict]] = {}
+        for run in self.run_set_document["runs"]:  # type: ignore[union-attr]
+            for name, record in run["analyses"].items():
+                analyses.setdefault(name, {})[run["runId"]] = dict(record)
+        return analyses
 
 
 @dataclass(frozen=True)
@@ -340,7 +351,15 @@ class AnalysisPublication:
         scientific_contract: dict | None = None,
         *,
         allow_empty_scientific_evidence: bool = False,
+        derived_outputs: DerivedOutputs | None = None,
+        derived_workers: int = 1,
     ) -> tuple[PlanCapture, RunCapture]:
+        """Copy the selected sources, then add their analysis outputs.
+
+        ``derived_outputs`` runs under the ``analysis.lock`` lease on the
+        captured (already verified) copies, ``derived_workers`` runs at a time.
+        """
+
         if snapshot.campaign_root != self.campaign_root:
             raise ValueError("campaign snapshot belongs to another campaign root")
         materialized = snapshot.materialize(self.capture_directory / "campaign")
@@ -358,6 +377,10 @@ class AnalysisPublication:
             scientific_evidence_sha256 = None
             if allow_empty_scientific_evidence:
                 validate_descriptive_execution_evidence(evidence)
+        if derived_outputs is not None:
+            materialized = materialized.with_derived_outputs(
+                derived_outputs, derived_workers
+            )
         return (
             PlanCapture(
                 materialized.plan_path,
@@ -501,6 +524,7 @@ class AnalysisPublication:
             "scientificExecutionEvidenceSha256": (
                 runs.scientific_execution_evidence_sha256
             ),
+            "analyses": runs.analyses,
             "dependencies": dependency_versions(software_identity),
             "indicators": [dict(identity) for identity in indicator_identities],
         }

@@ -9,6 +9,7 @@ from pathlib import Path
 import pyarrow.parquet as pq
 import yaml
 
+from eqasim_sa.adapters import analysis_execution
 from eqasim_sa.adapters.backends.local import LocalBackend
 from eqasim_sa.adapters.campaign_design import _design, _validate_scientific_method
 from eqasim_sa.adapters.checks import check_from_meta_config
@@ -32,7 +33,7 @@ from eqasim_sa.adapters.worker import ordered_results, worker_batches
 from eqasim_sa.cli import dispatch
 from eqasim_sa.core.analyze import analyze
 from eqasim_sa.core.context_identity import ExecutionContextIdentity
-from eqasim_sa.core.indicators import OutputDeclaration
+from eqasim_sa.core.indicators import ArtifactSet, OutputDeclaration, analysis_identity
 from eqasim_sa.core.plan import (
     PlanResult,
     build_plan,
@@ -223,6 +224,62 @@ def run_from_meta_config(path: Path) -> dict:
     )
 
 
+def _derived_outputs(meta, warnings: list[str]):  # type: ignore[no-untyped-def]
+    """Return the function computing the analysis outputs indicators read.
+
+    ``None`` when no indicator reads one: nothing is probed nor run.  The
+    environment fingerprint is computed once; altered cache entries are
+    reported in ``warnings``.
+    """
+
+    used = sorted(
+        {
+            str(identity["artifact"]["analysis"])
+            for identity in map(analysis_identity, meta.indicators)
+            if "analysis" in identity["artifact"]
+        }
+    )
+    if not used:
+        return None
+    python, model_root = meta.analysis_python, meta.model_root
+    environment = analysis_execution.environment_fingerprint(
+        python, model_root, model_root / "uv.lock"
+    )
+    cache = analysis_execution.AnalysisCache(meta.campaign_root)
+
+    def compute(run_id: str, artifacts: ArtifactSet, context: dict) -> dict:
+        outputs = {}
+        for name in used:
+            declaration = meta.analyses[name]
+            result = analysis_execution.run_analysis(
+                declaration,
+                {item: artifacts.path(item) for item in declaration.inputs},
+                context["parameters"],
+                python,
+                model_root,
+                meta.campaign_root,
+                environment,
+                inputs_sha256={
+                    item: context["artifactsSha256"][item]
+                    for item in declaration.inputs
+                },
+                cache=cache,
+            )
+            warnings.extend(result.warnings)
+            outputs[name] = (
+                result.path,
+                {
+                    "resultFingerprint": result.fingerprint,
+                    "scriptSha256": result.script_sha256,
+                    "environmentFingerprint": result.environment,
+                    "inputsSha256": dict(result.inputs_sha256),
+                },
+            )
+        return outputs
+
+    return compute
+
+
 def analyze_from_meta_config(path: Path, descriptive_only: bool = False) -> dict:
     """Analyze a campaign after enforcing its sealed plan constraints."""
 
@@ -234,6 +291,8 @@ def analyze_from_meta_config(path: Path, descriptive_only: bool = False) -> dict
     # Run identity is checked against what the plan sealed (eqasim config and
     # context), not the current eqasim checkout: eqasim may change after runs.
     load_run_specs(plan_path, _design(meta), meta.campaign)
+    warnings: list[str] = []
+    derived_outputs = _derived_outputs(meta, warnings)
     result = analyze(
         meta.campaign_root,
         meta.indicators,
@@ -247,6 +306,8 @@ def analyze_from_meta_config(path: Path, descriptive_only: bool = False) -> dict
         screening_top_k=getattr(meta, "screening_top_k", None),
         meta_config_sha256=getattr(meta, "meta_config_sha256", None),
         descriptive_only=descriptive_only,
+        derived_outputs=derived_outputs,
+        derived_workers=getattr(getattr(meta, "execution", None), "workers", 1),
     )
     return {
         "status": "completed",
@@ -294,6 +355,7 @@ def analyze_from_meta_config(path: Path, descriptive_only: bool = False) -> dict
         if getattr(result, "governed_report_path", None)
         else None,
         "inferenceStatus": getattr(result, "inference_status", None),
+        "warnings": list(warnings),
         "error": None,
     }
 

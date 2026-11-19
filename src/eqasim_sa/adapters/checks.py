@@ -21,7 +21,7 @@ from eqasim_sa.adapters.estimate import _estimate_state, _remaining
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.adapters.worker import ordered_results, worker_batches
 from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
-from eqasim_sa.core.indicators import ArtifactSet
+from eqasim_sa.core.indicators import ArtifactSet, DerivedOutput
 from eqasim_sa.core.ledger import archive_file_name
 from eqasim_sa.core.plan import load_run_specs, unique_config_seed_pairs
 from eqasim_sa.adapters.execution_seal import current_machine_identity
@@ -422,6 +422,12 @@ def _smoke_in(meta, seeds, specs, owned: Path) -> None:  # type: ignore[no-untyp
                 )
             artifacts = ArtifactSet({expected[item.name]: item for item in entries})
             for indicator in getattr(meta, "indicators", ()):
+                # Analysis outputs come from scripts run by analyze, not eqasim.
+                source = getattr(indicator, "source", None) or getattr(
+                    getattr(indicator, "artifact", None), "source", None
+                )
+                if isinstance(source, DerivedOutput):
+                    continue
                 try:
                     value = indicator.compute(artifacts)
                 except Exception as error:

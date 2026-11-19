@@ -6,10 +6,11 @@ import hashlib
 import json
 import os
 import stat
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor, wait
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
-from typing import Mapping, Sequence
+from typing import Callable, Mapping, Sequence
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -24,7 +25,7 @@ from eqasim_sa.utils.filesystem import (
     stable_file,
     verify_stable_file,
 )
-from eqasim_sa.core.indicators import ArtifactSet
+from eqasim_sa.core.indicators import ArtifactSet, validate_output_name
 from eqasim_sa.core.ledger import (
     RUN_ID,
     CompletionState,
@@ -36,6 +37,17 @@ from eqasim_sa.ports.simulator import ExecutionEvidence
 
 
 RUN_SET_DOMAIN = b"eqasim-sa:analysis-run-set:v1\0"
+RUN_SET_SCHEMA_VERSION = 2
+DERIVED_DIRECTORY = "derived"
+
+DerivedOutputs = Callable[[str, ArtifactSet, dict], Mapping[str, tuple[Path, dict]]]
+"""Compute the analysis outputs of one captured run.
+
+Called with the runId, the run's captured archive files, and
+``{"parameters": {"runId", "seed", "factors"}, "artifactsSha256": {name: sha256}}``;
+returns ``{analysis: (csv, provenance)}`` where ``provenance`` is a JSON
+mapping recorded in the captured run set.
+"""
 
 
 @dataclass(frozen=True)
@@ -63,6 +75,95 @@ class MaterializedCampaign:
     artifacts: Mapping[str, ArtifactSet]
     run_set_sha256: str
     run_set_document: Mapping[str, object]
+    root: Path
+    contexts: Mapping[str, Mapping[str, object]]
+
+    def with_derived_outputs(
+        self, derived_outputs: DerivedOutputs, workers: int = 1
+    ) -> MaterializedCampaign:
+        """Add analysis outputs to every captured run, ``workers`` runs at a time.
+
+        Each produced CSV is copied below ``derived/<runId>/`` next to the
+        captured archive files, then recorded with its provenance in the run
+        set.  Any failure fails the whole capture.
+        """
+
+        if type(workers) is not int or workers < 1:
+            raise ValueError("derived output workers must be a positive integer")
+        run_ids = list(self.artifacts)
+        produced: dict[str, Mapping[str, tuple[Path, dict]]] = {}
+        if run_ids:
+            with ThreadPoolExecutor(max_workers=min(workers, len(run_ids))) as pool:
+                futures = {
+                    pool.submit(
+                        derived_outputs,
+                        run_id,
+                        self.artifacts[run_id],
+                        json.loads(json.dumps(dict(self.contexts[run_id]))),
+                    ): run_id
+                    for run_id in run_ids
+                }
+                pending = set(futures)
+                try:
+                    while pending:
+                        done, pending = wait(pending, return_when="FIRST_EXCEPTION")
+                        for future in done:
+                            error = future.exception()
+                            if error is not None:
+                                raise error
+                            produced[futures[future]] = future.result()
+                finally:
+                    for future in pending:
+                        future.cancel()
+        names: set[str] | None = None
+        artifacts_by_run = {}
+        descriptors = []
+        for descriptor in self.run_set_document["runs"]:  # type: ignore[union-attr]
+            run_id = descriptor["runId"]
+            outputs = produced[run_id]
+            if not isinstance(outputs, Mapping):
+                raise TypeError("derived outputs must be a mapping")
+            if names is None:
+                names = set(outputs)
+            elif set(outputs) != names:
+                raise ValueError("derived outputs must name the same analyses for every run")
+            archived = self.artifacts[run_id]
+            paths = dict(archived.paths)
+            records = {}
+            for name in sorted(outputs):
+                validate_output_name(name)
+                if name in paths:
+                    raise ValueError(f"derived output {name!r} is an archived output")
+                source, provenance = outputs[name]
+                if not isinstance(provenance, Mapping) or {"size", "sha256"} & set(
+                    provenance
+                ):
+                    raise ValueError(
+                        f"derived output {name!r} provenance must be a mapping "
+                        "without size or sha256"
+                    )
+                target = self.root / DERIVED_DIRECTORY / run_id / f"{name}.csv"
+                captured = capture_stable_file(Path(source), target)
+                paths[name] = target
+                records[name] = {
+                    **json.loads(json.dumps(dict(provenance), allow_nan=False)),
+                    "size": captured.size,
+                    "sha256": captured.sha256,
+                }
+            if records:
+                fsync_directory(self.root / DERIVED_DIRECTORY / run_id)
+            artifacts_by_run[run_id] = ArtifactSet(paths)
+            descriptors.append({**descriptor, "analyses": records})
+        run_set_descriptor = {"schemaVersion": RUN_SET_SCHEMA_VERSION, "runs": descriptors}
+        run_set_sha256 = _domain_digest(RUN_SET_DOMAIN, run_set_descriptor)
+        return replace(
+            self,
+            artifacts=MappingProxyType(artifacts_by_run),
+            run_set_sha256=run_set_sha256,
+            run_set_document=MappingProxyType(
+                {**run_set_descriptor, "capturedRunSetSha256": run_set_sha256}
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -283,6 +384,7 @@ class CampaignSnapshot:
         )
         artifacts_by_run = {}
         descriptors = []
+        contexts = {}
         for run_id, selected in self.runs.items():
             run_destination = destination / "artifacts" / run_id
             run_destination.mkdir(parents=True, mode=0o700)
@@ -314,6 +416,18 @@ class CampaignSnapshot:
                 )
             fsync_directory(run_destination)
             artifacts_by_run[run_id] = ArtifactSet(copied)
+            contexts[run_id] = MappingProxyType(
+                {
+                    "parameters": {
+                        "runId": run_id,
+                        "seed": selected.expected.seed,
+                        "factors": dict(selected.expected.parameters),
+                    },
+                    "artifactsSha256": {
+                        item["name"]: item["sha256"] for item in captured_artifacts
+                    },
+                }
+            )
             descriptor = selected.descriptor
             descriptors.append(
                 {
@@ -328,6 +442,7 @@ class CampaignSnapshot:
                         "executionEvidenceSha256"
                     ],
                     "executionEvidence": descriptor["executionEvidence"],
+                    "analyses": {},
                 }
             )
         for selected in self.runs.values():
@@ -338,7 +453,10 @@ class CampaignSnapshot:
                 )
             for artifact in selected.artifacts:
                 _verify_stable_state(artifact)
-        run_set_descriptor = {"schemaVersion": 1, "runs": descriptors}
+        run_set_descriptor = {
+            "schemaVersion": RUN_SET_SCHEMA_VERSION,
+            "runs": descriptors,
+        }
         run_set_sha256 = _domain_digest(RUN_SET_DOMAIN, run_set_descriptor)
         run_set_document = {
             **run_set_descriptor,
@@ -349,6 +467,8 @@ class CampaignSnapshot:
             MappingProxyType(artifacts_by_run),
             run_set_sha256,
             MappingProxyType(run_set_document),
+            destination,
+            MappingProxyType(contexts),
         )
 
     def verify(self) -> None:
