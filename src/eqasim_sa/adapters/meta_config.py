@@ -40,17 +40,20 @@ from eqasim_sa.core.charter import (
     parse_distribution,
     validate_scientific_stopping,
 )
+from eqasim_sa.core.analyses import ANALYSES_LOG_DIRECTORY, AnalysisDeclaration
 from eqasim_sa.core.context_identity import ExecutionContextIdentity
 from eqasim_sa.utils.filesystem import FileState, path_state
 from eqasim_sa.utils import platform
 from eqasim_sa.utils.text_identity import canonical_json_sha256, lf_sha256
 from eqasim_sa.core.indicators import (
+    DerivedOutput,
     Indicator,
     OutputDeclaration,
     PairDeclaration,
     ProductDeclaration,
     ShareIndicator,
     TableArtifact,
+    TableSource,
     TotalVariationIndicator,
     ValueIndicator,
     analysis_identity,
@@ -99,13 +102,22 @@ ROOT_KEYS = (
     "parameters",
     "analysis",
     "outputs",
+    "analyses",
     "indicators",
     "execution",
     "calibration",
 )
 ROOT_REQUIRED = {"campaign", "model", "experiment", "parameters"}
 MODEL_KEYS = ("root", "config", "data_manifest", "lockfile")
-EXECUTION_KEYS = ("backend", "workers", "scratch", "invocation", "machine_options", "slurm")
+EXECUTION_KEYS = (
+    "backend",
+    "workers",
+    "scratch",
+    "invocation",
+    "python",
+    "machine_options",
+    "slurm",
+)
 EXPERIMENT_KEYS = {
     "grid": ("method", "seeds"),
     "discrete_oat": ("method", "seeds", "trajectories", "design_seed"),
@@ -127,6 +139,10 @@ EXPERIMENT_KEYS = {
     ),
 }
 OUTPUT_KEYS = ("file", "separator", "category", "simulated", "references")
+ANALYSIS_KEYS = ("script", "inputs", "category", "simulated", "references")
+ANALYSIS_INPUT_SUFFIXES = (".csv", ".gpkg")
+DEFAULT_ANALYSIS_PYTHON = ("uv", "run", "--locked", "python")
+SYNPP_MODULE = ("-m", "synpp")
 SEED_FACTOR_METHODS = {"sobol", "multiscramble_sobol"}
 
 
@@ -153,6 +169,7 @@ class Execution:
     overrides: dict[str, object]
     slurm: SlurmResources
     data_path: Path | None
+    python: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -196,6 +213,8 @@ class MetaConfig:
     model_source_exclusions: tuple[Path, ...]
     structured_factors: dict[str, dict[str, list[str]]] = field(default_factory=dict)
     sealed: SealedPlanInputs | None = None
+    analyses: dict[str, AnalysisDeclaration] = field(default_factory=dict)
+    analysis_python: tuple[str, ...] = ()
 
     @property
     def eqasim_sa_version(self) -> str:
@@ -334,6 +353,15 @@ def _execution(
         raise ValueError(
             "execution.invocation must be a non-empty list of non-empty strings without NUL"
         )
+    python = document.get("python")
+    if python is not None and (
+        not isinstance(python, list)
+        or not python
+        or not all(isinstance(item, str) and item and "\0" not in item for item in python)
+    ):
+        raise ValueError(
+            "execution.python must be a non-empty list of non-empty strings without NUL"
+        )
     overrides = _mapping(
         document.get("machine_options", {}), "execution.machine_options"
     )
@@ -427,6 +455,7 @@ def _execution(
         validated,
         SlurmResources(timeout_min, mem_gb, **strings),
         data_path,
+        None if python is None else tuple(python),
     )
 
 
@@ -518,6 +547,102 @@ def _outputs(document: dict) -> dict[str, OutputDeclaration]:
     return outputs
 
 
+def _analysis_script(value: object, base: Path, label: str) -> Path:
+    if not isinstance(value, str) or not value or "\0" in value:
+        raise ValueError(f"{label} script must be a non-empty path")
+    lexical = Path(os.path.normpath(os.path.abspath(base / value)))
+    if platform.is_link(lexical):
+        raise ValueError(f"{label} script must not be a symlink")
+    try:
+        resolved = lexical.resolve(strict=True)
+    except OSError as error:
+        raise ValueError(f"{label} script {value!r} does not exist") from error
+    if not resolved.is_file():
+        raise ValueError(f"{label} script must be a regular file")
+    if resolved.suffix != ".py":
+        raise ValueError(f"{label} script must be a .py file")
+    return resolved
+
+
+def _analyses(
+    document: dict, base: Path, outputs: dict[str, OutputDeclaration]
+) -> dict[str, AnalysisDeclaration]:
+    """Parse ``analyses``; they never become archived outputs."""
+
+    raw_analyses = _mapping(document.get("analyses", {}), "analyses")
+    for name in raw_analyses:
+        validate_output_name(name)
+        validate_portable_name(name, "analysis")
+        if name in outputs:
+            raise ValueError(f"analysis name {name!r} is already an output name")
+        if name.casefold() == ANALYSES_LOG_DIRECTORY:
+            raise ValueError(
+                f"analysis name {name!r} is reserved for the analyses cache logs"
+            )
+    reject_case_collisions([*outputs, *raw_analyses], "output or analysis")
+    analyses = {}
+    for name, value in raw_analyses.items():
+        label = f"analysis {name!r}"
+        declaration = _mapping(value, label)
+        _require_keys(declaration, label, ANALYSIS_KEYS, {"script", "inputs"})
+        script = _analysis_script(declaration["script"], base, label)
+        inputs = _strings(declaration["inputs"], f"{label} inputs")
+        for item in inputs:
+            if item in raw_analyses:
+                raise ValueError(
+                    f"{label} input {item!r} is an analysis; inputs must be "
+                    "outputs declared in outputs"
+                )
+            if item not in outputs:
+                raise ValueError(f"{label} input {item!r} is not declared in outputs")
+            file = outputs[item].file
+            if not file.lower().endswith(ANALYSIS_INPUT_SUFFIXES):
+                raise ValueError(
+                    f"{label} input {item!r} file {file!r} must be a .csv or .gpkg file"
+                )
+        category, simulated = declaration.get("category"), declaration.get("simulated")
+        references = _strings(
+            declaration.get("references", []), f"{label} references", True
+        )
+        try:
+            output = DerivedOutput(
+                name, name, inputs, ",", category, simulated, references
+            )
+        except ValueError as error:
+            raise ValueError(f"{label}: {error}") from error
+        analyses[name] = AnalysisDeclaration(name, script, inputs, output)
+    return analyses
+
+
+def _analysis_python(
+    execution: Execution | None, analyses: dict[str, AnalysisDeclaration]
+) -> tuple[str, ...]:
+    """Return the interpreter command running analysis scripts (unresolved)."""
+
+    if execution is None:
+        return DEFAULT_ANALYSIS_PYTHON
+    if execution.python is not None:
+        return execution.python
+    invocation = execution.invocation
+    if len(invocation) > len(SYNPP_MODULE) and invocation[-2:] == SYNPP_MODULE:
+        return invocation[: -len(SYNPP_MODULE)]
+    if analyses:
+        raise ValueError(
+            "analyses need execution.python because execution.invocation "
+            "does not end with -m synpp"
+        )
+    return ()
+
+
+def _reads_analysis_output(indicator: Indicator) -> str | None:
+    source = (
+        indicator.source
+        if isinstance(indicator, ValueIndicator)
+        else getattr(getattr(indicator, "artifact", None), "source", None)
+    )
+    return source.name if isinstance(source, DerivedOutput) else None
+
+
 def _require_output_stages(
     outputs: dict[str, OutputDeclaration], model_document: dict, config: Path
 ) -> None:
@@ -565,9 +690,14 @@ def _require_writable_outputs(
 
 
 def _require_csv_output(
-    outputs: dict[str, OutputDeclaration], name: object, label: str
+    outputs: dict[str, TableSource], name: object, label: str
 ) -> None:
-    if not isinstance(name, str) or name not in outputs:
+    # A derived output is always a CSV table written by eqasim-sa.
+    if (
+        not isinstance(name, str)
+        or name not in outputs
+        or isinstance(outputs[name], DerivedOutput)
+    ):
         return
     file = outputs[name].file
     if not file.lower().endswith(".csv"):
@@ -581,17 +711,19 @@ INDICATOR_KINDS = (*SCALARIZERS, "share", "value")
 
 
 def _declared_output(
-    outputs: dict[str, OutputDeclaration], name: object, label: str
-) -> OutputDeclaration:
+    outputs: dict[str, TableSource], name: object, label: str
+) -> TableSource:
     if not isinstance(name, str) or not name:
         raise ValueError(f"{label} output must be a non-empty string")
     if name not in outputs:
-        raise ValueError(f"{label} output {name!r} is not declared in outputs")
+        raise ValueError(
+            f"{label} output {name!r} is not declared in outputs or analyses"
+        )
     return outputs[name]
 
 
 def _share_indicator(
-    raw: dict, outputs: dict[str, OutputDeclaration], label: str
+    raw: dict, outputs: dict[str, TableSource], label: str
 ) -> ShareIndicator:
     if set(raw) != {"output", "category"}:
         raise ValueError(f"{label} keys must be exactly output and category")
@@ -610,8 +742,7 @@ def _share_indicator(
     return ShareIndicator(
         TableArtifact(
             output,
-            declaration.file,
-            declaration.separator,
+            declaration,
             declaration.category,
             declaration.simulated,
             declaration.references,
@@ -621,7 +752,7 @@ def _share_indicator(
 
 
 def _value_indicator(
-    raw: dict, outputs: dict[str, OutputDeclaration], label: str
+    raw: dict, outputs: dict[str, TableSource], label: str
 ) -> ValueIndicator:
     if not {"output", "column"} <= set(raw) <= {"output", "column", "where"}:
         raise ValueError(f"{label} keys must be output, column and optionally where")
@@ -637,9 +768,7 @@ def _value_indicator(
         raise ValueError("where values must be quoted strings")
     if column in where:
         raise ValueError(f"{label} column must not be a where key")
-    return ValueIndicator(
-        output, declaration.file, declaration.separator, column, where
-    )
+    return ValueIndicator(output, declaration, column, where)
 
 
 def _scalarizer_declaration(
@@ -663,7 +792,7 @@ def _scalarizer_declaration(
 
 
 def _indicator_blocks(
-    document: dict, outputs: dict[str, OutputDeclaration]
+    document: dict, outputs: dict[str, TableSource]
 ) -> tuple[Indicator, ...]:
     raw_indicators = document.get("indicators", [])
     if not isinstance(raw_indicators, list):
@@ -1198,12 +1327,25 @@ def load_meta_config(
     outputs = _outputs(document)
     _require_output_stages(outputs, experiment_document, config)
     _require_writable_outputs(outputs, experiment_document, config)
-    indicators = _indicator_blocks(document, outputs)
+    analyses = _analyses(document, base, outputs)
+    analysis_python = _analysis_python(execution, analyses)
+    indicators = _indicator_blocks(
+        document,
+        {**outputs, **{name: item.output for name, item in analyses.items()}},
+    )
     if method != "grid" and not indicators:
         raise ValueError(
             f"{method} requires at least one indicator; "
             "declare outputs (and optionally indicators)"
         )
+    if isinstance(charter_document := document.get("charter"), dict):
+        decision = charter_document.get("decision")
+        primary = decision.get("primary_indicator") if isinstance(decision, dict) else None
+        for item in indicators:
+            if item.name == primary and (derived := _reads_analysis_output(item)):
+                raise ValueError(
+                    f"primary_indicator must not use analysis output '{derived}'"
+                )
     charter = parse_charter(
         document.get("charter"),
         set(raw_parameters) | ({"seed"} if method in SEED_FACTOR_METHODS else set()),
@@ -1296,4 +1438,6 @@ def load_meta_config(
         model_source_exclusions,
         structured_factors,
         sealed,
+        analyses,
+        analysis_python,
     )

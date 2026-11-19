@@ -9,6 +9,7 @@ import pyarrow.csv as pa_csv
 from eqasim_sa.core.context_identity import ExecutionContextIdentity
 from eqasim_sa.core.indicators import (
     ArtifactSet,
+    OutputDeclaration,
     TableArtifact,
     TotalVariationIndicator,
     analysis_identity,
@@ -73,8 +74,7 @@ def scientific_indicator(
 
     declaration = TableArtifact(
         artifact,
-        f"{artifact}.csv" if file is None else file,
-        ",",
+        OutputDeclaration(f"{artifact}.csv" if file is None else file, ","),
         class_column,
         synthetic_column,
         (reference,),

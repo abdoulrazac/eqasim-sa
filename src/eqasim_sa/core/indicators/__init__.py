@@ -19,7 +19,7 @@ import pyarrow.csv as csv
 from eqasim_sa.core.software_identity import stable_published_identity
 
 
-INDICATOR_DEFINITION_DOMAIN = b"eqasim-sa:indicator-definition:v3\0"
+INDICATOR_DEFINITION_DOMAIN = b"eqasim-sa:indicator-definition:v4\0"
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 TOTAL_VARIATION_VERSION = 1
 SHARE_VERSION = 1
@@ -90,18 +90,7 @@ class OutputDeclaration:
     def __post_init__(self) -> None:
         validate_output_file(self.file)
         validate_separator(self.separator)
-        for label, value in (("category", self.category), ("simulated", self.simulated)):
-            if value is not None and (not isinstance(value, str) or not value):
-                raise ValueError(f"{label} must be a non-empty string")
-        if (
-            not isinstance(self.references, tuple)
-            or any(not isinstance(item, str) or not item for item in self.references)
-            or len(set(self.references)) != len(self.references)
-        ):
-            raise ValueError("references must be unique non-empty strings")
-        named = [item for item in (self.category, self.simulated) if item is not None]
-        if len(set(named)) != len(named) or set(self.references) & set(named):
-            raise ValueError("category, simulated and references must be distinct")
+        _validate_description(self.category, self.simulated, self.references)
 
     def source_path(self, prefix: str) -> str:
         """Return the file path relative to eqasim's ``output_path``."""
@@ -112,6 +101,70 @@ class OutputDeclaration:
         """Return the sealed identity fields (what determines archived bytes)."""
 
         return {"file": self.file, "separator": self.separator}
+
+
+def _validate_description(
+    category: object, simulated: object, references: object
+) -> None:
+    for label, value in (("category", category), ("simulated", simulated)):
+        if value is not None and (not isinstance(value, str) or not value):
+            raise ValueError(f"{label} must be a non-empty string")
+    if (
+        not isinstance(references, tuple)
+        or any(not isinstance(item, str) or not item for item in references)
+        or len(set(references)) != len(references)
+    ):
+        raise ValueError("references must be unique non-empty strings")
+    named = [item for item in (category, simulated) if item is not None]
+    if len(set(named)) != len(named) or set(references) & set(named):
+        raise ValueError("category, simulated and references must be distinct")
+
+
+def _validate_inputs(inputs: object, name: str) -> None:
+    if (
+        not isinstance(inputs, tuple)
+        or not inputs
+        or len(set(inputs)) != len(inputs)
+    ):
+        raise ValueError("analysis inputs must be a non-empty tuple of unique names")
+    for item in inputs:
+        validate_output_name(item)
+    if name in inputs:
+        raise ValueError("an analysis output must not be one of its inputs")
+
+
+@dataclass(frozen=True)
+class DerivedOutput:
+    """A CSV table computed by an analysis script from archived outputs.
+
+    It is never archived nor sealed in the plan: ``analysis`` names the script
+    declaration and ``inputs`` the archived outputs it reads.
+    """
+
+    name: str
+    analysis: str
+    inputs: tuple[str, ...]
+    separator: str = ","
+    category: str | None = None
+    simulated: str | None = None
+    references: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        validate_output_name(self.name)
+        validate_output_name(self.analysis)
+        _validate_inputs(self.inputs, self.name)
+        validate_separator(self.separator)
+        _validate_description(self.category, self.simulated, self.references)
+
+
+TableSource = OutputDeclaration | DerivedOutput
+
+
+def _validate_source(source: object, name: str) -> None:
+    if not isinstance(source, (OutputDeclaration, DerivedOutput)):
+        raise ValueError("source must be an OutputDeclaration or a DerivedOutput")
+    if isinstance(source, DerivedOutput) and source.name != name:
+        raise ValueError(f"derived output {source.name!r} is not output {name!r}")
 
 
 def validate_outputs_declaration(payload: object) -> tuple[dict[str, str], ...]:
@@ -174,19 +227,17 @@ class ArtifactSet:
 
 @dataclass(frozen=True)
 class TableArtifact:
-    """A declared CSV output and the columns a distribution indicator reads."""
+    """A CSV output (archived or derived) and the columns a distribution reads."""
 
     name: str
-    file: str
-    separator: str
+    source: TableSource
     class_column: str
     synthetic_column: str
     reference_columns: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         validate_output_name(self.name)
-        validate_output_file(self.file)
-        validate_separator(self.separator)
+        _validate_source(self.source, self.name)
         names = (self.class_column, self.synthetic_column)
         if not all(isinstance(name, str) and name for name in names):
             raise ValueError("artifact column names must not be empty")
@@ -200,6 +251,10 @@ class TableArtifact:
             raise ValueError("artifact reference columns must be unique non-empty strings")
         if set(self.reference_columns) & {self.class_column, self.synthetic_column}:
             raise ValueError("artifact reference columns must be distinct")
+
+    @property
+    def separator(self) -> str:
+        return self.source.separator
 
     @property
     def carries_reference(self) -> bool:
@@ -275,8 +330,15 @@ def _source_sha256(value: type) -> str | None:
         return None
 
 
-def _output_block(name: str, file: str, separator: str) -> dict[str, object]:
-    return {"name": name, "file": file, "separator": separator}
+def _output_block(name: str, source: TableSource) -> dict[str, object]:
+    if isinstance(source, DerivedOutput):
+        return {
+            "name": name,
+            "analysis": source.analysis,
+            "inputs": sorted(source.inputs),
+            "separator": source.separator,
+        }
+    return {"name": name, "file": source.file, "separator": source.separator}
 
 
 def analysis_identity(indicator: Indicator) -> dict[str, object]:
@@ -285,7 +347,7 @@ def analysis_identity(indicator: Indicator) -> dict[str, object]:
     if isinstance(indicator, TotalVariationIndicator):
         kind, implementation = "tv_distance", TotalVariationIndicator
         source = indicator.artifact
-        artifact = _output_block(source.name, source.file, source.separator) | {
+        artifact = _output_block(source.name, source.source) | {
             "classColumn": source.class_column,
             "syntheticColumn": source.synthetic_column,
             "referenceColumns": [indicator.reference_column],
@@ -293,16 +355,14 @@ def analysis_identity(indicator: Indicator) -> dict[str, object]:
     elif isinstance(indicator, ShareIndicator):
         kind, implementation = "share", ShareIndicator
         source = indicator.artifact
-        artifact = _output_block(source.name, source.file, source.separator) | {
+        artifact = _output_block(source.name, source.source) | {
             "classColumn": source.class_column,
             "syntheticColumn": source.synthetic_column,
             "category": indicator.category,
         }
     elif isinstance(indicator, ValueIndicator):
         kind, implementation = "value", ValueIndicator
-        artifact = _output_block(
-            indicator.output, indicator.file, indicator.separator
-        ) | {"column": indicator.column, "where": dict(indicator.where)}
+        artifact = _output_block(indicator.output, indicator.source) | {"column": indicator.column, "where": dict(indicator.where)}
     else:
         raise TypeError(f"unsupported indicator: {type(indicator).__qualname__}")
     version = KIND_VERSIONS[kind]
@@ -330,11 +390,19 @@ _DEFINITION_KEYS = {
     "artifact",
     "implementation",
 }
-_OUTPUT_KEYS = {"name", "file", "separator"}
+_SOURCE_KEYS = {
+    "output": {"name", "file", "separator"},
+    "analysis": {"name", "analysis", "inputs", "separator"},
+}
+_KIND_KEYS = {
+    "tv_distance": {"classColumn", "syntheticColumn", "referenceColumns"},
+    "share": {"classColumn", "syntheticColumn", "category"},
+    "value": {"column", "where"},
+}
 _ARTIFACT_KEYS = {
-    "tv_distance": _OUTPUT_KEYS | {"classColumn", "syntheticColumn", "referenceColumns"},
-    "share": _OUTPUT_KEYS | {"classColumn", "syntheticColumn", "category"},
-    "value": _OUTPUT_KEYS | {"column", "where"},
+    (source, kind): source_keys | kind_keys
+    for source, source_keys in _SOURCE_KEYS.items()
+    for kind, kind_keys in _KIND_KEYS.items()
 }
 
 
@@ -343,13 +411,23 @@ def _non_empty_strings(*values: object) -> bool:
 
 
 def _validate_definition_artifact(kind: str, artifact: object) -> None:
-    if not isinstance(artifact, dict) or set(artifact) != _ARTIFACT_KEYS[kind]:
+    source = (
+        "analysis" if isinstance(artifact, dict) and "analysis" in artifact else "output"
+    )
+    if not isinstance(artifact, dict) or set(artifact) != _ARTIFACT_KEYS[source, kind]:
         raise ValueError("indicator definition artifact schema is invalid")
     try:
         validate_output_name(artifact["name"])
-        validate_output_file(artifact["file"])
         validate_separator(artifact["separator"])
-    except ValueError as error:
+        if source == "output":
+            validate_output_file(artifact["file"])
+        else:
+            validate_output_name(artifact["analysis"])
+            inputs = artifact["inputs"]
+            if not isinstance(inputs, list) or inputs != sorted(inputs):
+                raise ValueError("analysis inputs must be a sorted list")
+            _validate_inputs(tuple(inputs), artifact["name"])
+    except (TypeError, ValueError) as error:
         raise ValueError(f"indicator definition artifact is invalid: {error}") from error
     if kind == "value":
         where = artifact["where"]
@@ -540,15 +618,13 @@ class ValueIndicator:
     """One number read from a table cell, its row selected by ``where``."""
 
     output: str
-    file: str
-    separator: str
+    source: TableSource
     column: str
     where: Mapping[str, str] | tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         validate_output_name(self.output)
-        validate_output_file(self.file)
-        validate_separator(self.separator)
+        _validate_source(self.source, self.output)
         if not isinstance(self.column, str) or not self.column:
             raise ValueError("value column must be a non-empty string")
         pairs = tuple(
@@ -577,7 +653,7 @@ class ValueIndicator:
         keys = [key for key, _ in self.where]
         table = read_csv_table(
             artifacts.path(self.output),
-            self.separator,
+            self.source.separator,
             self.output,
             [self.column, *keys],
         )
@@ -623,7 +699,7 @@ ScalarizerFactory = Callable[[TableArtifact, str], Indicator]
 
 def resolve_indicators(
     declarations: Sequence[PairDeclaration | ProductDeclaration],
-    outputs: Mapping[str, OutputDeclaration],
+    outputs: Mapping[str, TableSource],
     scalarizers: Mapping[str, ScalarizerFactory],
 ) -> tuple[Indicator, ...]:
     """Resolve builtin declarations to executable indicators."""
@@ -641,8 +717,7 @@ def resolve_indicators(
             return None
         return TableArtifact(
             name,
-            declaration.file,
-            declaration.separator,
+            declaration,
             declaration.category,
             declaration.simulated,
             declaration.references,

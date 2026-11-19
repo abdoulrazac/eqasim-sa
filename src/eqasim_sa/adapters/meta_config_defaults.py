@@ -11,7 +11,7 @@ DEFAULT_INVOCATION: tuple[str, ...] = ("uv", "run", "--locked", "python", "-m", 
 
 _KEY_ORDER = (
     "campaign", "campaign_root", "charter", "model", "experiment", "parameters",
-    "analysis", "outputs", "indicators", "execution", "calibration",
+    "analysis", "outputs", "analyses", "indicators", "execution", "calibration",
 )
 _SEEDED_METHODS = {"discrete_oat", "canonical_morris", "sobol"}
 _BOOTSTRAP_METHODS = {"sobol", "canonical_morris"}

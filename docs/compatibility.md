@@ -91,7 +91,7 @@ Plans and their evidence use exactly the domains below:
 | eqasim code fingerprint | `eqasim-sa:model-source:v1` |
 | Execution evidence (`schemaVersion: 3`, `modelSourceSha256`) | `eqasim-sa:execution-evidence:v3` |
 | `eqasim-sa` software identity | `eqasim-sa:software-identity:v2` |
-| Indicator definition (`tv_distance`, `share`, `value`) | `eqasim-sa:indicator-definition:v3` |
+| Indicator definition (`tv_distance`, `share`, `value`; an analysis output is described by `{name, analysis, inputs, separator}`) | `eqasim-sa:indicator-definition:v4` |
 
 Text inputs are hashed after CRLF-to-LF normalization
 (see [Troubleshooting](troubleshooting.md#line-endings-and-gitattributes)). The

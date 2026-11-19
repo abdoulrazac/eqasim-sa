@@ -20,6 +20,14 @@ from eqasim_sa.adapters.eqasim.config import (
 from eqasim_sa.adapters.meta_config_defaults import resolve_meta_config_document
 from eqasim_sa.adapters.eqasim.workspace import WorkerWorkspace
 from eqasim_sa.adapters.templates import render_project
+from eqasim_sa.core.analyses import (
+    ANALYSES_CACHE_DIRECTORY,
+    ANALYSES_LOG_DIRECTORY,
+    CACHE_ENTRY,
+    CACHE_TEMPORARY,
+    LOG_ENTRY,
+    LOG_TEMPORARY,
+)
 from eqasim_sa.core.analysis_publication import (
     ANALYSIS_STATE_DIRECTORY,
     OUTPUT_FILENAMES,
@@ -227,7 +235,7 @@ def _init_campaign_allowed(
     derived = INIT_DERIVED["grid" if method == "calibration" else method]
     allowed = {
         "plan.parquet", "runs", "archives", "logs", ".eqasim-sa",
-        ANALYSIS_STATE_DIRECTORY, *derived,
+        ANALYSIS_STATE_DIRECTORY, ANALYSES_CACHE_DIRECTORY, *derived,
     }
     temporary = re.compile(r"\.([0-9a-f]{32})\.parquet\.([A-Za-z0-9_-]+)\.tmp")
     backup = re.compile(r"\.([0-9a-f]{32})\.parquet\.([A-Za-z0-9_-]+)\.backup")
@@ -236,6 +244,9 @@ def _init_campaign_allowed(
             raise FileExistsError(f"foreign content in init campaign: {entry.name}")
         if entry.name == ANALYSIS_STATE_DIRECTORY:
             _analysis_state_allowed(entry, method)
+            continue
+        if entry.name == ANALYSES_CACHE_DIRECTORY:
+            _analyses_cache_allowed(entry, method)
             continue
         if entry.name == ".eqasim-sa":
             _technical_state_allowed(entry, expected_ids, method)
@@ -417,6 +428,35 @@ def _technical_state_allowed(
         _owned_technical_tree(
             slurm_state, f"campaigns/{method}/.eqasim-sa/slurm"
         )
+
+
+def _analyses_cache_allowed(path: Path, method: str) -> None:
+    """Accept only recomputable analysis results, their logs and temporaries."""
+
+    def foreign(relative: str) -> FileExistsError:
+        return FileExistsError(f"foreign content in init campaign: {relative}")
+
+    def directory(entry: Path, relative: str) -> None:
+        info = entry.lstat()
+        if (
+            platform.is_link(entry)
+            or not stat.S_ISDIR(info.st_mode)
+            or not owned_by_current_user(info)
+        ):
+            raise foreign(relative)
+
+    directory(path, ANALYSES_CACHE_DIRECTORY)
+    for child in path.iterdir():
+        relative = f"{ANALYSES_CACHE_DIRECTORY}/{child.name}"
+        logs = child.name == ANALYSES_LOG_DIRECTORY
+        if not logs and re.fullmatch(r"[A-Za-z0-9_-]+", child.name) is None:
+            raise foreign(relative)
+        directory(child, relative)
+        patterns = (LOG_ENTRY, LOG_TEMPORARY) if logs else (CACHE_ENTRY, CACHE_TEMPORARY)
+        for item in child.iterdir():
+            if not any(pattern.fullmatch(item.name) for pattern in patterns):
+                raise foreign(f"{relative}/{item.name}")
+            _regular(item, f"campaigns/{method}/{relative}/{item.name}")
 
 
 def _analysis_state_allowed(path: Path, method: str) -> None:

@@ -26,7 +26,11 @@ def archive(tmp_path: Path, **columns: list[object]) -> Path:
 
 def table_artifact(*references: str) -> TableArtifact:
     return TableArtifact(
-        "distribution", "distribution.csv", ",", "class", "synthetic", references
+        "distribution",
+        OutputDeclaration("distribution.csv", ","),
+        "class",
+        "synthetic",
+        references,
     )
 
 
@@ -183,8 +187,7 @@ def test_rejects_malformed_declarations(field: str) -> None:
     with pytest.raises(ValueError):
         artifact = TableArtifact(
             values["artifact"],  # type: ignore[arg-type]
-            values["file"],  # type: ignore[arg-type]
-            values["separator"],  # type: ignore[arg-type]
+            OutputDeclaration(values["file"], values["separator"]),  # type: ignore[arg-type]
             values["class"],  # type: ignore[arg-type]
             values["synthetic"],  # type: ignore[arg-type]
             ("reference",),
@@ -362,7 +365,7 @@ def _definition() -> dict:
     return analysis_identity(indicator())
 
 
-def test_definition_v3_names_file_and_separator_not_a_stage() -> None:
+def test_definition_v4_names_file_and_separator_not_a_stage() -> None:
     from eqasim_sa.core.indicators import INDICATOR_DEFINITION_DOMAIN
 
     artifact = _definition()["artifact"]
@@ -374,7 +377,7 @@ def test_definition_v3_names_file_and_separator_not_a_stage() -> None:
         "syntheticColumn": "synthetic",
         "referenceColumns": ["reference"],
     }
-    assert INDICATOR_DEFINITION_DOMAIN == b"eqasim-sa:indicator-definition:v3\0"
+    assert INDICATOR_DEFINITION_DOMAIN == b"eqasim-sa:indicator-definition:v4\0"
 
 
 @pytest.mark.parametrize(

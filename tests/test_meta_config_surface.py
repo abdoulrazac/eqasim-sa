@@ -90,7 +90,7 @@ def test_execution_defaults_fill_backend_workers_invocation(tmp_path: Path) -> N
                 execution={"scratch": "scratch", "overrides": {"processes": 1}}
             ),
             "execution keys must be among backend, workers, scratch, invocation, "
-            "machine_options, slurm",
+            "python, machine_options, slurm",
         ),
         (
             lambda d: d.update(indicators=[{"pair": {"scalarizer": "tv_distance"}}]),

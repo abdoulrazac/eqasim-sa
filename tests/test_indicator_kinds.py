@@ -9,6 +9,7 @@ from eqasim_sa.adapters.application import plan_from_meta_config
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.core.indicators import (
     ArtifactSet,
+    OutputDeclaration,
     ShareIndicator,
     TableArtifact,
     ValueIndicator,
@@ -36,13 +37,18 @@ def artifacts(**files: str) -> ArtifactSet:
 def share(output: str, category: str) -> ShareIndicator:
     file, column = DISTRIBUTIONS[output]
     return ShareIndicator(
-        TableArtifact(output, f"analysis_population/{file}", ",", column, "EQASIM"),
+        TableArtifact(
+            output,
+            OutputDeclaration(f"analysis_population/{file}", ","),
+            column,
+            "EQASIM",
+        ),
         category,
     )
 
 
 def value(output: str, column: str, separator: str = ",", **where: str) -> ValueIndicator:
-    return ValueIndicator(output, f"{output}.csv", separator, column, where)
+    return ValueIndicator(output, OutputDeclaration(f"{output}.csv", separator), column, where)
 
 
 def test_share_on_real_csvs() -> None:

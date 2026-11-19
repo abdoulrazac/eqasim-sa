@@ -170,11 +170,16 @@ def test_domains_bumped() -> None:
 
 
 def _builtin_indicator():  # type: ignore[no-untyped-def]
+    import eqasim_sa.core.indicators as indicators_module
     from eqasim_sa.core.indicators import TableArtifact, TotalVariationIndicator
 
     return TotalVariationIndicator(
         TableArtifact(
-            "distribution", "distribution.csv", ",", "class", "synthetic", ("reference",)
+            "distribution",
+            indicators_module.OutputDeclaration("distribution.csv", ","),
+            "class",
+            "synthetic",
+            ("reference",),
         ),
         "reference",
     )
@@ -204,7 +209,7 @@ def test_builtin_indicator_definition_ignores_crlf(
         hashlib.sha256(lf_bytes(original.read_bytes())).hexdigest()
     ) == 1
     assert indicators.INDICATOR_DEFINITION_DOMAIN == (
-        b"eqasim-sa:indicator-definition:v3\0"
+        b"eqasim-sa:indicator-definition:v4\0"
     )
 
 

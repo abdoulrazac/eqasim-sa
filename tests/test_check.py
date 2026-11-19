@@ -477,7 +477,7 @@ def test_smoke_applies_run_overrides_and_computes_every_indicator(
         else (
             TotalVariationIndicator(
                 TableArtifact(
-                    "age", "age.csv", ",", "class", "synthetic", ("reference",)
+                    "age", OutputDeclaration("age.csv", ","), "class", "synthetic", ("reference",)
                 ),
                 "reference",
             ),

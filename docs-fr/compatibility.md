@@ -126,7 +126,7 @@ ci-dessous :
 | Empreinte du code d'eqasim | `eqasim-sa:model-source:v1` |
 | Preuves d'exécution (`schemaVersion: 3`, `modelSourceSha256`) | `eqasim-sa:execution-evidence:v3` |
 | Identité logicielle d'`eqasim-sa` | `eqasim-sa:software-identity:v2` |
-| Définition d'indicateur (`tv_distance`, `share`, `value`) | `eqasim-sa:indicator-definition:v3` |
+| Définition d'indicateur (`tv_distance`, `share`, `value` ; une sortie d'analyse est décrite par `{name, analysis, inputs, separator}`) | `eqasim-sa:indicator-definition:v4` |
 
 Les entrées texte sont
 hachées après normalisation CRLF vers LF (voir le

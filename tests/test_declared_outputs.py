@@ -582,16 +582,14 @@ def test_tv_distance_reads_real_csvs() -> None:
     artifacts = _fixture_artifacts()
     age = TableArtifact(
         "age",
-        "analysis_population/{prefix}age.csv",
-        ",",
+        OutputDeclaration("analysis_population/{prefix}age.csv", ","),
         "Age class",
         "Proportion_EQASIM",
         ("Proportion_INSEE",),
     )
     distance = TableArtifact(
         "distance",
-        "analysis_population/{prefix}distance.csv",
-        ",",
+        OutputDeclaration("analysis_population/{prefix}distance.csv", ","),
         "Distance class",
         "Proportion_EQASIM",
         ("Proportion_HTS",),
