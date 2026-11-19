@@ -37,6 +37,27 @@ def context_hash(descriptor: dict[str, str]) -> str:
     return ExecutionContextIdentity.from_descriptor(descriptor).sha256
 
 
+GRID_CONTEXT_HASH = context_hash(scientific_context_descriptor())
+# Experiment part of an eqasim config, as sealed in plan metadata.
+GRID_MODEL_DOCUMENT = b'{"config":{"a":0,"b":"x"},"run":["old"]}'
+
+
+def grid_plan_table(columns: dict) -> pa.Table:
+    """A hand-built Grid plan with the metadata every published plan seals."""
+
+    return pa.table(columns).replace_schema_metadata(
+        {
+            b"planSchemaVersion": b"1",
+            b"canonicalizationVersion": b"1",
+            b"contextDescriptor": ExecutionContextIdentity.from_descriptor(
+                scientific_context_descriptor()
+            ).canonical_bytes,
+            b"outputsDeclaration": b"[]",
+            b"modelDocument": GRID_MODEL_DOCUMENT,
+        }
+    )
+
+
 def scientific_indicator(
     artifact: str = "age",
     reference: str = "reference",

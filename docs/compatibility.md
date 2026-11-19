@@ -109,6 +109,9 @@ worker scratch layout changed to `<scratch>/esa/<campaign>/w<slot>/c<12 hex>/`.
 - The plan seals the declared outputs (`outputsDeclaration`: name, `file`,
   `separator`); `category`, `simulated`, and `references` can change between
   runs and analysis.
+- The plan also seals the eqasim configuration (`modelDocument`, without the
+  machine-only keys); `analyze` checks the meta-configuration against it, so
+  eqasim may change after the runs without blocking analysis.
 - The indicator kinds are `tv_distance`, `share`, and `value`. Custom
   calculations belong in an eqasim analysis stage whose CSV file is read with
   `value`.

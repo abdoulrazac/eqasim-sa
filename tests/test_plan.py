@@ -194,6 +194,7 @@ def test_sobol_exact_qmc_mapping_roles_identity_metadata_and_cardinality(
         b"planSchemaVersion": b"1",
         b"canonicalizationVersion": b"1",
         b"outputsDeclaration": b"[]",
+        b"modelDocument": b'{"config":{"a":0,"b":"x"},"run":["old"]}',
         b"contextDescriptor": json.dumps(
             current.context_descriptor, sort_keys=True, separators=(",", ":")
         ).encode(),
@@ -517,6 +518,7 @@ def test_grid_schema_order_identity_and_no_mutation(tmp_path: Path) -> None:
         b"planSchemaVersion": b"1",
         b"canonicalizationVersion": b"1",
         b"outputsDeclaration": b"[]",
+        b"modelDocument": b'{"config":{"a":0,"b":"x"},"run":["old"]}',
         b"contextDescriptor": b'{"dataManifestSha256":"b","eqasimSaVersion":"0.1.0","eqasimSourceSha256":"a","lockfileSha256":"c"}',
     }
     rows = table.to_pylist()
@@ -678,6 +680,7 @@ def test_discrete_oat_exact_mixed_radix_factoradic_rows_and_metadata(tmp_path: P
         b"planSchemaVersion": b"1",
         b"canonicalizationVersion": b"1",
         b"outputsDeclaration": b"[]",
+        b"modelDocument": b'{"config":{"a":0,"b":"x"},"run":["old"]}',
         b"contextDescriptor": json.dumps(
             current.context_descriptor, sort_keys=True, separators=(",", ":")
         ).encode(),
@@ -882,7 +885,7 @@ def test_duplicates_preserve_exact_plan_and_memoize_resolved_runs(
     before, mtime = path.read_bytes(), path.stat().st_mtime_ns
     assert calls == {"resolve": 2, "run_id": 2}
     assert hashlib.sha256(before).hexdigest() == (
-        "bf69bcde56860bad84fe874fe595bcb72ff6cb543961a6367ef6dbed1d038cc4"
+        "1d3bfbbd7b3fb2e419a7bbccdc9c01932026cae4041f22a0d15e722e52a71a5d"
     )
     second = build_plan(current)
     rows = pq.read_table(path).to_pylist()

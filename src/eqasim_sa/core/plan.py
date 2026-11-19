@@ -59,7 +59,12 @@ from eqasim_sa.core.methods.structured import (
     _structured_json,
 )
 from eqasim_sa.core.ledger import RESERVED_COLUMNS
-from eqasim_sa.core.run import RunSpec, compute_run_id
+from eqasim_sa.core.run import (
+    RunSpec,
+    compute_run_id,
+    model_document_bytes,
+    validate_model_document,
+)
 from eqasim_sa.utils import platform
 from eqasim_sa.utils.filesystem import (
     PublicationOutcomeUnknown,
@@ -166,6 +171,15 @@ class MultiScrambleSobolDesign:
     method: str = "multiscramble_sobol"
     structured_factors: dict[str, dict[str, list[str]]] = field(default_factory=dict)
     outputs: Mapping[str, OutputDeclaration] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class SealedPlanInputs:
+    """What a published plan sealed: eqasim model document and context."""
+
+    model_document: dict
+    context_descriptor: dict[str, str]
+    context_hash: str
 
 
 @dataclass(frozen=True)
@@ -688,6 +702,7 @@ def _table(design: Design, names: tuple[str, ...]) -> pa.Table:
             design.context_descriptor
         ).canonical_bytes,
         b"outputsDeclaration": _outputs_declaration(design),
+        b"modelDocument": model_document_bytes(design.base_config),
     }
     if design.structured_factors:
         metadata.update(
@@ -893,6 +908,9 @@ def resolve_config(
     return resolved
 
 
+MISSING_MODEL_DOCUMENT = (
+    "plan.parquet has no sealed modelDocument; plan a new campaign"
+)
 _CONTEXT_DRIFT = {
     "eqasimSourceSha256": "eqasim source",
     "dataManifestSha256": "data manifest",
@@ -904,10 +922,12 @@ _CONTEXT_DRIFT = {
 def _explain_sealed_drift(
     expected: Mapping[bytes, bytes] | None, actual: Mapping[bytes, bytes] | None
 ) -> None:
-    """Name the first context key or output that differs from the sealed plan."""
+    """Name the first context key, eqasim config or output that differs from the plan."""
 
     expected = expected or {}
     actual = actual or {}
+    if b"modelDocument" not in actual:
+        raise ValueError(MISSING_MODEL_DOCUMENT)
     try:
         planned = json.loads(actual[b"contextDescriptor"])
         current = json.loads(expected[b"contextDescriptor"])
@@ -917,6 +937,8 @@ def _explain_sealed_drift(
         for key, label in _CONTEXT_DRIFT.items():
             if planned.get(key) != current.get(key):
                 raise ValueError(f"{label} changed since plan ({key})")
+    if actual.get(b"modelDocument") != expected.get(b"modelDocument"):
+        raise ValueError("eqasim config changed since plan")
     try:
         planned_outputs = json.loads(actual[b"outputsDeclaration"])
         current_outputs = json.loads(expected[b"outputsDeclaration"])
@@ -942,14 +964,9 @@ def unique_config_seed_pairs(design: Design) -> bool:
     return len(ids) == len(set(ids))
 
 
-def load_run_specs(
-    path: Path, design: Design, campaign: str
-) -> tuple[RunSpec, ...]:
-    """Verify a sealed plan against its design and reconstruct unique runs."""
-
+def _read_published_plan(path: Path) -> pa.Table:
     if platform.is_link(path) or not path.is_file():
         raise ValueError("plan.parquet must be a regular non-symlink file")
-    names = _validate(design)
     transactions = path.parent / ".eqasim-sa" / "transactions"
     existing_transactions = None
     if transactions.exists() or platform.is_link(transactions):
@@ -958,6 +975,34 @@ def load_run_specs(
     actual = _read_committed_plan(path, existing_transactions)
     if actual is None:
         raise ValueError("plan.parquet disappeared before its commit was proven")
+    return actual
+
+
+def sealed_inputs(plan_path: Path) -> SealedPlanInputs:
+    """Read the eqasim model document and context sealed by a published plan."""
+
+    metadata = _read_published_plan(plan_path).schema.metadata or {}
+    if b"modelDocument" not in metadata:
+        raise ValueError(MISSING_MODEL_DOCUMENT)
+    document = validate_model_document(metadata[b"modelDocument"])
+    try:
+        identity = ExecutionContextIdentity.from_canonical_bytes(
+            metadata[b"contextDescriptor"]
+        )
+    except (KeyError, ValueError) as error:
+        raise ValueError("plan contextDescriptor metadata is invalid") from error
+    return SealedPlanInputs(document, identity.as_dict(), identity.sha256)
+
+
+def load_run_specs(
+    path: Path, design: Design, campaign: str
+) -> tuple[RunSpec, ...]:
+    """Verify a sealed plan against its design and reconstruct unique runs."""
+
+    if platform.is_link(path) or not path.is_file():
+        raise ValueError("plan.parquet must be a regular non-symlink file")
+    names = _validate(design)
+    actual = _read_published_plan(path)
     expected = _table(design, names)
     same = expected.equals(actual)
     if design.method in {"sobol", "multiscramble_sobol"} and expected.schema.equals(

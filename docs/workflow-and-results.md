@@ -37,6 +37,18 @@ archives. The columns read by indicators (`category`, `simulated`,
 `references`) and the indicators themselves are not sealed: they are read from
 the current meta-configuration at every `analyze`.
 
+The plan also seals the eqasim configuration (`modelDocument`): the compact
+JSON, with sorted keys, of the base configuration without the keys excluded
+from `runId` (listed below) and without `random_seed`. A machine-only edit
+(`data_path`, `processes`...) therefore changes neither the plan nor the
+resumption of `run`. `analyze` rebuilds the runs from what the plan sealed
+(`modelDocument` and context) and checks the factors, the `run:` stages,
+`output_formats`, and `output_prefix` of the meta-configuration against
+`modelDocument`, not against the current eqasim folder: editing the eqasim
+code, configuration, or `uv.lock` after the runs does not block `analyze`,
+while `run` still refuses to resume. A plan without `modelDocument` is
+refused.
+
 `runId` consists of the first 32 hexadecimal characters of a SHA-256 over the
 canonical configuration and seed. Canonicalization removes
 `working_directory`, `data_path`, binaries, Java memory, `output_path`,

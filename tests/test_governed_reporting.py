@@ -21,7 +21,12 @@ from tests.test_canonical_morris_analyze import _completed_campaign, _design
 from tests.test_multiscramble_sobol_plan import multiscramble_design
 from eqasim_sa.core.plan import build_plan
 from tests.provenance_helpers import write_csv
-from tests.provenance_helpers import execution_evidence, scientific_indicator
+from tests.provenance_helpers import (
+    GRID_CONTEXT_HASH,
+    execution_evidence,
+    grid_plan_table,
+    scientific_indicator,
+)
 
 
 def test_output_summary_weights_design_positions_and_uses_declared_formulas() -> None:
@@ -81,14 +86,14 @@ def _grid_with_duplicate_positions(tmp_path: Path) -> Path:
     root = tmp_path / "campaign"
     run_ids = ("1" * 32, "2" * 32)
     write_parquet_atomic(
-        pa.table(
+        grid_plan_table(
             {
                 "designId": ["a" * 32, "b" * 32, "c" * 32],
                 "method": ["grid"] * 3,
                 "role": ["point"] * 3,
                 "runId": [run_ids[0], run_ids[0], run_ids[1]],
                 "seed": [1, 1, 1],
-                "contextHash": ["hash"] * 3,
+                "contextHash": [GRID_CONTEXT_HASH] * 3,
             }
         ),
         root / "plan.parquet",
@@ -98,7 +103,7 @@ def _grid_with_duplicate_positions(tmp_path: Path) -> Path:
             pa.table({"synthetic": [value]}), root / "archives" / run_id / "age.csv"
         )
         _write_verified_run(
-            root, RunRecord(run_id, "test", 1, "hash", "node", 1.0, {})
+            root, RunRecord(run_id, "test", 1, GRID_CONTEXT_HASH, "node", 1.0, {})
         )
     return root
 

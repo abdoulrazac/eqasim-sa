@@ -21,6 +21,7 @@ from eqasim_sa.core.analysis_publication import (
 )
 from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
 from eqasim_sa.core.context_identity import ExecutionContextIdentity
+from eqasim_sa.core.run import validate_model_document
 from eqasim_sa.core.indicators import (
     Indicator,
     analysis_identity,
@@ -679,38 +680,37 @@ def _validate_grid_plan(
     ):
         raise ValueError("Grid fixed plan schema types are invalid")
     metadata = dict(plan.schema.metadata or {})
-    if metadata:
-        required = {
-            b"planSchemaVersion",
-            b"canonicalizationVersion",
-            b"contextDescriptor",
-            b"outputsDeclaration",
-        }
-        if structured:
-            required |= {b"structuredFactorsVersion", b"structuredFactors"}
-        if (
-            set(metadata) != required
-            or metadata.get(b"canonicalizationVersion") != b"1"
-            or metadata.get(b"planSchemaVersion")
-            != (b"3" if structured else b"1")
-        ):
-            raise ValueError("Grid plan metadata is missing or unsupported")
-        validate_outputs_declaration(metadata[b"outputsDeclaration"])
-        try:
-            descriptor = json.loads(metadata[b"contextDescriptor"])
-        except Exception as error:
-            raise ValueError("Grid contextDescriptor metadata is invalid") from error
-        try:
-            context_identity = ExecutionContextIdentity.from_descriptor(descriptor)
-        except ValueError as error:
-            raise ValueError(
-                "Grid contextDescriptor must contain exactly four string keys"
-            ) from error
-        if metadata[b"contextDescriptor"] != context_identity.canonical_bytes:
-            raise ValueError("Grid contextDescriptor metadata is not canonical")
-        expected_context = context_identity.sha256
-    else:
-        expected_context = None
+    required = {
+        b"planSchemaVersion",
+        b"canonicalizationVersion",
+        b"contextDescriptor",
+        b"outputsDeclaration",
+        b"modelDocument",
+    }
+    if structured:
+        required |= {b"structuredFactorsVersion", b"structuredFactors"}
+    if (
+        set(metadata) != required
+        or metadata.get(b"canonicalizationVersion") != b"1"
+        or metadata.get(b"planSchemaVersion")
+        != (b"3" if structured else b"1")
+    ):
+        raise ValueError("Grid plan metadata is missing or unsupported")
+    validate_outputs_declaration(metadata[b"outputsDeclaration"])
+    validate_model_document(metadata[b"modelDocument"])
+    try:
+        descriptor = json.loads(metadata[b"contextDescriptor"])
+    except Exception as error:
+        raise ValueError("Grid contextDescriptor metadata is invalid") from error
+    try:
+        context_identity = ExecutionContextIdentity.from_descriptor(descriptor)
+    except ValueError as error:
+        raise ValueError(
+            "Grid contextDescriptor must contain exactly four string keys"
+        ) from error
+    if metadata[b"contextDescriptor"] != context_identity.canonical_bytes:
+        raise ValueError("Grid contextDescriptor metadata is not canonical")
+    expected_context = context_identity.sha256
     design_ids = set()
     contexts = set()
     for row in plan.to_pylist():
@@ -733,7 +733,7 @@ def _validate_grid_plan(
             or not context_hash
         ):
             raise ValueError("Grid frozen row identity is invalid")
-        if expected_context is not None and context_hash != expected_context:
+        if context_hash != expected_context:
             raise ValueError("Grid contextHash does not match sealed contextDescriptor")
         contexts.add(context_hash)
         for name in plan.column_names[len(fixed) :]:

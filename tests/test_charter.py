@@ -539,6 +539,8 @@ def test_scientific_demonstration_method_guard_prevents_analysis(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     meta, _, _, _ = meta_fixture(tmp_path)
+    # analyze reads the sealed plan first: plan the demonstration campaign.
+    plan_from_meta_config(meta)
     _write(meta, _scientific(meta))
     monkeypatch.setattr(
         "eqasim_sa.adapters.application.analyze",

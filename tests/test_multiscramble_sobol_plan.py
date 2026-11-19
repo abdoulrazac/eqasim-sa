@@ -191,7 +191,7 @@ def test_multiscramble_plan_exact_salib_roles_identity_nesting_and_cardinality(
     assert table.schema.metadata[b"multiScrambleSobolDesignVersion"] == b"3"
     assert set(table.schema.metadata) == {
         b"planSchemaVersion", b"canonicalizationVersion", b"contextDescriptor",
-        b"outputsDeclaration",
+        b"outputsDeclaration", b"modelDocument",
         b"multiScrambleSobolDesignVersion", b"multiScrambleSobolDesign",
     }
     samples = []

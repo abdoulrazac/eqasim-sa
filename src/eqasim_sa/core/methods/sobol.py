@@ -11,6 +11,7 @@ from scipy.stats import qmc
 
 from eqasim_sa.core.context_identity import ExecutionContextIdentity
 from eqasim_sa.core.indicators import validate_outputs_declaration
+from eqasim_sa.core.run import validate_model_document
 from eqasim_sa.core.methods.common import validate_bootstrap_resamples
 from eqasim_sa.core.methods.sobol_plan import (
     validate_sobol_bootstrap_work,
@@ -103,6 +104,7 @@ def _sobol_ranking(
         b"canonicalizationVersion",
         b"contextDescriptor",
         b"outputsDeclaration",
+        b"modelDocument",
         b"sobolDesignVersion",
         b"sobolDesign",
     }
@@ -118,6 +120,7 @@ def _sobol_ranking(
     ):
         raise ValueError("Sobol plan metadata is missing or unsupported")
     validate_outputs_declaration(metadata[b"outputsDeclaration"])
+    validate_model_document(metadata[b"modelDocument"])
     try:
         design, descriptor = (
             json.loads(metadata[b"sobolDesign"]),

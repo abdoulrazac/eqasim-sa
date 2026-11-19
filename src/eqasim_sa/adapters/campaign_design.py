@@ -20,17 +20,23 @@ def _validate_scientific_method(meta) -> None:  # type: ignore[no-untyped-def]
 
 
 def _design(meta):  # type: ignore[no-untyped-def]
-    """Build the design whose base config carries the eqasim ``run:`` list as is."""
+    """Build the design whose base config carries the eqasim ``run:`` list as is.
+
+    A meta-config loaded against its sealed plan (analysis) uses the sealed
+    eqasim model document and context instead of the current ones.
+    """
 
     _validate_scientific_method(meta)
     structured_factors = getattr(meta, "structured_factors", {})
     outputs = dict(meta.outputs)
+    sealed = getattr(meta, "sealed", None)
+    inputs = meta if sealed is None else sealed
     common = (
-        meta.model_document,
+        inputs.model_document,
         meta.factors,
         meta.seeds,
-        meta.context_hash,
-        meta.context_descriptor,
+        inputs.context_hash,
+        inputs.context_descriptor,
         meta.campaign_root,
     )
     if getattr(meta, "method", "grid") == "discrete_oat":

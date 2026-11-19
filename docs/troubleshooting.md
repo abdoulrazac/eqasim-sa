@@ -54,9 +54,16 @@ Cause: when a campaign is resumed or read (`run`, `check`, `estimate`, `analyze`
 current inputs is compared with the sealed `plan.parquet`. The message names
 what differs: `eqasim source` (`eqasimSourceSha256`), `data manifest`
 (`dataManifestSha256`), `lockfile` (`lockfileSha256`), `eqasim-sa version`
-(`eqasimSaVersion`), or an output (`output 'age' changed since plan: file`,
-`... separator`, `output '...' added since plan`, `output '...' removed since
-plan`). Remedy: restore what changed, or plan a new campaign.
+(`eqasimSaVersion`), the eqasim configuration (`eqasim config changed since
+plan`: a key other than `data_path`, `processes`, the binaries, `java_memory`,
+`output_path`, `working_directory`, or `random_seed` was edited), or an output
+(`output 'age' changed since plan: file`, `... separator`, `output '...' added
+since plan`, `output '...' removed since plan`). `analyze` compares only the
+meta-configuration with the plan: changes to the eqasim code, configuration,
+`uv.lock`, or data manifest after the runs do not block it. Remedy: restore
+what changed, or plan a new campaign. `plan.parquet has no sealed
+modelDocument; plan a new campaign` means the plan was made by an earlier
+eqasim-sa version.
 
 ## `model config changed after context sealing`
 
@@ -375,8 +382,9 @@ text inputs after normalizing CRLF to LF, so a CRLF copy produces the same
 identities as on the cluster: the eqasim code fingerprint
 (`eqasimSourceSha256`), the `uv.lock` hash (`lockfileSha256`), the canonical JSON
 form of the data manifest (`dataManifestSha256`), the `eqasim-sa` software
-identity, the built-in indicator definitions, and the eqasim configuration in
-the execution evidence (`model_config_sha256`). Data files are still hashed byte
+identity, and the built-in indicator definitions. The eqasim configuration in
+the execution evidence (`model_config_sha256`) is the hash of its sealed form
+(`modelDocument`), independent of line endings and formatting. Data files are still hashed byte
 for byte. `init` also writes a `.gitattributes` (never overwriting yours) forcing
 LF for YAML, JSON, and `*.lock` files. If `check` reports a mismatch after a
 transfer, compare the files on both machines before suspecting the data.
@@ -405,7 +413,7 @@ message names each cause in plain words, followed by the `differing` fields:
 | --- | --- | --- |
 | `executable differs` | `executable_sha256`, `invocation` | another machine, or the eqasim environment was reinstalled or moved |
 | `environment differs` | `environment_sha256`, `environment_variables` | another machine, or a different shell environment (virtual environment, `PATH`, other variables) |
-| `model configuration changed` | `model_config_sha256` | the eqasim `model.config` file was edited since the first runs |
+| `model configuration changed` | `model_config_sha256` | the eqasim `model.config` file was edited since the first runs (machine-only keys such as `data_path` or `processes` excepted) |
 | `eqasim-sa installation changed` | `eqasim_sa_sha256` | `eqasim-sa` was updated or reinstalled |
 
 Remedy: prepare a new campaign (new `campaign_root`) on this machine, or restore
@@ -420,8 +428,11 @@ host and enforced inside the Slurm job.
 
 `analyze` does not need the data tree or the scratch, and never compares the
 execution evidence with the analyzing machine. It needs: the campaign folder copied
-back (`scp` or `sftp`), the eqasim folder with the same code, the same
-`uv.lock` and data manifest, and the machine paths rendered again for that machine.
+back (`scp` or `sftp`), the meta-configuration with the machine paths rendered
+again for that machine, the eqasim folder (its code, configuration, and
+`uv.lock` may differ from the runs: `analyze` checks the meta-configuration
+against what `plan.parquet` sealed), and a data manifest file (a small JSON
+file; the data tree itself is not needed).
 `metaConfigSha256` is published provenance, not an equality constraint, so
 different machine paths do not block analysis.
 

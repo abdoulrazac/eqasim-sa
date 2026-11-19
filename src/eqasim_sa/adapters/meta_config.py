@@ -61,6 +61,8 @@ from eqasim_sa.core.indicators import (
 )
 from eqasim_sa.core.plan import (
     MAX_CANONICAL_MORRIS_CANDIDATES,
+    SealedPlanInputs,
+    sealed_inputs,
     MAX_CANONICAL_MORRIS_DISTANCE_TERMS,
     canonical_morris_distance_terms,
     validate_bootstrap_resamples,
@@ -193,6 +195,7 @@ class MetaConfig:
     software_identity: SoftwareIdentity
     model_source_exclusions: tuple[Path, ...]
     structured_factors: dict[str, dict[str, list[str]]] = field(default_factory=dict)
+    sealed: SealedPlanInputs | None = None
 
     @property
     def eqasim_sa_version(self) -> str:
@@ -715,11 +718,19 @@ def load_meta_config(
     validate_factors: bool = True,
     deadline: float | None = None,
     verify_data: bool = True,
+    use_sealed_plan: bool = False,
 ) -> MetaConfig:
     """Load, seal, and cross-validate a campaign meta-configuration.
 
     ``verify_data=False`` (analysis) does not require the execution scratch
     and data directories to exist; the hashed data manifest suffices.
+
+    ``use_sealed_plan=True`` (analysis) reads the eqasim model document and
+    context sealed by ``campaign_root/plan.parquet`` into ``sealed`` and
+    validates factors, ``run:`` stages, ``output_formats`` and
+    ``output_prefix`` against that sealed document instead of the current
+    eqasim config; machine options are still validated against the current
+    config. The current values stay in ``model_document`` and the context.
     """
 
     software_identity = read_software_identity()
@@ -940,6 +951,15 @@ def load_meta_config(
     config_bytes = config.read_bytes()
     model_document = load_yaml_source(config_bytes.decode("utf-8"))
     validate_eqasim_document(model_document)
+    campaign_root_value = document["campaign_root"]
+    if not isinstance(campaign_root_value, str):
+        raise TypeError("campaign_root must be a string")
+    campaign_root = _campaign_root(base / campaign_root_value, root)
+    sealed = (
+        sealed_inputs(campaign_root / "plan.parquet") if use_sealed_plan else None
+    )
+    # The document that defines the experiment: the sealed one for analysis.
+    experiment_document = model_document if sealed is None else sealed.model_document
     model_source_exclusions = eqasim_source_exclusions(root, model_document)
     eqasim_source_sha256 = model_source_sha256(
         root, model_source_exclusions, deadline
@@ -1046,8 +1066,8 @@ def load_meta_config(
                 validated[label] = list(payload)
             if not validated:
                 raise ValueError(f"factor {name!r} configurations must not be empty")
-            model_value = model_document["config"].get(name)
-            if name not in model_document["config"]:
+            model_value = experiment_document["config"].get(name)
+            if name not in experiment_document["config"]:
                 raise ValueError(f"unknown factor: {name!r}")
             if not isinstance(model_value, list) or any(
                 not isinstance(item, str) for item in model_value
@@ -1059,7 +1079,7 @@ def load_meta_config(
             values = list(validated)
         else:
             values = declaration["values"]
-        if validate_factors and name not in model_document["config"]:
+        if validate_factors and name not in experiment_document["config"]:
             raise ValueError(f"unknown factor: {name!r}")
         if f"config.{name}" in EXCLUDED_PATHS or name in DEDICATED:
             raise ValueError(f"reserved or infrastructure factor: {name!r}")
@@ -1163,9 +1183,6 @@ def load_meta_config(
                 "multi-scramble Sobol allocation exceeds the safe cap of "
                 f"{MAX_MULTISCRAMBLE_TABLE_CELLS} table cells"
             )
-    campaign_root = document["campaign_root"]
-    if not isinstance(campaign_root, str):
-        raise TypeError("campaign_root must be a string")
     execution = (
         _execution(
             document["execution"], base, root, model_document, verify_data
@@ -1179,8 +1196,8 @@ def load_meta_config(
         else ()
     )
     outputs = _outputs(document)
-    _require_output_stages(outputs, model_document, config)
-    _require_writable_outputs(outputs, model_document, config)
+    _require_output_stages(outputs, experiment_document, config)
+    _require_writable_outputs(outputs, experiment_document, config)
     indicators = _indicator_blocks(document, outputs)
     if method != "grid" and not indicators:
         raise ValueError(
@@ -1243,7 +1260,7 @@ def load_meta_config(
     verify_software_source_states(software_identity)
     return MetaConfig(
         campaign,
-        _campaign_root(base / campaign_root, root),
+        campaign_root,
         config,
         root,
         manifest,
@@ -1278,4 +1295,5 @@ def load_meta_config(
         software_identity,
         model_source_exclusions,
         structured_factors,
+        sealed,
     )

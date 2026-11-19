@@ -113,6 +113,49 @@ def canonical_config(config: ResolvedConfig, seed: int) -> ResolvedConfig:
     return result
 
 
+def _canonical_json(value: object) -> bytes:
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+
+
+def model_document_bytes(base_config: ResolvedConfig) -> bytes:
+    """Canonical JSON of the experiment-defining part of an eqasim config.
+
+    Like a run identity, it ignores the infrastructure keys of
+    ``EXCLUDED_PATHS`` and ``config.random_seed``: a machine-only change
+    (``data_path``, ``processes``...) leaves it unchanged.
+    """
+
+    document = copy.deepcopy(base_config)
+    nested = document.get("config") if type(document) is dict else None
+    if type(nested) is dict:
+        nested.pop("random_seed", None)
+    return _canonical_json(canonical_config(document, 0))
+
+
+def validate_model_document(payload: object) -> dict:
+    """Validate the canonical ``modelDocument`` sealed in a plan."""
+
+    try:
+        if not isinstance(payload, bytes):
+            raise ValueError
+        document = json.loads(payload)
+        if (
+            type(document) is not dict
+            or type(document.get("config")) is not dict
+            or model_document_bytes(document) != payload
+        ):
+            raise ValueError
+    except (TypeError, UnicodeError, ValueError) as error:
+        raise ValueError("plan modelDocument metadata is invalid") from error
+    return document
+
+
 def compute_run_id(config: ResolvedConfig, seed: int) -> str:
     """Derive a deterministic versioned identity from config and seed."""
 

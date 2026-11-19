@@ -50,7 +50,9 @@ from tests.test_canonical_morris_plan import canonical_design, discrete_design
 from tests.test_multiscramble_sobol_plan import multiscramble_design
 from tests.provenance_helpers import write_csv
 from tests.provenance_helpers import (
+    GRID_CONTEXT_HASH,
     context_hash,
+    grid_plan_table,
     execution_evidence,
     scientific_context_descriptor,
     control_indicator,
@@ -122,14 +124,14 @@ def _campaign(tmp_path: Path) -> tuple[Path, tuple[str, str]]:
     root = tmp_path / "campaign"
     run_ids = ("1" * 32, "2" * 32)
     write_parquet_atomic(
-        pa.table(
+        grid_plan_table(
             {
                 "designId": ["d" * 32, "e" * 32, "f" * 32],
                 "method": ["grid"] * 3,
                 "role": ["point"] * 3,
                 "runId": [run_ids[1], run_ids[0], "3" * 32],
                 "seed": [1] * 3,
-                "contextHash": ["hash"] * 3,
+                "contextHash": [GRID_CONTEXT_HASH] * 3,
             }
         ),
         root / "plan.parquet",
@@ -147,7 +149,7 @@ def _campaign(tmp_path: Path) -> tuple[Path, tuple[str, str]]:
             root / "archives" / run_id / "age.csv",
         )
         _write_verified_run(
-            root, RunRecord(run_id, "test", 1, "hash", "node", 1.0, {})
+            root, RunRecord(run_id, "test", 1, GRID_CONTEXT_HASH, "node", 1.0, {})
         )
     write_csv(
         pa.table({"class": ["x"], "synthetic": [99.0], "reference": [1.0]}),
@@ -1437,7 +1439,7 @@ def test_manifest_v7_seals_immutable_outputs_and_complete_provenance(
     assert provenance["plan"]["sha256"] == hashlib.sha256(
         (root / "plan.parquet").read_bytes()
     ).hexdigest()
-    assert provenance["plan"]["contextDescriptor"] is None
+    assert provenance["plan"]["contextDescriptor"] == scientific_context_descriptor()
     assert re.fullmatch(r"[0-9a-f]{64}", provenance["capturedRunSetSha256"])
     assert set(provenance["dependencies"]) == {
         "SALib",
@@ -1512,7 +1514,7 @@ def test_additional_completion_after_capture_is_ignored_until_next_generation(
     assert entered.wait(5)
     added = "3" * 32
     _write_verified_run(
-        root, RunRecord(added, "test", 1, "hash", "node", 1.0, {})
+        root, RunRecord(added, "test", 1, GRID_CONTEXT_HASH, "node", 1.0, {})
     )
     release.set()
     thread.join(5)
@@ -1586,14 +1588,14 @@ def test_analyze_writes_replication_dispersion_for_partial_groups(
     root = tmp_path / "campaign"
     run_ids = tuple(str(index) * 32 for index in range(1, 5))
     write_parquet_atomic(
-        pa.table(
+        grid_plan_table(
             {
                 "designId": [chr(96 + index) * 32 for index in range(1, 6)],
                 "method": ["grid"] * 5,
                 "role": ["point"] * 5,
                 "runId": [*run_ids, run_ids[0]],
                 "seed": [11, 12, 13, 11, 11],
-                "contextHash": ["hash"] * 5,
+                "contextHash": [GRID_CONTEXT_HASH] * 5,
                 "rate": [0.1, 0.1, 0.1, 0.2, 0.1],
             }
         ),
@@ -1613,7 +1615,7 @@ def test_analyze_writes_replication_dispersion_for_partial_groups(
         if seed != 13:
             _write_verified_run(
                 root,
-                RunRecord(run_id, "test", seed, "hash", "node", 1.0, {"rate": rate}),
+                RunRecord(run_id, "test", seed, GRID_CONTEXT_HASH, "node", 1.0, {"rate": rate}),
             )
     before = _snapshot(root)
 
@@ -2392,7 +2394,7 @@ def test_analyze_rejects_foreign_and_full_contract_invalid_markers(
 
     marker.unlink()
     _write_verified_run(
-        root, RunRecord(run_ids[0], "test", 1, "hash", "node", 1.0, {})
+        root, RunRecord(run_ids[0], "test", 1, GRID_CONTEXT_HASH, "node", 1.0, {})
     )
     write_parquet_atomic(
         pa.table({"runId": ["f" * 32], "status": ["completed"]}),

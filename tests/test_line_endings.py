@@ -3,11 +3,13 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from eqasim_sa.adapters.data_manifest import generate_data_manifest
 from eqasim_sa.adapters.execution_seal import create_execution_seal
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.core.context_identity import CONTEXT_DOMAIN
+from eqasim_sa.core.run import model_document_bytes
 from eqasim_sa.core.software_identity import (
     SOFTWARE_IDENTITY_DOMAIN,
     read_software_identity,
@@ -157,7 +159,9 @@ def test_crlf_model_config_and_code_keep_identity(tmp_path: Path) -> None:
 
     assert crlf.model_bytes == _crlf(MODEL_CONFIG)
     assert crlf.context_hash == lf.context_hash
-    assert evidence["modelConfigSha256"] == hashlib.sha256(MODEL_CONFIG).hexdigest()
+    assert evidence["modelConfigSha256"] == hashlib.sha256(
+        model_document_bytes(yaml.safe_load(MODEL_CONFIG))
+    ).hexdigest()
 
 
 def test_domains_bumped() -> None:

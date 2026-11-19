@@ -228,10 +228,11 @@ def analyze_from_meta_config(path: Path, descriptive_only: bool = False) -> dict
 
     if type(descriptive_only) is not bool:
         raise TypeError("descriptive_only must be a bool")
-    meta = load_meta_config(path, verify_data=False)
+    meta = load_meta_config(path, verify_data=False, use_sealed_plan=True)
     _validate_scientific_method(meta)
     plan_path = meta.campaign_root / "plan.parquet"
-    # Full-context run identity is an adapter preflight: core analysis has no base config.
+    # Run identity is checked against what the plan sealed (eqasim config and
+    # context), not the current eqasim checkout: eqasim may change after runs.
     load_run_specs(plan_path, _design(meta), meta.campaign)
     result = analyze(
         meta.campaign_root,

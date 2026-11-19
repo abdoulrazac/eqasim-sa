@@ -27,7 +27,8 @@ from eqasim_sa.utils.filesystem import (
     stable_file,
     stable_file_bytes,
 )
-from eqasim_sa.utils.text_identity import lf_bytes
+from eqasim_sa.adapters.eqasim.config import load_yaml_source
+from eqasim_sa.core.run import model_document_bytes
 from eqasim_sa.core.software_identity import (
     SoftwareIdentity,
     verify_software_source_states,
@@ -244,9 +245,7 @@ class ExecutionSeal:
             executable_sha256=executable_sha256,
             invocation=self.invocation,
             model_source_sha256=model_source_sha256,
-            model_config_sha256=hashlib.sha256(
-                lf_bytes(self.model_config_bytes)
-            ).hexdigest(),
+            model_config_sha256=model_config_sha256(self.model_config_bytes),
             eqasim_sa_sha256=software_identity.sha256,
         ).canonical_bytes()
 
@@ -303,6 +302,18 @@ class ExecutionSeal:
                 raise RuntimeError(self._failure) from error
 
 
+def model_config_sha256(config_bytes: bytes) -> str:
+    """Identity of the eqasim config in execution evidence.
+
+    It hashes the experiment-defining document sealed by the plan
+    (``modelDocument``), so a machine-only edit of the config (``data_path``,
+    ``processes``...) does not block resuming a campaign.
+    """
+
+    document = load_yaml_source(config_bytes.decode("utf-8"))
+    return hashlib.sha256(model_document_bytes(document)).hexdigest()
+
+
 def current_machine_identity(
     meta,  # type: ignore[no-untyped-def]
     environment: Mapping[str, str] | None = None,
@@ -335,7 +346,7 @@ def current_machine_identity(
         environment_sha256=child_environment_sha256(child_environment),
         environment_variables=tuple(sorted(child_environment)),
         invocation=invocation,
-        model_config_sha256=hashlib.sha256(lf_bytes(meta.model_bytes)).hexdigest(),
+        model_config_sha256=model_config_sha256(meta.model_bytes),
         eqasim_sa_sha256=meta.software_identity.sha256,
     )
 

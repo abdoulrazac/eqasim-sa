@@ -16,6 +16,7 @@ from eqasim_sa.core.charter import (
 )
 from eqasim_sa.core.context_identity import ExecutionContextIdentity
 from eqasim_sa.core.indicators import validate_outputs_declaration
+from eqasim_sa.core.run import validate_model_document
 from eqasim_sa.core.methods.canonical_morris_plan import (
     CANONICAL_MORRIS_DOMAIN,
     MAX_CANONICAL_MORRIS_CANDIDATES,
@@ -56,6 +57,7 @@ def _canonical_morris_tables(
         b"canonicalizationVersion",
         b"contextDescriptor",
         b"outputsDeclaration",
+        b"modelDocument",
         b"canonicalMorrisDesignVersion",
         b"canonicalMorrisDesign",
     }
@@ -67,6 +69,7 @@ def _canonical_morris_tables(
     ):
         raise ValueError("canonical Morris plan metadata is missing or unsupported")
     validate_outputs_declaration(metadata[b"outputsDeclaration"])
+    validate_model_document(metadata[b"modelDocument"])
     try:
         design = json.loads(metadata[b"canonicalMorrisDesign"])
         descriptor = json.loads(metadata[b"contextDescriptor"])
