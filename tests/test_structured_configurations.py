@@ -221,7 +221,6 @@ def test_trajectory_methods_refuse_structured_factors(tmp_path: Path) -> None:
             grid.base_config,
             grid.factors,
             grid.seeds,
-            grid.requirements,
             grid.context_hash,
             grid.context_descriptor,
             tmp_path / method,
@@ -253,7 +252,6 @@ def _grid_design(root: Path, *, structured_factors=None) -> GridDesign:  # type:
         },
         factors={"matching_attributes": ["default", "reduced", "age_priority"]},
         seeds=(41,),
-        requirements={},
         context_hash=hashlib.sha256(
             b"eqasim-sa:context:v3\0" + encoded
         ).hexdigest(),
@@ -437,7 +435,6 @@ def _structured_sobol_campaign(root: Path) -> Path:
         {"config": {"matching_attributes": CONFIGURATIONS["default"]}},
         {"matching_attributes": support},
         (11, 12, 13),
-        {},
         hashlib.sha256(b"eqasim-sa:context:v3\0" + encoded).hexdigest(),
         descriptor,
         root,

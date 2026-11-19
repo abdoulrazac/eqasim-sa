@@ -29,7 +29,6 @@ def _design(meta):  # type: ignore[no-untyped-def]
         meta.model_document,
         meta.factors,
         meta.seeds,
-        {},
         meta.context_hash,
         meta.context_descriptor,
         meta.campaign_root,

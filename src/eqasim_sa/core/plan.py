@@ -81,7 +81,6 @@ class GridDesign:
     base_config: dict
     factors: dict[str, list]
     seeds: tuple[int, ...]
-    requirements: dict
     context_hash: str
     context_descriptor: dict
     campaign_root: Path
@@ -97,7 +96,6 @@ class DiscreteOATDesign:
     base_config: dict
     factors: dict[str, list]
     seeds: tuple[int, ...]
-    requirements: dict
     context_hash: str
     context_descriptor: dict
     campaign_root: Path
@@ -115,7 +113,6 @@ class CanonicalMorrisDesign:
     base_config: dict
     factors: dict[str, list]
     seeds: tuple[int, ...]
-    requirements: dict
     context_hash: str
     context_descriptor: dict
     campaign_root: Path
@@ -141,7 +138,6 @@ class SobolDesign:
     base_config: dict
     factors: dict[str, list]
     seeds: tuple[int, ...]
-    requirements: dict
     context_hash: str
     context_descriptor: dict
     campaign_root: Path
@@ -159,7 +155,6 @@ class MultiScrambleSobolDesign:
     base_config: dict
     factors: dict[str, list]
     seeds: tuple[int, ...]
-    requirements: dict
     context_hash: str
     context_descriptor: dict
     campaign_root: Path
@@ -462,10 +457,6 @@ def _validate(design: Design) -> tuple[str, ...]:
         raise ValueError("context_descriptor must contain exactly four string keys")
     if context_identity.sha256 != design.context_hash:
         raise ValueError("context_hash does not match context_descriptor")
-    if not isinstance(design.requirements, dict) or design.requirements:
-        raise ValueError(
-            "requirements must be empty: the eqasim config run: list is used as is"
-        )
     _outputs_declaration(design)
     if design.method == "discrete_oat":
         if type(design.trajectories) is not int or design.trajectories <= 0:

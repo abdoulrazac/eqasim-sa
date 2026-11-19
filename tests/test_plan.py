@@ -64,7 +64,6 @@ def design(root: Path, **changes) -> GridDesign:
         base_config=base(),
         factors={"b": ["x", "y", "z"], "a": [1, 2]},
         seeds=(41, 42),
-        requirements={},
         context_hash=context_hash,
         context_descriptor=descriptor,
         campaign_root=root,
@@ -79,7 +78,6 @@ def discrete_oat_design(root: Path, **changes):  # type: ignore[no-untyped-def]
         base_config=base(),
         factors={"b": [-1.0, 1.0], "a": [0, 2, 5]},
         seeds=(41, 42),
-        requirements={},
         context_hash=context_hash,
         context_descriptor=descriptor,
         campaign_root=root,
@@ -96,7 +94,6 @@ def sobol_design(root: Path, **changes):  # type: ignore[no-untyped-def]
         base_config=base(),
         factors={"b": ["x", "y", "z"], "a": [1, 2]},
         seeds=(101, 102, 103),
-        requirements={},
         context_hash=context_hash,
         context_descriptor=descriptor,
         campaign_root=root,
@@ -212,7 +209,6 @@ def test_sobol_rejects_factor_without_effective_projected_contrast(tmp_path: Pat
         base(),
         {"sampling_rate": [0.001, 0.002], "income_assignation_method": ["uniform", "bhepop2"]},
         (1401, 1402),
-        {},
         context_hash,
         descriptor,
         tmp_path / "degenerate",
@@ -230,7 +226,6 @@ def test_sobol_accepts_identifiable_factors_with_position_deduplication(tmp_path
         base(),
         {"sampling_rate": [0.001, 0.002], "income_assignation_method": ["uniform", "bhepop2"]},
         (1401, 1402),
-        {},
         context_hash,
         descriptor,
         tmp_path / "valid",
@@ -987,21 +982,6 @@ def test_core_rejects_invalid_contract(
         build_plan(design(tmp_path / "campaign", factors=factors, seeds=seeds))
 
 
-@pytest.mark.parametrize(
-    "requirements",
-    [
-        {"other": 1},
-        {"run": ["stage"]},
-        {"config": {}},
-        {"config": {"random_seed": 2}},
-        [],
-    ],
-)
-def test_core_rejects_invalid_requirements(tmp_path: Path, requirements: dict) -> None:
-    with pytest.raises((TypeError, ValueError), match="requirements"):
-        build_plan(design(tmp_path / "campaign", requirements=requirements))
-
-
 def test_context_descriptor_must_match_hash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1041,7 +1021,6 @@ def test_adapter_adds_no_requirements_and_keeps_the_eqasim_run_list(
     specs = load_run_specs(
         loaded.campaign_root / "plan.parquet", design, loaded.campaign
     )
-    assert design.requirements == {}
     assert {tuple(spec.resolved_config["run"]) for spec in specs} == {
         tuple(load_yaml_document(config)["run"])
     }

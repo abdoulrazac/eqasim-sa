@@ -39,7 +39,6 @@ def design(
         },
         factors,
         seeds,
-        {},
         context_hash(descriptor),
         descriptor,
         root,

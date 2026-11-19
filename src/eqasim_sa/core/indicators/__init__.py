@@ -384,7 +384,7 @@ def _validate_definition_artifact(kind: str, artifact: object) -> None:
 def validate_indicator_definition(
     value: object, *, require_scientific: bool = False
 ) -> dict[str, object]:
-    """Validate a canonical indicator definition and scientific requirements."""
+    """Validate a canonical indicator definition and scientific criteria."""
 
     if not isinstance(value, dict) or set(value) != _DEFINITION_KEYS:
         raise ValueError("indicator definition has an invalid schema")

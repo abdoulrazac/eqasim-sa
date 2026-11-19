@@ -353,7 +353,6 @@ def test_run_list_reaches_synpp_unchanged(
     meta, _ = project(tmp_path / "meta", {"persons": {}, "age": {}}, run=run)
     loaded = load_meta_config(meta, verify_data=False)
     design = _design(loaded)
-    assert design.requirements == {}
     plan_from_meta_config(meta)
     (spec,) = load_run_specs(
         loaded.campaign_root / "plan.parquet", design, loaded.campaign

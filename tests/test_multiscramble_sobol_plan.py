@@ -101,7 +101,6 @@ def multiscramble_design(root: Path, **changes) -> MultiScrambleSobolDesign:
         base_config=base(),
         factors=factors,
         seeds=(10, 20),
-        requirements={},
         context_hash=context_hash(descriptor),
         context_descriptor=descriptor,
         campaign_root=root,
