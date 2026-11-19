@@ -12,6 +12,7 @@ import pytest
 from eqasim_sa.adapters import analysis_execution
 from eqasim_sa.adapters.analysis_execution import (
     AnalysisCache,
+    AnalysisResult,
     AnalysisScriptError,
     environment_fingerprint,
     result_fingerprint,
@@ -63,7 +64,9 @@ def _parameters(**factors) -> dict:
     return {"runId": RUN_ID, "seed": 7, "factors": factors}
 
 
-def _run(declaration, archive, campaign, model, parameters=None, **options) -> Path:
+def _run(
+    declaration, archive, campaign, model, parameters=None, **options
+) -> AnalysisResult:
     return run_analysis(
         declaration,
         {"trips": archive},
@@ -80,7 +83,8 @@ def test_runner_calls_compute_and_writes_csv(tmp_path):
     campaign, model, archive = _campaign(tmp_path)
     declaration = _declaration("mean_distance", FIXTURES / "mean_distance.py")
 
-    result = _run(declaration, archive, campaign, model)
+    record = _run(declaration, archive, campaign, model)
+    result = record.path
 
     table = read_csv_table(result, ",", "mean_distance")
     assert table.column_names == ["runId", "seed", "mean_distance"]
@@ -91,6 +95,16 @@ def test_runner_calls_compute_and_writes_csv(tmp_path):
     assert CACHE_ENTRY.fullmatch(result.name)
     digest = result.with_suffix(".sha256").read_text(encoding="utf-8").strip()
     assert digest == hashlib.sha256(result.read_bytes()).hexdigest()
+    archive_sha256 = hashlib.sha256(archive.read_bytes()).hexdigest()
+    assert record.fingerprint == result.stem == result_fingerprint(
+        declaration, {"trips": archive_sha256}, _parameters(), ENVIRONMENT
+    )
+    assert record.script_sha256 == hashlib.sha256(
+        (FIXTURES / "mean_distance.py").read_bytes().replace(b"\r\n", b"\n")
+    ).hexdigest()
+    assert record.inputs_sha256 == {"trips": archive_sha256}
+    assert record.environment == ENVIRONMENT
+    assert record.warnings == ()
 
 
 def test_runner_reports_exception_with_script_and_run(tmp_path):
@@ -141,7 +155,7 @@ def test_script_receives_copies_not_archives(tmp_path):
     original = archive.read_bytes()
     declaration = _declaration("writes_input", FIXTURES / "writes_input.py")
 
-    result = _run(declaration, archive, campaign, model)
+    result = _run(declaration, archive, campaign, model).path
 
     assert archive.read_bytes() == original
     row = read_csv_table(result, ",", "writes_input").to_pylist()[0]
@@ -171,7 +185,7 @@ def test_runner_is_copied_so_eqasim_sa_adapters_is_not_on_sys_path(tmp_path):
     campaign, model, archive = _campaign(tmp_path)
     declaration = _declaration("sys_path", FIXTURES / "sys_path.py")
 
-    result = _run(declaration, archive, campaign, model)
+    result = _run(declaration, archive, campaign, model).path
 
     entries = [row["entry"] for row in read_csv_table(result, ",", "x").to_pylist()]
     adapters = RUNNER.parent
@@ -198,7 +212,8 @@ def test_script_copy_is_hashed_not_the_user_file(tmp_path, monkeypatch):
 
     monkeypatch.setattr(analysis_execution, "capture_stable_file", capture_then_edit)
 
-    result = _run(declaration, archive, campaign, model)
+    record = _run(declaration, archive, campaign, model)
+    result = record.path
 
     original = tmp_path / "original.py"
     original.write_text(first, encoding="utf-8")
@@ -209,7 +224,15 @@ def test_script_copy_is_hashed_not_the_user_file(tmp_path, monkeypatch):
         ENVIRONMENT,
     )
     assert result.name == f"{expected}.csv"
+    assert record.fingerprint == expected
+    assert record.script_sha256 == hashlib.sha256(first.encode("utf-8")).hexdigest()
     assert read_csv_table(result, ",", "edited").num_rows == 1
+
+    # A cache hit hashes this call's copy too, not the file read afterwards.
+    script.write_text(first, encoding="utf-8")
+    hit = _run(declaration, archive, campaign, model)
+    assert hit.path == result
+    assert hit.script_sha256 == record.script_sha256
 
 
 def _wrapper(tmp_path: Path, body: str) -> tuple[str, ...]:
@@ -329,9 +352,10 @@ def test_cache_hit_skips_execution(tmp_path):
     assert first == second
     assert counter.read_text() == "1"
     cache = AnalysisCache(campaign)
-    assert cache.get("counter", first.stem) == first
-    assert cache.warnings == []
-    assert cache.get("counter", "0" * 64) is None
+    warnings = []
+    assert cache.get("counter", first.fingerprint, warnings) == first.path
+    assert warnings == []
+    assert cache.get("counter", "0" * 64, warnings) is None
 
 
 def test_tampered_cache_entry_is_recomputed(tmp_path):
@@ -339,21 +363,21 @@ def test_tampered_cache_entry_is_recomputed(tmp_path):
     counter = tmp_path / "count.txt"
     declaration = _declaration("counter", FIXTURES / "counter.py")
     parameters = _parameters(counter=str(counter))
-    first = _run(declaration, archive, campaign, model, parameters)
+    first = _run(declaration, archive, campaign, model, parameters).path
     original = first.read_bytes()
     os.chmod(first, 0o600)
     first.write_bytes(b"value\n9.5\n")
 
-    cache = AnalysisCache(campaign)
-    again = _run(declaration, archive, campaign, model, parameters, cache=cache)
+    record = _run(declaration, archive, campaign, model, parameters)
+    again = record.path
 
     assert again == first
     assert again.read_bytes() == original
     assert counter.read_text() == "2"
-    assert cache.warnings == [
+    assert record.warnings == (
         f"analysis cache entry counter/{first.name} was altered; "
-        "it was removed and recomputed"
-    ]
+        "it was removed and recomputed",
+    )
     names = sorted(path.name for path in first.parent.iterdir())
     assert names == sorted([first.name, f"{first.stem}.sha256"])
 
@@ -384,3 +408,23 @@ def test_cache_put_publishes_digest_before_csv_with_recognized_temporaries(
     ]
     assert all(CACHE_TEMPORARY.fullmatch(temporary) for temporary, _ in seen)
     assert published.read_bytes() == b"a\n1\n"
+
+
+def test_log_write_failure_keeps_the_script_error(tmp_path, monkeypatch):
+    campaign, model, archive = _campaign(tmp_path)
+    declaration = _declaration("failing", FIXTURES / "failing.py")
+
+    def broken_log(*_arguments):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(analysis_execution, "_write_log", broken_log)
+
+    with pytest.raises(AnalysisScriptError) as caught:
+        _run(declaration, archive, campaign, model)
+
+    assert str(caught.value) == (
+        f"analysis 'failing' failed for run {RUN_ID}: "
+        "ValueError: distance négative"
+    )
+    assert isinstance(caught.value.__cause__, OSError)
+    assert str(caught.value.__cause__) == "disk full"

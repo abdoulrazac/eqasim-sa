@@ -28,7 +28,7 @@ import subprocess
 import tempfile
 import uuid
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from eqasim_sa.adapters.execution_seal import resolve_invocation
@@ -51,6 +51,7 @@ from eqasim_sa.utils.text_identity import lf_sha256
 
 __all__ = (
     "AnalysisCache",
+    "AnalysisResult",
     "AnalysisScriptError",
     "analysis_interpreter",
     "environment_fingerprint",
@@ -74,6 +75,23 @@ _CREATE = (
 
 class AnalysisScriptError(RuntimeError):
     """An analysis script failed; the full error output is in the log."""
+
+
+@dataclass(frozen=True)
+class AnalysisResult:
+    """One analysis result and the identities it was computed from.
+
+    ``script_sha256`` is the LF-normalized SHA-256 of the script copy taken
+    by this call (executed on a miss), never of the user's file read later.
+    ``warnings`` lists the altered cache entries this call removed.
+    """
+
+    path: Path
+    fingerprint: str
+    script_sha256: str
+    inputs_sha256: dict[str, str]
+    environment: str
+    warnings: tuple[str, ...]
 
 
 def _canonical(document: object) -> bytes:
@@ -250,13 +268,12 @@ def _remove(path: Path) -> None:
 class AnalysisCache:
     """Integrity-checked analysis results of one campaign.
 
-    Altered entries found by :meth:`get` are removed and described in
-    :attr:`warnings`, so that callers recompute and report them.
+    Altered entries found by :meth:`get` are removed and described in the
+    ``warnings`` list it is given, so that callers recompute and report them.
     """
 
     def __init__(self, campaign_root: Path) -> None:
         self.root = absolute(campaign_root) / ANALYSES_CACHE_DIRECTORY
-        self.warnings: list[str] = []
 
     def _directory(self, name: str, *, create: bool) -> Path:
         if _NAME.fullmatch(name) is None or name == ANALYSES_LOG_DIRECTORY:
@@ -266,7 +283,9 @@ class AnalysisCache:
             secure_directory(self.root / name, create=True)
         return self.root / name
 
-    def get(self, name: str, fingerprint: str) -> Path | None:
+    def get(
+        self, name: str, fingerprint: str, warnings: list[str] | None = None
+    ) -> Path | None:
         """Return the verified cached CSV, or ``None`` when it must be computed."""
 
         _sha256(fingerprint, "result fingerprint")
@@ -284,14 +303,19 @@ class AnalysisCache:
         _remove(result)
         _remove(digest)
         platform.fsync_directory(directory)
-        self.warnings.append(
-            f"analysis cache entry {name}/{result.name} was altered; "
-            "it was removed and recomputed"
-        )
+        if warnings is not None:
+            warnings.append(
+                f"analysis cache entry {name}/{result.name} was altered; "
+                "it was removed and recomputed"
+            )
         return None
 
     def put(self, name: str, fingerprint: str, csv_path: Path) -> Path:
-        """Publish a computed CSV, its SHA-256 first, and return its cache path."""
+        """Publish a computed CSV, its SHA-256 first, and return its cache path.
+
+        Concurrent writers of one fingerprint are excluded: callers hold
+        ``analysis.lock`` and every result fingerprint includes the runId.
+        """
 
         _sha256(fingerprint, "result fingerprint")
         directory = self._directory(name, create=True)
@@ -329,7 +353,7 @@ def run_analysis(
     *,
     inputs_sha256: Mapping[str, str] | None = None,
     cache: AnalysisCache | None = None,
-) -> Path:
+) -> AnalysisResult:
     """Return the cached result of one analysis for one run, computing it if needed.
 
     ``archived`` maps each declared input to its archived file;
@@ -338,7 +362,8 @@ def run_analysis(
     ``{"runId", "seed", "factors"}``; ``environment`` comes from
     :func:`environment_fingerprint`.  A script error raises
     :class:`AnalysisScriptError` and writes the full error output to
-    ``analyses-cache/logs/<analysis>-<runId>.log``.  The caller holds the
+    ``analyses-cache/logs/<analysis>-<runId>.log`` (a failure to write the log
+    is attached as the error's context).  The caller holds the
     ``analysis.lock`` lease.
     """
 
@@ -360,12 +385,25 @@ def run_analysis(
     try:
         script = directory / "script" / declaration.script.name
         capture_stable_file(declaration.script, script)
+        script_sha256 = lf_sha256(script)
         fingerprint = result_fingerprint(
             replace(declaration, script=script), expected, parameters, environment
         )
-        cached = cache.get(declaration.name, fingerprint)
+        warnings: list[str] = []
+
+        def result(path: Path) -> AnalysisResult:
+            return AnalysisResult(
+                path,
+                fingerprint,
+                script_sha256,
+                dict(expected),
+                environment,
+                tuple(warnings),
+            )
+
+        cached = cache.get(declaration.name, fingerprint, warnings)
         if cached is not None:
-            return cached
+            return result(cached)
         files = {}
         for name in declaration.inputs:
             source = Path(archived[name])
@@ -400,12 +438,16 @@ def run_analysis(
         )
         errors = _decode(completed.stderr)
         if completed.returncode != 0 or not output.is_file():
-            _write_log(campaign_root, declaration.name, run_id, errors)
-            raise AnalysisScriptError(
+            failure = AnalysisScriptError(
                 f"analysis '{declaration.name}' failed for run {run_id}: "
                 f"{_last_line(errors, completed.returncode)}"
             )
+            try:
+                _write_log(campaign_root, declaration.name, run_id, errors)
+            except Exception as log_error:
+                raise failure from log_error
+            raise failure
         read_csv_table(output, ",", declaration.name)
-        return cache.put(declaration.name, fingerprint, output)
+        return result(cache.put(declaration.name, fingerprint, output))
     finally:
         _remove_tree(directory)
