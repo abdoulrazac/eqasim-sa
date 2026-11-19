@@ -396,7 +396,7 @@ def test_discrete_oat_analyzer_preserves_adjacent_effects_under_new_identity(
     manifest = json.loads(
         (design.campaign_root / "analysis-generation.json").read_text()
     )
-    assert manifest["version"] == 7
+    assert manifest["version"] == 8
     assert manifest["sensitivityMethod"] == "discrete_oat"
 
 
@@ -561,7 +561,7 @@ def test_canonical_analyze_rejects_scientific_minimum_boundaries(
         )
 
 
-def test_canonical_transactionally_publishes_noise_allocation_and_manifest_v7(
+def test_canonical_transactionally_publishes_noise_allocation_and_manifest_v8(
     tmp_path: Path,
 ) -> None:
     design, indicator = _completed_campaign(tmp_path)
@@ -585,7 +585,7 @@ def test_canonical_transactionally_publishes_noise_allocation_and_manifest_v7(
     manifest = json.loads(
         (design.campaign_root / "analysis-generation.json").read_text()
     )
-    assert manifest["version"] == 7
+    assert manifest["version"] == 8
     assert manifest["layout"] == "immutable-generation-v1"
     assert manifest["inferenceStatus"] == "pilot_only"
     assert manifest["noiseFloorPath"] == root_relative(

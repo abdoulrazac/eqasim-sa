@@ -357,7 +357,7 @@ utilisent les bornes supérieures d'ordre total.
 
 ### `analysis-generation.json`
 
-Le manifeste version 7 est le pointeur remplacé atomiquement vers la génération
+Le manifeste version 8 est le pointeur remplacé atomiquement vers la génération
 immuable courante. Son `layout` reste `immutable-generation-v1` ;
 `generationPath` désigne `analysis/generations/<generationId>` et chaque sortie
 porte son chemin relatif, sa taille et son SHA-256. Les artefacts propres aux

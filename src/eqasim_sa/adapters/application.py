@@ -3,7 +3,9 @@
 import hashlib
 import json
 import sys
+import tempfile
 from argparse import Namespace
+from dataclasses import replace
 from pathlib import Path
 
 import pyarrow.parquet as pq
@@ -48,6 +50,7 @@ from eqasim_sa.core.run import (
     summarize_runs,
 )
 from eqasim_sa.core.software_identity import verify_software_source_states
+from eqasim_sa.utils.filesystem import capture_stable_file
 
 
 def build_eqasim(arguments: Namespace) -> tuple[EqasimSimulator, dict, object]:
@@ -224,12 +227,14 @@ def run_from_meta_config(path: Path) -> dict:
     )
 
 
-def _derived_outputs(meta, warnings: list[str]):  # type: ignore[no-untyped-def]
+def _derived_outputs(meta, warnings: list[str], scripts: Path):  # type: ignore[no-untyped-def]
     """Return the function computing the analysis outputs indicators read.
 
     ``None`` when no indicator reads one: nothing is probed nor run.  The
     environment fingerprint is computed once; altered cache entries are
-    reported in ``warnings``.
+    reported in ``warnings``.  Each used script is copied once into
+    ``scripts`` (kept for the whole analyze), so every run of an analysis runs
+    the same script even if the user edits it meanwhile.
     """
 
     used = sorted(
@@ -246,11 +251,17 @@ def _derived_outputs(meta, warnings: list[str]):  # type: ignore[no-untyped-def]
         python, model_root, model_root / "uv.lock"
     )
     cache = analysis_execution.AnalysisCache(meta.campaign_root)
+    declarations = {}
+    for name in used:
+        declaration = meta.analyses[name]
+        copy = scripts / name / declaration.script.name
+        capture_stable_file(declaration.script, copy)
+        declarations[name] = replace(declaration, script=copy)
 
     def compute(run_id: str, artifacts: ArtifactSet, context: dict) -> dict:
         outputs = {}
         for name in used:
-            declaration = meta.analyses[name]
+            declaration = declarations[name]
             result = analysis_execution.run_analysis(
                 declaration,
                 {item: artifacts.path(item) for item in declaration.inputs},
@@ -273,6 +284,10 @@ def _derived_outputs(meta, warnings: list[str]):  # type: ignore[no-untyped-def]
                     "scriptSha256": result.script_sha256,
                     "environmentFingerprint": result.environment,
                     "inputsSha256": dict(result.inputs_sha256),
+                    # Recorded by the cache: the copy is verified against it.
+                    "sha256": result.path.with_name(f"{result.fingerprint}.sha256")
+                    .read_text(encoding="ascii")
+                    .strip(),
                 },
             )
         return outputs
@@ -292,23 +307,24 @@ def analyze_from_meta_config(path: Path, descriptive_only: bool = False) -> dict
     # context), not the current eqasim checkout: eqasim may change after runs.
     load_run_specs(plan_path, _design(meta), meta.campaign)
     warnings: list[str] = []
-    derived_outputs = _derived_outputs(meta, warnings)
-    result = analyze(
-        meta.campaign_root,
-        meta.indicators,
-        campaign=meta.campaign,
-        completeness_threshold=meta.completeness_threshold,
-        seed_role=meta.seed_role,
-        method=meta.method,
-        bootstrap_resamples=getattr(meta, "bootstrap_resamples", None),
-        confidence_level=getattr(meta, "confidence_level", None),
-        convergence_checkpoints=getattr(meta, "convergence_checkpoints", None),
-        screening_top_k=getattr(meta, "screening_top_k", None),
-        meta_config_sha256=getattr(meta, "meta_config_sha256", None),
-        descriptive_only=descriptive_only,
-        derived_outputs=derived_outputs,
-        derived_workers=getattr(getattr(meta, "execution", None), "workers", 1),
-    )
+    with tempfile.TemporaryDirectory(prefix="eqasim-sa-scripts-") as scripts:
+        derived_outputs = _derived_outputs(meta, warnings, Path(scripts))
+        result = analyze(
+            meta.campaign_root,
+            meta.indicators,
+            campaign=meta.campaign,
+            completeness_threshold=meta.completeness_threshold,
+            seed_role=meta.seed_role,
+            method=meta.method,
+            bootstrap_resamples=getattr(meta, "bootstrap_resamples", None),
+            confidence_level=getattr(meta, "confidence_level", None),
+            convergence_checkpoints=getattr(meta, "convergence_checkpoints", None),
+            screening_top_k=getattr(meta, "screening_top_k", None),
+            meta_config_sha256=getattr(meta, "meta_config_sha256", None),
+            descriptive_only=descriptive_only,
+            derived_outputs=derived_outputs,
+            derived_workers=getattr(getattr(meta, "execution", None), "workers", 1),
+        )
     return {
         "status": "completed",
         "path": str(result.path),

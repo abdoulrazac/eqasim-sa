@@ -371,7 +371,7 @@ to the sealed primary indicator and uses total-order upper bounds.
 
 ### `analysis-generation.json`
 
-The version 7 manifest is the atomically replaced pointer to the current
+The version 8 manifest is the atomically replaced pointer to the current
 immutable generation. Its `layout` remains `immutable-generation-v1`;
 `generationPath` selects `analysis/generations/<generationId>` and every output
 record carries its relative path, size, and SHA-256. Method-specific artifacts

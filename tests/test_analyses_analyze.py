@@ -25,6 +25,7 @@ from eqasim_sa.adapters.campaign_design import _design
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.core.indicators import analysis_identity
 from eqasim_sa.core.plan import load_run_specs
+from eqasim_sa.utils.filesystem import file_lease
 from eqasim_sa.utils.text_identity import lf_sha256
 from tests.test_init import initialize, invocation
 from tests.test_sealed_analysis import campaign
@@ -427,3 +428,86 @@ def test_smoke_check_skips_indicators_on_analysis_outputs(
 
     assert _calls(tmp_path) == []
     assert not os.path.exists(tmp_path / "campaign" / "analyses-cache")
+
+
+SELF_REWRITING = """\
+import pandas
+
+SOURCE = {source!r}
+
+
+def compute(files, parameters):
+    with open(SOURCE, "w", encoding="utf-8") as stream:
+        stream.write(
+            "import pandas\\n"
+            "def compute(files, parameters):\\n"
+            "    return pandas.DataFrame({{'rows': [5.0]}})\\n"
+        )
+    return pandas.DataFrame({{"rows": [2.0]}})
+"""
+
+
+def test_script_is_captured_once_per_analyze(tmp_path: Path, spy: None) -> None:
+    meta = _project(tmp_path, seeds=[41, 42, 43])
+    script = tmp_path / "analyses" / "commute.py"
+    script.write_text(SELF_REWRITING.format(source=str(script)))
+    original = lf_sha256(script)
+    plan_from_meta_config(meta)
+    assert run_from_meta_config(meta)["completed"] == 3
+
+    payload = analyze_from_meta_config(meta)
+
+    assert lf_sha256(script) != original
+    records = _manifest(tmp_path)["provenance"]["analyses"]["commute"]
+    assert len(records) == 3
+    assert {record["scriptSha256"] for record in records.values()} == {original}
+    assert {
+        value
+        for (_, indicator), value in _values(payload).items()
+        if indicator == "value(commute, rows)"
+    } == {2.0}
+
+
+STOPPING = """\
+import os
+import time
+
+import pandas
+
+PIDS = {pids!r}
+
+
+def compute(files, parameters):
+    os.makedirs(PIDS, exist_ok=True)
+    pid = str(os.getpid())
+    open(os.path.join(PIDS, pid), "w").close()
+    if parameters["seed"] == 41:
+        raise RuntimeError("stop")
+    time.sleep(1.5)
+    open(os.path.join(PIDS, "done-" + pid), "w").close()
+    return pandas.DataFrame({{"rows": [1.0]}})
+"""
+
+
+def test_script_failure_leaves_no_script_running_and_frees_the_lease(
+    tmp_path: Path, spy: None
+) -> None:
+    meta = _project(tmp_path, seeds=[41, 42], workers=2)
+    pids = tmp_path / "pids"
+    (tmp_path / "analyses" / "commute.py").write_text(STOPPING.format(pids=str(pids)))
+    plan_from_meta_config(meta)
+    assert run_from_meta_config(meta)["completed"] == 2
+
+    with pytest.raises(Exception, match="RuntimeError: stop"):
+        analyze_from_meta_config(meta)
+
+    started = [path.name for path in pids.iterdir() if path.name.isdigit()]
+    assert len(started) == 2
+    # The other run's script was waited for, not abandoned.
+    assert len([path for path in pids.iterdir() if path.name.startswith("done-")]) == 1
+    for pid in started:
+        with pytest.raises(ProcessLookupError):
+            os.kill(int(pid), 0)
+    lock = tmp_path / "campaign" / ".eqasim-sa" / "locks" / "analysis.lock"
+    with file_lease(lock, blocking=False):
+        pass

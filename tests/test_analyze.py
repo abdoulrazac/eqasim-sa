@@ -421,7 +421,7 @@ def test_sobol_analysis_is_deterministic_permutation_invariant_and_has_exact_sch
     )
     assert replay.sensitivity_path.read_bytes() == expected
     manifest = json.loads((root / "analysis-generation.json").read_text())
-    assert manifest["version"] == 7
+    assert manifest["version"] == 8
     assert manifest["layout"] == "immutable-generation-v1"
     assert manifest["sensitivityMethod"] == "sobol"
     assert manifest["inferenceStatus"] == "demonstration_noninferential"
@@ -1186,7 +1186,7 @@ def test_multiscramble_analyzer_rejects_tampered_ff_tolerance_above_one(
 
 
 @pytest.mark.usefixtures("synthetic_indicator")
-def test_multiscramble_transactionally_publishes_outputs_and_manifest_v7(
+def test_multiscramble_transactionally_publishes_outputs_and_manifest_v8(
     tmp_path: Path,
 ) -> None:
     design = multiscramble_design(tmp_path / "published")
@@ -1221,7 +1221,7 @@ def test_multiscramble_transactionally_publishes_outputs_and_manifest_v7(
     assert result.convergence_path.name == "multiscramble-sobol-convergence.parquet"
     assert result.diagnostics_path.name == "multiscramble-sobol-diagnostics.parquet"
     manifest = json.loads((design.campaign_root / "analysis-generation.json").read_text())
-    assert manifest["version"] == 7
+    assert manifest["version"] == 8
     assert root_relative(design.campaign_root, result.by_scramble_path) == manifest[
         "byScramblePath"
     ]
@@ -1402,7 +1402,7 @@ def test_analyze_rejects_foreign_generation_inventory_before_creating_staging(
     assert not (root / "analysis/staging").exists()
 
 
-def test_manifest_v7_seals_immutable_outputs_and_complete_provenance(
+def test_manifest_v8_seals_immutable_outputs_and_complete_provenance(
     tmp_path: Path,
 ) -> None:
     root, _ = _campaign(tmp_path)
@@ -1412,7 +1412,7 @@ def test_manifest_v7_seals_immutable_outputs_and_complete_provenance(
     manifest_path = root / "analysis-generation.json"
     manifest = json.loads(manifest_path.read_text())
 
-    assert manifest["version"] == 7
+    assert manifest["version"] == 8
     assert manifest["layout"] == "immutable-generation-v1"
     assert re.fullmatch(r"[0-9a-f]{64}", manifest["generationId"])
     assert manifest["generationPath"] == (
@@ -1731,7 +1731,7 @@ def test_discrete_oat_ranking_has_exact_effects_schema_order_and_manifest(
         }
     )
     manifest = json.loads((root / "analysis-generation.json").read_text())
-    assert manifest["version"] == 7
+    assert manifest["version"] == 8
     assert manifest["sensitivityMethod"] == "discrete_oat"
     assert (
         manifest["sensitivitySha256"]

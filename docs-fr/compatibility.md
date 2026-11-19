@@ -36,7 +36,7 @@ Il n'existe aucune migration semantique ou en place entre les versions de plan.
 
 ## Matrice d'analyse et de revendication
 
-Chaque analyse ecrit `analysis-generation.json` version 7 et
+Chaque analyse ecrit `analysis-generation.json` version 8 et
 `governed-report.json` version 1.
 Pour une analyse scientifique v3, `provenance.numericalEngine` est
 exactement le descripteur scelle dans le plan.
@@ -137,7 +137,7 @@ scratch worker est devenue `<scratch>/esa/<campagne>/w<slot>/c<12 hex>/`.
 
 | Version | Python | Schemas de plan lus/ecrits | Manifeste d'analyse | Migration |
 | --- | --- | --- | --- | --- |
-| 0.3.0 + Unreleased | `>=3.13,<3.14` | schemas de plan v1/v2/v3 ; design scientifique v3 uniquement | v7 | aucune |
+| 0.3.0 + Unreleased | `>=3.13,<3.14` | schemas de plan v1/v2/v3 ; design scientifique v3 uniquement | v8 | aucune |
 
 Voir les [preuves de version](../docs/release-evidence-0.3.0.md) pour les
 commandes reellement executees, les empreintes des artefacts et les limites de

@@ -35,7 +35,7 @@ migration between plan versions.
 
 ## Analysis and claim matrix
 
-Every analysis writes `analysis-generation.json` version 7 and
+Every analysis writes `analysis-generation.json` version 8 and
 `governed-report.json` version 1.
 For a scientific v3 analysis, `provenance.numericalEngine` is exactly the
 descriptor sealed in the plan.
@@ -135,7 +135,7 @@ Nantes protocol has been planned or executed.
 
 | Release | Python | Plan schemas read/written | Analysis manifest | Migration |
 | --- | --- | --- | --- | --- |
-| 0.3.0 + Unreleased | `>=3.13,<3.14` | plan schemas v1/v2/v3; scientific design v3 only | v7 | none |
+| 0.3.0 + Unreleased | `>=3.13,<3.14` | plan schemas v1/v2/v3; scientific design v3 only | v8 | none |
 
 See [release evidence](release-evidence-0.3.0.md) for commands actually run,
 artifact hashes, and environment limitations.

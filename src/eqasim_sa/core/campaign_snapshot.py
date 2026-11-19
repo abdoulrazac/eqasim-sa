@@ -46,7 +46,8 @@ DerivedOutputs = Callable[[str, ArtifactSet, dict], Mapping[str, tuple[Path, dic
 Called with the runId, the run's captured archive files, and
 ``{"parameters": {"runId", "seed", "factors"}, "artifactsSha256": {name: sha256}}``;
 returns ``{analysis: (csv, provenance)}`` where ``provenance`` is a JSON
-mapping recorded in the captured run set.
+mapping recorded in the captured run set; its ``sha256`` is the expected
+SHA-256 of the CSV, verified while copying it.
 """
 
 
@@ -93,7 +94,8 @@ class MaterializedCampaign:
         run_ids = list(self.artifacts)
         produced: dict[str, Mapping[str, tuple[Path, dict]]] = {}
         if run_ids:
-            with ThreadPoolExecutor(max_workers=min(workers, len(run_ids))) as pool:
+            pool = ThreadPoolExecutor(max_workers=min(workers, len(run_ids)))
+            try:
                 futures = {
                     pool.submit(
                         derived_outputs,
@@ -104,17 +106,16 @@ class MaterializedCampaign:
                     for run_id in run_ids
                 }
                 pending = set(futures)
-                try:
-                    while pending:
-                        done, pending = wait(pending, return_when="FIRST_EXCEPTION")
-                        for future in done:
-                            error = future.exception()
-                            if error is not None:
-                                raise error
-                            produced[futures[future]] = future.result()
-                finally:
-                    for future in pending:
-                        future.cancel()
+                while pending:
+                    done, pending = wait(pending, return_when="FIRST_EXCEPTION")
+                    for future in done:
+                        error = future.exception()
+                        if error is not None:
+                            raise error
+                        produced[futures[future]] = future.result()
+            finally:
+                # Started runs finish (their scripts exit) before the lease ends.
+                pool.shutdown(wait=True, cancel_futures=True)
         names: set[str] | None = None
         artifacts_by_run = {}
         descriptors = []
@@ -135,15 +136,19 @@ class MaterializedCampaign:
                 if name in paths:
                     raise ValueError(f"derived output {name!r} is an archived output")
                 source, provenance = outputs[name]
-                if not isinstance(provenance, Mapping) or {"size", "sha256"} & set(
-                    provenance
+                if (
+                    not isinstance(provenance, Mapping)
+                    or "size" in provenance
+                    or not isinstance(provenance.get("sha256"), str)
                 ):
                     raise ValueError(
                         f"derived output {name!r} provenance must be a mapping "
-                        "without size or sha256"
+                        "with the CSV sha256 and without size"
                     )
                 target = self.root / DERIVED_DIRECTORY / run_id / f"{name}.csv"
-                captured = capture_stable_file(Path(source), target)
+                captured = capture_stable_file(
+                    Path(source), target, expected_sha256=provenance["sha256"]
+                )
                 paths[name] = target
                 records[name] = {
                     **json.loads(json.dumps(dict(provenance), allow_nan=False)),

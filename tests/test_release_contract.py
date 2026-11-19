@@ -176,7 +176,7 @@ def test_release_analysis_status_and_governed_report_matrix(tmp_path: Path) -> N
     demonstration_report = json.loads(
         demonstration_result.governed_report_path.read_text()
     )
-    assert demonstration_manifest["version"] == 7
+    assert demonstration_manifest["version"] == 8
     assert demonstration_result.inference_status == "demonstration_noninferential"
     assert demonstration_report["claimAuthorized"] is False
 
@@ -285,7 +285,7 @@ def test_release_analysis_status_and_governed_report_matrix(tmp_path: Path) -> N
             (result.path.parents[3] / "analysis-generation.json").read_text()
         )
         report = json.loads(result.governed_report_path.read_text())
-        assert manifest["version"] == 7
+        assert manifest["version"] == 8
         assert manifest["inferenceStatus"] == expected_status
         assert report["inferenceStatus"] == expected_status
         assert report["robustness"]["status"] == "pending"

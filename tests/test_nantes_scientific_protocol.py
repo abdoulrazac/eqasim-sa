@@ -54,13 +54,13 @@ def _generation_id(filename: str) -> str:
 
 
 def _evidence_path(root: Path, filename: str) -> Path:
-    """Return the evidence file inside its v7 immutable analysis generation."""
+    """Return the evidence file inside its v8 immutable analysis generation."""
 
     return root / "analysis" / "generations" / _generation_id(filename) / filename
 
 
 def _reseal_evidence(root: Path, filename: str) -> None:
-    """Rebind the v7 manifest output record and digest to the evidence bytes."""
+    """Rebind the v8 manifest output record and digest to the evidence bytes."""
 
     logical_name, path_field, digest_field = EVIDENCE_FIELDS[filename]
     manifest_path = root / "analysis-generation.json"
@@ -87,7 +87,7 @@ def _reseal_evidence(root: Path, filename: str) -> None:
 def _write_generation_evidence(
     root: Path, filename: str, document: dict, manifest_fields: dict
 ) -> Path:
-    """Write ``document`` and a v7 analysis-generation manifest selecting it."""
+    """Write ``document`` and a v8 analysis-generation manifest selecting it."""
 
     evidence = _evidence_path(root, filename)
     evidence.parent.mkdir(parents=True, exist_ok=True)
@@ -96,7 +96,7 @@ def _write_generation_evidence(
     _write_json(
         root / "analysis-generation.json",
         {
-            "version": 7,
+            "version": 8,
             "layout": "immutable-generation-v1",
             "generationId": generation_id,
             "generationPath": f"analysis/generations/{generation_id}",
@@ -403,7 +403,7 @@ def test_renderer_rejects_v6_analysis_generation_manifest(tmp_path: Path) -> Non
     )
 
     assert result.returncode != 0
-    assert "version must be 7" in result.stderr
+    assert "version must be 8" in result.stderr
     assert not output.exists()
 
 

@@ -471,8 +471,8 @@ def _manifest_evidence(
 ) -> tuple[dict[str, Any], dict[str, Any], Path, str]:
     manifest, _ = _json_file(root, "analysis-generation.json", argument)
     selected_path = manifest.get(path_field)
-    if manifest.get("version") != 7:
-        raise ValueError("analysis generation manifest version must be 7")
+    if manifest.get("version") != 8:
+        raise ValueError("analysis generation manifest version must be 8")
     _exact(manifest.get("layout"), "immutable-generation-v1", "manifest.layout")
     generation_id = manifest.get("generationId")
     if type(generation_id) is not str or DIGEST.fullmatch(generation_id) is None:

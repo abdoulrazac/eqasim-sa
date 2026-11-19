@@ -390,7 +390,7 @@ def test_canonical_pilot_publishes_governed_evidence_exclusions_and_hashes(
     assert {row["classification"] for row in report["factorEvidence"]} == {"screening"}
     assert report["claimAuthorized"] is False
     manifest = json.loads((design.campaign_root / "analysis-generation.json").read_text())
-    assert manifest["version"] == 7
+    assert manifest["version"] == 8
     assert manifest["convergenceEvidencePath"] == root_relative(
         design.campaign_root, result.convergence_evidence_path
     )

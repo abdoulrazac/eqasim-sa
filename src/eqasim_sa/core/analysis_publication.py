@@ -551,7 +551,7 @@ class AnalysisPublication:
         }
         manifest = {
             **dict(summary),
-            "version": 7,
+            "version": 8,
             "layout": ANALYSIS_LAYOUT,
             "generationId": generation_id,
             "generationPath": generation_relative.as_posix(),
