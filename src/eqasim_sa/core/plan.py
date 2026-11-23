@@ -216,7 +216,7 @@ def estimate_plan(
             "design positions and plan bytes must be non-negative integers"
         )
     if not observations:
-        raise ValueError("provide a calibration meta-config with a complete run")
+        raise ValueError("no completed calibration run yet")
     if any(
         type(duration) not in (int, float)
         or not math.isfinite(duration)

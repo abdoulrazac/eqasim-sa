@@ -947,6 +947,18 @@ def test_generated_readme_names_the_default_model_config(tmp_path: Path) -> None
     assert "`model.config` is `config.yml`" in flat
 
 
+def test_generated_readme_ties_machine_values_to_the_init_rerun_rule(
+    tmp_path: Path,
+) -> None:
+    _, root, _, _ = initialize(tmp_path)
+
+    flat = " ".join((root / "README.md").read_text().split())
+    assert "refuses any difference (`init inputs changed: <key> in configs/<file>`)" in flat
+    assert "edit these values by hand in every starter" in flat
+    assert "a rerun with the old arguments is refused" in flat
+    assert "You never need to rerun `init` to keep working" in flat
+
+
 def test_init_cli_failure_reports_the_elapsed_time(monkeypatch, capsys) -> None:
     import time
 
@@ -1093,11 +1105,22 @@ def test_init_rerun_refuses_an_unparseable_starter(tmp_path: Path, content: str)
 @pytest.mark.parametrize(
     ("content", "location"),
     [
-        ("campaign: [\n", "ParserError at line 2, column 1"),
-        ("a: 1\n  b: 2\n", "ScannerError at line 2, column 4"),
+        (
+            "campaign: [\n",
+            "ParserError at line 2, column 1: "
+            "expected the node content, but found '<stream end>'",
+        ),
+        (
+            "a: 1\n  b: 2\n",
+            "ScannerError at line 2, column 4: mapping values are not allowed here",
+        ),
+        (
+            "campaign: [a, b\n",
+            "ParserError at line 2, column 1: expected ',' or ']', but got '<stream end>'",
+        ),
     ],
 )
-def test_init_rerun_names_the_line_and_column_of_a_yaml_error(
+def test_init_rerun_names_the_line_column_and_cause_of_a_yaml_error(
     tmp_path: Path, content: str, location: str
 ) -> None:
     _, root, model, data = initialize(tmp_path, "project")

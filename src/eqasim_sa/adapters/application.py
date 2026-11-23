@@ -150,7 +150,10 @@ def enforce_same_machine(meta, specs=None) -> None:  # type: ignore[no-untyped-d
 def run_from_meta_config(path: Path) -> dict:
     """Resume all pending runs using the configured local or SLURM backend."""
 
-    meta_path = path.resolve(strict=True)
+    try:
+        meta_path = path.resolve(strict=True)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"meta-config not found: {path}") from None
     meta_bytes = meta_path.read_bytes()
     meta = load_meta_config(meta_path)
     if meta_path.read_bytes() != meta_bytes:

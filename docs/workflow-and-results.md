@@ -250,9 +250,13 @@ when a bootstrap interval does not contain its estimate. Every figure carries a
 foot line `method · inferenceStatus · claimAuthorized=<true|false> · reasonCodes ·
 generation <first 12 characters>`, with `claimAuthorized` read from the governed
 report (currently always `false`) and the reason codes other than the status
-itself (`none` when the report lists none), wrapped onto several lines when it is too
+itself (`none` when the report lists none; the `reasonCodes` slot and its
+separator are left out when the status is the only code listed), wrapped onto
+several lines when it is too
 long for the figure width, and a red "incomplete campaign" banner when the
-status is `incomplete_noninferential`. With several indicators, the primary
+status is `incomplete_noninferential`. An axis label longer than its axes (a
+long indicator name, for example) is wrapped onto several lines, so it stays
+within the axes. With several indicators, the primary
 indicator of the charter decision (`decision.primary_indicator` in the governed
 report) comes first, then the others in alphabetical order; without a charter
 decision the order is alphabetical. Files are named `<figure>-<indicator>.png`;

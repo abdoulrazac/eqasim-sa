@@ -17,6 +17,7 @@ from eqasim_sa.adapters.eqasim.config import (
     load_yaml_document,
     load_yaml_source,
     validate_eqasim_document,
+    yaml_error_reason,
 )
 from eqasim_sa.adapters.meta_config_defaults import resolve_meta_config_document
 from eqasim_sa.adapters.eqasim.workspace import WorkerWorkspace
@@ -303,10 +304,11 @@ def _compare_starter(relative: str, actual: bytes, rendered: bytes) -> None:
     try:
         document = resolve_meta_config_document(load_yaml_source(actual.decode("utf-8")))
     except (UnicodeDecodeError, TypeError, ValueError, yaml.YAMLError) as error:
-        reason = error.__class__.__name__
-        mark = getattr(error, "problem_mark", None)
-        if mark is not None:
-            reason += f" at line {mark.line + 1}, column {mark.column + 1}"
+        reason = (
+            yaml_error_reason(error)
+            if isinstance(error, yaml.YAMLError)
+            else error.__class__.__name__
+        )
         raise FileExistsError(f"init cannot parse {relative}: {reason}") from error
     if not isinstance(document, dict):
         raise FileExistsError(f"init cannot parse {relative}: not a mapping")

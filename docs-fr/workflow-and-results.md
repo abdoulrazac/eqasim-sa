@@ -255,9 +255,13 @@ tronqués, même lorsqu'un IC bootstrap ne contient pas son estimation. Chaque
 figure porte en pied une ligne `méthode · inferenceStatus · claimAuthorized=<true|false> ·
 reasonCodes · generation <12 premiers caractères>`, où `claimAuthorized` est lu
 dans le rapport gouverné (toujours `false` à ce jour) et les codes de raison
-autres que le statut lui-même (`none` si le rapport n'en liste aucun), repliée sur plusieurs
+autres que le statut lui-même (`none` si le rapport n'en liste aucun ; la
+place de `reasonCodes` et son séparateur disparaissent quand le statut est le
+seul code listé), repliée sur plusieurs
 lignes quand elle est trop longue pour la largeur de la figure, et un bandeau
 rouge « incomplete campaign » quand le statut est `incomplete_noninferential`.
+Une étiquette d'axe plus longue que son axe (un long nom d'indicateur, par
+exemple) est repliée sur plusieurs lignes et reste ainsi dans l'axe.
 Avec plusieurs indicateurs, l'indicateur principal de la décision de la charte
 (`decision.primary_indicator` dans le rapport gouverné) passe en premier, puis
 les autres par ordre alphabétique ; sans décision de charte, l'ordre est

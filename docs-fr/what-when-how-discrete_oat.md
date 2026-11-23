@@ -70,7 +70,8 @@ données, et l'exécution locale. Sans bloc `charter`, la campagne est une
 démonstration, ce qu'exige l'OAT discret. `design_seed` est écrite explicitement
 pour que le fichier de départ choisisse les mêmes trajectoires quel que soit le nom du
 projet. Le fichier source
-`src/eqasim_sa/templates/02-discrete-oat.yml` contient des placeholders ; c'est
+`src/eqasim_sa/templates/02-discrete-oat.yml` contient des valeurs à remplacer
+(que `init` remplit) ; c'est
 la copie créée dans votre projet par `init` qu'il faut exécuter.
 
 Les valeurs doivent être numériques, distinctes et strictement croissantes. Les

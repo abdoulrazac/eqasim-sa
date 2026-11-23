@@ -120,8 +120,48 @@ def test_estimate_plan_requires_the_method_and_its_formula_inputs() -> None:
 
 
 def test_estimate_plan_requires_calibration() -> None:
-    with pytest.raises(ValueError, match="calibration meta-config"):
+    with pytest.raises(ValueError, match="^no completed calibration run yet$"):
         estimate_plan(1, ("run",), 1, (), 1, "grid", GRID_ONE)
+
+
+@pytest.mark.parametrize(
+    ("calibrations", "message"),
+    [
+        ((), "no completed calibration run yet: run campaign demo first"),
+        (
+            ("cal-a",),
+            "no completed calibration run yet: run the calibration campaign cal-a first",
+        ),
+        (
+            ("cal-a", "cal-b"),
+            "no completed calibration run yet: "
+            "run one of the calibration campaigns cal-a, cal-b first",
+        ),
+    ],
+)
+def test_estimate_without_completed_run_says_which_campaign_to_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    calibrations: tuple[str, ...],
+    message: str,
+) -> None:
+    from eqasim_sa.adapters.application import estimate_from_meta_config
+
+    metas = {Path("target.yml"): campaign(tmp_path / "target", completed=False)}
+    for name in calibrations:
+        metas[Path(f"{name}.yml")] = campaign(
+            tmp_path / name, completed=False, name=name
+        )
+    monkeypatch.setattr(
+        "eqasim_sa.adapters.estimate.load_meta_config", metas.__getitem__
+    )
+
+    with pytest.raises(ValueError) as caught:
+        estimate_from_meta_config(
+            Path("target.yml"), tuple(Path(f"{name}.yml") for name in calibrations)
+        )
+
+    assert str(caught.value) == message
 
 
 def test_estimate_plan_exposes_and_validates_sobol_formula() -> None:
@@ -238,7 +278,11 @@ def test_application_estimate_passes_sobol_formula_inputs_and_unique_runs(
 
 
 def campaign(
-    root: Path, duration: float = 2.5, discrete_oat: bool = False
+    root: Path,
+    duration: float = 2.5,
+    discrete_oat: bool = False,
+    completed: bool = True,
+    name: str = "demo",
 ) -> SimpleNamespace:
     descriptor = {
         "eqasimSourceSha256": "a",
@@ -263,21 +307,25 @@ def campaign(
     build_plan(design)
     spec = load_run_specs(root / "plan.parquet", design, "demo")[0]
     run_id = compute_run_id(spec.resolved_config, spec.seed)
-    marker = write_verified_run(
-        root,
-        RunRecord(
-            run_id,
-            "demo",
-            7,
-            sealed_context_hash,
-            "node",
-            duration,
-            spec.parameters,
-            100,
-        ),
+    marker = (
+        write_verified_run(
+            root,
+            RunRecord(
+                run_id,
+                "demo",
+                7,
+                sealed_context_hash,
+                "node",
+                duration,
+                spec.parameters,
+                100,
+            ),
+        )
+        if completed
+        else None
     )
     return SimpleNamespace(
-        campaign="demo",
+        campaign=name,
         campaign_root=root,
         model_document=design.base_config,
         factors=design.factors,
@@ -483,16 +531,16 @@ def test_estimate_cli_serializes_exact_success_and_failure_schema(
         "method": None,
         "formula": None,
         "formulaInputs": None,
-        "designPositions": 0,
-        "runs": 0,
-        "calibrationRuns": 0,
+        "designPositions": None,
+        "runs": None,
+        "calibrationRuns": None,
         "meanDurationSeconds": None,
         "meanDurableBytesPerRun": None,
         "estimatedComputeHours": None,
-        "estimatedDiskBytes": 0,
+        "estimatedDiskBytes": None,
         "workers": None,
         "observedScratchBytesPerWorker": None,
-        "estimatedScratchBytes": 0,
+        "estimatedScratchBytes": None,
         "error": "Exception",
     }
 

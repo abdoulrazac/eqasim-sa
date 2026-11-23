@@ -36,8 +36,14 @@ Sobol and Morris), execution is local with one worker when `workers` is absent
 (the starters write `workers: 2`, two runs at a time), and when `indicators` is
 absent every output with references gets a total-variation indicator. The block
 under the "Machine-specific values" comment holds machine-specific paths,
-filled in by `init` and compared when it is rerun; edit them only when the
-machine changes. `workers` and `machine_options.processes` are yours to change.
+filled in by `init`, as is `campaign`. A rerun of `init` compares these values,
+as written, with what its arguments would write and refuses any difference
+(`init inputs changed: <key> in configs/<file>`). So edit them only when the
+machine changes: to move the project to another machine, edit these values by
+hand in every starter; from then on, rerun `init` only with the arguments that
+write the new values, since a rerun with the old arguments is refused. You never
+need to rerun `init` to keep working. `workers` and `machine_options.processes`
+are yours to change.
 
 Run all commands from this directory. This generated array uses the source
 checkout runner when available and the installed command otherwise.

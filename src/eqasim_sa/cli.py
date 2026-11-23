@@ -34,6 +34,13 @@ class _VersionAction(argparse.Action):
         parser.exit()
 
 
+def emit(payload: dict) -> None:
+    """Print one JSON response: a single line with sorted keys, as every
+    command does."""
+
+    print(json.dumps(payload, sort_keys=True, allow_nan=False))
+
+
 def parser() -> argparse.ArgumentParser:
     """Build the argument parser for every installed command."""
 
@@ -231,7 +238,7 @@ def dispatch(
                 arguments.model_config,
                 arguments.regenerate_data_manifest,
             )
-            print(json.dumps(payload, sort_keys=True, allow_nan=False))
+            emit(payload)
             return 0
         except (Exception, KeyboardInterrupt) as error:
             message = re.sub(
@@ -244,7 +251,7 @@ def dispatch(
                 "elapsedSeconds": time.monotonic() - started,
                 "error": message,
             }
-            print(json.dumps(failed, sort_keys=True, allow_nan=False))
+            emit(failed)
             return 130 if isinstance(error, KeyboardInterrupt) else 1
     if arguments.command == "plan":
         try:
@@ -259,22 +266,19 @@ def dispatch(
                 "contextHash": result.context_hash,
                 "error": None,
             }
-            print(json.dumps(payload, sort_keys=True))
+            emit(payload)
             return 0
         except Exception as error:
             message = str(error).strip() or error.__class__.__name__
-            print(
-                json.dumps(
-                    {
-                        "status": "failed",
-                        "path": None,
-                        "designPositions": 0,
-                        "uniqueRuns": 0,
-                        "contextHash": None,
-                        "error": message,
-                    },
-                    sort_keys=True,
-                )
+            emit(
+                {
+                    "status": "failed",
+                    "path": None,
+                    "designPositions": 0,
+                    "uniqueRuns": 0,
+                    "contextHash": None,
+                    "error": message,
+                }
             )
             return 1
     if arguments.command == "run":
@@ -290,11 +294,11 @@ def dispatch(
             if run_factory is None:
                 raise RuntimeError("run adapter is not configured")
             payload = run_factory(arguments.meta_config)
-            print(json.dumps(payload, sort_keys=True))
+            emit(payload)
             return 0 if payload["status"] == "completed" else 1
         except Exception as error:
             message = str(error).strip() or error.__class__.__name__
-            print(json.dumps({**empty, "error": message}, sort_keys=True))
+            emit({**empty, "error": message})
             return 1
     if arguments.command == "estimate":
         empty = {
@@ -303,16 +307,16 @@ def dispatch(
             "method": None,
             "formula": None,
             "formulaInputs": None,
-            "designPositions": 0,
-            "runs": 0,
-            "calibrationRuns": 0,
+            "designPositions": None,
+            "runs": None,
+            "calibrationRuns": None,
             "meanDurationSeconds": None,
             "meanDurableBytesPerRun": None,
             "estimatedComputeHours": None,
-            "estimatedDiskBytes": 0,
+            "estimatedDiskBytes": None,
             "workers": None,
             "observedScratchBytesPerWorker": None,
-            "estimatedScratchBytes": 0,
+            "estimatedScratchBytes": None,
         }
         try:
             if estimate_factory is None:
@@ -320,11 +324,11 @@ def dispatch(
             payload = estimate_factory(
                 arguments.meta_config, tuple(arguments.calibration_meta_config)
             )
-            print(json.dumps(payload, sort_keys=True, allow_nan=False))
+            emit(payload)
             return 0
         except Exception as error:
             message = str(error).strip() or error.__class__.__name__
-            print(json.dumps({**empty, "error": message}, sort_keys=True))
+            emit({**empty, "error": message})
             return 1
     if arguments.command == "check":
         try:
@@ -355,7 +359,7 @@ def dispatch(
                 "missingScratchBytes": None,
                 "error": message,
             }
-        print(json.dumps(payload, separators=(",", ":"), allow_nan=False))
+        emit(payload)
         return 0 if payload["status"] == "valid" else 1
     if arguments.command == "analyze":
         empty = {
@@ -393,18 +397,18 @@ def dispatch(
                 if arguments.descriptive_only
                 else analyze_factory(arguments.meta_config)
             )
-            print(json.dumps(payload, sort_keys=True, allow_nan=False))
+            emit(payload)
             return 0
         except (Exception, KeyboardInterrupt) as error:
             message = str(error).strip() or error.__class__.__name__
-            print(json.dumps({**empty, "error": message}, sort_keys=True))
+            emit({**empty, "error": message})
             return 130 if isinstance(error, KeyboardInterrupt) else 1
     if arguments.command == "plot":
         try:
             if plot_factory is None:
                 raise RuntimeError("plot adapter is not configured")
             payload = plot_factory(arguments.meta_config, tuple(arguments.figure))
-            print(json.dumps(payload, sort_keys=True, allow_nan=False))
+            emit(payload)
             return 0
         except (Exception, KeyboardInterrupt) as error:
             print(
@@ -425,11 +429,7 @@ def dispatch(
         if not isinstance(nested, dict):
             raise TypeError("configuration block 'config' must be an object")
     except Exception as error:
-        print(
-            json.dumps(
-                {"runId": "", "status": "failed", "error": str(error)}, sort_keys=True
-            )
-        )
+        emit({"runId": "", "status": "failed", "error": str(error)})
         return 1
     retained_parameters = (
         nested.keys() if arguments.command == "fake-run" else EQASIM_PARAMETERS
@@ -454,14 +454,11 @@ def dispatch(
         workdir,
         arguments.current_context_hash,
     )
-    print(
-        json.dumps(
-            {
-                "runId": result.run_id,
-                "status": result.status,
-                "error": result.error,
-            },
-            sort_keys=True,
-        )
+    emit(
+        {
+            "runId": result.run_id,
+            "status": result.status,
+            "error": result.error,
+        }
     )
     return 0 if result.status in {"completed", "skipped"} else 1

@@ -93,6 +93,39 @@
     other comments, says which values `init` fills in and compares on a
     rerun, and that `workers` and `machine_options.processes` may be changed
     freely.
+- Clearer messages and output from the fourth end-to-end test on real eqasim
+  and Nantes data:
+  - A missing file is named instead of a raw `[Errno 2]` error, by every
+    command that reads a meta-configuration: `meta-config not found: <path>`
+    (as given on the command line), `model.config not found: <value> (a
+    relative path is read from model.root)`, and likewise `model.root`,
+    `model.data_manifest`, `model.lockfile`, and `calibration meta-config`
+    (relative to the meta-configuration folder).
+  - YAML errors give their cause: `init cannot parse configs/<file>:
+    ParserError at line 9, column 11: expected ',' or ']', but got '<stream
+    end>'`; a meta-configuration, a calibration meta-configuration, or the
+    eqasim configuration that is not valid YAML stops with `cannot parse
+    meta-config <path>: <error>` (or `model.config`, `calibration
+    meta-config`) instead of a multi-line parser message.
+  - BREAKING: `estimate` and the `diskSpace` item of `check` without any
+    completed run say `no completed calibration run yet: run campaign
+    <campaign> first` (no calibration referenced) or `run the calibration
+    campaign <campaign> first` instead of `provide a calibration meta-config
+    with a complete run`.
+  - BREAKING: every command prints its JSON response the same way, on one
+    line with sorted keys; `check` printed compact JSON in insertion order.
+  - BREAKING: a failed `estimate` reports `null`, not `0`, for
+    `designPositions`, `runs`, `calibrationRuns`, `estimatedDiskBytes`, and
+    `estimatedScratchBytes`, which it did not compute.
+  - `plot`: an axis label longer than its axes is wrapped onto several lines
+    and stays within the axes, away from the edge of the figure.
+  - Generated README: the machine-specific values are tied to the `init`
+    rerun rule (a rerun refuses a changed value; to move the project to
+    another machine, edit them in every starter, then rerun `init` only with
+    the new arguments).
+  - Docs: the figure footer leaves out the `reasonCodes` slot when the status
+    is the only code listed; French wording without « placeholder »,
+    « gabarit », or « template-only ».
 - Fix: commands could hang forever at exit after printing their result;
   Arrow reads (Parquet and CSV) no longer use worker threads.
 - BREAKING: analysis scripts. A new optional `analyses` block declares Python

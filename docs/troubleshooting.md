@@ -2,14 +2,28 @@
 
 [Français](../docs-fr/troubleshooting.md)
 
-## `No such file or directory` for `model.config`
+## `model.config not found: ... (a relative path is read from model.root)`
 
 Cause: a relative `model.config` is read from the eqasim folder (`model.root`),
 not from the directory of the meta-configuration. A path such as
 `../../eqasim-france/config.yml`, written relative to `configs/`, therefore
 points to the wrong place. Remedy: write the path relative to `model.root`
 (`config: config.yml`, or `config: my_config.yml` for a copy next to it), or
-an absolute path. The message shows the full path that was tried.
+an absolute path. The message shows the value as written in the
+meta-configuration.
+
+## `meta-config not found: ...` and other missing files
+
+Every command that reads a meta-configuration names the missing file:
+`meta-config not found: <path>` for the file given on the command line (as you
+typed it), and `model.root`, `model.data_manifest`, `model.lockfile`, or
+`calibration meta-config not found: <value> (a relative path is read from the
+meta-config folder)` for a path written in it. Remedy: check the path from the
+folder named in the message. A file that is not valid YAML stops with `cannot
+parse meta-config <path>: <error>` (or `cannot parse model.config <value>:`,
+`cannot parse calibration meta-config <value>:`), where `<error>` gives the
+parser's error class (`ParserError`, `ScannerError`, ...), the line, the column,
+and the cause.
 
 ## `no eqasim source files found under ...`
 
@@ -124,8 +138,9 @@ when a value that `init` fills in (`model.root`, `model.config`,
 from what this `init` would write, because an option differs from the first
 `init` or because the value was edited (values are compared as written, so
 an equivalent absolute `model.root` is a change); `init cannot parse
-configs/<file>: ParserError at line 12, column 3` for a starter that is not
-valid YAML; `foreign content in init project:
+configs/<file>: ParserError at line 9, column 11: expected ',' or ']', but got
+'<stream end>'` for a starter that is not valid YAML (the class may also be
+`ScannerError`, depending on where the parser stops); `foreign content in init project:
 configs/01-grid-structured.yml` for another file in `configs/`; `foreign
 content in init project: campaigns/<name>` for a campaign folder of your own;
 `foreign content in init campaign <campaign>: notes.txt` for a file of your
@@ -156,11 +171,22 @@ Cause: `check` or `estimate` was run on a meta-configuration (target or
 calibration) whose campaign has no `plan.parquet` yet. Remedy: run `plan` on
 the meta-configuration of the named campaign, then `check` or `estimate` again.
 
-## `provide a calibration meta-config with a complete run`
+## `no completed calibration run yet: run ... first`
 
-Cause: no complete marker is available in the target or calibration campaigns.
-Remedy: run `plan`, then `run` for the calibration. Then run `plan`, `check`, and
-`estimate` for the target.
+Cause: `estimate`, or the `diskSpace` item of `check`, found no completed run to
+measure, neither in the calibration campaigns (those of
+`calibration.meta_configs` and of `--calibration-meta-config`) nor in the
+campaign itself. The message says what to run:
+
+- `run campaign <campaign> first`: no calibration campaign is referenced, so the
+  campaign's own completed runs are measured. This is the case of the
+  calibration starter `configs/00-calibration.yml` itself.
+- `run the calibration campaign <campaign> first` (or `run one of the
+  calibration campaigns <a>, <b> first`): the referenced calibration has no
+  completed run yet; one completed run in any of them is enough.
+
+Remedy: run `plan`, then `run` on the named campaign. Then run `check` and
+`estimate` again (after `plan` for a target that has none yet).
 
 ## `unknown factor` or `reserved or infrastructure factor`
 

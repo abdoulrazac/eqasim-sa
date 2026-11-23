@@ -62,8 +62,8 @@ cd mon-analyse-sa
 ```
 
 `init` crée un fichier **rendu et utilisable** `configs/01-grid.yml`. Le fichier
-du code source `src/eqasim_sa/templates/01-grid.yml` n'est qu'un gabarit contenant
-des placeholders ; ne l'exécutez pas directement.
+du code source `src/eqasim_sa/templates/01-grid.yml` contient des valeurs
+à remplacer (que `init` remplit) ; ne l'exécutez pas directement.
 
 ### 3. Déclarer le paramètre et les réplications
 

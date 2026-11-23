@@ -3,6 +3,7 @@
 import io
 import json
 import re
+import textwrap
 import uuid
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -60,6 +61,40 @@ def _file_name(name: str, indicator: str | None) -> str:
     return f"{name}-{re.sub(r'[^A-Za-z0-9_-]', '_', indicator)}.png"
 
 
+# Shortest line a wrapped axis label is cut down to.
+_MIN_LABEL_CHARACTERS = 12
+
+
+def _fit_axis_labels(figure: Figure) -> None:
+    """Wrap every axis label longer than its axes onto several lines.
+
+    A y label longer than the height of its axes would run past the top and
+    the bottom of the axes, up to the edge of the figure; wrapped, it stays
+    within the axes. An x label is fitted to the axes width in the same way.
+    """
+    canvas = FigureCanvasAgg(figure)
+    canvas.draw()
+    renderer = canvas.get_renderer()
+    for ax in figure.axes:
+        room = ax.get_window_extent(renderer)
+        for label, available, length in (
+            (ax.yaxis.label, room.height, lambda box: box.height),
+            (ax.xaxis.label, room.width, lambda box: box.width),
+        ):
+            text = " ".join(label.get_text().split())
+            if not label.get_visible() or not text:
+                continue
+            size = length(label.get_window_extent(renderer))
+            width = len(text)
+            while size > available and width > _MIN_LABEL_CHARACTERS:
+                width = max(
+                    _MIN_LABEL_CHARACTERS,
+                    min(width - 1, int(width * available / size)),
+                )
+                label.set_text(textwrap.fill(text, width, break_on_hyphens=False))
+                size = length(label.get_window_extent(renderer))
+
+
 def _saved_box(figure: Figure) -> Bbox:
     """The canvas to save, in inches: it only grows, never crops.
 
@@ -80,6 +115,7 @@ def _saved_box(figure: Figure) -> Bbox:
 
 
 def _png(figure: Figure) -> bytes:
+    _fit_axis_labels(figure)
     buffer = io.BytesIO()
     figure.savefig(
         buffer,

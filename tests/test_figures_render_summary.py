@@ -165,6 +165,45 @@ def test_saved_png_never_crops_a_long_axis_label(repeat: int) -> None:
     assert height >= label.height / fig.dpi * 150
 
 
+@pytest.mark.parametrize(
+    "indicator",
+    [
+        "value(commute, mean_commute_km, group=all)",
+        "value(commute, mean_commute_km_for_the_whole_population, group=all) " * 2,
+    ],
+)
+def test_long_y_label_is_wrapped_inside_its_axes_with_a_margin(indicator: str) -> None:
+    from eqasim_sa.core.figures.render_grid import render_grid_response
+    from tests.test_figures_render_demo import _dispersion
+
+    table = _dispersion()
+    table = table.set_column(
+        table.schema.get_field_index("indicator"),
+        "indicator",
+        pa.array([indicator] * table.num_rows),
+    )
+    analysis = _stub(reasons=LONG_REASONS)
+    analysis._tables = {"dispersion": table}
+    (rendered,) = render_grid_response(analysis)
+    fig = rendered.figure
+    plot_module._png(fig)
+    canvas = FigureCanvasAgg(fig)
+    canvas.draw()
+    renderer = canvas.get_renderer()
+    margin = 0.15 * fig.dpi  # inches to pixels
+    for ax in fig.axes:
+        label = ax.yaxis.label
+        extent = label.get_window_extent(renderer)
+        axes = ax.get_window_extent(renderer)
+        # Within the height of its axes, hence well inside the canvas.
+        assert axes.y0 <= extent.y0 and extent.y1 <= axes.y1
+        assert extent.y1 <= fig.bbox.y1 - margin and extent.y0 >= fig.bbox.y0 + margin
+        # Every character is kept; only line breaks are added.
+        assert "".join(label.get_text().split()) == "".join(
+            f"{indicator} (mean)".split()
+        )
+
+
 def test_incomplete_campaign_gets_banner() -> None:
     fig = Figure()
     stamp(fig, _stub(status="incomplete_noninferential"))

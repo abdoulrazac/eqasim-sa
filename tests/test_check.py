@@ -187,7 +187,8 @@ def test_check_cli_has_exact_deterministic_schema(monkeypatch, capsys) -> None:
         == 0
     )
     output = capsys.readouterr().out
-    assert output == json.dumps(payload, separators=(",", ":"), allow_nan=False) + "\n"
+    # The same formatting as every other command's JSON response.
+    assert output == json.dumps(payload, sort_keys=True, allow_nan=False) + "\n"
     assert seen == [(Path("target.yml"), (Path("cal.yml"),), False)]
 
 

@@ -84,3 +84,120 @@ def test_show_config_writes_the_analysis_python_resolved_at_load(
     again = tmp_path / "again.yml"
     again.write_text(yaml.safe_dump(shown, sort_keys=False))
     assert load_meta_config(again, verify_data=False).analysis_python == ("python3",)
+
+
+def test_show_config_names_a_missing_meta_config(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert run_show(monkeypatch, Path("configs/absent.yml")) == 1
+    captured = capsys.readouterr()
+    assert captured.err.strip() == "meta-config not found: configs/absent.yml"
+    assert "Errno" not in captured.err
+
+
+def test_show_config_names_a_missing_model_config(tmp_path, capsys, monkeypatch):
+    meta, *_ = meta_fixture(tmp_path)
+    meta.write_text(meta.read_text().replace("config: config.yml", "config: ../config.yml"))
+    assert run_show(monkeypatch, meta) == 1
+    assert capsys.readouterr().err.strip() == (
+        "model.config not found: ../config.yml (a relative path is read from model.root)"
+    )
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "message"),
+    [
+        (
+            "root: model",
+            "root: absent",
+            "model.root not found: absent (a relative path is read from the meta-config folder)",
+        ),
+        (
+            "data_manifest: manifest.json",
+            "data_manifest: absent.json",
+            "model.data_manifest not found: absent.json "
+            "(a relative path is read from the meta-config folder)",
+        ),
+        (
+            "lockfile: model/lock.yml",
+            "lockfile: model/absent.yml",
+            "model.lockfile not found: model/absent.yml "
+            "(a relative path is read from the meta-config folder)",
+        ),
+    ],
+)
+def test_meta_config_names_each_missing_file(tmp_path, before, after, message):
+    meta, *_ = meta_fixture(tmp_path)
+    meta.write_text(meta.read_text().replace(before, after))
+    with pytest.raises(FileNotFoundError) as caught:
+        load_meta_config(meta, verify_data=False)
+    assert str(caught.value) == message
+
+
+def test_meta_config_names_a_missing_calibration_meta_config(tmp_path):
+    meta, *_ = meta_fixture(tmp_path)
+    meta.write_text(meta.read_text() + "calibration:\n  meta_configs: [absent.yml]\n")
+    with pytest.raises(FileNotFoundError) as caught:
+        load_meta_config(meta, verify_data=False)
+    assert str(caught.value) == (
+        "calibration meta-config not found: absent.yml "
+        "(a relative path is read from the meta-config folder)"
+    )
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        (
+            "campaign: [demo,\n",
+            "cannot parse meta-config {path}: ParserError at line 2, column 1: "
+            "expected the node content, but found '<stream end>'",
+        ),
+        (
+            "campaign: demo\n  model: x\n",
+            "cannot parse meta-config {path}: ScannerError at line 2, column 8: "
+            "mapping values are not allowed here",
+        ),
+    ],
+)
+def test_meta_config_parse_error_gives_the_cause(tmp_path, capsys, monkeypatch, content, message):
+    monkeypatch.chdir(tmp_path)
+    Path("broken.yml").write_text(content)
+    assert run_show(monkeypatch, Path("broken.yml")) == 1
+    assert capsys.readouterr().err.strip() == message.format(path="broken.yml")
+
+
+def test_meta_config_names_an_unparsable_model_config(tmp_path):
+    meta, _, config, _ = meta_fixture(tmp_path)
+    config.write_text("config: [a,\n")
+    with pytest.raises(ValueError) as caught:
+        load_meta_config(meta, verify_data=False)
+    assert str(caught.value) == (
+        "cannot parse model.config config.yml: ParserError at line 2, column 1: "
+        "expected the node content, but found '<stream end>'"
+    )
+
+
+@pytest.mark.parametrize(
+    ("command", "stream"),
+    [
+        (["plan"], "out"),
+        (["run"], "out"),
+        (["estimate"], "out"),
+        (["check"], "out"),
+        (["analyze"], "out"),
+        (["plot"], "err"),
+    ],
+)
+def test_every_meta_config_command_names_a_missing_meta_config(
+    tmp_path, capsys, monkeypatch, command, stream
+):
+    from eqasim_sa.adapters.application import main
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        sys, "argv", ["eqasim-sa", *command, "--meta-config", "configs/absent.yml"]
+    )
+    assert main() == 1
+    output = getattr(capsys.readouterr(), stream)
+    assert "meta-config not found: configs/absent.yml" in output
+    assert "Errno" not in output

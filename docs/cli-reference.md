@@ -3,7 +3,8 @@
 [English](cli-reference.md) | [Français](../docs-fr/cli-reference.md)
 
 When a public subcommand reaches its application-level processing, it normally
-writes a JSON object to standard output. Warnings, notably about Sobol capacity,
+writes a JSON object to standard output, on a single line with sorted keys (the
+same formatting for every command). Warnings, notably about Sobol capacity,
 are written to standard error. `--help` and omitting the subcommand display text,
 not JSON. An `argparse` syntax error displays usage information and returns 2. An
 interrupt may terminate with 130 without guaranteeing that a complete JSON object
@@ -66,8 +67,10 @@ the data. Before writing anything, it checks the project:
   `--model-config`, `--data-path`, `--scratch`, `--invocation`, `--directory`,
   `--project-name`) differs from the first `init`, or when you edited that
   value. A starter that cannot be read as YAML stops the rerun with `init
-  cannot parse configs/<file>: <error>`, with the line and column when the YAML
-  parser gives them (for example `ParserError at line 12, column 3`). An edited `README.md` is kept and listed
+  cannot parse configs/<file>: <error>`, where `<error>` is the YAML parser's
+  error class (`ParserError`, `ScannerError`, ...), the line and column when the
+  parser gives them, and its cause (for example `ParserError at line 9, column
+  11: expected ',' or ']', but got '<stream end>'`). An edited `README.md` is kept and listed
   in `kept`. A missing starter or README is recreated and listed in
   `restored`;
 - in `campaigns/`: only the campaign folders of the four starters, named after
@@ -190,8 +193,8 @@ JSON fields: `status` (`valid` or `invalid`), `checkVersion`,
 | `missingScratchBytes` | `estimatedScratchBytes` minus the free scratch space, at least 0; when the scratch and the campaign share a file system, the free space left after `requiredDiskBytes` is used |
 
 All seven are `null` when they cannot be computed, for example before any
-completed run (`diskSpace` then fails with `provide a calibration meta-config
-with a complete run`). Before `plan`, `sealedPlan` and `diskSpace` fail with
+completed run (`diskSpace` then fails with `no completed calibration run yet:
+run ... first`, see [Troubleshooting](troubleshooting.md#no-completed-calibration-run-yet-run--first)). Before `plan`, `sealedPlan` and `diskSpace` fail with
 `campaign <campaign> has no plan yet: run plan first`; `diskSpace` gives the
 same message, naming the calibration campaign, when a calibration
 meta-configuration has not been planned. `estimate` stops with the same
@@ -237,7 +240,9 @@ them:
 | Sobol | `N(2D+2)` | `D`: parameters plus the seed; `N`: base sample size |
 | Multi-scramble Sobol | `S*N(2D+2)` | `D`: parameters plus the seed; `N`: largest base sample size; `S`: scramble seeds |
 
-Both are `null` only in a `failed` result.
+Both are `null` only in a `failed` result. A `failed` result computes nothing:
+every field other than `status`, `estimateVersion`, and `error` is `null`
+(never `0`).
 
 ## `run`
 

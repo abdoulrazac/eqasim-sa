@@ -120,6 +120,23 @@ def load_yaml_document(path: Path) -> object:
     return load_yaml_source(path.read_text(encoding="utf-8"))
 
 
+def yaml_error_reason(error: yaml.YAMLError) -> str:
+    """One line naming a YAML error, its position and its cause, without paths.
+
+    For example ``ParserError at line 9, column 11: expected ',' or ']', but
+    got '<stream end>'``.
+    """
+
+    reason = error.__class__.__name__
+    mark = getattr(error, "problem_mark", None)
+    if mark is not None:
+        reason += f" at line {mark.line + 1}, column {mark.column + 1}"
+    problem = getattr(error, "problem", None)
+    if isinstance(problem, str) and problem.strip():
+        reason += ": " + " ".join(problem.split())
+    return reason
+
+
 def load_yaml_source(source: str) -> object:
     """Parse JSON-compatible YAML while rejecting aliases and duplicate keys."""
 

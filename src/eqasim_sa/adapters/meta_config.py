@@ -7,6 +7,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import yaml
+
 from eqasim_sa.core.ledger import archive_file_name
 from eqasim_sa.adapters.eqasim.artifacts import (
     DEFAULT_OUTPUT_PREFIX,
@@ -24,6 +26,7 @@ from eqasim_sa.adapters.eqasim.config import (
     load_yaml_source,
     run_stages,
     validate_eqasim_document,
+    yaml_error_reason,
 )
 from eqasim_sa.adapters.eqasim.workspace import CAMPAIGN_MAX
 from eqasim_sa.adapters.meta_config_defaults import resolve_meta_config_document
@@ -245,13 +248,33 @@ def _require_keys(
         )
 
 
-def _file(path: Path, name: str) -> Path:
+def _relative_note(value: str, base: str) -> str:
+    return "" if Path(value).is_absolute() else f" (a relative path is read from {base})"
+
+
+def _file(path: Path, name: str, shown: str | None = None) -> Path:
+    """Resolve a regular file; a missing one is named as ``shown`` (as written)."""
+
     if platform.is_link(path):
         raise ValueError(f"{name} must not be a symlink")
-    resolved = path.resolve(strict=True)
+    try:
+        resolved = path.resolve(strict=True)
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            f"{name} not found: {path if shown is None else shown}"
+        ) from None
     if not resolved.is_file():
         raise ValueError(f"{name} must be a regular file")
     return resolved
+
+
+def _yaml_file(path: Path, name: str, shown: str) -> object:
+    try:
+        return load_yaml_document(path)
+    except yaml.YAMLError as error:
+        raise ValueError(
+            f"cannot parse {name} {shown}: {yaml_error_reason(error)}"
+        ) from None
 
 
 def _timeout(deadline: float | None) -> float:
@@ -470,10 +493,14 @@ def _calibration(value: object, base: Path, source: Path) -> tuple[Path, ...]:
     for value in values:
         if not isinstance(value, str):
             raise TypeError("calibration meta-config paths must be strings")
-        path = _file(base / value, "calibration meta-config")
+        shown = value + _relative_note(value, "the meta-config folder")
+        path = _file(base / value, "calibration meta-config", shown)
         if path == source:
             raise ValueError("calibration meta-config must not reference itself")
-        nested = _mapping(load_yaml_document(path), "calibration meta-config root")
+        nested = _mapping(
+            _yaml_file(path, "calibration meta-config", value),
+            "calibration meta-config root",
+        )
         if "calibration" in nested:
             raise ValueError("recursive calibration declarations are not supported")
         if path not in paths:
@@ -863,12 +890,13 @@ def load_meta_config(
     """
 
     software_identity = read_software_identity()
-    source = _file(path, "meta-config")
+    source = _file(path, "meta-config", str(path))
     source_state = path_state(source)
     source_sha256 = _digest(source, deadline)
     base = source.parent
     document = _mapping(
-        resolve_meta_config_document(load_yaml_document(source)), "meta-config root"
+        resolve_meta_config_document(_yaml_file(source, "meta-config", str(path))),
+        "meta-config root",
     )
     _require_keys(document, "meta-config", ROOT_KEYS, ROOT_REQUIRED)
     campaign = document["campaign"]
@@ -1068,17 +1096,32 @@ def load_meta_config(
     root_path = base / root_value
     if platform.is_link(root_path):
         raise ValueError("model.root must not be a symlink")
-    root = root_path.resolve(strict=True)
+    try:
+        root = root_path.resolve(strict=True)
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            f"model.root not found: {root_value}"
+            + _relative_note(root_value, "the meta-config folder")
+        ) from None
     if not root.is_dir():
         raise ValueError("model.root must be a directory")
     # A relative model.config is read from model.root, as when eqasim is run
     # from its own folder; an absolute one may live anywhere.
-    config = _file(root / config_value, "model.config")
+    config = _file(
+        root / config_value,
+        "model.config",
+        config_value + _relative_note(config_value, "model.root"),
+    )
     manifest_value, lock_value = model["data_manifest"], model.get("lockfile")
     if not isinstance(manifest_value, str) or not isinstance(lock_value, str):
         raise TypeError("model.data_manifest and model.lockfile must be strings")
     config_bytes = config.read_bytes()
-    model_document = load_yaml_source(config_bytes.decode("utf-8"))
+    try:
+        model_document = load_yaml_source(config_bytes.decode("utf-8"))
+    except yaml.YAMLError as error:
+        raise ValueError(
+            f"cannot parse model.config {config_value}: {yaml_error_reason(error)}"
+        ) from None
     validate_eqasim_document(model_document)
     campaign_root_value = document["campaign_root"]
     if not isinstance(campaign_root_value, str):
@@ -1093,8 +1136,16 @@ def load_meta_config(
     eqasim_source_sha256 = model_source_sha256(
         root, model_source_exclusions, deadline
     )
-    manifest = _file(base / manifest_value, "data manifest")
-    lockfile = _file(base / lock_value, "lockfile")
+    manifest = _file(
+        base / manifest_value,
+        "model.data_manifest",
+        manifest_value + _relative_note(manifest_value, "the meta-config folder"),
+    )
+    lockfile = _file(
+        base / lock_value,
+        "model.lockfile",
+        lock_value + _relative_note(lock_value, "the meta-config folder"),
+    )
     control_states = (
         (source, source_state),
         (config, path_state(config)),

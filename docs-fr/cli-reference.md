@@ -3,7 +3,8 @@
 [English](../docs/cli-reference.md) | [Français](cli-reference.md)
 
 Lorsqu'une sous-commande publique atteint son traitement applicatif, elle écrit
-normalement un objet JSON sur la sortie standard. Les avertissements, notamment
+normalement un objet JSON sur la sortie standard, sur une seule ligne à clés
+triées (la même mise en forme pour toutes les commandes). Les avertissements, notamment
 la capacité Sobol, vont sur la sortie d'erreur. `--help` et l'absence de
 sous-commande affichent du texte, pas du JSON. Une erreur de syntaxe `argparse`
 affiche l'usage et renvoie 2. Une interruption peut terminer à 130 sans garantir
@@ -40,8 +41,8 @@ fichier de départ), et `kept` liste les fichiers de départ et le README modifi
 quels (chemins relatifs au projet ; les deux sont vides pour un nouveau
 projet). Aucun fichier de départ, README ou `.gitattributes` n'est jamais
 écrasé.
-La commande est template-only : le hachage des données n'est pas une exécution
-du pipeline.
+La commande ne fait qu'écrire le projet : le hachage des données n'est pas une
+exécution du pipeline.
 
 ### Relancer `init` sur un projet existant
 
@@ -69,8 +70,10 @@ données. Avant d'écrire quoi que ce soit, la commande vérifie le projet :
   `--model-config`, `--data-path`, `--scratch`, `--invocation`, `--directory`,
   `--project-name`) diffère du premier `init`, ou quand vous avez modifié cette
   valeur. Un fichier de départ illisible en YAML arrête la relance avec `init cannot
-  parse configs/<fichier>: <erreur>`, avec la ligne et la colonne quand
-  l'analyseur YAML les donne (par exemple `ParserError at line 12, column 3`). Un `README.md` modifié est conservé et listé
+  parse configs/<fichier>: <erreur>`, où `<erreur>` donne la classe d'erreur de
+  l'analyseur YAML (`ParserError`, `ScannerError`, ...), la ligne et la colonne
+  quand l'analyseur les donne, et la cause (par exemple `ParserError at line 9,
+  column 11: expected ',' or ']', but got '<stream end>'`). Un `README.md` modifié est conservé et listé
   dans `kept`. Un fichier de départ ou un README manquant est recréé et listé dans
   `restored` ;
 - dans `campaigns/` : seulement les dossiers de campagne des quatre fichiers de départ,
@@ -195,8 +198,8 @@ Champs JSON : `status` (`valid` ou `invalid`), `checkVersion`,
 | `missingScratchBytes` | `estimatedScratchBytes` moins l'espace libre du scratch, au moins 0 ; quand le scratch et la campagne partagent un système de fichiers, c'est l'espace libre restant après `requiredDiskBytes` qui compte |
 
 Les sept valent `null` quand ils ne peuvent pas être calculés, par exemple
-avant tout run terminé (`diskSpace` échoue alors avec `provide a calibration
-meta-config with a complete run`). Avant `plan`, `sealedPlan` et `diskSpace`
+avant tout run terminé (`diskSpace` échoue alors avec `no completed calibration
+run yet: run ... first`, voir [Dépannage](troubleshooting.md#no-completed-calibration-run-yet-run--first)). Avant `plan`, `sealedPlan` et `diskSpace`
 échouent avec `campaign <campagne> has no plan yet: run plan first` ;
 `diskSpace` donne le même message, en nommant la campagne de calibration,
 quand une méta-configuration de calibration n'a pas été planifiée. `estimate`
@@ -243,7 +246,9 @@ sur ces valeurs :
 | Sobol | `N(2D+2)` | `D` : paramètres plus la seed ; `N` : taille d'échantillon de base |
 | Sobol multi-scramble | `S*N(2D+2)` | `D` : paramètres plus la seed ; `N` : plus grande taille d'échantillon de base ; `S` : seeds de scramble |
 
-Les deux valent `null` seulement dans un résultat `failed`.
+Les deux valent `null` seulement dans un résultat `failed`. Un résultat `failed`
+ne calcule rien : tous les champs autres que `status`, `estimateVersion` et
+`error` valent `null` (jamais `0`).
 
 ## `run`
 

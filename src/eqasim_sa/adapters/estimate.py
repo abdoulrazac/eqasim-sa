@@ -44,6 +44,7 @@ def _estimate_state(
     observations: list[tuple[float, int, int]] = []
     target_durable = 0
     seen: set[Path] = set()
+    calibration_names: list[str] = []
     calibrations = (
         load_meta_config(item, deadline=deadline)
         if deadline
@@ -59,6 +60,8 @@ def _estimate_state(
         if root in seen:
             continue
         seen.add(root)
+        if root != target_root:
+            calibration_names.append(meta.campaign)
         plan = root / "plan.parquet"
         try:
             plan_snapshot = CampaignSnapshot.inspect_plan(plan)
@@ -94,6 +97,19 @@ def _estimate_state(
         raise RuntimeError(f"target plan mutated while estimating {target_plan}")
     if target.execution is None:
         raise ValueError("execution section is required for estimate")
+    if not observations:
+        # Without a calibration campaign, the target's own runs are measured.
+        raise ValueError(
+            "no completed calibration run yet: run "
+            + (
+                f"campaign {target.campaign}"
+                if not calibration_names
+                else f"the calibration campaign {calibration_names[0]}"
+                if len(calibration_names) == 1
+                else "one of the calibration campaigns " + ", ".join(calibration_names)
+            )
+            + " first"
+        )
     payload = estimate_plan(
         design_positions,
         tuple(compute_run_id(spec.resolved_config, spec.seed) for spec in target_specs),

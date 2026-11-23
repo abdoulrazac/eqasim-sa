@@ -814,7 +814,7 @@ suffit.
 | `age`, `age_purpose`, `distance`, `license`, `nbr_vehicle`, `travel` | `analysis_population/{prefix}<nom>.csv` | `,` | `analysis.synthesis.population` |
 
 `{prefix}` désigne l'`output_prefix` de votre configuration eqasim (par défaut
-`ile_de_france_` dans eqasim) ; c'est le seul gabarit permis dans `file`. Pour
+`ile_de_france_` dans eqasim) ; c'est la seule valeur à remplacer permise dans `file`. Pour
 tout autre nom, `file` est requis et `separator` vaut `,` par défaut. C'est
 ainsi que les fichiers de départ conservent le fichier spatial des activités :
 

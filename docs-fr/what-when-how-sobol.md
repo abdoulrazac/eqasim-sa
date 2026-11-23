@@ -66,8 +66,8 @@ sans `charter`, la campagne est une démonstration, l'analyse utilise
 est dérivée du nom de campagne. Seul `bootstrap_resamples` est abaissé à 99 pour
 garder la démonstration rapide. `show-config` affiche toutes les valeurs.
 
-Le fichier source `src/eqasim_sa/templates/03-sobol.yml` contient des
-placeholders. Exécutez la copie rendue dans votre projet, pas ce fichier source.
+Le fichier source `src/eqasim_sa/templates/03-sobol.yml` contient des valeurs
+à remplacer (que `init` remplit). Exécutez la copie rendue dans votre projet, pas ce fichier source.
 
 `sampling_rate` doit exister sous `config:` dans votre configuration eqasim ; le
 `config.yml` officiel le contient déjà. Comme pour tous les fichiers de départ, la liste
