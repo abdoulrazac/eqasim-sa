@@ -33,6 +33,13 @@ class PublishedAnalysis:
         data = _verified_bytes(role, self.outputs[role], self._sha256[role])
         return read_parquet(pa.BufferReader(data))
 
+    def document(self, role: str) -> dict:
+        """Read a published JSON document, parsing the bytes whose sha256 matched."""
+        if role not in self.outputs:
+            raise KeyError(f"analysis generation publishes no {role!r} output")
+        data = _verified_bytes(role, self.outputs[role], self._sha256[role])
+        return json.loads(data)
+
 
 def _verified_bytes(role: str, path: Path, expected: str) -> bytes:
     data = path.read_bytes()

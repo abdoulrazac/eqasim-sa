@@ -245,45 +245,54 @@ def render_morris_rank_reversals(analysis: PublishedAnalysis) -> list[RenderedFi
 def render_morris_noise_floor(analysis: PublishedAnalysis) -> list[RenderedFigure]:
     table = analysis.table("noiseFloor")
     rows = table.to_pylist()
+    allocation = (
+        analysis.document("replicationAllocation")
+        if "replicationAllocation" in analysis.outputs
+        else None
+    )
     figures: list[RenderedFigure] = []
     for indicator in ordered_indicators(table):
         subset = [r for r in rows if r["indicator"] == indicator]
-        figure, ax = _new_figure()
+        figure = Figure(figsize=(8, 6.5))
+        ax_sd, ax_mcse = figure.subplots(2, 1, sharex=True)
+        figure.subplots_adjust(left=0.12, right=0.95, top=0.9, bottom=0.17, hspace=0.18)
         omitted: list[str] = []
         for trajectory in sorted({r["trajectory"] for r in subset}):
             series = sorted(
                 (r for r in subset if r["trajectory"] == trajectory),
                 key=lambda r: r["rank"],
             )
-            usable = [r for r in series if _finite(r["intrinsic_sd"])]
-            omitted.extend(
-                f"trajectoire {trajectory} rang {r['rank']}"
-                for r in series
-                if not _finite(r["intrinsic_sd"])
-            )
-            if not usable:
-                continue
-            (line,) = ax.plot(
-                [r["rank"] for r in usable],
-                [r["intrinsic_sd"] for r in usable],
-                "o-",
-                markersize=3,
-                label=f"trajectoire {trajectory}",
-            )
-            bounded = [r for r in usable if _finite(r["mcse"])]
-            if bounded:
-                ax.vlines(
-                    [r["rank"] for r in bounded],
-                    [r["intrinsic_sd"] - r["mcse"] for r in bounded],
-                    [r["intrinsic_sd"] + r["mcse"] for r in bounded],
-                    color=line.get_color(),
-                    linewidth=1.0,
+            for ax, column in ((ax_sd, "intrinsic_sd"), (ax_mcse, "mcse")):
+                usable = [r for r in series if _finite(r[column])]
+                if column == "intrinsic_sd":
+                    omitted.extend(
+                        f"trajectoire {trajectory} rang {r['rank']}"
+                        for r in series
+                        if not _finite(r[column])
+                    )
+                if usable:
+                    ax.plot(
+                        [r["rank"] for r in usable],
+                        [r[column] for r in usable],
+                        "o-",
+                        markersize=3,
+                        label=f"trajectoire {trajectory}",
+                    )
+        ax_sd.set_ylabel("écart-type intrinsèque")
+        ax_mcse.set_ylabel("erreur-type Monte-Carlo de la moyenne")
+        ax_mcse.set_xlabel(f"rang du point dans la trajectoire ({indicator})")
+        ax_sd.set_title("bruit intrinsèque par point", fontsize=10)
+        sources = ["noiseFloor", "governedReport"]
+        if allocation is not None and allocation.get("primaryIndicator") == indicator:
+            target = allocation.get("targetMcse")
+            if _finite(target):
+                ax_mcse.axhline(
+                    target, linestyle=":", color="black", label="cible MCSE"
                 )
-        ax.set_xlabel("rang du point dans la trajectoire")
-        ax.set_ylabel(f"écart-type intrinsèque ({indicator})")
-        ax.set_title("bruit intrinsèque, ± erreur-type Monte-Carlo", fontsize=10)
-        if ax.get_legend_handles_labels()[0]:
-            ax.legend(fontsize=7, loc="best")
+                sources.insert(1, "replicationAllocation")
+        for ax in (ax_sd, ax_mcse):
+            if ax.get_legend_handles_labels()[0]:
+                ax.legend(fontsize=7, loc="best")
         if omitted:
             _note(figure, "non tracé (écart-type indisponible) : " + ", ".join(omitted))
         stamp(figure, analysis)
@@ -292,7 +301,7 @@ def render_morris_noise_floor(analysis: PublishedAnalysis) -> list[RenderedFigur
                 name="morris-noise-floor",
                 indicator=indicator,
                 figure=figure,
-                sources=("noiseFloor", "governedReport"),
+                sources=tuple(sources),
                 omitted=tuple(omitted),
             )
         )

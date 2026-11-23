@@ -73,3 +73,16 @@ def test_wrong_manifest_is_refused(tmp_path: Path, key: str, value: object) -> N
 
     with pytest.raises(ValueError, match="unsupported analysis manifest"):
         load_published_analysis(root)
+
+
+@pytest.mark.usefixtures("synthetic_indicator")
+def test_document_reads_verified_json_and_refuses_tampering(tmp_path: Path) -> None:
+    root = _published(tmp_path)
+    published = load_published_analysis(root)
+    assert published.document("governedReport")["claimAuthorized"] is False
+    with pytest.raises(KeyError, match="noSuchRole"):
+        published.document("noSuchRole")
+    path = published.outputs["governedReport"]
+    path.write_text(path.read_text() + " ")
+    with pytest.raises(ValueError, match="governedReport.*sha256"):
+        published.document("governedReport")

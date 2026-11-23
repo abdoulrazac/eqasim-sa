@@ -208,18 +208,52 @@ def _noise():
     )
 
 
-def test_noise_floor_one_series_per_trajectory():
+def test_noise_floor_two_distinct_series_no_sd_pm_mcse():
     (rf,) = render_morris_noise_floor(_stub("noiseFloor", _noise()))
-    ax = rf.figure.axes[0]
-    assert [l.get_label() for l in ax.get_lines()] == ["trajectoire 0", "trajectoire 1"]
-    assert [len(l.get_xdata()) for l in ax.get_lines()] == [3, 2]
+    ax_sd, ax_mcse = rf.figure.axes
+    assert ax_sd.get_ylabel() == "écart-type intrinsèque"
+    assert ax_mcse.get_ylabel() == "erreur-type Monte-Carlo de la moyenne"
+    assert [l.get_label() for l in ax_sd.get_lines()] == ["trajectoire 0", "trajectoire 1"]
+    assert [list(l.get_ydata()) for l in ax_sd.get_lines()] == [[0.2, 0.2, 0.2], [0.2, 0.2]]
+    # mcse is None for trajectory 1 rank 2 (and rank 2 sd is None): masked in its series only
+    assert [list(l.get_ydata()) for l in ax_mcse.get_lines()] == [
+        [0.05, 0.05, 0.05],
+        [0.05, 0.05],
+    ]
+    assert _hsegments(ax_sd) == [] and _hsegments(ax_mcse) == []
     assert rf.omitted == ("trajectoire 1 rang 2",)
-    segments = _hsegments(ax)
-    assert len(segments) == 5
-    assert any(
-        s[0] == s[1] == 1.0 and s[2] == pytest.approx(0.15) and s[3] == pytest.approx(0.25)
-        for s in segments
+    assert rf.sources == ("noiseFloor", "governedReport")
+
+
+def _allocation_stub(primary):
+    return StubAnalysis(
+        "canonical_morris",
+        "pilot_only",
+        {"inferenceStatus": "pilot_only"},
+        {"noiseFloor": _two_indicator_noise()},
+        documents={"replicationAllocation": {"primaryIndicator": primary, "targetMcse": 0.03}},
     )
+
+
+def _two_indicator_noise():
+    t = _noise()
+    other = t.set_column(0, "indicator", pa.array(["y"] * t.num_rows))
+    return pa.concat_tables([t, other])
+
+
+def test_noise_floor_target_mcse_on_primary_indicator_only():
+    figs = {f.indicator: f for f in render_morris_noise_floor(_allocation_stub("y"))}
+    assert "replicationAllocation" not in figs["x"].sources
+    assert figs["y"].sources == ("noiseFloor", "replicationAllocation", "governedReport")
+    assert [l.get_ydata()[0] for l in figs["x"].figure.axes[1].lines if l.get_label() == "cible MCSE"] == []
+    target = [l for l in figs["y"].figure.axes[1].lines if l.get_label() == "cible MCSE"]
+    assert len(target) == 1 and list(target[0].get_ydata()) == [0.03, 0.03]
+    assert not [l for l in figs["y"].figure.axes[0].lines if l.get_label() == "cible MCSE"]
+
+
+def test_noise_floor_no_target_when_allocation_not_published():
+    (rf,) = render_morris_noise_floor(_stub("noiseFloor", _noise()))
+    assert not [l for ax in rf.figure.axes for l in ax.lines if l.get_label() == "cible MCSE"]
 
 
 @pytest.mark.usefixtures("synthetic_indicator")

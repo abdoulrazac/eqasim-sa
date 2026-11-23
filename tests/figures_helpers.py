@@ -15,6 +15,7 @@ class StubAnalysis:
         generation_id: str = "0" * 64,
         seed_role: str = "replication",
         campaign_root: Path = Path("."),
+        documents: dict[str, dict] | None = None,
     ) -> None:
         self.method = method
         self.inference_status = inference_status
@@ -23,9 +24,16 @@ class StubAnalysis:
         self.seed_role = seed_role
         self.campaign_root = campaign_root
         self._tables = tables
+        self._documents = documents or {}
         self.outputs = {role: Path(f"{role}.parquet") for role in tables}
+        self.outputs.update({role: Path(f"{role}.json") for role in self._documents})
 
     def table(self, role: str) -> pa.Table:
         if role not in self._tables:
             raise KeyError(f"analysis generation publishes no {role!r} output")
         return self._tables[role]
+
+    def document(self, role: str) -> dict:
+        if role not in self._documents:
+            raise KeyError(f"analysis generation publishes no {role!r} output")
+        return self._documents[role]
