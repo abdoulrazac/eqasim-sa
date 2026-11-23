@@ -92,7 +92,12 @@ def _estimate_state(
         target.execution.workers,
         getattr(target, "method", "grid"),
         (
-            {"D": len(target.factors), "T": target.trajectories, "R": len(target.seeds)}
+            {
+                "R": len(target.seeds),
+                "L": {name: len(levels) for name, levels in target.factors.items()},
+            }
+            if getattr(target, "method", "grid") == "grid"
+            else {"D": len(target.factors), "T": target.trajectories, "R": len(target.seeds)}
             if getattr(target, "method", "grid")
             in {"discrete_oat", "canonical_morris"}
             else {"D": len(target.factors) + 1, "N": target.base_sample_size}

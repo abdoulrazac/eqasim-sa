@@ -32,7 +32,8 @@ folder is `../campaigns/<campaign>`, the model lockfile is `<model root>/uv.lock
 the Sobol design seed is derived from the campaign name (the discrete OAT
 starter writes its own), the analysis uses
 `completeness_threshold: 1.0` (and 999 bootstrap resamples at confidence 0.95 for
-Sobol and Morris), execution is local with one worker, and when `indicators` is
+Sobol and Morris), execution is local with one worker when `workers` is absent
+(the starters write `workers: 2`, two runs at a time), and when `indicators` is
 absent every output with references gets a total-variation indicator. The block
 under the "Rempli par eqasim-sa init" comment holds machine-specific paths; edit
 it only when the machine changes.

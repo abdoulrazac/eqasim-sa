@@ -200,9 +200,14 @@ def estimate_plan(
     observations: tuple[tuple[float, int, int], ...],
     workers: int,
     method: str = "grid",
-    formula_inputs: dict[str, int] | None = None,
+    formula_inputs: dict | None = None,
 ) -> dict:
-    """Estimate campaign resources from design size and calibration data."""
+    """Estimate campaign resources from design size and calibration data.
+
+    ``formula_inputs`` gives the size of the design for ``method``: Grid takes
+    ``{"R": seeds, "L": {factor: levels}}``; the other methods take the
+    integers named in their formula.
+    """
 
     if any(
         type(value) is not int or value < 0 for value in (design_positions, plan_bytes)
@@ -228,6 +233,7 @@ def estimate_plan(
     if isinstance(workers, bool) or not isinstance(workers, int) or workers <= 0:
         raise ValueError("workers must be a strictly positive integer")
     formulas = {
+        "grid": "R*prod(L)",
         "sobol": "N(2D+2)",
         "discrete_oat": "T(D+1)R",
         "canonical_morris": "T(D+1)R",
@@ -236,7 +242,23 @@ def estimate_plan(
     formula, inputs = (
         (formulas.get(method), formula_inputs) if method in formulas else (None, None)
     )
-    if method == "sobol":
+    if method == "grid":
+        levels = inputs.get("L") if isinstance(inputs, dict) else None
+        if (
+            not isinstance(inputs, dict)
+            or set(inputs) != {"R", "L"}
+            or type(inputs["R"]) is not int
+            or inputs["R"] <= 0
+            or not isinstance(levels, dict)
+            or not levels
+            or any(type(value) is not int or value <= 0 for value in levels.values())
+        ):
+            raise ValueError(
+                "Grid formula inputs R and L (levels per factor) must be positive integers"
+            )
+        if design_positions != inputs["R"] * math.prod(levels.values()):
+            raise ValueError("Grid designPositions must equal R*prod(L)")
+    elif method == "sobol":
         if (
             not isinstance(inputs, dict)
             or set(inputs) != {"D", "N"}
@@ -265,7 +287,7 @@ def estimate_plan(
             )
         if design_positions != inputs["T"] * (inputs["D"] + 1) * inputs["R"]:
             raise ValueError("trajectory designPositions must equal T*(D+1)*R")
-    elif method != "grid":
+    else:
         raise ValueError(f"unsupported estimate method: {method}")
     count, runs = len(observations), len(set(run_ids))
     durations, durable_bytes, scratch_bytes = zip(*observations)

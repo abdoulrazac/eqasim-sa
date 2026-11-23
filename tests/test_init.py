@@ -10,6 +10,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+import yaml
 
 import eqasim_sa.adapters.project_init as project_init_module
 from eqasim_sa.adapters.application import init_from_inputs
@@ -129,6 +130,15 @@ def test_init_is_a_pure_atomic_template_generator(
     )
     assert f"SA=({runner})" in readme
     assert readme.index('"${SA[@]}" plan') < readme.index('"${SA[@]}" check')
+    # The README describes the worker count the starters actually write.
+    workers = {
+        yaml.safe_load(path.read_text())["execution"]["workers"]
+        for path in (root / "configs").glob("*.yml")
+    }
+    assert workers == {2}
+    flat = " ".join(readme.split())
+    assert "one worker when `workers` is absent" in flat
+    assert "the starters write `workers: 2`" in flat
 
 
 def test_init_accepts_a_custom_model_config(

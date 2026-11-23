@@ -709,7 +709,8 @@ def test_path_length_passes_on_windows_with_long_paths(
     payload = _static_payload(tmp_path, monkeypatch, _deep_scratch(tmp_path))
     item = _entry(payload, "path_length")
     assert item["status"] == "passed"
-    assert "long paths are enabled" in item["error"]
+    assert item["error"] is None
+    assert "long paths are enabled" in item["note"]
 
 
 def test_path_length_warns_on_posix_above_linux_limit(
@@ -749,7 +750,40 @@ def test_path_length_passes_on_posix_within_limit(
     payload = _static_payload(tmp_path, monkeypatch, _deep_scratch(tmp_path))
     item = _entry(payload, "path_length")
     assert item["status"] == "passed"
-    assert "within the limit of 4096" in item["error"]
+    assert item["error"] is None
+    assert "within the limit of 4096" in item["note"]
+
+
+def test_only_failed_or_warning_items_carry_an_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A passed or skipped item explains itself in "note", never in "error".
+    monkeypatch.setattr(platform, "IS_WINDOWS", False)
+    monkeypatch.setattr(sys, "platform", "linux")
+    payload = _static_payload(tmp_path, monkeypatch, _deep_scratch(tmp_path))
+    assert payload["status"] == "valid"
+    for item in payload["checks"]:
+        if item["status"] in {"passed", "skipped"}:
+            assert item["error"] is None, item
+
+
+def test_smoke_elapsed_seconds_covers_the_whole_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = iter([100.0, 273.0])
+    monkeypatch.setattr(check_service.time, "monotonic", lambda: next(clock))
+    static = {"status": "valid", "elapsedSeconds": 0.25, "checks": []}
+    monkeypatch.setattr(
+        check_service, "_static_check", lambda *args: (static, object(), ())
+    )
+    monkeypatch.setattr(check_service, "_smoke", lambda *args: None)
+
+    payload = check_service.check_from_meta_config(Path("meta.yml"), (), True)
+
+    assert payload["checks"] == [
+        {"name": "smoke", "status": "passed", "error": None}
+    ]
+    assert payload["elapsedSeconds"] == 173.0
 
 
 def test_run_rejects_slurm_off_linux_before_importing_backend(

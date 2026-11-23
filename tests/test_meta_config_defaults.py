@@ -50,7 +50,20 @@ def test_execution_defaults_only_when_block_present():
     resolved = resolve_meta_config_document({**MINIMAL, "execution": {"scratch": "s"}})
     assert resolved["execution"] == {
         "scratch": "s", "backend": "local", "workers": 1, "invocation": list(DEFAULT_INVOCATION),
+        "python": ["uv", "run", "--locked", "python"],
     }
+
+
+def test_execution_python_follows_the_invocation_as_at_load():
+    def python(execution):  # type: ignore[no-untyped-def]
+        return resolve_meta_config_document({**MINIMAL, "execution": execution})["execution"]
+
+    assert python({"scratch": "s", "invocation": ["py", "-m", "synpp"]})["python"] == ["py"]
+    assert python({"scratch": "s", "python": ["other"]})["python"] == ["other"]
+    # No interpreter can be derived: nothing is written (load requires one only
+    # when analyses are declared, and then refuses the file).
+    assert "python" not in python({"scratch": "s", "invocation": ["run-eqasim"]})
+    assert "python" not in python({"scratch": "s", "invocation": ["-m", "synpp"]})
 
 
 def test_design_seed_fits_signed_int64_and_is_stable():

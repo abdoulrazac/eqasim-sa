@@ -8,6 +8,7 @@ import hashlib
 from eqasim_sa.adapters.eqasim.artifacts import KNOWN_OUTPUTS
 
 DEFAULT_INVOCATION: tuple[str, ...] = ("uv", "run", "--locked", "python", "-m", "synpp")
+_SYNPP_MODULE = ("-m", "synpp")
 
 _KEY_ORDER = (
     "campaign", "campaign_root", "charter", "model", "experiment", "parameters",
@@ -96,6 +97,18 @@ def resolve_meta_config_document(document: object) -> object:
         execution.setdefault("backend", "local")
         execution.setdefault("workers", 1)
         execution.setdefault("invocation", list(DEFAULT_INVOCATION))
+        # Same rule as the loader: the invocation without its final -m synpp.
+        # Nothing is written when no interpreter can be derived.  Without an
+        # execution block the analysis default ([uv, run, --locked, python])
+        # cannot be written: an execution block requires scratch.
+        invocation = execution["invocation"]
+        if (
+            "python" not in execution
+            and isinstance(invocation, list)
+            and len(invocation) > len(_SYNPP_MODULE)
+            and tuple(invocation[-len(_SYNPP_MODULE):]) == _SYNPP_MODULE
+        ):
+            execution["python"] = invocation[: -len(_SYNPP_MODULE)]
 
     ordered = {key: resolved[key] for key in _KEY_ORDER if key in resolved}
     ordered.update({key: value for key, value in resolved.items() if key not in ordered})

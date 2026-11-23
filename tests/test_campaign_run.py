@@ -1728,7 +1728,12 @@ def test_check_reports_same_machine_for_completed_campaign(
         loaded.campaign_root / "plan.parquet", _design(loaded), loaded.campaign
     )
     assert _same_machine_item(loaded, specs)["status"] == "passed"
-    assert _same_machine_item(loaded, ())["status"] == "skipped"
+    assert _same_machine_item(loaded, ()) == {
+        "name": "same_machine",
+        "status": "skipped",
+        "error": None,
+        "note": "no runs in the plan",
+    }
     monkeypatch.setenv("EQASIM_RUNTIME_OTHER", "machine")
     item = _same_machine_item(loaded, specs)
     assert item["status"] == "failed"
