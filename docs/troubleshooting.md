@@ -111,6 +111,24 @@ text. Remedy: print the first line of the archived file
 `outputs` or `indicators`, and rerun `analyze`. These keys are not sealed in the
 plan, so no run needs to be repeated.
 
+## `init` rerun: `foreign content in init project: ...` or `init would overwrite ...`
+
+Cause: rerunning `init` on an existing project (identical rerun or
+`--regenerate-data-manifest`) accepts only the generated files, unchanged, the
+starters' campaign folders with what eqasim-sa wrote in them, and
+`configs/analyses/` for analysis scripts (see
+[Rerunning `init`](cli-reference.md#rerunning-init-on-an-existing-project)).
+The message names what it refuses: `foreign content in init project:
+configs/01-grid-structured.yml` for another file in `configs/`, `foreign
+content in init project: campaigns/<name>` for a campaign folder of your own,
+`init would overwrite configs/01-grid.yml, which differs from what init would
+write (file edited or init inputs changed)` for an edited starter or an option
+that differs from the first `init`. Nothing is written. Remedy: the rerun is
+never needed to continue working; `plan`, `run`, `check`, `estimate`, and
+`analyze` keep working. To rerun it anyway, give the same options as the first
+`init`, restore edited starters as generated, and move other files and
+campaign folders out of the project.
+
 ## `plan differs; choose a new campaign_root`
 
 Cause: the design, parameters, context, package version, or indicator
@@ -425,12 +443,14 @@ submitting host and enforced inside the Slurm job.
 ### Resuming from another shell or IDE
 
 The machine identity includes the environment variables of the process that
-runs eqasim-sa: both their names and their values. Every variable counts
-except these per-session ones: `DISPLAY`, `HOSTNAME`, `ITERM_SESSION_ID`, `OLDPWD`, `PWD`, `SECURITYSESSIONID`, `SHLVL`, `SSH_AUTH_SOCK`, `SSH_CLIENT`, `SSH_CONNECTION`, `SSH_TTY`, `TEMP`, `TERM_PROGRAM_VERSION`, `TERM_SESSION_ID`, `TMP`, `TMPDIR`, `WINDOWID`, `WT_PROFILE_ID`, `WT_SESSION`, `XDG_SESSION_ID`, `XDG_VTNR`, `_`, and every variable whose name starts with
+runs eqasim-sa: both their names and their values. `VIRTUAL_ENV` does not
+count: eqasim-sa removes it from the environment of eqasim and of analysis
+scripts, because it names eqasim-sa's own environment. Every other variable
+counts except these per-session ones: `DISPLAY`, `HOSTNAME`, `ITERM_SESSION_ID`, `OLDPWD`, `PWD`, `SECURITYSESSIONID`, `SHLVL`, `SSH_AUTH_SOCK`, `SSH_CLIENT`, `SSH_CONNECTION`, `SSH_TTY`, `TEMP`, `TERM_PROGRAM_VERSION`, `TERM_SESSION_ID`, `TMP`, `TMPDIR`, `WINDOWID`, `WT_PROFILE_ID`, `WT_SESSION`, `XDG_SESSION_ID`, `XDG_VTNR`, `_`, and every variable whose name starts with
 `SLURM_` or `SUBMITIT_`. Opening a new terminal of the same kind therefore does
 not trigger the refusal, but resuming `run` from a different environment may:
-another `PATH`, an activated or deactivated virtual environment
-(`VIRTUAL_ENV`), or an IDE terminal that adds its own variables (for example
+another `PATH` (activating or deactivating a virtual environment changes
+it), or an IDE terminal that adds its own variables (for example
 `TERM_PROGRAM` or `VSCODE_*`) where the campaign started in a plain terminal.
 
 To resume consistently:

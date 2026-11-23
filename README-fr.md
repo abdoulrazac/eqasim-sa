@@ -90,6 +90,14 @@ pour utiliser votre propre copie, faites-la dans le dossier eqasim
 pour Nantes : eqasim fournit lui-même `config_nantes.yml`) et ajoutez
 `--model-config my_config.yml`.
 
+Relancer plus tard le même `init` renvoie `unchanged` (il recrée seulement un
+`.gitattributes` ou un dossier de scratch manquant), même après des plans, des
+runs et des analyses, tant que le projet ne contient que
+les fichiers générés, inchangés, les dossiers de campagne des modèles et
+`configs/analyses/` ; un modèle modifié, un autre fichier dans `configs/` ou un
+dossier de campagne à vous est refusé, avec son nom (voir
+[Relancer `init`](docs-fr/cli-reference.md#relancer-init-sur-un-projet-existant)).
+
 Avant de planifier, ajoutez `analysis.synthesis.population` à la liste `run:` de
 cette configuration eqasim : les sorties `age`, `distance` et `nbr_vehicle`
 comparées par les modèles sont écrites par cette étape, et le `config.yml`

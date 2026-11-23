@@ -39,6 +39,29 @@
     `mode_choice: true`, is now a separate conditional snippet), paths
     anywhere (not nested), and resuming `run` from another shell or IDE
     (`same_machine`).
+- Fixes from the second end-to-end test on real eqasim and Nantes data:
+  - `init` rerun (identical or `--regenerate-data-manifest`) works again on a
+    project that has been used: it accepts the starters' campaign folders
+    (`<project>-calibration`, `-grid`, `-discrete_oat`, `-sobol`, derived from
+    the rendered starters) instead of refusing them as foreign content, and
+    accepts `configs/analyses/` (files and subfolders, no symbolic links,
+    content not read). Other entries in `configs/` and `campaigns/` are still
+    refused; `campaigns/<method>` folders, which no starter creates, are now
+    refused too.
+  - `init`: the refusal of an edited starter names the file
+    (`init would overwrite configs/01-grid.yml, ...`) instead of `<path>`; a
+    failed result reports the real `elapsedSeconds`; the generated README names
+    the actual `--model-config` instead of always `config.yml`.
+  - `VIRTUAL_ENV` (eqasim-sa's own environment) is no longer passed to
+    eqasim, the synpp probe, analysis scripts, or the analysis interpreter
+    probe, and no longer enters the `same_machine` environment identity, so uv
+    no longer warns that it does not match eqasim's `.venv`.
+  - New `eqasim-sa --version`.
+  - Docs: exact rules of an `init` rerun; "Trying a script by hand" with
+    placeholders for the eqasim path and the campaign, and uv's fallback to
+    another Python when the path does not exist; the example analysis numbers
+    presented as indicative; `requiredDiskBytes` versus `estimatedDiskBytes`
+    in `check`; what `calibrationRuns` of `estimate` counts.
 - Fix: commands could hang forever at exit after printing their result;
   Arrow reads (Parquet and CSV) no longer use worker threads.
 - BREAKING: analysis scripts. A new optional `analyses` block declares Python

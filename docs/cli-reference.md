@@ -11,6 +11,9 @@ has been written. `show-config` and `plot` are the exceptions: `show-config`
 prints YAML, never JSON; `plot` prints JSON on success but writes its errors as
 plain text on standard error.
 
+`eqasim-sa --version` prints the installed version as plain text (for example
+`eqasim-sa 0.3.0`) and returns 0.
+
 ## `init`
 
 ```text
@@ -22,7 +25,7 @@ eqasim-sa init --project-name NAME [options]
 | `--project-name NAME` | yes | none | safe segment of 1 to 64 characters |
 | `--directory PATH` | no | `./NAME` | project destination |
 | `--model-root PATH` | no | `./eqasim-france` | eqasim folder (Git is not required) |
-| `--model-config FILE` | no | `config.yml` | eqasim configuration, relative to `--model-root` or absolute; written as `model.config` in the starters |
+| `--model-config FILE` | no | `config.yml` | eqasim configuration, relative to `--model-root` or absolute; written as `model.config` in the starters and named in the generated README |
 | `--data-path PATH` | no | `./eqasim-data` | data tree to hash |
 | `--scratch PATH` | no | `<directory>/scratch` | local scratch space, created if absent |
 | `--invocation ARG` | no, repeatable | `uv run --locked python -m synpp` | one argument per occurrence, in order |
@@ -30,13 +33,49 @@ eqasim-sa init --project-name NAME [options]
 
 JSON statuses: `initialized`, `unchanged`, or `failed`. Fields: `initVersion`,
 `projectName`, `manifest`, `readme`, `metaConfigs`, `restored`, `elapsedSeconds`,
-`error`. `restored` lists generated files that were missing from an existing
+`error`. `elapsedSeconds` is the duration of the command, also in a `failed`
+result. `restored` lists generated files that were missing from an existing
 project and were recreated (currently only `.gitattributes`); an existing
 `.gitattributes` is never overwritten.
-The command is template-only: hashing the data is not a pipeline execution. With
-`--regenerate-data-manifest`, an existing project must still pass the strict
-checks on its static files and durable state; only the manifest is replaced.
-Plans and results are not rewritten.
+The command is template-only: hashing the data is not a pipeline execution.
+
+### Rerunning `init` on an existing project
+
+Rerunning `init` with the same options returns `unchanged` without rehashing
+the data. It first checks, without writing anything, that the project holds
+only what `init` and the commands run on the starters wrote:
+
+- at the top: `manifest.json`, `README.md`, `.gitattributes`, `configs/`,
+  `campaigns/`, and the scratch folder when it is inside the project;
+- in `configs/`: the four starters, byte for byte as `init` would write them,
+  and optionally `configs/analyses/`, the folder of your analysis scripts
+  (regular files and subfolders, no symbolic link; their content is not read);
+- in `campaigns/`: only the campaign folders of the four starters, named after
+  their `campaign` (default `campaign_root` `../campaigns/<campaign>`):
+  `<project>-calibration`, `<project>-grid`, `<project>-discrete_oat`, and
+  `<project>-sobol`. Each may hold only what `plan`, `run`, `analyze`, and
+  `plot` write there: `plan.parquet`, `runs/`, `archives/`, `logs/`,
+  `.eqasim-sa/`, `analysis/`, `analyses-cache/`, `figures/`, and the published
+  result files.
+
+Anything else stops the rerun with `foreign content in init project: <entry>`
+or `foreign content in init campaign: <entry>`: another file or folder in
+`configs/` (for example a copied meta-configuration), a campaign folder of
+your own (for example `<project>-grid-structured`), or a symbolic link. An
+edited starter or README is refused with the file named, for example
+`init would overwrite configs/01-grid.yml, which differs from what init would
+write (file edited or init inputs changed)`; the same refusal appears when an
+option (`--model-config`, `--scratch`, `--invocation`, ...) differs from the
+first `init`. Adding `analyses` to `configs/01-grid.yml`, as in
+[Writing an analysis script](analysis-scripts.md), therefore makes later
+reruns refuse. Rerunning `init` is never required to continue: `plan`, `run`,
+`check`, `estimate`, and `analyze` do not depend on it.
+
+With `--regenerate-data-manifest`, the project must pass the same checks; then
+only `manifest.json` is replaced and the status is `initialized`. Plans and
+results are not rewritten. If the data changed, a campaign planned before
+refuses to resume: `run` stops with `data manifest changed since plan
+(dataManifestSha256)`.
 
 ## `show-config`
 
@@ -117,9 +156,22 @@ ignored by the smoke test, and the model's `data_path` must be usable from the m
 the test.
 
 JSON fields: `status` (`valid` or `invalid`), `checkVersion`,
-`elapsedSeconds`, `checks`, the `estimated/required/free/missing` measurements
-for durable and scratch disk space, then `error`. `elapsedSeconds` is the
-duration of the whole command, smoke runs included.
+`elapsedSeconds`, `checks`, the disk measurements below, then `error`.
+`elapsedSeconds` is the duration of the whole command, smoke runs included.
+
+| Field | Meaning |
+| --- | --- |
+| `estimatedDiskBytes` | durable size of the whole campaign, as `estimatedDiskBytes` of `estimate`: size of `plan.parquet` plus the number of unique runs of the plan, completed ones included, times the mean durable size of an observed run |
+| `requiredDiskBytes` | what is left to write: `estimatedDiskBytes` minus what the campaign already holds (its `plan.parquet` and, for each completed run, its marker and archived files), at least 0. It is therefore smaller than `estimatedDiskBytes` as soon as the plan is written |
+| `freeDiskBytes` | free space on the file system of the campaign folder (or of its nearest existing parent) |
+| `missingDiskBytes` | `requiredDiskBytes` minus `freeDiskBytes`, at least 0 |
+| `estimatedScratchBytes` | `execution.workers` times the largest observed worker cache |
+| `freeScratchBytes` | free space on the file system of `execution.scratch` |
+| `missingScratchBytes` | `estimatedScratchBytes` minus the free scratch space, at least 0; when the scratch and the campaign share a file system, the free space left after `requiredDiskBytes` is used |
+
+All seven are `null` when they cannot be computed, for example before any
+completed run (`diskSpace` then fails with `provide a calibration meta-config
+with a complete run`).
 
 ## `estimate`
 
@@ -139,6 +191,16 @@ JSON fields: `status`, `estimateVersion`, `method`, `formula`,
 `meanDurationSeconds`, `meanDurableBytesPerRun`, `estimatedComputeHours`,
 `estimatedDiskBytes`, `workers`, `observedScratchBytesPerWorker`,
 `estimatedScratchBytes`, `error`.
+
+`calibrationRuns` is the number of observations behind the means: every
+completed run of the calibration campaigns **and of the target campaign
+itself** (each campaign folder counted once). It is not only the runs of the
+calibration campaigns: after some target runs complete, it grows and the means
+include them. `runs` is the number of unique runs of the target plan,
+completed ones included; `estimatedComputeHours` (`runs` times the mean
+duration) and `estimatedDiskBytes` (size of `plan.parquet` plus `runs` times
+the mean durable size) cover the whole campaign, not only what remains. For
+the space still needed, see `requiredDiskBytes` of `check`.
 
 `formula` gives the number of design positions for the method, and
 `formulaInputs` its values; `designPositions` equals the formula evaluated on

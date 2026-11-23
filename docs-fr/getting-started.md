@@ -103,12 +103,23 @@ checkout Windows ne modifie pas les entrées scellées. Il n'écrase jamais un
 
 Une relance identique renvoie `status: unchanged` sans rehacher les données.
 `--regenerate-data-manifest` remplace atomiquement le manifeste local, mais ne
-modifie ni les YAML, ni les plans, ni les résultats. Sur un projet existant,
-`init` vérifie d'abord que les fichiers statiques correspondent encore exactement
-aux modèles attendus et que l'état durable a une forme reconnue. La régénération
-renvoie `status: initialized`. Si un plan existe déjà, le nouveau SHA-256 du
-manifeste change le contexte attendu : conservez l'ancien état et utilisez de
-nouvelles racines de campagne ou un nouveau projet.
+modifie ni les YAML, ni les plans, ni les résultats ; elle renvoie
+`status: initialized`. Les deux fonctionnent après avoir planifié, lancé et
+analysé les modèles : avant d'écrire quoi que ce soit, `init` n'accepte que les
+fichiers générés, inchangés, les dossiers de campagne des modèles
+(`campaigns/mon-analyse-sa-calibration`, `-grid`, `-discrete_oat`, `-sobol`)
+avec ce qu'eqasim-sa y a écrit (`figures/` compris), et `configs/analyses/`
+pour vos scripts d'analyse. Il refuse tout le reste en le nommant : un modèle
+modifié (`init would overwrite configs/01-grid.yml, which differs from what
+init would write ...`), un autre fichier dans `configs/` ou un dossier de
+campagne à vous. La [référence CLI](cli-reference.md#relancer-init-sur-un-projet-existant)
+donne la liste exacte. Il n'est jamais nécessaire de relancer `init` pour
+continuer à travailler.
+
+Si les données ont changé, une campagne planifiée avant la régénération ne
+correspond plus à son plan : `run` refuse de la reprendre avec `data manifest
+changed since plan (dataManifestSha256)`. Conservez l'ancien état et utilisez
+de nouvelles racines de campagne ou un nouveau projet.
 
 ## Runner du projet généré
 

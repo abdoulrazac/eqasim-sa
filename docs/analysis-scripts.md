@@ -68,6 +68,11 @@ mon-analyse-sa/
     └── mon-analyse-sa-grid/
 ```
 
+Adding `analyses` to `configs/01-grid.yml` edits a starter: a later rerun of
+`init` on the project then refuses, naming that file (see
+[Rerunning `init`](cli-reference.md#rerunning-init-on-an-existing-project)).
+The `configs/analyses/` folder itself does not prevent a rerun.
+
 The meta-configuration keeps the outputs of the Grid starter, which already
 archive everything the script reads, and declares the analysis and the
 indicators:
@@ -184,7 +189,7 @@ def compute(files, parameters):
 ```
 
 For one run of a small Nantes population (`sampling_rate: 0.001`, seed 1201),
-it returns:
+it returned, with one eqasim configuration and data set:
 
 ```text
 group,commuters,mean_commute_km
@@ -194,7 +199,10 @@ male,260,10.108180054962318
 ```
 
 The indicator `value(commute, mean_commute_km, group=all)` reads the first
-row: 9.78 km for that run.
+row: 9.78 km for that run. These numbers are indicative: the same
+`sampling_rate` and seed give other values with another eqasim configuration
+(other matching parameters, other data vintages such as the IRIS or BPE year)
+or other input data.
 
 ### Only with `mode_choice: true`: share of trips by mode
 
@@ -328,7 +336,10 @@ is absent, loading a meta-configuration that declares analyses fails with
 `analyses need execution.python because execution.invocation does not end
 with -m synpp`. The command is resolved like the eqasim invocation, including
 on Windows. The small runner that eqasim-sa copies next to your script runs
-with your eqasim Python, which must be 3.9 or later.
+with your eqasim Python, which must be 3.9 or later. The script's process
+receives eqasim-sa's environment variables except `VIRTUAL_ENV`, which names
+eqasim-sa's own environment: `uv run` in the eqasim folder then uses eqasim's
+environment without warning about it.
 
 ## What `analyze` does
 
@@ -359,12 +370,19 @@ shows up at `analyze`, so try it by hand first.
 
 Once one run is archived, call `compute` on its files with eqasim's
 interpreter. Save this file as `try_commute.py` in the project folder, and
-replace `<runId>` with an actual identifier (a folder name under `archives/`):
+replace the two placeholders:
+
+- `<campaign>` with the `campaign` of the meta-configuration, which is also
+  the folder name under `campaigns/` (for example `mon-analyse-sa-grid`);
+- `<runId>` with an actual identifier (a folder name under
+  `campaigns/<campaign>/archives/`).
 
 ```python
 import importlib.util
 
-archive = "campaigns/mon-analyse-sa-grid/archives/<runId>"
+CAMPAIGN = "<campaign>"
+RUN_ID = "<runId>"
+archive = f"campaigns/{CAMPAIGN}/archives/{RUN_ID}"
 spec = importlib.util.spec_from_file_location("commute", "configs/analyses/commute.py")
 commute = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(commute)
@@ -375,14 +393,24 @@ print(
             "activities_spatial": f"{archive}/activities_spatial.gpkg",
             "persons": f"{archive}/persons.csv",
         },
-        {"runId": "<runId>", "seed": 1201, "factors": {"sampling_rate": 0.001}},
+        {"runId": RUN_ID, "seed": 1201, "factors": {"sampling_rate": 0.001}},
     )
 )
 ```
 
+The seed and factors are only passed to `compute`; `commute.py` ignores them.
+Run the file from the project folder, replacing `<path to eqasim>` with the
+eqasim folder, absolute or relative to the project folder (not to `configs/`,
+the folder that `model.root` is relative to: for example, `../../eqasim-france`
+in a starter is `../eqasim-france` here):
+
 ```bash
-uv run --project ../eqasim-france --locked python try_commute.py
+uv run --project <path to eqasim> --locked python try_commute.py
 ```
+
+If uv prints ``Project directory `...` does not exist``, the path is wrong and
+uv runs another Python, outside eqasim's environment: the script then fails
+with a misleading error such as `No module named 'geopandas'`. Fix the path.
 
 Here the script reads the archive itself: it must only read it.
 

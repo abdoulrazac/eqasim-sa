@@ -87,6 +87,14 @@ use a copy of your own, make it in the eqasim folder
 for Nantes: eqasim ships `config_nantes.yml` itself) and add
 `--model-config my_config.yml`.
 
+Rerunning the same `init` later returns `unchanged` (it only recreates a
+missing `.gitattributes` or scratch folder), even after plans, runs, and
+analyses, as long as the project holds only the
+generated files, unchanged, the starters' campaign folders, and
+`configs/analyses/`; an edited starter, another file in `configs/`, or a
+campaign folder of your own is refused, with its name (see
+[Rerunning `init`](docs/cli-reference.md#rerunning-init-on-an-existing-project)).
+
 Before planning, add `analysis.synthesis.population` to the `run:` list of that
 eqasim configuration: the `age`, `distance`, and `nbr_vehicle` outputs compared
 by the starters are written by that stage, and the official `config.yml` lists

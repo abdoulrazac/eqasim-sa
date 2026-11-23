@@ -100,12 +100,22 @@ a missing one is recreated and reported under `restored`.
 
 An identical rerun returns `status: unchanged` without rehashing the data.
 `--regenerate-data-manifest` atomically replaces the local manifest but does
-not modify the YAML files, plans, or results. For an existing project, `init`
-first checks that the static files still exactly match the expected templates
-and that the durable state has a recognized structure. Regeneration returns
-`status: initialized`. If a plan already exists, the manifest's new SHA-256
-changes the expected context: retain the old state and use new campaign roots
-or a new project.
+not modify the YAML files, plans, or results; it returns `status: initialized`.
+Both work after you have planned, run, and analyzed the starters: before
+writing anything, `init` accepts only the generated files, unchanged, the
+starters' campaign folders (`campaigns/mon-analyse-sa-calibration`,
+`-grid`, `-discrete_oat`, `-sobol`) with what eqasim-sa wrote in them
+(including `figures/`), and `configs/analyses/` for your analysis scripts.
+It refuses everything else, naming it: an edited starter (`init would
+overwrite configs/01-grid.yml, which differs from what init would write ...`),
+another file in `configs/`, or a campaign folder of your own. The
+[CLI reference](cli-reference.md#rerunning-init-on-an-existing-project) gives
+the exact list. You never need to rerun `init` to continue working.
+
+If the data changed, a campaign planned before the regeneration no longer
+matches its plan: `run` refuses to resume it with `data manifest changed since
+plan (dataManifestSha256)`. Keep the old state and use new campaign roots or a
+new project.
 
 ## Generated project runner
 

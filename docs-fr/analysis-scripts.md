@@ -70,6 +70,11 @@ mon-analyse-sa/
     └── mon-analyse-sa-grid/
 ```
 
+Ajouter `analyses` à `configs/01-grid.yml` modifie un starter : une relance
+ultérieure d'`init` sur le projet refuse alors en nommant ce fichier (voir
+[Relancer `init`](cli-reference.md#relancer-init-sur-un-projet-existant)). Le
+dossier `configs/analyses/` lui-même n'empêche pas la relance.
+
 La méta-configuration garde les sorties du starter Grid, qui archivent déjà
 tout ce que lit le script, et déclare l'analyse et les indicateurs :
 
@@ -186,7 +191,8 @@ def compute(files, parameters):
 ```
 
 Pour un run d'une petite population nantaise (`sampling_rate: 0.001`,
-seed 1201), il renvoie :
+seed 1201), il a renvoyé, avec une configuration eqasim et un jeu de données
+particuliers :
 
 ```text
 group,commuters,mean_commute_km
@@ -196,7 +202,10 @@ male,260,10.108180054962318
 ```
 
 L'indicateur `value(commute, mean_commute_km, group=all)` lit la première
-ligne : 9,78 km pour ce run.
+ligne : 9,78 km pour ce run. Ces chiffres sont indicatifs : le même
+`sampling_rate` et la même seed donnent d'autres valeurs avec une autre
+configuration eqasim (autres paramètres de matching, autres millésimes de
+données comme l'année des IRIS ou de la BPE) ou d'autres données d'entrée.
 
 ### Seulement avec `mode_choice: true` : part des trajets par mode
 
@@ -337,7 +346,10 @@ déclare des analyses échoue avec `analyses need execution.python because
 execution.invocation does not end with -m synpp`. La commande est résolue comme
 l'invocation d'eqasim, y compris sous Windows. Le petit programme d'exécution
 qu'eqasim-sa copie à côté de votre script tourne avec le Python d'eqasim, qui
-doit être en version 3.9 ou plus récente.
+doit être en version 3.9 ou plus récente. Le processus du script reçoit les
+variables d'environnement d'eqasim-sa sauf `VIRTUAL_ENV`, qui désigne
+l'environnement d'eqasim-sa lui-même : `uv run` dans le dossier eqasim utilise
+alors l'environnement d'eqasim sans avertissement à ce sujet.
 
 ## Ce que fait `analyze`
 
@@ -368,13 +380,19 @@ script défaillant n'apparaît qu'à `analyze` : essayez-le d'abord à la main.
 
 Dès qu'un run est archivé, appelez `compute` sur ses fichiers avec
 l'interpréteur d'eqasim. Enregistrez ce fichier sous `try_commute.py` dans le
-dossier du projet et remplacez `<runId>` par un identifiant réel (un nom de
-dossier sous `archives/`) :
+dossier du projet et remplacez les deux valeurs à compléter :
+
+- `<campaign>` par la `campaign` de la méta-configuration, qui est aussi le nom
+  du dossier sous `campaigns/` (par exemple `mon-analyse-sa-grid`) ;
+- `<runId>` par un identifiant réel (un nom de dossier sous
+  `campaigns/<campaign>/archives/`).
 
 ```python
 import importlib.util
 
-archive = "campaigns/mon-analyse-sa-grid/archives/<runId>"
+CAMPAIGN = "<campaign>"
+RUN_ID = "<runId>"
+archive = f"campaigns/{CAMPAIGN}/archives/{RUN_ID}"
 spec = importlib.util.spec_from_file_location("commute", "configs/analyses/commute.py")
 commute = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(commute)
@@ -385,14 +403,25 @@ print(
             "activities_spatial": f"{archive}/activities_spatial.gpkg",
             "persons": f"{archive}/persons.csv",
         },
-        {"runId": "<runId>", "seed": 1201, "factors": {"sampling_rate": 0.001}},
+        {"runId": RUN_ID, "seed": 1201, "factors": {"sampling_rate": 0.001}},
     )
 )
 ```
 
+La seed et les facteurs sont seulement transmis à `compute` ; `commute.py` les
+ignore. Lancez le fichier depuis le dossier du projet en remplaçant
+`<path to eqasim>` par le dossier eqasim, absolu ou relatif au dossier du
+projet (et non à `configs/`, dossier auquel `model.root` est relatif : par
+exemple, `../../eqasim-france` dans un starter devient `../eqasim-france` ici) :
+
 ```bash
-uv run --project ../eqasim-france --locked python try_commute.py
+uv run --project <path to eqasim> --locked python try_commute.py
 ```
+
+Si uv affiche ``Project directory `...` does not exist``, le chemin est faux et
+uv lance un autre Python, hors de l'environnement d'eqasim : le script échoue
+alors avec une erreur trompeuse comme `No module named 'geopandas'`. Corrigez le
+chemin.
 
 Ici le script lit l'archive elle-même : il doit seulement la lire.
 
