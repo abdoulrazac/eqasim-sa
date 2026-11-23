@@ -64,8 +64,15 @@ def test_estimate_plan_exposes_and_validates_grid_formula() -> None:
     assert payload["formulaInputs"] == inputs
     with pytest.raises(ValueError, match="designPositions"):
         estimate_plan(11, ("a",), 7, ((1.0, 3, 5),), 1, "grid", inputs)
-    for invalid in (None, {"R": 2}, {"R": 0, "L": {"rate": 3}}, {"R": 2, "L": {}},
-                    {"R": 2, "L": {"rate": 0}}, {"R": 2, "L": {"rate": True}}):
+    invalid_inputs = (
+        None,
+        {"R": 2},
+        {"R": 0, "L": {"rate": 3}},
+        {"R": 2, "L": {}},
+        {"R": 2, "L": {"rate": 0}},
+        {"R": 2, "L": {"rate": True}},
+    )
+    for invalid in invalid_inputs:
         with pytest.raises(ValueError, match="Grid formula inputs"):
             estimate_plan(6, ("a",), 7, ((1.0, 3, 5),), 1, "grid", invalid)
 
@@ -87,7 +94,9 @@ def test_application_estimate_passes_grid_formula_inputs(
 
 
 def test_estimate_plan_rounds_fractional_disk_bytes_up() -> None:
-    payload = estimate_plan(2, ("a", "b"), 10, ((1.0, 1, 3), (1.0, 2, 4)), 2, "grid", {"R": 2, "L": {"rate": 1}})
+    payload = estimate_plan(
+        2, ("a", "b"), 10, ((1.0, 1, 3), (1.0, 2, 4)), 2, "grid", {"R": 2, "L": {"rate": 1}}
+    )
 
     assert payload["meanDurableBytesPerRun"] == 1.5
     assert payload["estimatedDiskBytes"] == 13
@@ -103,6 +112,11 @@ def test_estimate_plan_rejects_invalid_observations(
 ) -> None:
     with pytest.raises(ValueError, match="observation"):
         estimate_plan(1, ("run",), 1, (observation,), 1, "grid", GRID_ONE)
+
+
+def test_estimate_plan_requires_the_method_and_its_formula_inputs() -> None:
+    with pytest.raises(TypeError):
+        estimate_plan(1, ("run",), 1, ((1.0, 2, 3),), 1)  # type: ignore[call-arg]
 
 
 def test_estimate_plan_requires_calibration() -> None:

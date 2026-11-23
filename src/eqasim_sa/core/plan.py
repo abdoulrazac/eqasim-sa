@@ -199,8 +199,8 @@ def estimate_plan(
     plan_bytes: int,
     observations: tuple[tuple[float, int, int], ...],
     workers: int,
-    method: str = "grid",
-    formula_inputs: dict | None = None,
+    method: str,
+    formula_inputs: dict | None,
 ) -> dict:
     """Estimate campaign resources from design size and calibration data.
 

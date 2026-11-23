@@ -754,6 +754,18 @@ def test_path_length_passes_on_posix_within_limit(
     assert "within the limit of 4096" in item["note"]
 
 
+def test_path_length_passes_on_windows_within_260_with_a_note(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(platform, "IS_WINDOWS", True)
+    monkeypatch.setattr(check_service, "EQASIM_RELATIVE_PATH_BUDGET", 100)
+    monkeypatch.setattr(check_service, "resolve_root", lambda path, name: Path("C:\\"))
+    item = _entry(_static_payload(tmp_path, monkeypatch, tmp_path), "path_length")
+    assert item["status"] == "passed"
+    assert item["error"] is None
+    assert item["note"] == "estimated path length 151 is within the limit of 260"
+
+
 def test_only_failed_or_warning_items_carry_an_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -95,6 +95,9 @@ def _path_length_item(meta) -> dict:  # type: ignore[no-untyped-def]
         return {"name": "path_length", "status": "failed", "error": _safe_error(error)}
     if platform.IS_WINDOWS:
         if length <= WINDOWS_PATH_LIMIT:
+            item["note"] = (
+                f"estimated path length {length} is within the limit of {WINDOWS_PATH_LIMIT}"
+            )
             return item
         if platform.windows_long_paths_enabled():
             item["note"] = (
