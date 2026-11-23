@@ -136,7 +136,7 @@ def test_release_wheel_verifier_without_prebuilt_distribution(tmp_path: Path) ->
             archive.writestr(f"eqasim_sa/templates/{name}", "fixture")
         archive.writestr("eqasim_sa/__init__.py", "")
     completed = subprocess.run(
-        [sys.executable, project / "verify_release_wheel.py", wheel],
+        [sys.executable, project / ".github/scripts/verify_release_wheel.py", wheel],
         check=True,
         capture_output=True,
         text=True,

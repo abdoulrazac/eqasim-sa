@@ -64,13 +64,19 @@ uv run --locked --extra test pytest
 uvx ruff check src tests protocols --select F401,F841,F811 --no-cache
 git diff --check
 uv build
-uv run --locked python verify_release_wheel.py \
-  dist/eqasim_sa-0.3.0-py3-none-any.whl
+uv run --locked python .github/scripts/verify_release_wheel.py \
+  dist/eqasim_sa-0.4.0-py3-none-any.whl
 ```
 
-Inspectez les archives nouvellement construites avant de les publier. Les
-fichiers préexistants dans `build/` ou `dist/` ne prouvent rien sur les sources
-courantes.
+Inspectez les archives nouvellement construites. Les fichiers préexistants dans
+`build/` ou `dist/` ne prouvent rien sur les sources courantes.
+
+Les versions sont publiées uniquement sur GitHub. Pousser une étiquette
+`vX.Y.Z` (égale à la `version` de `pyproject.toml`) lance
+`.github/workflows/release.yml`, qui vérifie le fichier de verrouillage, exécute
+les tests, construit la roue (wheel) et l'archive source (sdist), exécute le
+contrôle de la roue ci-dessus et crée la version GitHub avec les deux archives
+jointes.
 
 ## Proposer la modification
 

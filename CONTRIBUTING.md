@@ -57,12 +57,17 @@ uv run --locked --extra test pytest
 uvx ruff check src tests protocols --select F401,F841,F811 --no-cache
 git diff --check
 uv build
-uv run --locked python verify_release_wheel.py \
-  dist/eqasim_sa-0.3.0-py3-none-any.whl
+uv run --locked python .github/scripts/verify_release_wheel.py \
+  dist/eqasim_sa-0.4.0-py3-none-any.whl
 ```
 
-Inspect the newly built archives before publishing them. Existing files in
-`build/` or `dist/` are not evidence for the current source tree.
+Inspect the newly built archives. Existing files in `build/` or `dist/` are not
+evidence for the current source tree.
+
+Releases are published on GitHub only. Pushing a tag `vX.Y.Z` (matching the
+`version` in `pyproject.toml`) starts `.github/workflows/release.yml`, which
+checks the lockfile, runs the tests, builds the wheel and the sdist, runs the
+wheel check above, and creates the GitHub release with both archives attached.
 
 ## Proposing the change
 
