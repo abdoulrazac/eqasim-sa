@@ -290,7 +290,7 @@ def _verify_archive(
         path = archive.path / entry.file_name
         visible = os.lstat(path)
         if not stat.S_ISREG(visible.st_mode) or platform.is_link(path):
-            raise ValueError(f"archive artifact {entry.name!r} is not a regular file")
+            raise ValueError(f"archived file {entry.name!r} is not a regular file")
         descriptor = os.open(path, _READ_FLAGS)
         try:
             initial = os.fstat(descriptor)
@@ -301,11 +301,11 @@ def _verify_archive(
                 or file_state(initial) != file_state(visible)
             ):
                 raise ValueError(
-                    f"archive artifact {entry.name!r} is not a stable regular file"
+                    f"archived file {entry.name!r} is not a stable regular file"
                 )
             if initial.st_size != entry.size:
                 raise ValueError(
-                    f"archive artifact {entry.name!r} size does not match manifest"
+                    f"archived file {entry.name!r} size does not match manifest"
                 )
             digest = descriptor_sha256(descriptor)
             final = os.fstat(descriptor)
@@ -316,10 +316,10 @@ def _verify_archive(
         if file_state(final) != file_state(initial) or file_state(visible) != file_state(
             initial
         ):
-            raise RuntimeError(f"archive artifact {entry.name!r} changed while hashing")
+            raise RuntimeError(f"archived file {entry.name!r} changed while hashing")
         if digest != entry.sha256:
             raise ValueError(
-                f"archive artifact {entry.name!r} hash does not match manifest"
+                f"archived file {entry.name!r} hash does not match manifest"
             )
         captured.append(
             StableFile(
@@ -519,7 +519,7 @@ def _write_all(descriptor: int, data: bytes) -> None:
     while view:
         written = os.write(descriptor, view)
         if written == 0:
-            raise OSError("short write while staging artifact")
+            raise OSError("short write while staging archived file")
         view = view[written:]
 
 
@@ -554,7 +554,7 @@ def _copy_artifact(
             or file_state(source_visible) != file_state(source_initial)
             or not _regular_path_is_current(source, file_state(source_initial))
         ):
-            raise RuntimeError(f"artifact changed while publishing: {source}")
+            raise RuntimeError(f"archived file changed while publishing: {source}")
         os.fsync(destination_descriptor)
         digest = descriptor_sha256(destination_descriptor, interrupted)
         final = os.fstat(destination_descriptor)
@@ -566,9 +566,9 @@ def _copy_artifact(
             or file_state(final) != file_state(visible)
             or not destination_directory.is_current()
         ):
-            raise RuntimeError(f"staged artifact changed while publishing: {name}")
+            raise RuntimeError(f"staged file changed while publishing: {name}")
         if final.st_size != source_initial.st_size:
-            raise RuntimeError(f"staged artifact is incomplete: {name}")
+            raise RuntimeError(f"staged file is incomplete: {name}")
         return ArtifactManifestEntry(
             artifact.name, artifact.source_path, final.st_size, digest
         )

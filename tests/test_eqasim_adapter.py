@@ -592,7 +592,7 @@ def test_unusual_analysis_csv_is_archived_as_is_and_judged_when_read(
     if case == "nonsequential-index":
         assert read_csv_table(age, ",", "age").to_pylist() == [{"Age class": "65+"}]
     else:
-        with pytest.raises(ValueError, match="artifact 'age'"):
+        with pytest.raises(ValueError, match="output 'age'"):
             read_csv_table(age, ",", "age")
     assert current.config_path.read_bytes() == before
 

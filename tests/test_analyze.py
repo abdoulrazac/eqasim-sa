@@ -2412,7 +2412,7 @@ def test_indicator_requires_declared_artifact(
     with pytest.raises(
         ValueError,
         match=rf"run {run_ids[0]}.*tv_distance\(missing, ref=reference\)"
-        r".*artifact 'missing' is not available",
+        r".*output 'missing' is not available",
     ):
         _analyze(root, (indicator,))
 

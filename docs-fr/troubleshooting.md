@@ -125,7 +125,7 @@ ou un booléen, alors que les libellés de classe et les cellules de table sont
 comparés comme du texte. Remède : les écrire entre guillemets :
 `category: "0"`, `category: "True"`, `where: {zone: "44"}`.
 
-## `artifact '...' is missing declared column '...'` ou `column '...' must be numeric`
+## `output '...' is missing declared column '...'` ou `column '...' must be numeric`
 
 Cause : une colonne `category`, `simulated`, de référence, de `value` ou de
 `where` ne correspond pas exactement à l'en-tête du CSV, ou une colonne
@@ -625,8 +625,8 @@ supprimé quand aucune commande ne tourne.
 
 `analyze` n'a besoin ni de l'arborescence de données ni du scratch, et ne compare
 jamais la preuve d'exécution à la machine qui analyse. Il faut : le dossier de
-campagne rapatrié (`scp` ou `sftp`), la méta-configuration avec le rendu des
-chemins machine refait pour cette machine, le dossier eqasim (son code, sa
+campagne rapatrié (`scp` ou `sftp`), la méta-configuration avec les
+chemins machine modifiés pour cette machine, le dossier eqasim (son code, sa
 configuration et son `uv.lock` peuvent différer de ceux des runs : `analyze`
 vérifie la méta-configuration par rapport à ce que `plan.parquet` a scellé) et
 un fichier manifeste de données (un petit fichier JSON ; l'arborescence de

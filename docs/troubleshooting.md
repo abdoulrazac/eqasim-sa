@@ -116,7 +116,7 @@ a boolean, while class labels and table cells are compared as text. Remedy:
 write them between quotes: `category: "0"`, `category: "True"`,
 `where: {zone: "44"}`.
 
-## `artifact '...' is missing declared column '...'` or `column '...' must be numeric`
+## `output '...' is missing declared column '...'` or `column '...' must be numeric`
 
 Cause: a `category`, `simulated`, reference, `value` column, or `where` column
 does not exactly match the CSV header, or a column used as a number contains
@@ -594,8 +594,8 @@ command is running.
 
 `analyze` does not need the data tree or the scratch, and never compares the
 execution evidence with the analyzing machine. It needs: the campaign folder copied
-back (`scp` or `sftp`), the meta-configuration with the machine paths rendered
-again for that machine, the eqasim folder (its code, configuration, and
+back (`scp` or `sftp`), the meta-configuration with the machine paths edited
+for that machine, the eqasim folder (its code, configuration, and
 `uv.lock` may differ from the runs: `analyze` checks the meta-configuration
 against what `plan.parquet` sealed), and a data manifest file (a small JSON
 file; the data tree itself is not needed).

@@ -314,7 +314,7 @@ def test_pair_and_product_resolve_to_one_uniform_sequence() -> None:
 
 
 def test_indicator_checks_declared_artifact_before_reading() -> None:
-    with pytest.raises(ValueError, match="artifact 'distribution' is not available"):
+    with pytest.raises(ValueError, match="output 'distribution' is not available"):
         indicator().compute(ArtifactSet({}))
 
 

@@ -202,19 +202,19 @@ class ArtifactSet:
 
     def __post_init__(self) -> None:
         if not isinstance(self.paths, Mapping):
-            raise ValueError("artifact paths must be a mapping")
+            raise ValueError("output paths must be a mapping")
         checked: dict[str, Path] = {}
         for name, path in self.paths.items():
             if not isinstance(name, str) or not name or not isinstance(path, Path):
                 raise ValueError(
-                    "artifact names must be non-empty strings and paths must be Path objects"
+                    "output names must be non-empty strings and paths must be Path objects"
                 )
             try:
                 resolved = path.resolve(strict=True)
             except OSError as error:
-                raise ValueError(f"artifact {name!r} must be a regular file") from error
+                raise ValueError(f"output {name!r} must be a regular file") from error
             if resolved != path.absolute() or not resolved.is_file():
-                raise ValueError(f"artifact {name!r} must not use a symlink")
+                raise ValueError(f"output {name!r} must not use a symlink")
             checked[name] = resolved
         object.__setattr__(self, "paths", MappingProxyType(checked))
 
@@ -222,7 +222,7 @@ class ArtifactSet:
         try:
             return self.paths[name]
         except KeyError as error:
-            raise ValueError(f"artifact {name!r} is not available") from error
+            raise ValueError(f"output {name!r} is not available") from error
 
 
 @dataclass(frozen=True)
@@ -240,7 +240,7 @@ class TableArtifact:
         _validate_source(self.source, self.name)
         names = (self.class_column, self.synthetic_column)
         if not all(isinstance(name, str) and name for name in names):
-            raise ValueError("artifact column names must not be empty")
+            raise ValueError("output column names must not be empty")
         if self.class_column == self.synthetic_column:
             raise ValueError("class and synthetic columns must be distinct")
         if (
@@ -248,9 +248,9 @@ class TableArtifact:
             or any(not isinstance(value, str) or not value for value in self.reference_columns)
             or len(set(self.reference_columns)) != len(self.reference_columns)
         ):
-            raise ValueError("artifact reference columns must be unique non-empty strings")
+            raise ValueError("output reference columns must be unique non-empty strings")
         if set(self.reference_columns) & {self.class_column, self.synthetic_column}:
-            raise ValueError("artifact reference columns must be distinct")
+            raise ValueError("output reference columns must be distinct")
 
     @property
     def separator(self) -> str:
@@ -538,7 +538,7 @@ class TotalVariationIndicator:
     def __post_init__(self) -> None:
         if not self.artifact.carries_reference:
             raise ValueError(
-                f"artifact {self.artifact.name!r} does not carry a reference"
+                f"output {self.artifact.name!r} does not carry a reference"
             )
         if not isinstance(self.reference_column, str) or not self.reference_column:
             raise ValueError("reference column must not be empty")
@@ -803,7 +803,7 @@ def read_csv_table(
     try:
         descriptor = os.open(path, flags)
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-            raise ValueError(f"artifact {output!r} must be a regular file")
+            raise ValueError(f"output {output!r} must be a regular file")
         with os.fdopen(descriptor, "rb") as source:
             descriptor = -1
             parse = csv.ParseOptions(delimiter=separator)
@@ -815,15 +815,15 @@ def read_csv_table(
             ) as reader:
                 header = list(reader.schema.names)
             if len(header) != len(set(header)):
-                raise ValueError(f"artifact {output!r} has duplicate column names")
+                raise ValueError(f"output {output!r} has duplicate column names")
             kept = header[1:] if header and header[0] == "" else header
             if "" in kept:
-                raise ValueError(f"artifact {output!r} has an unnamed column")
+                raise ValueError(f"output {output!r} has an unnamed column")
             selected = list(kept if columns is None else columns)
             missing = [name for name in selected if name not in kept]
             if missing:
                 raise ValueError(
-                    f"artifact {output!r} is missing declared column {missing[0]!r}"
+                    f"output {output!r} is missing declared column {missing[0]!r}"
                 )
             source.seek(0)
             return csv.read_csv(
@@ -839,7 +839,7 @@ def read_csv_table(
             )
     except (OSError, pa.ArrowInvalid, pa.ArrowIOError) as error:
         raise ValueError(
-            f"artifact {output!r} cannot be read as CSV: {error}"
+            f"output {output!r} cannot be read as CSV: {error}"
         ) from error
     finally:
         if descriptor >= 0:
