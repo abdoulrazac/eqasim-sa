@@ -13,7 +13,7 @@ def render_output_summary(analysis: PublishedAnalysis) -> list[RenderedFigure]:
     rows = {row["indicator"]: row for row in table.to_pylist()}
     drawn: list[str] = []
     omitted: list[str] = []
-    for name in ordered_indicators(table):
+    for name in ordered_indicators(analysis, table):
         (omitted if rows[name].get("median") is None else drawn).append(name)
 
     figure = Figure(figsize=(8, max(2.5, 0.9 * len(drawn) + 1.8)))

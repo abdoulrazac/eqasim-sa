@@ -13,7 +13,7 @@ def render_sobol_indices(analysis: PublishedAnalysis) -> list[RenderedFigure]:
     table = analysis.table("sensitivity")
     rows = table.to_pylist()
     figures: list[RenderedFigure] = []
-    for indicator in ordered_indicators(table):
+    for indicator in ordered_indicators(analysis, table):
         subset = sorted(
             (r for r in rows if r["indicator"] == indicator), key=lambda r: r["rank"]
         )

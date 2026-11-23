@@ -37,7 +37,7 @@ def render_morris_plane(analysis: PublishedAnalysis) -> list[RenderedFigure]:
     table = analysis.table("sensitivity")
     rows = table.to_pylist()
     figures: list[RenderedFigure] = []
-    for indicator in ordered_indicators(table):
+    for indicator in ordered_indicators(analysis, table):
         subset = [r for r in rows if r["indicator"] == indicator]
         omitted = tuple(
             r["factor"]
@@ -108,7 +108,7 @@ def render_morris_convergence(analysis: PublishedAnalysis) -> list[RenderedFigur
     table = analysis.table("convergence")
     rows = table.to_pylist()
     figures: list[RenderedFigure] = []
-    for indicator in ordered_indicators(table):
+    for indicator in ordered_indicators(analysis, table):
         subset = [r for r in rows if r["indicator"] == indicator]
         figure, ax = _new_figure()
         omitted: list[str] = []
@@ -180,7 +180,7 @@ def render_morris_rank_reversals(analysis: PublishedAnalysis) -> list[RenderedFi
     table = analysis.table("rankReversals")
     rows = table.to_pylist()
     figures: list[RenderedFigure] = []
-    for indicator in ordered_indicators(table):
+    for indicator in ordered_indicators(analysis, table):
         subset = [r for r in rows if r["indicator"] == indicator]
         last = max(r["checkpoint_trajectories"] for r in subset)
         pairs = [r for r in subset if r["checkpoint_trajectories"] == last]
@@ -251,7 +251,7 @@ def render_morris_noise_floor(analysis: PublishedAnalysis) -> list[RenderedFigur
         else None
     )
     figures: list[RenderedFigure] = []
-    for indicator in ordered_indicators(table):
+    for indicator in ordered_indicators(analysis, table):
         subset = [r for r in rows if r["indicator"] == indicator]
         figure = Figure(figsize=(8, 6.5))
         ax_sd, ax_mcse = figure.subplots(2, 1, sharex=True)

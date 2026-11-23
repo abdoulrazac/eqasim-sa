@@ -50,7 +50,7 @@ def render_multiscramble_indices(analysis: PublishedAnalysis) -> list[RenderedFi
     table = analysis.table("sensitivity")
     rows = table.to_pylist()
     figures: list[RenderedFigure] = []
-    for indicator in ordered_indicators(table):
+    for indicator in ordered_indicators(analysis, table):
         subset = _last(rows, indicator)
         actionable = sorted((r for r in subset if r["is_actionable"]), key=_rank_key)
         apart = sorted((r for r in subset if not r["is_actionable"]), key=_rank_key)
@@ -128,7 +128,7 @@ def render_multiscramble_convergence(analysis: PublishedAnalysis) -> list[Render
     rows = table.to_pylist()
     threshold = _ci_width_threshold(analysis)
     figures: list[RenderedFigure] = []
-    for indicator in ordered_indicators(table):
+    for indicator in ordered_indicators(analysis, table):
         subset = [r for r in rows if r["indicator"] == indicator]
         objective = subset[0]["objective"]
         # The stopping criterion reads the primary indicator only (reporting.py).
@@ -205,7 +205,7 @@ def render_multiscramble_by_scramble(analysis: PublishedAnalysis) -> list[Render
     table = analysis.table("byScramble")
     rows = table.to_pylist()
     figures: list[RenderedFigure] = []
-    for indicator in ordered_indicators(table):
+    for indicator in ordered_indicators(analysis, table):
         subset = _last(rows, indicator)
         factors = sorted(
             {r["factor"] for r in subset},

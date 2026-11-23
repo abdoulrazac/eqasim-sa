@@ -12,7 +12,7 @@ def render_oat_effects(analysis: PublishedAnalysis) -> list[RenderedFigure]:
     table = analysis.table("sensitivity")
     rows = table.to_pylist()
     figures: list[RenderedFigure] = []
-    for indicator in ordered_indicators(table):
+    for indicator in ordered_indicators(analysis, table):
         subset = [r for r in rows if r["indicator"] == indicator]
         omitted = tuple(r["factor"] for r in subset if r["mu_star"] is None)
         drawn = sorted(

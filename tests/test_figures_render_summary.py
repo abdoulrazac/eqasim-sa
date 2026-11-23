@@ -144,11 +144,36 @@ def test_incomplete_campaign_gets_banner() -> None:
 
 
 def test_ordered_indicators() -> None:
-    assert ordered_indicators(_summary_table()) == ["a", "b", "empty"]
+    analysis = _stub()
+    assert ordered_indicators(analysis, _summary_table()) == ["a", "b", "empty"]
     table = pa.table(
         {"indicator": ["a", "b", "c"], "is_primary_indicator": [False, False, True]}
     )
-    assert ordered_indicators(table) == ["c", "a", "b"]
+    assert ordered_indicators(analysis, table) == ["c", "a", "b"]
+
+
+def test_ordered_indicators_puts_charter_primary_first() -> None:
+    # The governed report carries the charter decision; its primary indicator
+    # comes first even in tables without an is_primary_indicator column.
+    analysis = _stub()
+    analysis.governed_report["decision"] = {"primary_indicator": "b"}
+    assert ordered_indicators(analysis, _summary_table()) == ["b", "a", "empty"]
+    table = pa.table(
+        {"indicator": ["a", "b", "c"], "is_primary_indicator": [False, False, True]}
+    )
+    assert ordered_indicators(analysis, table) == ["b", "a", "c"]
+    analysis.governed_report["decision"] = {"primary_indicator": "absent"}
+    assert ordered_indicators(analysis, table) == ["c", "a", "b"]
+    analysis.governed_report["decision"] = None
+    assert ordered_indicators(analysis, table) == ["c", "a", "b"]
+
+
+def test_output_summary_draws_charter_primary_first() -> None:
+    analysis = _stub()
+    analysis.governed_report["decision"] = {"primary_indicator": "b"}
+    (rendered,) = render_output_summary(analysis)
+    labels = [ax.get_yticklabels()[0].get_text() for ax in rendered.figure.axes]
+    assert labels == ["b", "a"]
 
 
 def test_output_summary_caption_is_not_uncertainty(grid_analysis) -> None:

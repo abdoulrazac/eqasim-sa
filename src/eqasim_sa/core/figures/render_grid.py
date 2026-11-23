@@ -32,7 +32,7 @@ def render_grid_response(analysis: PublishedAnalysis) -> list[RenderedFigure]:
     rows = table.to_pylist()
 
     figures: list[RenderedFigure] = []
-    for indicator in ordered_indicators(table):
+    for indicator in ordered_indicators(analysis, table):
         subset = [r for r in rows if r["indicator"] == indicator]
         single = all(r["n"] == 1 for r in subset)
         figure = Figure(figsize=(max(5.0, 4.5 * len(numeric)), 4.6))

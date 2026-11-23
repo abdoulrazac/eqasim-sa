@@ -92,12 +92,24 @@ def stamp(figure: Figure, analysis: PublishedAnalysis) -> None:
         )
 
 
-def ordered_indicators(table: pa.Table) -> list[str]:
-    """Primary indicator first when flagged, then alphabetical."""
-    names = table.column("indicator").to_pylist()
-    if "is_primary_indicator" in table.column_names:
-        primary = table.column("is_primary_indicator").to_pylist()
-        flagged = {n for n, p in zip(names, primary) if p}
+def ordered_indicators(analysis: PublishedAnalysis, table: pa.Table) -> list[str]:
+    """Primary indicator first, then alphabetical.
+
+    The primary indicator is the charter decision's ``primary_indicator`` as
+    the governed report publishes it; without a charter decision (or when it
+    names no indicator of the table), the table's ``is_primary_indicator``
+    column decides; without either, the order is alphabetical.
+    """
+    names = set(table.column("indicator").to_pylist())
+    decision = analysis.governed_report.get("decision") or {}
+    primary = decision.get("primary_indicator")
+    if primary in names:
+        flagged = {primary}
+    elif "is_primary_indicator" in table.column_names:
+        flags = table.column("is_primary_indicator").to_pylist()
+        flagged = {
+            n for n, p in zip(table.column("indicator").to_pylist(), flags) if p
+        }
     else:
         flagged = set()
-    return sorted(set(names), key=lambda n: (n not in flagged, n))
+    return sorted(names, key=lambda n: (n not in flagged, n))
