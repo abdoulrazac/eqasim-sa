@@ -68,7 +68,25 @@ VOLATILE_ENVIRONMENT_NAMES = frozenset(
     }
 )
 VOLATILE_ENVIRONMENT_PREFIXES = ("SLURM_", "SUBMITIT_")
+# Variables of eqasim-sa's own environment that must not reach a process run
+# in the eqasim folder: uv would warn that VIRTUAL_ENV is not the eqasim
+# project environment, and the value says nothing about eqasim's inputs.
+PARENT_ENVIRONMENT_NAMES = frozenset({"VIRTUAL_ENV"})
 WINDOWS_DEFAULT_PATHEXT = ".COM;.EXE;.BAT;.CMD"
+
+
+def child_process_environment(
+    environment: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Environment for a process run in the eqasim folder (default: ours).
+
+    Everything is passed on except :data:`PARENT_ENVIRONMENT_NAMES`.
+    """
+    return {
+        name: value
+        for name, value in (os.environ if environment is None else environment).items()
+        if name not in PARENT_ENVIRONMENT_NAMES
+    }
 
 
 def normalized_child_environment(
@@ -77,7 +95,7 @@ def normalized_child_environment(
     """Remove scheduler/session identity while retaining declared model inputs."""
     result = {
         name: value
-        for name, value in environment.items()
+        for name, value in child_process_environment(environment).items()
         if name not in VOLATILE_ENVIRONMENT_NAMES
         and not name.startswith(VOLATILE_ENVIRONMENT_PREFIXES)
     }

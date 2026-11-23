@@ -512,3 +512,44 @@ def test_cache_get_ignores_a_linked_analysis_directory(tmp_path):
 
     with pytest.raises((OSError, ValueError)):
         cache.get("x", fingerprint)
+
+
+def test_script_does_not_inherit_the_virtual_env_of_eqasim_sa(tmp_path, monkeypatch):
+    # uv warns when VIRTUAL_ENV names another environment than the eqasim one.
+    campaign, model, archive = _campaign(tmp_path)
+    script = tmp_path / "virtual_env.py"
+    script.write_text(
+        "import os\nimport pandas\n\n\n"
+        "def compute(files, parameters):\n"
+        "    return pandas.DataFrame({'runId': [parameters['runId']],\n"
+        "        'seed': [parameters['seed']],\n"
+        "        'venv': [os.environ.get('VIRTUAL_ENV', 'absent')],\n"
+        "        'kept': [os.environ.get('EQASIM_SA_KEPT', 'absent')]})\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("VIRTUAL_ENV", str(tmp_path / "eqasim-sa-venv"))
+    monkeypatch.setenv("EQASIM_SA_KEPT", "yes")
+
+    result = _run(_declaration("virtual_env", script), archive, campaign, model).path
+
+    row = read_csv_table(result, ",", "virtual_env").to_pylist()[0]
+    assert row["venv"] == "absent"
+    assert row["kept"] == "yes"
+
+
+def test_interpreter_probe_does_not_inherit_the_virtual_env(tmp_path, monkeypatch):
+    calls = []
+    real_run = analysis_execution.subprocess.run
+
+    def spy(*arguments, **options):
+        calls.append(options.get("env"))
+        return real_run(*arguments, **options)
+
+    model = tmp_path / "model"
+    model.mkdir()
+    monkeypatch.setenv("VIRTUAL_ENV", str(tmp_path / "eqasim-sa-venv"))
+    monkeypatch.setattr(analysis_execution.subprocess, "run", spy)
+
+    environment_document(PYTHON, model, None)
+
+    assert calls and all(env is not None and "VIRTUAL_ENV" not in env for env in calls)

@@ -964,3 +964,29 @@ def test_probe_on_the_real_synpp(tmp_path: Path) -> None:
 
     pytest.importorskip("synpp")
     assert probe_environment((sys.executable, "-m", "synpp"), tmp_path) is None
+
+
+def test_probe_does_not_inherit_the_virtual_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from eqasim_sa.adapters.eqasim.simulator import probe_environment
+
+    (tmp_path / "synpp.py").write_text(
+        "import os, sys\nsys.exit(4 if 'VIRTUAL_ENV' in os.environ else 0)\n"
+    )
+    monkeypatch.setenv("VIRTUAL_ENV", str(tmp_path / "eqasim-sa-venv"))
+    assert probe_environment((sys.executable, "-m", "synpp"), tmp_path) is None
+
+
+def test_eqasim_does_not_inherit_the_virtual_env_without_a_seal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    current = settings(tmp_path)
+    record = tmp_path / "record.json"
+    monkeypatch.setenv("EQASIM_SPY_RECORD", str(record))
+    monkeypatch.setenv("VIRTUAL_ENV", str(tmp_path / "eqasim-sa-venv"))
+    adapter = simulator(current)
+
+    adapter.simulate(load_config(current.config_path, 42), 42, current.workdir)
+
+    assert json.loads(record.read_text())["virtualEnv"] is None

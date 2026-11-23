@@ -1816,3 +1816,34 @@ def test_analysis_ignores_invalid_execution_directories(
     shutil.rmtree(tmp_path / "scratch")
     (tmp_path / "scratch").write_text("not a directory")
     analyze_from_meta_config(meta)
+
+
+def test_virtual_env_of_eqasim_sa_is_not_given_to_eqasim() -> None:
+    from eqasim_sa.adapters.execution_seal import (
+        child_environment_sha256,
+        normalized_child_environment,
+    )
+
+    base = {"PATH": "/bin", "JAVA_HOME": "/opt/java"}
+    first = normalized_child_environment({**base, "VIRTUAL_ENV": "/a/.venv"})
+    second = normalized_child_environment({**base, "VIRTUAL_ENV": "/b/.venv"})
+
+    assert first == second == base
+    assert child_environment_sha256(first) == child_environment_sha256(second)
+
+
+def test_machine_identity_ignores_the_virtual_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from eqasim_sa.adapters.execution_seal import current_machine_identity
+
+    meta, _ = _completed_spy_campaign(tmp_path, monkeypatch)
+    loaded = load_meta_config(meta)
+    monkeypatch.setenv("VIRTUAL_ENV", str(tmp_path / "first"))
+    first = current_machine_identity(loaded)
+    monkeypatch.setenv("VIRTUAL_ENV", str(tmp_path / "second"))
+    second = current_machine_identity(loaded)
+    monkeypatch.delenv("VIRTUAL_ENV")
+
+    assert first == second == current_machine_identity(loaded)
+    assert "VIRTUAL_ENV" not in first.environment_variables

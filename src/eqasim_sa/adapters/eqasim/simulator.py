@@ -16,7 +16,7 @@ from eqasim_sa.adapters.eqasim.artifacts import (
     collect_outputs,
 )
 from eqasim_sa.adapters.eqasim.config import EqasimSettings
-from eqasim_sa.adapters.execution_seal import ExecutionSeal
+from eqasim_sa.adapters.execution_seal import ExecutionSeal, child_process_environment
 from eqasim_sa.core.indicators import OutputDeclaration, validate_output_name
 from eqasim_sa.core.software_identity import SoftwareSourceGuard
 from eqasim_sa.ports.simulator import (
@@ -232,8 +232,11 @@ class EqasimSimulator:
     def _run_owned(self, command: list[str], **options) -> subprocess.CompletedProcess:  # type: ignore[no-untyped-def]
         options.pop("check", None)
         timeout = options.pop("timeout", None)
-        if self.execution_seal is not None:
-            options["env"] = self.execution_seal.environment
+        options["env"] = (
+            self.execution_seal.environment
+            if self.execution_seal is not None
+            else child_process_environment()
+        )
         tree = ProcessTree()
         with self._process_lock:
             if self._interrupted.is_set():
@@ -283,6 +286,7 @@ def probe_environment(
         completed = subprocess.run(
             command,
             cwd=root,
+            env=child_process_environment(),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

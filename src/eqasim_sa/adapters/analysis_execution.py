@@ -32,7 +32,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from eqasim_sa.adapters.execution_seal import resolve_invocation
+from eqasim_sa.adapters.execution_seal import (
+    child_process_environment,
+    resolve_invocation,
+)
 from eqasim_sa.core.analyses import (
     ANALYSES_CACHE_DIRECTORY,
     ANALYSES_LOG_DIRECTORY,
@@ -206,6 +209,7 @@ def environment_document(
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
+            env=child_process_environment(),
             check=False,
         )
         if completed.returncode != 0 or not report.is_file():
@@ -478,7 +482,7 @@ def run_analysis(
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
-            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            env={**child_process_environment(), "PYTHONIOENCODING": "utf-8"},
             check=False,
         )
         errors = _decode(completed.stderr)

@@ -32,7 +32,14 @@ def main() -> int:
         child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
         Path(os.environ["EQASIM_SPY_CHILD_RECORD"]).write_text(str(child.pid))
     record.write_text(
-        json.dumps({"argv": sys.argv[1:], "cwd": os.getcwd(), "pid": os.getpid()})
+        json.dumps(
+            {
+                "argv": sys.argv[1:],
+                "cwd": os.getcwd(),
+                "pid": os.getpid(),
+                "virtualEnv": os.environ.get("VIRTUAL_ENV"),
+            }
+        )
     )
     if os.environ.get("EQASIM_SPY_SLEEP"):
         time.sleep(float(os.environ["EQASIM_SPY_SLEEP"]))
