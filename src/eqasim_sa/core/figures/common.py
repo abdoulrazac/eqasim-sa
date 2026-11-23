@@ -11,6 +11,10 @@ INCOMPLETE_STATUS = "incomplete_noninferential"
 INCOMPLETE_BANNER = "campagne incomplète"
 
 
+class FigureNotApplicable(ValueError):
+    """The figure cannot be drawn faithfully from the published data."""
+
+
 @dataclass(frozen=True)
 class RenderedFigure:
     name: str
