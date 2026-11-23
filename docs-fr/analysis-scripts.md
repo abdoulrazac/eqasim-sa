@@ -268,8 +268,9 @@ Si `execution.invocation` ne se termine pas par `-m synpp` et
 qu'`execution.python` est absent, le chargement d'une méta-configuration qui
 déclare des analyses échoue avec `analyses need execution.python because
 execution.invocation does not end with -m synpp`. La commande est résolue comme
-l'invocation d'eqasim, y compris sous Windows. La partie du processus fournie
-par eqasim-sa fonctionne avec Python 3.9 ou plus récent.
+l'invocation d'eqasim, y compris sous Windows. Le petit programme d'exécution
+qu'eqasim-sa copie à côté de votre script tourne avec le Python d'eqasim, qui
+doit être en version 3.9 ou plus récente.
 
 ## Ce que fait `analyze`
 

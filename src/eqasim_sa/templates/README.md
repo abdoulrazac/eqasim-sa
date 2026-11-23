@@ -156,8 +156,8 @@ generated Grid gives 12 positions: two rates by three thresholds by two replicat
 Use a new `campaign` for that modified design. The starter
 indicators do not measure income directly. The `households` output already
 contains household income; compute the income measure you need with an
-analysis script reading `households` (block `analyses`, see the eqasim-sa guide
-`docs/analysis-scripts.md`) and add an indicator on it before interpreting `income_assignation_method`. Note that `bhepop2` can fall back to
+analysis script reading `households` (block `analyses`, see the eqasim-sa
+documentation: `docs/analysis-scripts.md` in the eqasim-sa repository) and add an indicator on it before interpreting `income_assignation_method`. Note that `bhepop2` can fall back to
 `uniform` for municipalities with invalid Filosofi distributions, and the
 current output does not retain the applied method.
 
