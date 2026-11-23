@@ -157,6 +157,7 @@ See the [YAML reference](docs/yaml-reference.md) for every key.
 "${SA[@]}" estimate --meta-config configs/01-grid.yml
 "${SA[@]}" run --meta-config configs/01-grid.yml
 "${SA[@]}" analyze --meta-config configs/01-grid.yml
+"${SA[@]}" plot --meta-config configs/01-grid.yml
 ```
 
 Calibration covers runtime, durable storage, and worker cache. It does not
@@ -166,6 +167,10 @@ calibrate eqasim's scientific parameters.
 campaign folder back, add analysis scripts and the indicators that read them,
 and run `analyze` on your computer: the plan and the run archives are never
 modified. See [Writing an analysis script](docs/analysis-scripts.md).
+
+`plot` draws, from the published analysis, only the figures that are valid for the
+method and the inference status of the campaign, into `figures/<generationId>/`.
+See [Figures](docs/workflow-and-results.md#figures).
 
 ## Structured matching configurations
 

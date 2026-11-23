@@ -161,6 +161,24 @@ current meta-configuration and sealed plan. Canonical production has a null
 `byScramblePath` and `diagnosticsPath`; `convergencePath` is reused. New generated
 trajectory demonstrations use `discrete_oat`.
 
+## `plot`
+
+```text
+eqasim-sa plot --meta-config PATH [--figure NAME ...]
+```
+
+Draws the figures valid for the published analysis generation into
+`figures/<generationId>/` (PNG files and `figures.json`), after verifying the
+sha256 of every table it reads. It requires a previous `analyze` and writes
+nothing under `analysis/`. `--figure` is repeatable and restricts the drawing to
+the named figures; a figure that is not valid for the campaign's method and
+published tables is an error that lists the valid figures. The directory of the
+generation is rebuilt as a whole on each run. See
+[Figures](workflow-and-results.md#figures) for the figure names and their
+validity. Stdout is a JSON object with `status`, `generationId`, `directory`,
+`figures` and `skipped`. On error, the message goes to stderr, nothing is
+written to stdout, and the exit code is 1.
+
 ## Internal Commands
 
 These interfaces are used for tests and for executing an isolated run. They are

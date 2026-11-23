@@ -160,6 +160,24 @@ reconstruction du plan scellé. En production canonique,
 `byScramblePath`, `diagnosticsPath` et réutilise `convergencePath`. Les nouvelles
 démonstrations générées utilisent `discrete_oat`.
 
+## `plot`
+
+```text
+eqasim-sa plot --meta-config PATH [--figure NAME ...]
+```
+
+Dessine les figures valables pour la génération d'analyse publiée dans
+`figures/<generationId>/` (PNG et `figures.json`), après avoir vérifié le sha256
+de chaque table lue. Elle exige un `analyze` préalable et n'écrit rien sous
+`analysis/`. `--figure` est répétable et limite le dessin aux figures nommées ;
+une figure qui n'est pas valable pour la méthode de la campagne et les tables
+publiées est une erreur qui liste les figures valables. Le dossier de la
+génération est reconstruit dans son ensemble à chaque exécution. Voir
+[Figures](workflow-and-results.md#figures) pour les noms et la validité des
+figures. La sortie standard est un objet JSON avec `status`, `generationId`,
+`directory`, `figures` et `skipped`. En cas d'erreur, le message va sur stderr,
+rien n'est écrit sur stdout et le code de sortie est 1.
+
 ## Commandes internes
 
 Ces interfaces servent aux tests et à l'exécution d'un run isolé. Elles ne font

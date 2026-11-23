@@ -164,6 +164,7 @@ Voir la [référence YAML](docs-fr/yaml-reference.md) pour toutes les clés.
 "${SA[@]}" estimate --meta-config configs/01-grid.yml
 "${SA[@]}" run --meta-config configs/01-grid.yml
 "${SA[@]}" analyze --meta-config configs/01-grid.yml
+"${SA[@]}" plot --meta-config configs/01-grid.yml
 ```
 
 La calibration concerne le temps, le stockage durable et le cache worker. Elle
@@ -174,6 +175,10 @@ supercalculateur, rapatriez le dossier de campagne, ajoutez des scripts
 d'analyse et les indicateurs qui les lisent, puis lancez `analyze` sur votre
 ordinateur : le plan et les archives des runs ne sont jamais modifiés. Voir
 [Écrire un script d'analyse](docs-fr/analysis-scripts.md).
+
+`plot` dessine, à partir de l'analyse publiée, uniquement les figures valables
+pour la méthode et le statut d'inférence de la campagne, dans
+`figures/<generationId>/`. Voir [Figures](docs-fr/workflow-and-results.md#figures).
 
 ## Configurations structurées de matching
 
