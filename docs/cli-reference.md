@@ -56,7 +56,9 @@ the data. Before writing anything, it checks the project:
   `model.root`, `model.config`, `model.data_manifest`, `execution.scratch`,
   `execution.invocation` (absent means the default), and
   `execution.machine_options.data_path`, plus `campaign` and `campaign_root`
-  (absent means `../campaigns/<campaign>`). Adding `analyses`, indicators, or
+  (absent means `../campaigns/<campaign>`). These values are compared as
+  written, once the defaults are applied, not as resolved paths: an absolute
+  `model.root` that points to the same folder is a change. Adding `analyses`, indicators, or
   changing `workers` or `seeds` is therefore accepted. If one of these values
   differs, the rerun stops with `init inputs changed: <key> in
   configs/<file>`, for example `init inputs changed: model.root in
@@ -64,7 +66,8 @@ the data. Before writing anything, it checks the project:
   `--model-config`, `--data-path`, `--scratch`, `--invocation`, `--directory`,
   `--project-name`) differs from the first `init`, or when you edited that
   value. A starter that cannot be read as YAML stops the rerun with `init
-  cannot parse configs/<file>: ...`. An edited `README.md` is kept and listed
+  cannot parse configs/<file>: <error>`, with the line and column when the YAML
+  parser gives them (for example `ParserError at line 12, column 3`). An edited `README.md` is kept and listed
   in `kept`. A missing starter or README is recreated and listed in
   `restored`;
 - in `campaigns/`: only the campaign folders of the four starters, named after
@@ -75,16 +78,20 @@ the data. Before writing anything, it checks the project:
   `figures/`, and the published result files.
 
 Anything else stops the rerun with `foreign content in init project: <entry>`
-or `foreign content in init campaign: <entry>`: another file or folder in
+or `foreign content in init campaign <campaign>: <entry>` (the entry is
+relative to that campaign folder): another file or folder in
 `configs/` (for example a copied meta-configuration), a campaign folder of
-your own (for example `<project>-grid-structured`), or a symbolic link. The
+your own (for example `<project>-grid-structured`), or a symbolic link (for
+example `foreign content in init project: configs/analyses/link.py`). The
 starters are compared before the campaign folders, so a renamed `campaign` is
 reported as `init inputs changed: campaign in ...`. Rerunning `init` is never
 required to continue: `plan`, `run`, `check`, `estimate`, and `analyze` do not
 depend on it.
 
 After a change of the data tree, refresh `manifest.json` with
-`--regenerate-data-manifest`: the project must pass the same checks (kept
+`--regenerate-data-manifest`. A rerun without this option does not hash the
+data again: it returns `unchanged` even if the data changed, so only
+`--regenerate-data-manifest` detects a data change. With this option, the project must pass the same checks (kept
 starters included); then only `manifest.json` is replaced and the status is
 `initialized`. Plans and results are not rewritten. If the data changed, a
 campaign planned before refuses to resume: `run` stops with `data manifest
@@ -184,7 +191,11 @@ JSON fields: `status` (`valid` or `invalid`), `checkVersion`,
 
 All seven are `null` when they cannot be computed, for example before any
 completed run (`diskSpace` then fails with `provide a calibration meta-config
-with a complete run`).
+with a complete run`). Before `plan`, `sealedPlan` and `diskSpace` fail with
+`campaign <campaign> has no plan yet: run plan first`; `diskSpace` gives the
+same message, naming the calibration campaign, when a calibration
+meta-configuration has not been planned. `estimate` stops with the same
+message.
 
 ## `estimate`
 

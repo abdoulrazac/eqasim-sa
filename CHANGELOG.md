@@ -72,6 +72,26 @@
     another Python when the path does not exist; the example analysis numbers
     presented as indicative; `requiredDiskBytes` versus `estimatedDiskBytes`
     in `check`; what `calibrationRuns` of `estimate` counts.
+- Clearer messages from the third end-to-end test on real eqasim and Nantes data:
+  - `init cannot parse configs/<file>: <error>` gives the line and column when
+    the YAML parser provides them (`ParserError at line 12, column 3`).
+  - `init` rerun: content inside a campaign folder is refused with
+    `foreign content in init campaign <campaign>: <entry>`, and a symbolic link
+    among the analysis scripts is named (`foreign content in init project:
+    configs/analyses/link.py`).
+  - `check` and `estimate` before `plan`: `sealedPlan`, `diskSpace`, and
+    `estimate` say `campaign <campaign> has no plan yet: run plan first`
+    instead of `plan.parquet must be a regular non-symlink file` or a raw
+    `[Errno 2]` error.
+  - `same_machine`: `environment differs` names the variables added or
+    removed since the first runs (names only, never values), or says
+    `same variable names, some values differ`.
+  - `plot`: the figure footer no longer repeats the status when the governed
+    report also lists it as a reason code.
+  - Starters: the comment above the machine block, now in English like the
+    other comments, says which values `init` fills in and compares on a
+    rerun, and that `workers` and `machine_options.processes` may be changed
+    freely.
 - Fix: commands could hang forever at exit after printing their result;
   Arrow reads (Parquet and CSV) no longer use worker threads.
 - BREAKING: analysis scripts. A new optional `analyses` block declares Python

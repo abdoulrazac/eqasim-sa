@@ -254,7 +254,8 @@ Tous les intervalles de confiance sont tracés exactement comme publiés, jamais
 tronqués, même lorsqu'un IC bootstrap ne contient pas son estimation. Chaque
 figure porte en pied une ligne `méthode · inferenceStatus · claimAuthorized=<true|false> ·
 reasonCodes · génération <12 premiers caractères>`, où `claimAuthorized` est lu
-dans le rapport gouverné (toujours `false` à ce jour), repliée sur plusieurs
+dans le rapport gouverné (toujours `false` à ce jour) et les codes de raison
+autres que le statut lui-même (`none` si le rapport n'en liste aucun), repliée sur plusieurs
 lignes quand elle est trop longue pour la largeur de la figure, et un bandeau
 rouge « campagne incomplète » quand le statut est `incomplete_noninferential`.
 Avec plusieurs indicateurs, l'indicateur principal de la décision de la charte

@@ -249,7 +249,8 @@ Every confidence interval is drawn exactly as published, never clamped, even
 when a bootstrap interval does not contain its estimate. Every figure carries a
 foot line `method · inferenceStatus · claimAuthorized=<true|false> · reasonCodes ·
 génération <first 12 characters>`, with `claimAuthorized` read from the governed
-report (currently always `false`), wrapped onto several lines when it is too
+report (currently always `false`) and the reason codes other than the status
+itself (`none` when the report lists none), wrapped onto several lines when it is too
 long for the figure width, and a red "campagne incomplète" banner when the
 status is `incomplete_noninferential`. With several indicators, the primary
 indicator of the charter decision (`decision.primary_indicator` in the governed

@@ -71,7 +71,11 @@ outputs:
     references: [HTS]
 calibration:
   meta_configs: [00-calibration.yml]
-# --- Rempli par eqasim-sa init : à modifier seulement si la machine change ---
+# --- Machine-specific values ---
+# eqasim-sa init fills in campaign (above), the paths below and, when given,
+# the eqasim command, and compares them when it is rerun: edit them only when
+# the machine changes. workers and machine_options.processes are yours:
+# change them freely.
 model:
   root: ../../eqasim-france
   config: config.yml
@@ -109,10 +113,13 @@ Lisez-le de haut en bas :
   références.
 - `calibration` désigne le fichier de calibration des ressources utilisé par
   `check` et `estimate`.
-- La partie sous la ligne de commentaire contient les chemins du dossier
-  eqasim, de son fichier de configuration, des données et du répertoire de
-  travail temporaire sur cette machine. `config: config.yml` est lu depuis le
-  dossier eqasim (`model.root`).
+- La partie sous le commentaire « Machine-specific values » contient les
+  chemins du dossier eqasim, de son fichier de configuration, des données et
+  du répertoire de travail temporaire sur cette machine. `init` les remplit
+  (avec `campaign`) et une relance d'`init` les compare : ne les modifiez que
+  si la machine change ; `workers` et `machine_options.processes` sont à vous
+  et se modifient librement. `config: config.yml` est lu depuis le dossier
+  eqasim (`model.root`).
 
 Avant toute planification, ouvrez votre copie de la configuration eqasim et
 vérifiez que sa liste `run:` contient `analysis.synthesis.population` : les
@@ -1463,7 +1470,11 @@ outputs:
     references: [HTS]
 calibration:
   meta_configs: [00-calibration.yml]
-# --- Rempli par eqasim-sa init : à modifier seulement si la machine change ---
+# --- Machine-specific values ---
+# eqasim-sa init fills in campaign (above), the paths below and, when given,
+# the eqasim command, and compares them when it is rerun: edit them only when
+# the machine changes. workers and machine_options.processes are yours:
+# change them freely.
 model:
   root: ../../eqasim-france
   config: config.yml
@@ -1510,7 +1521,11 @@ analysis:
   bootstrap_resamples: 99
 calibration:
   meta_configs: [00-calibration.yml]
-# --- Rempli par eqasim-sa init : à modifier seulement si la machine change ---
+# --- Machine-specific values ---
+# eqasim-sa init fills in campaign (above), the paths below and, when given,
+# the eqasim command, and compares them when it is rerun: edit them only when
+# the machine changes. workers and machine_options.processes are yours:
+# change them freely.
 model:
   root: ../../eqasim-france
   config: config.yml
@@ -1599,7 +1614,11 @@ indicators:
   - value: {output: commute, column: mean_commute_km, where: {group: all}}
 calibration:
   meta_configs: [00-calibration.yml]
-# --- Rempli par eqasim-sa init : à modifier seulement si la machine change ---
+# --- Machine-specific values ---
+# eqasim-sa init fills in campaign (above), the paths below and, when given,
+# the eqasim command, and compares them when it is rerun: edit them only when
+# the machine changes. workers and machine_options.processes are yours:
+# change them freely.
 model:
   root: ../../eqasim-france
   config: config.yml

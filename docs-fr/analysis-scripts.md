@@ -380,8 +380,11 @@ script défaillant n'apparaît qu'à `analyze` : essayez-le d'abord à la main.
 ## Essayer un script à la main
 
 Dès qu'un run est archivé, appelez `compute` sur ses fichiers avec
-l'interpréteur d'eqasim. Enregistrez ce fichier sous `try_commute.py` dans le
-dossier du projet et remplacez les deux valeurs à compléter :
+l'interpréteur d'eqasim. Enregistrez ce fichier sous `try_commute.py` hors du
+dossier du projet, par exemple dans le dossier qui contient le projet ou dans
+un dossier temporaire : une relance d'`init` refuse tout fichier qu'elle n'a
+pas créé (`foreign content in init project: try_commute.py`). Remplacez
+ensuite les deux valeurs à compléter :
 
 - `<campaign>` par la `campaign` de la méta-configuration, qui est aussi le nom
   du dossier sous `campaigns/` (par exemple `mon-analyse-sa-grid`) ;
@@ -410,13 +413,17 @@ print(
 ```
 
 La seed et les facteurs sont seulement transmis à `compute` ; `commute.py` les
-ignore. Lancez le fichier depuis le dossier du projet en remplaçant
-`<chemin vers eqasim>` par le dossier eqasim, absolu ou relatif au dossier du
-projet (et non à `configs/`, dossier auquel `model.root` est relatif : par
-exemple, `../../eqasim-france` dans un fichier de départ devient `../eqasim-france` ici) :
+ignore. Les chemins du script sont relatifs au dossier du projet : lancez-le
+depuis le dossier du projet en remplaçant `<chemin vers eqasim>` par le dossier
+eqasim, absolu ou relatif au dossier du projet (et non à `configs/`, dossier
+auquel `model.root` est relatif : par exemple, `../../eqasim-france` dans un
+fichier de départ devient `../eqasim-france` ici), et
+`<chemin vers try_commute.py>` par le chemin du fichier, absolu ou relatif au
+dossier du projet (`../try_commute.py` s'il est dans le dossier qui contient le
+projet) :
 
 ```bash
-uv run --project <chemin vers eqasim> --locked python try_commute.py
+uv run --project <chemin vers eqasim> --locked python <chemin vers try_commute.py>
 ```
 
 Si uv affiche ``Project directory `...` does not exist``, le chemin est faux et

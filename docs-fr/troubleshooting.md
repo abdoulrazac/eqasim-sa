@@ -130,11 +130,16 @@ quand une valeur remplie par `init` (`model.root`, `model.config`,
 `model.data_manifest`, `execution.scratch`, `execution.invocation`,
 `execution.machine_options.data_path`, `campaign`, `campaign_root`) diffère de
 ce qu'écrirait cet `init`, parce qu'une option diffère du premier `init` ou que
-la valeur a été modifiée ; `init cannot parse configs/<fichier>: ...` pour un
-fichier de départ qui n'est pas du YAML valide ; `foreign content in init project:
+la valeur a été modifiée (les valeurs sont comparées telles qu'écrites : un
+`model.root` absolu équivalent est un changement) ; `init cannot parse
+configs/<fichier>: ParserError at line 12, column 3` pour un fichier de départ
+qui n'est pas du YAML valide ; `foreign content in init project:
 configs/01-grid-structured.yml` pour un autre fichier dans `configs/` ;
 `foreign content in init project: campaigns/<nom>` pour un dossier de campagne
-à vous. Rien n'est écrit. Remède : la relance n'est jamais nécessaire pour
+à vous ; `foreign content in init campaign <campagne>: notes.txt` pour un
+fichier à vous dans un dossier de campagne ; `foreign content in init project:
+configs/analyses/lien.py` pour un lien symbolique parmi vos scripts
+d'analyse. Rien n'est écrit. Remède : la relance n'est jamais nécessaire pour
 continuer ; `plan`, `run`, `check`, `estimate` et `analyze` fonctionnent
 toujours. Pour la relancer malgré tout, donnez les mêmes options qu'au premier
 `init`, rétablissez la valeur nommée et sortez du projet les autres fichiers et
@@ -154,6 +159,13 @@ remplacez pas `plan.parquet`. Renommer une campagne change aussi sa
 Cause : état résiduel ou contenu étranger dans la racine. Remède : identifier sa
 provenance. Pour une nouvelle étude, choisir une racine vide. Ne fabriquez pas
 un plan pour recouvrir un état existant.
+
+## `campaign <campagne> has no plan yet: run plan first`
+
+Cause : `check` ou `estimate` a été lancé sur une méta-configuration (cible ou
+calibration) dont la campagne n'a pas encore de `plan.parquet`. Remède : lancez
+`plan` sur la méta-configuration de la campagne nommée, puis relancez `check`
+ou `estimate`.
 
 ## `provide a calibration meta-config with a complete run`
 
@@ -457,6 +469,15 @@ clair, suivie des champs `differing` :
 | `environment differs` | `environment_sha256`, `environment_variables` | autre machine, ou environnement de shell différent (environnement virtuel, `PATH`, autres variables) |
 | `model configuration changed` | `model_config_sha256` | le fichier `model.config` d'eqasim a été modifié depuis les premiers runs (hors clés propres à la machine comme `data_path` ou `processes`) |
 | `eqasim-sa installation changed` | `eqasim_sa_sha256` | `eqasim-sa` a été mis à jour ou réinstallé |
+
+`environment differs` est suivi des noms des variables ajoutées ou retirées
+depuis les premiers runs, par exemple `environment differs (variables added:
+UV, UV_RUN_RECURSION_DEPTH)`. Les valeurs ne sont jamais affichées, car elles
+peuvent contenir des secrets. Les runs enregistrent le nom de chaque variable
+mais une seule empreinte de toutes les valeurs : quand les noms sont les mêmes,
+le message indique `same variable names, some values differ` sans nommer la
+variable (souvent `PATH`) ; quand des noms ont été ajoutés ou retirés, une
+valeur modifiée ne peut pas être distinguée.
 
 Remède : préparer une nouvelle campagne (nouveau `campaign_root`) sur cette
 machine, ou rétablir ce qui a changé. Pour le backend `slurm`, `same_machine` est

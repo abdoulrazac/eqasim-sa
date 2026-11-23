@@ -53,8 +53,8 @@ scratch): give absolute paths
 to `--project`, `--model-root`, `--data-path`, `--directory`, and `--scratch`.
 `init` writes the paths of the starters relative to their `configs/` folder
 (absolute on Windows when the folder is on another drive); if you later move
-the project without those folders, edit the paths under the "Rempli par
-eqasim-sa init" comment of each starter.
+the project without those folders, edit the paths under the "Machine-specific
+values" comment of each starter.
 
 ## Initialize a project
 
@@ -111,13 +111,16 @@ missing one is recreated and listed in `restored`. Only a change of a value
 that `init` fills in (`model.root`, `model.config`, `model.data_manifest`,
 `execution.scratch`, `execution.invocation`,
 `execution.machine_options.data_path`, `campaign`, `campaign_root`) is refused,
-naming it: `init inputs changed: model.root in configs/01-grid.yml`. Another
+naming it: `init inputs changed: model.root in configs/01-grid.yml`. These
+values are compared as written (after defaults), so an absolute `model.root`
+pointing to the same folder counts as a change. Another
 file in `configs/` or a campaign folder of your own is refused too. The
 [CLI reference](cli-reference.md#rerunning-init-on-an-existing-project) gives
 the exact rules. You never need to rerun `init` to continue working.
 
 After a change of the data tree, refresh the manifest with
-`--regenerate-data-manifest`. If the data changed, a campaign planned before
+`--regenerate-data-manifest`: an identical rerun does not rehash the data, so
+only this option detects a data change. If the data changed, a campaign planned before
 the regeneration no longer
 matches its plan: `run` refuses to resume it with `data manifest changed since
 plan (dataManifestSha256)`. Keep the old state and use new campaign roots or a

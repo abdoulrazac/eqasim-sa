@@ -15,8 +15,9 @@ Il fonctionne avec eqasim officiel, non modifié : indiquez-lui un dossier eqasi
 empreinte de son contenu, et synpp exécute la liste `run:` de votre
 configuration eqasim telle quelle.
 
-Tous les fichiers de départ générés, dont calibration, Grid, OAT discret et Sobol, sont
-des démonstrations : ils
+Tous les [fichiers de départ](docs-fr/glossary.md) générés (les quatre
+méta-configurations qu'`init` écrit dans `configs/` : calibration, Grid, OAT
+discret et Sobol) sont des démonstrations : ils
 valident la configuration, l'exécution, le stockage et la plomberie d'analyse,
 mais ne peuvent soutenir aucune revendication inférentielle ou décisionnelle.
 Aucun fichier de départ Morris canonique n'est généré : ses revendications scientifiques,

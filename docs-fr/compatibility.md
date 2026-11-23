@@ -1,88 +1,88 @@
-# Compatibilite de version
+# Compatibilité de version
 
-[English](../docs/compatibility.md) | **Francais**
+[English](../docs/compatibility.md) | **Français**
 
 Cette page décrit `eqasim-sa` 0.3.0 ainsi que les changements non publiés
 courants : facteurs structurés, modèle eqasim identifié sans Git et scripts
 d'analyse. Le
 parseur Python et le code d'analyse sont normatifs. Il n'y a aucune
-compatibilite ascendante : seuls les formats courants sont lus et rien n'est
-migre.
+compatibilité ascendante : seuls les formats courants sont lus et rien n'est
+migré.
 
-## Matrice des plans et methodes
+## Matrice des plans et méthodes
 
-| Methode | Charte acceptee | Objectif et contrat stochastique | Schema du plan | Metadonnees de methode | Sens dans cette version |
+| Méthode | Charte acceptée | Objectif et contrat stochastique | Schéma du plan | Métadonnées de méthode | Sens dans cette version |
 | --- | --- | --- | --- | --- | --- |
-| `grid` | demonstration, y compris une charte omise | aucun ; la seed est une replication | v1 ; v3 avec facteur structure | aucune | demonstration uniquement ; premier choix recommande pour une structure nommee |
-| `discrete_oat` | demonstration uniquement | effets locaux normalises entre niveaux adjacents ; la seed est une replication | v1 | `discreteOatDesignVersion` v1 | criblage de demonstration ; pas Morris canonique |
-| `sobol` | demonstration, y compris une charte omise | un scramble et bootstrap de lignes ; la seed est un facteur | v1 ; v3 avec facteur structure | `sobolDesignVersion` v1 | demonstration non inferentielle uniquement |
-| `canonical_morris` | scientifique uniquement | `screening` ; `conditional_mean` ; CRN dans la trajectoire ; allocation pilote ou production declaree | v2 | `canonicalMorrisDesignVersion` v3 (SALib) | le v3 courant permet le criblage scientifique soumis au budget, a l'arret et a la robustesse |
-| `multiscramble_sobol` | scientifique uniquement | `fp` ou `ff` ; `finite_seed_factor` ; dependance independante ; au moins quatre scrambles independants explicites | v2 ; v3 avec facteur structure | `multiScrambleSobolDesignVersion` v3 (SALib) | le v3 courant permet la FP/FF scientifique soumise a une distribution de labels defendable, au budget, a l'arret et a la robustesse |
+| `grid` | démonstration, y compris une charte omise | aucun ; la seed est une réplication | v1 ; v3 avec facteur structuré | aucune | démonstration uniquement ; premier choix recommandé pour une structure nommée |
+| `discrete_oat` | démonstration uniquement | effets locaux normalisés entre niveaux adjacents ; la seed est une réplication | v1 | `discreteOatDesignVersion` v1 | criblage de démonstration ; pas Morris canonique |
+| `sobol` | démonstration, y compris une charte omise | un scramble et bootstrap de lignes ; la seed est un facteur | v1 ; v3 avec facteur structuré | `sobolDesignVersion` v1 | démonstration non inférentielle uniquement |
+| `canonical_morris` | scientifique uniquement | `screening` ; `conditional_mean` ; CRN dans la trajectoire ; allocation pilote ou production déclarée | v2 | `canonicalMorrisDesignVersion` v3 (SALib) | le v3 courant permet le criblage scientifique soumis au budget, à l'arrêt et à la robustesse |
+| `multiscramble_sobol` | scientifique uniquement | `fp` ou `ff` ; `finite_seed_factor` ; dépendance indépendante ; au moins quatre scrambles indépendants explicites | v2 ; v3 avec facteur structuré | `multiScrambleSobolDesignVersion` v3 (SALib) | le v3 courant permet la FP/FF scientifique soumise à une distribution de labels défendable, au budget, à l'arrêt et à la robustesse |
 
 Tous les plans utilisent `canonicalizationVersion` v1 et portent la
 métadonnée scellée `modelDocument` (la configuration eqasim canonique sans les
 clés propres à la machine ni `random_seed`) ; un plan qui ne la porte pas est
-refusé, Grid compris. Le schema v3 est ecrit
-uniquement pour un plan structure et ajoute la paire canonique exacte
-`structuredFactorsVersion: 1` et `structuredFactors`. Sous le schema de plan v3,
-Sobol de demonstration et Sobol multi-scramble recopient aussi le mapping complet
-label-vers-payload dans leurs metadonnees de methode comme second invariant
-scelle ; les deux mappings canoniques doivent etre exactement egaux. La version
-du schema de plan est independante de la version du design numerique. Les designs
+refusé, Grid compris. Le schéma v3 est écrit
+uniquement pour un plan structuré et ajoute la paire canonique exacte
+`structuredFactorsVersion: 1` et `structuredFactors`. Sous le schéma de plan v3,
+Sobol de démonstration et Sobol multi-scramble recopient aussi le mapping complet
+label-vers-payload dans leurs métadonnées de méthode comme second invariant
+scellé ; les deux mappings canoniques doivent être exactement égaux. La version
+du schéma de plan est indépendante de la version du design numérique. Les designs
 scientifiques sont en version v3 (contrat SALib). Les analyseurs scientifiques v3 reconstruisent strictement les
-metadonnees scellees du plan, son contexte et son design SALib. Les analyseurs de
-demonstration valident leurs contrats propres. L'analyse Grid directe valide la forme et les
-labels v3, mais ne dispose d'aucune metadonnee de methode ni configuration modele
-pour lier les payloads. Le preflight applicatif CLI fait autorite pour cette liaison
-complete : il reconstruit tout plan structure depuis la meta-configuration et le
-`modelDocument` scelle avant l'analyse coeur.
-Il n'existe aucune migration semantique ou en place entre les versions de plan.
+métadonnées scellées du plan, son contexte et son design SALib. Les analyseurs de
+démonstration valident leurs contrats propres. L'analyse Grid directe valide la forme et les
+labels v3, mais ne dispose d'aucune métadonnée de méthode ni configuration modèle
+pour lier les payloads. Le preflight applicatif CLI fait autorité pour cette liaison
+complète : il reconstruit tout plan structuré depuis la méta-configuration et le
+`modelDocument` scellé avant l'analyse cœur.
+Il n'existe aucune migration sémantique ou en place entre les versions de plan.
 
 ## Matrice d'analyse et de revendication
 
-Chaque analyse ecrit `analysis-generation.json` version 8 (avec
+Chaque analyse écrit `analysis-generation.json` version 8 (avec
 `provenance.analyses` et `provenance.analysisEnvironments`), `captured-run-set.json` en version de schéma 2 (avec
 `analyses` dans chaque run) et `governed-report.json` version 1.
 Pour une analyse scientifique v3, `provenance.numericalEngine` est
-exactement le descripteur scelle dans le plan.
+exactement le descripteur scellé dans le plan.
 
-| Etat | `inferenceStatus` | Preuve de convergence | Comportement de revendication |
+| État | `inferenceStatus` | Preuve de convergence | Comportement de revendication |
 | --- | --- | --- | --- |
 | Grid ou OAT discret | `demonstration_noninferential` | absente | `claimAuthorized: false` |
-| Sobol de demonstration a un scramble | `demonstration_noninferential` | absente | `claimAuthorized: false` |
-| Pilote Morris canonique | `pilot_only` | publiee, sans promouvoir le pilote | `claimAuthorized: false` |
-| Production Morris canonique | `conditional` si tous les criteres d'arret passent, sinon `unstable` | requise et evaluee | robustesse en attente ; `claimAuthorized: false` |
-| Sobol multi-scramble FP/FF | `conditional` si tous les criteres d'arret passent, sinon `unstable` | requise et evaluee entre scrambles independants | robustesse en attente ; `claimAuthorized: false` |
+| Sobol de démonstration à un scramble | `demonstration_noninferential` | absente | `claimAuthorized: false` |
+| Pilote Morris canonique | `pilot_only` | publiée, sans promouvoir le pilote | `claimAuthorized: false` |
+| Production Morris canonique | `conditional` si tous les critères d'arrêt passent, sinon `unstable` | requise et évaluée | robustesse en attente ; `claimAuthorized: false` |
+| Sobol multi-scramble FP/FF | `conditional` si tous les critères d'arrêt passent, sinon `unstable` | requise et évaluée entre scrambles indépendants | robustesse en attente ; `claimAuthorized: false` |
 
-Le criblage conserve les facteurs a examiner ; il n'estime pas des parts de
+Le criblage conserve les facteurs à examiner ; il n'estime pas des parts de
 variance et ne justifie pas leur fixation. FP indique quelle incertitude apprendre
-plus precisement en premier. FF exige une tolerance pratique declaree sur la part
+plus précisément en premier. FF exige une tolérance pratique déclarée sur la part
 de variance d'ordre total, interactions incluses. La seed finie est non
-actionnable et exclue des rangs de decision FP/FF.
+actionnable et exclue des rangs de décision FP/FF.
 
 ## Matrice des refus
 
-| Etat incompatible | Refus |
+| État incompatible | Refus |
 | --- | --- |
-| `discrete_oat` ou `sobol` avec une charte scientifique | rejete ; ces methodes exigent `charter.status: demonstration` |
-| `canonical_morris` ou `multiscramble_sobol` sans charte scientifique | rejete ; ces methodes exigent `charter.status: scientific` |
-| Morris canonique avec un objectif autre que `screening` | rejete |
-| Morris canonique sans `conditional_mean` ou sans dependance independante | rejete |
-| Sobol multi-scramble sans objectif `fp`/`ff`, `finite_seed_factor` ou dependance independante | rejete |
-| Tolerance FF hors de l'intervalle sans dimension `[0,1]` | rejetee |
-| `seed` structuree, alias de payload identique, liste ordonnee mal formee ou cle modele qui n'est pas une liste de chaines | rejete |
-| Facteur structure avec `discrete_oat` ou `canonical_morris` | rejete car l'ordre nominal des labels est arbitraire |
-| Metadonnees scellees d'un plan scientifique absentes, non prises en charge, non canoniques, alterees ou incompatibles avec le contexte | rejete avant publication par les analyseurs Morris canonique et Sobol multi-scramble |
+| `discrete_oat` ou `sobol` avec une charte scientifique | rejeté ; ces méthodes exigent `charter.status: demonstration` |
+| `canonical_morris` ou `multiscramble_sobol` sans charte scientifique | rejeté ; ces méthodes exigent `charter.status: scientific` |
+| Morris canonique avec un objectif autre que `screening` | rejeté |
+| Morris canonique sans `conditional_mean` ou sans dépendance indépendante | rejeté |
+| Sobol multi-scramble sans objectif `fp`/`ff`, `finite_seed_factor` ou dépendance indépendante | rejeté |
+| Tolérance FF hors de l'intervalle sans dimension `[0,1]` | rejetée |
+| `seed` structurée, alias de payload identique, liste ordonnée mal formée ou clé modèle qui n'est pas une liste de chaînes | rejeté |
+| Facteur structuré avec `discrete_oat` ou `canonical_morris` | rejeté car l'ordre nominal des labels est arbitraire |
+| Métadonnées scellées d'un plan scientifique absentes, non prises en charge, non canoniques, altérées ou incompatibles avec le contexte | rejeté avant publication par les analyseurs Morris canonique et Sobol multi-scramble |
 | Sortie connue laissée à son `file` par défaut dont l'étape eqasim manque dans `run:` | rejetée au chargement de la méta-configuration |
 | Sortie dont le suffixe de `file` (une fois `{prefix}` remplacé) ne peut pas nommer un fichier d'archive | rejetée au chargement de la méta-configuration |
 | Sortie CSV connue de la population, ou sortie `.gpkg`, quand `output_formats` de la configuration eqasim est présent sans `csv`, ou sans `gpkg` | rejetée au chargement de la méta-configuration |
 | Indicateur `share`, `value` ou `tv_distance` sur une sortie dont le `file` n'est pas un fichier `.csv` | rejeté au chargement de la méta-configuration |
 | Entrée d'indicateur dont la clé n'est pas `tv_distance`, `share` ou `value` | rejetée au chargement de la méta-configuration |
 | `share.category` ou valeur de `where` qui n'est pas une chaîne YAML entre guillemets | rejeté au chargement de la méta-configuration |
-| Plan Grid presente a l'analyse | l'analyse coeur directe valide methode, marqueurs, completude, forme et labels v3 ; le preflight applicatif reconstruit le plan pour lier les payloads au modele et a la meta-configuration |
-| Positions scientifiques au-dessus du budget declare apres reserve | rejete avant publication du plan |
-| Analyse OAT ou Sobol incomplete | rejetee car la completude doit valoir `1.0` |
-| Preuve d'arret non prise en charge ou non evaluable | echec ferme, donc non convergee |
+| Plan Grid présenté à l'analyse | l'analyse cœur directe valide méthode, marqueurs, complétude, forme et labels v3 ; le preflight applicatif reconstruit le plan pour lier les payloads au modèle et à la méta-configuration |
+| Positions scientifiques au-dessus du budget déclaré après réserve | rejeté avant publication du plan |
+| Analyse OAT ou Sobol incomplète | rejetée car la complétude doit valoir `1.0` |
+| Preuve d'arrêt non prise en charge ou non évaluable | échec fermé, donc non convergée |
 | Plan sans la métadonnée scellée `modelDocument` | refusé par `run`, `check`, `estimate` et `analyze` : `plan.parquet has no sealed modelDocument; plan a new campaign` |
 | Entrée d'analyse non déclarée dans `outputs`, autre analyse, ou fichier qui n'est ni `.csv` ni `.gpkg` | rejetée au chargement de la méta-configuration |
 | Script d'analyse absent, qui n'est pas un fichier `.py` ordinaire, ou lien symbolique | rejeté au chargement de la méta-configuration |
@@ -114,20 +114,20 @@ actionnable et exclue des rangs de decision FP/FF.
   d'eqasim, ou une étape d'analyse eqasim dont le fichier CSV est lu avec
   `value`.
 
-## Frontieres de init et Nantes
+## Frontières de init et Nantes
 
-`eqasim-sa init` genere seulement des fichiers de départ de demonstration pour calibration,
-Grid, OAT discret et Sobol de demonstration a un scramble. Il ne genere ni fichier de départ
+`eqasim-sa init` génère seulement des fichiers de départ de démonstration pour calibration,
+Grid, OAT discret et Sobol de démonstration à un scramble. Il ne génère ni fichier de départ
 scientifique Morris canonique ou Sobol multi-scramble, ni protocole Nantes, ni
 plan, ni sortie de simulation ou d'analyse.
 
-`protocols/nantes-scientific/` est un protocole du depot, pas une donnee du
-paquet ni un modele de `init`. Son renderer ne produit une meta-configuration de
-phase qu'apres verification des plans et preuves amont scelles. Il refuse sans
-creer de sortie les preuves absentes, liees symboliquement, mal formees,
-alterees, incompatibles avec le contexte ou la phase. Les tests du renderer
-emploient de faux modeles et preuves temporaires. Ils n'etablissent pas que le
-protocole Nantes reel a ete planifie ou execute.
+`protocols/nantes-scientific/` est un protocole du dépôt, pas une donnée du
+paquet ni un modèle de `init`. Son renderer ne produit une méta-configuration de
+phase qu'après vérification des plans et preuves amont scellées. Il refuse sans
+créer de sortie les preuves absentes, liées symboliquement, mal formées,
+altérées, incompatibles avec le contexte ou la phase. Les tests du renderer
+emploient de faux modèles et preuves temporaires. Ils n'établissent pas que le
+protocole Nantes réel a été planifié ou exécuté.
 
 ## Plateformes et domaines de hash
 
@@ -153,10 +153,10 @@ scratch worker est devenue `<scratch>/esa/<campagne>/w<slot>/c<12 hex>/`.
 
 ## Matrice de version
 
-| Version | Python | Schemas de plan lus/ecrits | Manifeste d'analyse | Migration |
+| Version | Python | Schémas de plan lus/écrits | Manifeste d'analyse | Migration |
 | --- | --- | --- | --- | --- |
-| 0.3.0 + Unreleased | `>=3.13,<3.14` | schemas de plan v1/v2/v3 ; design scientifique v3 uniquement | v8 | aucune |
+| 0.3.0 + Unreleased | `>=3.13,<3.14` | schémas de plan v1/v2/v3 ; design scientifique v3 uniquement | v8 | aucune |
 
 Voir les [preuves de version](../docs/release-evidence-0.3.0.md) pour les
-commandes reellement executees, les empreintes des artefacts et les limites de
+commandes réellement exécutées, les empreintes des artefacts et les limites de
 l'environnement.

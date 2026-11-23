@@ -370,8 +370,11 @@ shows up at `analyze`, so try it by hand first.
 ## Trying a script by hand
 
 Once one run is archived, call `compute` on its files with eqasim's
-interpreter. Save this file as `try_commute.py` in the project folder, and
-replace the two placeholders:
+interpreter. Save this file as `try_commute.py` outside the project folder,
+for example in the folder that contains the project or in a temporary folder:
+a rerun of `init` refuses any file it did not create
+(`foreign content in init project: try_commute.py`). Then replace the two
+placeholders:
 
 - `<campaign>` with the `campaign` of the meta-configuration, which is also
   the folder name under `campaigns/` (for example `mon-analyse-sa-grid`);
@@ -400,13 +403,16 @@ print(
 ```
 
 The seed and factors are only passed to `compute`; `commute.py` ignores them.
-Run the file from the project folder, replacing `<path to eqasim>` with the
-eqasim folder, absolute or relative to the project folder (not to `configs/`,
-the folder that `model.root` is relative to: for example, `../../eqasim-france`
-in a starter is `../eqasim-france` here):
+The paths in the script are relative to the project folder: run it from the
+project folder, replacing `<path to eqasim>` with the eqasim folder, absolute
+or relative to the project folder (not to `configs/`, the folder that
+`model.root` is relative to: for example, `../../eqasim-france` in a starter is
+`../eqasim-france` here), and `<path to try_commute.py>` with the path of the
+file, absolute or relative to the project folder (`../try_commute.py` when it
+sits in the folder that contains the project):
 
 ```bash
-uv run --project <path to eqasim> --locked python try_commute.py
+uv run --project <path to eqasim> --locked python <path to try_commute.py>
 ```
 
 If uv prints ``Project directory `...` does not exist``, the path is wrong and

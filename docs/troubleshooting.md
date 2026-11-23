@@ -122,10 +122,15 @@ when a value that `init` fills in (`model.root`, `model.config`,
 `model.data_manifest`, `execution.scratch`, `execution.invocation`,
 `execution.machine_options.data_path`, `campaign`, `campaign_root`) differs
 from what this `init` would write, because an option differs from the first
-`init` or because the value was edited; `init cannot parse configs/<file>:
-...` for a starter that is not valid YAML; `foreign content in init project:
+`init` or because the value was edited (values are compared as written, so
+an equivalent absolute `model.root` is a change); `init cannot parse
+configs/<file>: ParserError at line 12, column 3` for a starter that is not
+valid YAML; `foreign content in init project:
 configs/01-grid-structured.yml` for another file in `configs/`; `foreign
-content in init project: campaigns/<name>` for a campaign folder of your own.
+content in init project: campaigns/<name>` for a campaign folder of your own;
+`foreign content in init campaign <campaign>: notes.txt` for a file of your
+own inside a campaign folder; `foreign content in init project:
+configs/analyses/link.py` for a symbolic link among your analysis scripts.
 Nothing is written. Remedy: the rerun is never needed to continue working;
 `plan`, `run`, `check`, `estimate`, and `analyze` keep working. To rerun it
 anyway, give the same options as the first `init`, restore the named value,
@@ -144,6 +149,12 @@ Renaming a campaign also changes its default `design_seed`.
 Cause: residual state or unrelated content exists in the root. Remedy: identify
 its provenance. For a new study, choose an empty root. Do not create a plan over
 existing state.
+
+## `campaign <campaign> has no plan yet: run plan first`
+
+Cause: `check` or `estimate` was run on a meta-configuration (target or
+calibration) whose campaign has no `plan.parquet` yet. Remedy: run `plan` on
+the meta-configuration of the named campaign, then `check` or `estimate` again.
 
 ## `provide a calibration meta-config with a complete run`
 
@@ -437,6 +448,14 @@ message names each cause in plain words, followed by the `differing` fields:
 | `environment differs` | `environment_sha256`, `environment_variables` | another machine, or a different shell environment (virtual environment, `PATH`, other variables) |
 | `model configuration changed` | `model_config_sha256` | the eqasim `model.config` file was edited since the first runs (machine-only keys such as `data_path` or `processes` excepted) |
 | `eqasim-sa installation changed` | `eqasim_sa_sha256` | `eqasim-sa` was updated or reinstalled |
+
+`environment differs` is followed by the names of the variables added or
+removed since the first runs, for example `environment differs (variables
+added: UV, UV_RUN_RECURSION_DEPTH)`. Values are never shown, since they may
+hold secrets. The runs record each variable's name but only one digest of all
+values: when the names are the same, the message says `same variable names,
+some values differ` without naming the variable (often `PATH`); when names
+were added or removed, a changed value cannot be told apart.
 
 Remedy: prepare a new campaign (new `campaign_root`) on this machine, or restore
 what changed. For the `slurm` backend, `same_machine` is skipped on the

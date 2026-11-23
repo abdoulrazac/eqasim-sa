@@ -58,7 +58,10 @@ données. Avant d'écrire quoi que ce soit, la commande vérifie le projet :
   écrirait : `model.root`, `model.config`, `model.data_manifest`,
   `execution.scratch`, `execution.invocation` (absente vaut la valeur par
   défaut) et `execution.machine_options.data_path`, ainsi que `campaign` et
-  `campaign_root` (absente vaut `../campaigns/<campaign>`). Ajouter `analyses`,
+  `campaign_root` (absente vaut `../campaigns/<campaign>`). Ces valeurs sont
+  comparées telles qu'écrites, une fois les valeurs par défaut appliquées, et
+  non comme des chemins résolus : un `model.root` absolu qui désigne le même
+  dossier est un changement. Ajouter `analyses`,
   des indicateurs, ou changer `workers` ou `seeds` est donc accepté. Si l'une
   de ces valeurs diffère, la relance s'arrête avec `init inputs changed: <clé>
   in configs/<fichier>`, par exemple `init inputs changed: model.root in
@@ -66,7 +69,8 @@ données. Avant d'écrire quoi que ce soit, la commande vérifie le projet :
   `--model-config`, `--data-path`, `--scratch`, `--invocation`, `--directory`,
   `--project-name`) diffère du premier `init`, ou quand vous avez modifié cette
   valeur. Un fichier de départ illisible en YAML arrête la relance avec `init cannot
-  parse configs/<fichier>: ...`. Un `README.md` modifié est conservé et listé
+  parse configs/<fichier>: <erreur>`, avec la ligne et la colonne quand
+  l'analyseur YAML les donne (par exemple `ParserError at line 12, column 3`). Un `README.md` modifié est conservé et listé
   dans `kept`. Un fichier de départ ou un README manquant est recréé et listé dans
   `restored` ;
 - dans `campaigns/` : seulement les dossiers de campagne des quatre fichiers de départ,
@@ -77,16 +81,21 @@ données. Avant d'écrire quoi que ce soit, la commande vérifie le projet :
   `figures/` et les fichiers de résultats publiés.
 
 Tout le reste arrête la relance avec `foreign content in init project: <entrée>`
-ou `foreign content in init campaign: <entrée>` : un autre fichier ou dossier
+ou `foreign content in init campaign <campagne>: <entrée>` (l'entrée est
+relative à ce dossier de campagne) : un autre fichier ou dossier
 dans `configs/` (par exemple une méta-configuration copiée), un dossier de
 campagne à vous (par exemple `<projet>-grid-structured`) ou un lien
-symbolique. Les fichiers de départ sont comparés avant les dossiers de campagne : une
+symbolique (par exemple `foreign content in init project:
+configs/analyses/lien.py`). Les fichiers de départ sont comparés avant les dossiers de campagne : une
 `campaign` renommée est donc signalée par `init inputs changed: campaign in
 ...`. Relancer `init` n'est jamais nécessaire pour continuer : `plan`, `run`,
 `check`, `estimate` et `analyze` n'en dépendent pas.
 
 Après un changement de l'arbre de données, rafraîchissez `manifest.json` avec
-`--regenerate-data-manifest` : le projet doit passer les mêmes contrôles
+`--regenerate-data-manifest`. Une relance sans cette option ne rehache pas les
+données : elle renvoie `unchanged` même si les données ont changé, et seul
+`--regenerate-data-manifest` détecte un changement de données. Avec cette
+option, le projet doit passer les mêmes contrôles
 (fichiers de départ conservés compris) ; seul `manifest.json` est alors remplacé et le
 statut est `initialized`. Les plans et résultats ne sont pas réécrits. Si les
 données ont changé, une campagne planifiée avant refuse de reprendre : `run`
@@ -187,7 +196,11 @@ Champs JSON : `status` (`valid` ou `invalid`), `checkVersion`,
 
 Les sept valent `null` quand ils ne peuvent pas être calculés, par exemple
 avant tout run terminé (`diskSpace` échoue alors avec `provide a calibration
-meta-config with a complete run`).
+meta-config with a complete run`). Avant `plan`, `sealedPlan` et `diskSpace`
+échouent avec `campaign <campagne> has no plan yet: run plan first` ;
+`diskSpace` donne le même message, en nommant la campagne de calibration,
+quand une méta-configuration de calibration n'a pas été planifiée. `estimate`
+s'arrête avec le même message.
 
 ## `estimate`
 

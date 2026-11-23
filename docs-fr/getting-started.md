@@ -56,7 +56,7 @@ départ* (les quatre méta-configurations de démonstration qu'il crée dans
 `configs/`, appelées *starters* dans la documentation anglaise) relativement à
 leur dossier `configs/` (en absolu sous Windows quand le dossier est sur un
 autre lecteur) ; si vous déplacez ensuite le projet sans ces dossiers,
-modifiez les chemins sous le commentaire « Rempli par eqasim-sa init » de
+modifiez les chemins sous le commentaire « Machine-specific values » de
 chaque fichier de départ.
 
 ## Initialiser un projet
@@ -118,14 +118,18 @@ remplie par `init` (`model.root`, `model.config`, `model.data_manifest`,
 `execution.scratch`, `execution.invocation`,
 `execution.machine_options.data_path`, `campaign`, `campaign_root`) est
 refusé, en la nommant : `init inputs changed: model.root in
-configs/01-grid.yml`. Un autre fichier dans `configs/` ou un dossier de
+configs/01-grid.yml`. Ces valeurs sont comparées telles qu'écrites (après les
+valeurs par défaut) : un `model.root` absolu qui désigne le même dossier compte
+comme un changement. Un autre fichier dans `configs/` ou un dossier de
 campagne à vous est aussi refusé. La
 [référence CLI](cli-reference.md#relancer-init-sur-un-projet-existant) donne
 les règles exactes. Il n'est jamais nécessaire de relancer `init` pour
 continuer à travailler.
 
 Après un changement de l'arbre de données, rafraîchissez le manifeste avec
-`--regenerate-data-manifest`. Si les données ont changé, une campagne planifiée
+`--regenerate-data-manifest` : une relance identique ne rehache pas les
+données, et seule cette option détecte un changement de données. Si les
+données ont changé, une campagne planifiée
 avant la régénération ne
 correspond plus à son plan : `run` refuse de la reprendre avec `data manifest
 changed since plan (dataManifestSha256)`. Conservez l'ancien état et utilisez
