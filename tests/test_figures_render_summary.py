@@ -136,6 +136,24 @@ def test_saved_png_keeps_long_tick_labels_and_stamp() -> None:
     assert image.size[0] > 8 * 150
 
 
+@pytest.mark.parametrize("repeat", [1, 3])
+def test_saved_png_never_crops_a_long_axis_label(repeat: int) -> None:
+    # matplotlib's own tight box ignores the part of an axis label that runs
+    # past its axes: the saved canvas must still hold the figure and the label.
+    fig = Figure(figsize=(8, 5.2))
+    ax = fig.subplots()
+    fig.subplots_adjust(left=0.12, right=0.95, top=0.86, bottom=0.2)
+    ax.set_ylabel("largeur de l'IC, premier ordre (tv_distance(age, ref=reference))" * repeat)
+    stamp(fig, _stub(reasons=LONG_REASONS))
+    image = PIL.Image.open(io.BytesIO(plot_module._png(fig)))
+    width, height = image.size
+    assert width >= 8 * 150 and height >= 5.2 * 150
+    canvas = FigureCanvasAgg(fig)
+    canvas.draw()
+    label = ax.yaxis.label.get_window_extent(canvas.get_renderer())
+    assert height >= label.height / fig.dpi * 150
+
+
 def test_incomplete_campaign_gets_banner() -> None:
     fig = Figure()
     stamp(fig, _stub(status="incomplete_noninferential"))

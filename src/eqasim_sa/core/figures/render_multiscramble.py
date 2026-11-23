@@ -101,7 +101,7 @@ def render_multiscramble_indices(analysis: PublishedAnalysis) -> list[RenderedFi
         rule = RANK_RULES.get(first.get("objective"))
         if rule is not None and any(_finite(r.get("rank")) for r in actionable):
             title += f"\n{rule}"
-        ax.set_title(title, fontsize=9)
+        ax.set_title(title, fontsize=9, pad=14)  # room for the rank labels
         stamp(figure, analysis)
         figures.append(
             RenderedFigure(

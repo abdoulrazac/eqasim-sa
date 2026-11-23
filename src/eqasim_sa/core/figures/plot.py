@@ -7,6 +7,10 @@ import uuid
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
+from matplotlib.transforms import Bbox
+
 from eqasim_sa.core.figures.catalogue import FIGURES, select_figures
 from eqasim_sa.core.figures.common import (
     FigureNotApplicable,
@@ -56,16 +60,33 @@ def _file_name(name: str, indicator: str | None) -> str:
     return f"{name}-{re.sub(r'[^A-Za-z0-9_-]', '_', indicator)}.png"
 
 
-def _png(figure) -> bytes:
+def _saved_box(figure: Figure) -> Bbox:
+    """The canvas to save, in inches: it only grows, never crops.
+
+    It is the union of the figure itself, matplotlib's tight box (long tick
+    labels, the stamp) and every axis label, whose part beyond its axes the
+    tight box ignores; plus a 0.1 inch margin.
+    """
+    canvas = FigureCanvasAgg(figure)
+    canvas.draw()
+    renderer = canvas.get_renderer()
+    to_inches = figure.dpi_scale_trans.inverted()
+    boxes = [figure.bbox_inches, figure.get_tightbbox(renderer)]
+    for ax in figure.axes:
+        for label in (ax.xaxis.label, ax.yaxis.label):
+            if label.get_visible() and label.get_text():
+                boxes.append(label.get_window_extent(renderer).transformed(to_inches))
+    return Bbox.union(boxes).padded(0.1)
+
+
+def _png(figure: Figure) -> bytes:
     buffer = io.BytesIO()
-    # A tight bounding box keeps every artist (long tick labels, the stamp).
     figure.savefig(
         buffer,
         format="png",
         dpi=150,
         metadata={"Software": None},
-        bbox_inches="tight",
-        pad_inches=0.1,
+        bbox_inches=_saved_box(figure),
     )
     return buffer.getvalue()
 
