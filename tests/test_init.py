@@ -1130,3 +1130,67 @@ def test_parser_survives_missing_package_metadata(
         built.parse_args(["--version"])
     assert caught.value.code == 0
     assert capsys.readouterr().out == "eqasim-sa unknown\n"
+
+
+def test_init_rerun_accepts_archives_of_an_output_added_to_a_kept_starter(
+    tmp_path: Path,
+) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    grid = root / "configs/01-grid.yml"
+    grid.write_text(
+        grid.read_text().replace(
+            "outputs:\n", 'outputs:\n  extra: {file: "{prefix}extra.csv"}\n', 1
+        )
+    )
+    campaign = root / "campaigns/project-grid"
+    campaign.mkdir()
+    run_id = "a" * 32
+    pq.write_table(pa.table({"runId": [run_id]}), campaign / "plan.parquet")
+    (campaign / "archives" / run_id).mkdir(parents=True)
+    (campaign / "archives" / run_id / "extra.csv").write_text("x\n")
+
+    result = init_from_inputs("project", root, model, data, None, invocation())
+
+    assert result["kept"] == ["configs/01-grid.yml"]
+
+
+def test_init_rerun_restores_nothing_when_a_starter_is_refused(tmp_path: Path) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    (root / "configs/02-discrete-oat.yml").unlink()
+    grid = root / "configs/01-grid.yml"
+    grid.write_text(grid.read_text().replace("root: ", "root: ../elsewhere/", 1))
+
+    with pytest.raises(FileExistsError, match="init inputs changed: model.root"):
+        init_from_inputs("project", root, model, data, None, invocation())
+    assert not (root / "configs/02-discrete-oat.yml").exists()
+
+
+def test_init_rerun_restores_nothing_when_the_scratch_is_refused(tmp_path: Path) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    (root / "configs/02-discrete-oat.yml").unlink()
+    (root / ".gitattributes").unlink()
+    (root / "scratch" / "esa" / "foreign-campaign").mkdir(parents=True)
+
+    with pytest.raises(FileExistsError, match="foreign content in init scratch"):
+        init_from_inputs("project", root, model, data, None, invocation())
+    assert not (root / "configs/02-discrete-oat.yml").exists()
+    assert not (root / ".gitattributes").exists()
+
+
+@pytest.mark.parametrize(
+    "outputs",
+    ['outputs: [persons]\n', 'outputs:\n  "bad name": {file: "x.csv"}\n', 'outputs:\n  odd: {file: "../x.csv"}\n'],
+)
+def test_init_rerun_tolerates_unusual_outputs_in_a_kept_starter(
+    tmp_path: Path, outputs: str
+) -> None:
+    # Validating outputs is plan's job; init only derives archive names.
+    _, root, model, data = initialize(tmp_path, "project")
+    grid = root / "configs/01-grid.yml"
+    text = grid.read_text()
+    start, end = text.index("outputs:\n"), text.index("# ---")
+    grid.write_text(text[:start] + outputs + text[end:])
+
+    result = init_from_inputs("project", root, model, data, None, invocation())
+
+    assert result["kept"] == ["configs/01-grid.yml"]

@@ -319,10 +319,11 @@ def _compare_starter(relative: str, actual: bytes, rendered: bytes) -> None:
 
 def _generated_files(
     directory: Path, rendered: dict[str, bytes]
-) -> tuple[list[str], list[str]]:
-    """Missing generated files to recreate, and edited ones to keep."""
+) -> tuple[list[str], list[str], dict[str, bytes]]:
+    """Missing generated files to recreate, edited ones to keep, and the
+    effective content of every file (kept as on disk, otherwise rendered)."""
 
-    missing, kept = [], []
+    missing, kept, effective = [], [], dict(rendered)
     for name in sorted(rendered, key=lambda item: (item != "README.md", item)):
         relative = "README.md" if name == "README.md" else f"configs/{name}"
         path = directory / relative
@@ -336,7 +337,8 @@ def _generated_files(
             _compare_starter(relative, actual, rendered[name])
         # The README's only input, --model-config, is checked in the starters.
         kept.append(relative)
-    return missing, kept
+        effective[name] = actual
+    return missing, kept, effective
 
 
 def _preflight_campaigns(directory: Path, campaigns: dict[str, str]) -> None:
@@ -695,26 +697,35 @@ def _publish_scaffold(
             platform.remove_tree(staging)
 
 
-def _declared_archive_files(rendered: dict[str, bytes], prefix: str) -> set[str]:
-    """Archive file names of the outputs declared by the rendered starters."""
+def _declared_archive_files(starters: dict[str, bytes], prefix: str) -> set[str]:
+    """Archive file names of the outputs declared by the starters.
+
+    A declaration that cannot name an archive file adds nothing: checking it
+    is ``plan``'s job, and no run can have archived it.
+    """
 
     names = set()
-    for name, content in rendered.items():
+    for name, content in starters.items():
         if not name.endswith(".yml"):
             continue
         document = resolve_meta_config_document(
             load_yaml_source(content.decode("utf-8"))
         )
         outputs = document.get("outputs") if isinstance(document, dict) else None
-        for output, declaration in (outputs or {}).items():
+        if not isinstance(outputs, dict):
+            continue
+        for output, declaration in outputs.items():
             if isinstance(declaration, dict) and isinstance(
                 declaration.get("file"), str
             ):
-                names.add(
-                    archive_file_name(
-                        output, declaration["file"].replace("{prefix}", prefix)
+                try:
+                    names.add(
+                        archive_file_name(
+                            output, declaration["file"].replace("{prefix}", prefix)
+                        )
                     )
-                )
+                except ValueError:
+                    continue
     return names
 
 
@@ -818,9 +829,7 @@ def init_from_inputs(
     if scratch_relative is None and selected_scratch.exists():
         WorkerWorkspace.validate_scratch(selected_scratch, campaign_names)
     prefix = model_document["config"].get("output_prefix", DEFAULT_OUTPUT_PREFIX)
-    expected_artifacts = _declared_archive_files(
-        expected, prefix if isinstance(prefix, str) else DEFAULT_OUTPUT_PREFIX
-    )
+    prefix = prefix if isinstance(prefix, str) else DEFAULT_OUTPUT_PREFIX
     if new_project:
         created_external_scratch = False
         if scratch_relative is None:
@@ -838,16 +847,25 @@ def init_from_inputs(
     else:
         # Starters first: a renamed campaign is an init input change, not a
         # foreign campaign folder.
-        missing, kept = _generated_files(absolute, expected)
+        missing, kept, effective = _generated_files(absolute, expected)
         _preflight_campaigns(absolute, campaigns)
         if not regenerate_data_manifest:
             _validate_project_manifest(absolute / "manifest.json")
-        _durable_preflight(absolute, expected_artifacts, campaigns)
+        # Archives follow the outputs of the starters as they are on disk.
+        _durable_preflight(
+            absolute, _declared_archive_files(effective, prefix), campaigns
+        )
+        selected_scratch = _directory_or_create(selected_scratch, "scratch")
+    WorkerWorkspace.validate_scratch(selected_scratch, campaign_names)
+    if not new_project:
+        # Only after every check: recreate missing generated files, never
+        # overwriting one that appeared meanwhile.
         for relative in missing:
-            name = Path(relative).name
-            # Never overwrite a file that appeared meanwhile.
             publish_bytes(
-                expected[name], absolute / relative, replace=False, default_mode=0o644
+                expected[Path(relative).name],
+                absolute / relative,
+                replace=False,
+                default_mode=0o644,
             )
             restored.append(relative)
         attributes = absolute / GITATTRIBUTES
@@ -860,8 +878,6 @@ def init_from_inputs(
                 restored.append(GITATTRIBUTES)
             except FileExistsError:
                 pass
-        selected_scratch = _directory_or_create(selected_scratch, "scratch")
-    WorkerWorkspace.validate_scratch(selected_scratch, campaign_names)
     manifest = absolute / "manifest.json"
     if not new_project and regenerate_data_manifest:
         generate_data_manifest(data, manifest, replace=True)
