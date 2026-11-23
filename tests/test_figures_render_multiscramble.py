@@ -195,3 +195,57 @@ def test_multiscramble_end_to_end(tmp_path):
         figs = render(analysis)
         assert len(figs) == 1 and figs[0].indicator.startswith("tv_distance(age")
         assert "governedReport" in figs[0].sources
+
+
+def test_convergence_x_axis_is_base_sample_size():
+    # The producer iterates checkpoints over baseSampleSizes with a fixed
+    # number of scrambles: the x axis is N, not a count of scrambles.
+    ax = render_multiscramble_convergence(_stub(_conv_rows()))[0].figure.axes[0]
+    assert ax.get_xlabel() == "taille d'échantillon de base N au point de contrôle"
+
+
+def test_indices_and_by_scramble_titles_name_base_sample_size():
+    ax = render_multiscramble_indices(_stub(_indices_rows(), role="sensitivity"))[0].figure.axes[0]
+    assert "N = 4" in ax.get_title()
+    assert "point de contrôle 4" not in ax.get_title()
+    ax = render_multiscramble_by_scramble(_stub(_by_rows(), role="byScramble"))[0].figure.axes[0]
+    assert "N = 4" in ax.get_title()
+    assert "point de contrôle 4" not in ax.get_title()
+
+
+@pytest.mark.parametrize(
+    "objective,rule",
+    [
+        ("ff", "rang ff : borne haute de ST croissante (rang 1 = meilleur candidat à fixer)"),
+        ("fp", "rang fp : S1 moyen décroissant (rang 1 = facteur le plus influent)"),
+    ],
+)
+def test_indices_title_states_ranking_rule(objective, rule):
+    rows = [{**r, "objective": objective} for r in _indices_rows()]
+    ax = render_multiscramble_indices(_stub(rows, role="sensitivity"))[0].figure.axes[0]
+    assert rule in ax.get_title()
+
+
+def test_indices_print_average_ranks_without_truncation():
+    rows = _indices_rows()
+    rows[1]["rank"] = 1.5
+    rows[2]["rank"] = 1.5
+    ax = render_multiscramble_indices(_stub(rows, role="sensitivity"))[0].figure.axes[0]
+    assert [t.get_text() for t in ax.texts] == ["rang 1.5", "rang 1.5"]
+
+
+def test_convergence_non_primary_indicator_has_no_criterion_wording():
+    rows = _conv_rows() + [
+        {**r, "indicator": "y", "is_primary_indicator": False} for r in _conv_rows()
+    ]
+    crit = [{"metric": "ci_width", "threshold": 0.1, "consecutiveChecks": 2}]
+    primary, secondary = (
+        f.figure.axes[0] for f in render_multiscramble_convergence(_stub(rows, crit))
+    )
+    labels = [ln.get_label() for ln in primary.get_lines()]
+    assert "max (critère)" in labels
+    assert "critère" in primary.get_title()
+    labels = [ln.get_label() for ln in secondary.get_lines()]
+    assert "max des facteurs actionnables" in labels
+    assert "max (critère)" not in labels
+    assert "critère" not in secondary.get_title()

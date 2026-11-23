@@ -32,6 +32,15 @@ def _last(rows: list[dict], indicator: str) -> list[dict]:
     return [r for r in subset if r["checkpoint"] == last]
 
 
+# Ranking rules of the producer (multiscramble_sobol.py, _objective_average_ranks):
+# fp ranks first_order_mean in decreasing order, ff ranks total_order_ci_high in
+# increasing order; ties get their average rank.
+RANK_RULES = {
+    "fp": "rang fp : S1 moyen décroissant (rang 1 = facteur le plus influent)",
+    "ff": "rang ff : borne haute de ST croissante (rang 1 = meilleur candidat à fixer)",
+}
+
+
 def _rank_key(row: dict):
     rank = row.get("rank")
     return (not _finite(rank), rank if _finite(rank) else 0.0, row["factor"])
@@ -73,7 +82,7 @@ def render_multiscramble_indices(analysis: PublishedAnalysis) -> list[RenderedFi
                 ax.text(
                     x,
                     1.0,
-                    f"rang {int(row['rank'])}",
+                    f"rang {row['rank']:g}",
                     ha="center",
                     va="bottom",
                     fontsize=7,
@@ -85,11 +94,14 @@ def render_multiscramble_indices(analysis: PublishedAnalysis) -> list[RenderedFi
             ax.set_xlabel("facteurs non actionnables à droite (grisés, hachurés, sans rang)")
         ax.legend(fontsize=7)
         first = subset[0]
-        ax.set_title(
-            f"moyenne sur {first['scrambles']} scrambles, IC {first['confidence_level']:.0%}"
-            f" au point de contrôle {first['checkpoint']}",
-            fontsize=9,
+        title = (
+            f"moyenne sur {first['scrambles']} scrambles, IC {first['confidence_level']:.0%},"
+            f" N = {first['checkpoint']}"
         )
+        rule = RANK_RULES.get(first.get("objective"))
+        if rule is not None and any(_finite(r.get("rank")) for r in actionable):
+            title += f"\n{rule}"
+        ax.set_title(title, fontsize=9)
         stamp(figure, analysis)
         figures.append(
             RenderedFigure(
@@ -119,6 +131,8 @@ def render_multiscramble_convergence(analysis: PublishedAnalysis) -> list[Render
     for indicator in ordered_indicators(table):
         subset = [r for r in rows if r["indicator"] == indicator]
         objective = subset[0]["objective"]
+        # The stopping criterion reads the primary indicator only (reporting.py).
+        primary = any(r.get("is_primary_indicator") for r in subset)
         # Same rule as the ci_width stopping criterion in reporting.py.
         order = "first_order" if objective == "fp" else "total_order"
         order_label = "premier ordre" if objective == "fp" else "ordre total"
@@ -142,25 +156,37 @@ def render_multiscramble_convergence(analysis: PublishedAnalysis) -> list[Render
                     color=GREY,
                     linestyle="--",
                     linewidth=1,
-                    label=f"{factor} (non actionnable, hors critère)",
+                    label=(
+                        f"{factor} (non actionnable, hors critère)"
+                        if primary
+                        else f"{factor} (non actionnable, hors max)"
+                    ),
                 )
         if worst:
             mx = sorted(worst)
             ax.plot(
-                mx, [worst[x] for x in mx], color="black", linewidth=2.5, label="max (critère)"
+                mx,
+                [worst[x] for x in mx],
+                color="black",
+                linewidth=2.5,
+                label="max (critère)" if primary else "max des facteurs actionnables",
             )
-        if threshold is not None and any(r.get("is_primary_indicator") for r in subset):
+        if threshold is not None and primary:
             ax.axhline(
                 threshold,
                 color="red",
                 linestyle=":",
                 label=f"seuil ci_width = {threshold:g}",
             )
-        ax.set_xlabel("point de contrôle (scrambles cumulés)")
+        # Checkpoints iterate over baseSampleSizes; the number of scrambles is fixed.
+        ax.set_xlabel("taille d'échantillon de base N au point de contrôle")
         ax.set_ylabel(f"largeur de l'IC, {order_label} ({indicator})")
         ax.legend(fontsize=7)
         ax.set_title(
-            f"critère ci_width : max des facteurs actionnables, {order_label}", fontsize=9
+            f"critère ci_width : max des facteurs actionnables, {order_label}"
+            if primary
+            else f"max des facteurs actionnables, {order_label}",
+            fontsize=9,
         )
         stamp(figure, analysis)
         figures.append(
@@ -199,7 +225,7 @@ def render_multiscramble_by_scramble(analysis: PublishedAnalysis) -> list[Render
         ax.set_ylabel(f"indice de Sobol par scramble ({indicator})")
         ax.legend(fontsize=7)
         ax.set_title(
-            f"un point par scramble, point de contrôle {subset[0]['checkpoint']}", fontsize=9
+            f"un point par scramble, N = {subset[0]['checkpoint']}", fontsize=9
         )
         stamp(figure, analysis)
         figures.append(
