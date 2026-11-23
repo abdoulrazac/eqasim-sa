@@ -678,3 +678,20 @@ def test_template_readme_reports_the_planned_counts(tmp_path: Path) -> None:
     assert "adjacent-level discrete OAT target, 8 positions and 6 unique runs" in readme
     assert f"Sobol target, {SOBOL_POSITIONS} positions and {SOBOL_UNIQUE} unique runs" in readme
     assert "analysis.synthesis.population" in readme
+
+
+def test_starter_paths_are_absolute_when_no_relative_path_exists(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # On Windows, a model or data folder on another drive than the project has
+    # no relative path from configs/: os.path.relpath raises ValueError.
+    from eqasim_sa.adapters import templates
+
+    def other_drive(path, start=None):  # type: ignore[no-untyped-def]
+        raise ValueError("path is on mount 'D:', start on mount 'C:'")
+
+    monkeypatch.setattr(templates.os.path, "relpath", other_drive)
+    target = tmp_path / "elsewhere" / "data"
+    assert templates._relative(target, tmp_path / "project" / "configs") == str(
+        Path(os.path.abspath(target))
+    )
