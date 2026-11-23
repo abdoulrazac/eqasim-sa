@@ -2626,6 +2626,8 @@ def test_cli_analyze_reports_failure(
             "convergenceEvidencePath": None,
             "governedReportPath": None,
             "inferenceStatus": None,
+        "analyses": {},
+        "warnings": [],
         "error": "missing age",
     }
 
@@ -2692,6 +2694,8 @@ def test_cli_analyze_reports_complete_keyboard_interrupt_payload_and_returns_130
             "convergenceEvidencePath": None,
             "governedReportPath": None,
             "inferenceStatus": None,
+        "analyses": {},
+        "warnings": [],
         "error": "KeyboardInterrupt",
     }
 

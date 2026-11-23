@@ -4,6 +4,7 @@ import hashlib
 import json
 import sys
 import tempfile
+import threading
 from argparse import Namespace
 from dataclasses import replace
 from pathlib import Path
@@ -228,12 +229,15 @@ def run_from_meta_config(path: Path) -> dict:
     )
 
 
-def _derived_outputs(meta, warnings: list[str], scripts: Path):  # type: ignore[no-untyped-def]
+def _derived_outputs(  # type: ignore[no-untyped-def]
+    meta, warnings: list[str], scripts: Path, counts: dict[str, dict[str, int]]
+):
     """Return the function computing the analysis outputs indicators read.
 
     ``None`` when no indicator reads one: nothing is probed nor run.  The
     environment fingerprint is computed once; altered cache entries are
-    reported in ``warnings``.  Each used script is copied once into
+    reported in ``warnings``; ``counts`` receives, per used analysis, how many
+    run results were ``computed`` (script run) or ``cached`` (read back).  Each used script is copied once into
     ``scripts`` (kept for the whole analyze), so every run of an analysis runs
     the same script even if the user edits it meanwhile.
     """
@@ -253,6 +257,9 @@ def _derived_outputs(meta, warnings: list[str], scripts: Path):  # type: ignore[
     )
     environment = analysis_execution.environment_digest(environment_document)
     cache = analysis_execution.AnalysisCache(meta.campaign_root)
+    counts.update({name: {"computed": 0, "cached": 0} for name in used})
+    # Runs may be analysed in parallel threads (execution.workers).
+    counts_lock = threading.Lock()
     declarations = {}
     for name in used:
         declaration = meta.analyses[name]
@@ -279,6 +286,8 @@ def _derived_outputs(meta, warnings: list[str], scripts: Path):  # type: ignore[
                 cache=cache,
             )
             warnings.extend(result.warnings)
+            with counts_lock:
+                counts[name]["cached" if result.cached else "computed"] += 1
             outputs[name] = (
                 result.path,
                 {
@@ -311,8 +320,9 @@ def analyze_from_meta_config(path: Path, descriptive_only: bool = False) -> dict
     # context), not the current eqasim checkout: eqasim may change after runs.
     load_run_specs(plan_path, _design(meta), meta.campaign)
     warnings: list[str] = []
+    counts: dict[str, dict[str, int]] = {}
     with tempfile.TemporaryDirectory(prefix="eqasim-sa-scripts-") as scripts:
-        derived_outputs = _derived_outputs(meta, warnings, Path(scripts))
+        derived_outputs = _derived_outputs(meta, warnings, Path(scripts), counts)
         result = analyze(
             meta.campaign_root,
             meta.indicators,
@@ -375,6 +385,7 @@ def analyze_from_meta_config(path: Path, descriptive_only: bool = False) -> dict
         if getattr(result, "governed_report_path", None)
         else None,
         "inferenceStatus": getattr(result, "inference_status", None),
+        "analyses": counts,
         "warnings": list(warnings),
         "error": None,
     }

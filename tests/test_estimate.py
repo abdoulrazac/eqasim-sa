@@ -29,14 +29,16 @@ def test_estimate_plan_uses_unique_runs_and_observed_arithmetic_means() -> None:
         plan_bytes=100,
         observations=((2.0, 10, 40), (4.0, 20, 60)),
         workers=3,
+        method="grid",
+        formula_inputs={"R": 1, "L": {"rate": 3}},
     )
 
     assert payload == {
         "status": "estimated",
         "estimateVersion": 2,
         "method": "grid",
-        "formula": None,
-        "formulaInputs": None,
+        "formula": "R*prod(L)",
+        "formulaInputs": {"R": 1, "L": {"rate": 3}},
         "designPositions": 3,
         "runs": 2,
         "calibrationRuns": 2,
@@ -51,8 +53,50 @@ def test_estimate_plan_uses_unique_runs_and_observed_arithmetic_means() -> None:
     }
 
 
+GRID_ONE = {"R": 1, "L": {"rate": 1}}
+
+
+def test_estimate_plan_exposes_and_validates_grid_formula() -> None:
+    inputs = {"R": 2, "L": {"rate": 3, "mode": 2}}
+    payload = estimate_plan(12, ("a", "b"), 7, ((1.0, 3, 5),), 1, "grid", inputs)
+
+    assert payload["formula"] == "R*prod(L)"
+    assert payload["formulaInputs"] == inputs
+    with pytest.raises(ValueError, match="designPositions"):
+        estimate_plan(11, ("a",), 7, ((1.0, 3, 5),), 1, "grid", inputs)
+    invalid_inputs = (
+        None,
+        {"R": 2},
+        {"R": 0, "L": {"rate": 3}},
+        {"R": 2, "L": {}},
+        {"R": 2, "L": {"rate": 0}},
+        {"R": 2, "L": {"rate": True}},
+    )
+    for invalid in invalid_inputs:
+        with pytest.raises(ValueError, match="Grid formula inputs"):
+            estimate_plan(6, ("a",), 7, ((1.0, 3, 5),), 1, "grid", invalid)
+
+
+def test_application_estimate_passes_grid_formula_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from eqasim_sa.adapters import application
+
+    target = campaign(tmp_path / "target")
+    monkeypatch.setattr(estimate_service, "load_meta_config", lambda path: target)
+
+    payload = application.estimate_from_meta_config(Path("target.yml"), ())
+
+    assert payload["method"] == "grid"
+    assert payload["formula"] == "R*prod(L)"
+    assert payload["formulaInputs"] == {"R": 1, "L": {"rate": 2}}
+    assert payload["designPositions"] == 2
+
+
 def test_estimate_plan_rounds_fractional_disk_bytes_up() -> None:
-    payload = estimate_plan(2, ("a", "b"), 10, ((1.0, 1, 3), (1.0, 2, 4)), 2)
+    payload = estimate_plan(
+        2, ("a", "b"), 10, ((1.0, 1, 3), (1.0, 2, 4)), 2, "grid", {"R": 2, "L": {"rate": 1}}
+    )
 
     assert payload["meanDurableBytesPerRun"] == 1.5
     assert payload["estimatedDiskBytes"] == 13
@@ -67,12 +111,17 @@ def test_estimate_plan_rejects_invalid_observations(
     observation: tuple[float, int, int],
 ) -> None:
     with pytest.raises(ValueError, match="observation"):
-        estimate_plan(1, ("run",), 1, (observation,), 1)
+        estimate_plan(1, ("run",), 1, (observation,), 1, "grid", GRID_ONE)
+
+
+def test_estimate_plan_requires_the_method_and_its_formula_inputs() -> None:
+    with pytest.raises(TypeError):
+        estimate_plan(1, ("run",), 1, ((1.0, 2, 3),), 1)  # type: ignore[call-arg]
 
 
 def test_estimate_plan_requires_calibration() -> None:
     with pytest.raises(ValueError, match="calibration meta-config"):
-        estimate_plan(1, ("run",), 1, (), 1)
+        estimate_plan(1, ("run",), 1, (), 1, "grid", GRID_ONE)
 
 
 def test_estimate_plan_exposes_and_validates_sobol_formula() -> None:
@@ -395,7 +444,7 @@ def test_estimate_cli_serializes_exact_success_and_failure_schema(
 ) -> None:
     from eqasim_sa.cli import dispatch
 
-    expected = estimate_plan(1, ("run",), 1, ((1.0, 2, 3),), 1)
+    expected = estimate_plan(1, ("run",), 1, ((1.0, 2, 3),), 1, "grid", GRID_ONE)
     monkeypatch.setattr(
         sys,
         "argv",

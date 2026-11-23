@@ -10,6 +10,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+import yaml
 
 import eqasim_sa.adapters.project_init as project_init_module
 from eqasim_sa.adapters.application import init_from_inputs
@@ -129,6 +130,15 @@ def test_init_is_a_pure_atomic_template_generator(
     )
     assert f"SA=({runner})" in readme
     assert readme.index('"${SA[@]}" plan') < readme.index('"${SA[@]}" check')
+    # The README describes the worker count the starters actually write.
+    workers = {
+        yaml.safe_load(path.read_text())["execution"]["workers"]
+        for path in (root / "configs").glob("*.yml")
+    }
+    assert workers == {2}
+    flat = " ".join(readme.split())
+    assert "one worker when `workers` is absent" in flat
+    assert "the starters write `workers: 2`" in flat
 
 
 def test_init_accepts_a_custom_model_config(
@@ -736,3 +746,57 @@ def test_template_readme_reports_the_planned_counts(tmp_path: Path) -> None:
     assert "adjacent-level discrete OAT target, 8 positions and 6 unique runs" in readme
     assert f"Sobol target, {SOBOL_POSITIONS} positions and {SOBOL_UNIQUE} unique runs" in readme
     assert "analysis.synthesis.population" in readme
+
+
+def test_starter_paths_are_absolute_when_no_relative_path_exists(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # On Windows, a model, data, or scratch folder on another drive than the
+    # project has no relative path from configs/: os.path.relpath raises
+    # ValueError. The starters must then carry the absolute Windows path.
+    from eqasim_sa.adapters import templates
+
+    def other_drive(path, start=None):  # type: ignore[no-untyped-def]
+        raise ValueError("path is on mount 'D:', start on mount 'C:'")
+
+    drives = {"model": "D:\\eqasim-france", "data": "D:\\eqasim-data", "scratch": "E:\\esa"}
+
+    def windows_abspath(path):  # type: ignore[no-untyped-def]
+        return drives.get(Path(path).name, "C:\\study\\" + Path(path).name)
+
+    monkeypatch.setattr(templates.os.path, "relpath", other_drive)
+    monkeypatch.setattr(templates.os.path, "abspath", windows_abspath)
+    rendered = templates.render_project(
+        tmp_path / "study",
+        "study",
+        tmp_path / "model",
+        tmp_path / "data",
+        tmp_path / "scratch",
+        invocation(),
+    )
+
+    starters = {
+        name: yaml.safe_load(content.decode())
+        for name, content in rendered.items()
+        if name.endswith(".yml")
+    }
+    assert len(starters) == 4
+    for document in starters.values():
+        assert document["model"]["root"] == "D:\\eqasim-france"
+        assert document["execution"]["scratch"] == "E:\\esa"
+        assert document["execution"]["machine_options"]["data_path"] == "D:\\eqasim-data"
+
+
+def test_init_rerun_accepts_a_failed_attempt_left_in_scratch(tmp_path: Path) -> None:
+    # A failed run leaves its attempt directory as the eqasim simulator wrote it.
+    _, root, model, data = initialize(tmp_path, "project")
+    attempt = root / "scratch" / "esa" / "project-grid" / "w0" / ("a" + "0" * 12)
+    (attempt / "output").mkdir(parents=True)
+    (attempt / "collected").mkdir()
+    (attempt / "config.yml").write_text("config: {}\n")
+    (attempt / "run.log").write_text("Traceback\n")
+
+    payload = init_from_inputs("project", root, model, data, None, invocation())
+
+    assert payload["status"] == "unchanged", payload
+    assert (attempt / "collected").is_dir()

@@ -66,3 +66,21 @@ def test_show_config_writes_utf8_bytes_to_stdout_buffer(tmp_path, monkeypatch):
     again = tmp_path / "again.yml"
     again.write_bytes(data)
     assert load_meta_config(again, verify_data=False).seeds == (41, 42)
+
+
+def test_show_config_writes_the_analysis_python_resolved_at_load(
+    tmp_path, capsys, monkeypatch
+):
+    from tests.test_campaign_run import add_execution
+
+    meta, *_ = meta_fixture(tmp_path)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    add_execution(meta, scratch)
+    assert run_show(monkeypatch, meta) == 0
+    shown = yaml.safe_load(capsys.readouterr().out)
+    loaded = load_meta_config(meta, verify_data=False)
+    assert shown["execution"]["python"] == list(loaded.analysis_python) == ["python3"]
+    again = tmp_path / "again.yml"
+    again.write_text(yaml.safe_dump(shown, sort_keys=False))
+    assert load_meta_config(again, verify_data=False).analysis_python == ("python3",)

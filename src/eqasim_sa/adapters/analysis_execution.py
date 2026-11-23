@@ -87,6 +87,8 @@ class AnalysisResult:
     ``script_sha256`` is the LF-normalized SHA-256 of the script copy taken
     by this call (executed on a miss), never of the user's file read later.
     ``warnings`` lists the altered cache entries this call removed.
+    ``cached`` is true when the result was read from the cache, false when
+    the script ran.
     """
 
     path: Path
@@ -95,6 +97,7 @@ class AnalysisResult:
     inputs_sha256: dict[str, str]
     environment: str
     warnings: tuple[str, ...]
+    cached: bool
 
 
 def _canonical(document: object) -> bytes:
@@ -432,7 +435,7 @@ def run_analysis(
         )
         warnings: list[str] = []
 
-        def result(path: Path) -> AnalysisResult:
+        def result(path: Path, cached: bool) -> AnalysisResult:
             return AnalysisResult(
                 path,
                 fingerprint,
@@ -440,11 +443,12 @@ def run_analysis(
                 dict(expected),
                 environment,
                 tuple(warnings),
+                cached,
             )
 
         cached = cache.get(declaration.name, fingerprint, warnings)
         if cached is not None:
-            return result(cached)
+            return result(cached, True)
         files = {}
         for name in declaration.inputs:
             source = Path(archived[name])
@@ -489,6 +493,6 @@ def run_analysis(
                 raise failure from log_error
             raise failure
         read_csv_table(output, ",", declaration.name)
-        return result(cache.put(declaration.name, fingerprint, output))
+        return result(cache.put(declaration.name, fingerprint, output), False)
     finally:
         _remove_tree_best_effort(directory)

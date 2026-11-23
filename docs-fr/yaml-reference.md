@@ -141,7 +141,7 @@ Quand une clé est omise, eqasim-sa applique les valeurs par défaut suivantes.
 | `execution.backend` | `local` (seulement si un bloc `execution` est présent) |
 | `execution.workers` | `1` (seulement si un bloc `execution` est présent) |
 | `execution.invocation` | `[uv, run, --locked, python, -m, synpp]` (seulement si un bloc `execution` est présent) |
-| `execution.python` | `execution.invocation` privée de son `-m synpp` final, ou `[uv, run, --locked, python]` sans bloc `execution` ; `show-config` ne l'écrit pas |
+| `execution.python` | `execution.invocation` privée de son `-m synpp` final, ou `[uv, run, --locked, python]` sans bloc `execution`. `show-config` l'écrit quand un bloc `execution` est présent et que `invocation` se termine par `-m synpp` ; il n'écrit rien sans bloc `execution` (en écrire un exigerait `scratch`) ni quand `invocation` ne se termine pas par `-m synpp` (aucun interpréteur n'est alors déduit, et un fichier qui déclare `analyses` doit écrire `python`) |
 | `analyses.NOM.references` | une liste vide ; `show-config` ne l'écrit pas |
 
 Les chemins sont relatifs au répertoire du fichier YAML : la racine de campagne
@@ -900,12 +900,13 @@ un.
 ```yaml
 outputs:
   persons: {}
-  trips_spatial:
-    file: "{prefix}trips.gpkg"
+  trips: {}
+  activities_spatial:
+    file: "{prefix}activities.gpkg"
 analyses:
   commute:
     script: analyses/commute.py
-    inputs: [trips_spatial, persons]
+    inputs: [trips, activities_spatial, persons]
 indicators:
   - value: {output: commute, column: mean_commute_km, where: {group: all}}
 ```
@@ -1416,6 +1417,11 @@ execution:
   - python
   - -m
   - synpp
+  python:
+  - uv
+  - run
+  - --locked
+  - python
 calibration:
   meta_configs:
   - 00-calibration.yml
@@ -1563,8 +1569,8 @@ execution:
 
 ### Grid avec un script d'analyse
 
-Cette variante du modèle Grid archive le fichier spatial des trajets et ajoute
-la distance moyenne domicile-travail du guide
+Cette variante du modèle Grid ajoute la distance moyenne domicile-travail du
+guide
 [Écrire un script d'analyse](analysis-scripts.md#un-exemple-complet). Le script
 est `configs/analyses/commute.py`, à côté de ce fichier :
 
@@ -1578,8 +1584,8 @@ parameters:
 outputs:
   persons: {}
   trips: {}
-  trips_spatial:
-    file: "{prefix}trips.gpkg"
+  activities_spatial:
+    file: "{prefix}activities.gpkg"
   age:
     category: Age class
     simulated: Proportion_EQASIM
@@ -1587,7 +1593,7 @@ outputs:
 analyses:
   commute:
     script: analyses/commute.py
-    inputs: [trips_spatial, persons]
+    inputs: [trips, activities_spatial, persons]
 indicators:
   - tv_distance: {output: age, reference: INSEE}
   - value: {output: commute, column: mean_commute_km, where: {group: all}}

@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -363,7 +364,8 @@ def test_cache_hit_skips_execution(tmp_path):
     first = _run(declaration, archive, campaign, model, parameters)
     second = _run(declaration, archive, campaign, model, parameters)
 
-    assert first == second
+    assert (first.cached, second.cached) == (False, True)
+    assert replace(first, cached=True) == second
     assert counter.read_text() == "1"
     cache = AnalysisCache(campaign)
     warnings = []
@@ -388,6 +390,7 @@ def test_tampered_cache_entry_is_recomputed(tmp_path):
     assert again == first
     assert again.read_bytes() == original
     assert counter.read_text() == "2"
+    assert record.cached is False
     assert record.warnings == (
         f"analysis cache entry counter/{first.name} was altered; "
         "it was removed and recomputed",

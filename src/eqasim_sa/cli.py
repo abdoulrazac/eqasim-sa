@@ -352,6 +352,8 @@ def dispatch(
             "convergenceEvidencePath": None,
             "governedReportPath": None,
             "inferenceStatus": None,
+            "analyses": {},
+            "warnings": [],
         }
         try:
             if analyze_factory is None:

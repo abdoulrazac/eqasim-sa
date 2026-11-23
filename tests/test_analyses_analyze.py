@@ -191,16 +191,24 @@ def test_editing_script_recomputes_only_its_results(tmp_path: Path, spy: None) -
     meta = _project(tmp_path, seeds=[41, 42], analyses=("commute", "other"))
     plan_from_meta_config(meta)
     run_from_meta_config(meta)
-    analyze_from_meta_config(meta)
+    first = analyze_from_meta_config(meta)
+    assert first["analyses"] == {
+        "commute": {"computed": 2, "cached": 0},
+        "other": {"computed": 2, "cached": 0},
+    }
     run_ids = _run_ids(tmp_path)
     assert len(_calls(tmp_path)) == 4
     (tmp_path / "calls.txt").unlink()
     script = tmp_path / "analyses" / "commute.py"
     script.write_text(script.read_text() + "\n# edited\n")
 
-    analyze_from_meta_config(meta)
+    payload = analyze_from_meta_config(meta)
 
     assert _calls(tmp_path) == sorted(f"commute {run_id}" for run_id in run_ids)
+    assert payload["analyses"] == {
+        "commute": {"computed": 2, "cached": 0},
+        "other": {"computed": 0, "cached": 2},
+    }
 
 
 def test_new_runs_are_analysed_others_come_from_cache(
@@ -322,6 +330,7 @@ def test_analyze_without_analyses_is_unchanged(
 
     assert payload["status"] == "completed"
     assert payload["warnings"] == []
+    assert payload["analyses"] == {}
     assert payload["indicators"] == 1
     assert not (tmp_path / "campaign" / "analyses-cache").exists()
     manifest = _manifest(tmp_path)
@@ -403,6 +412,7 @@ def test_altered_cache_entry_is_recomputed_and_reported(
     [run_id] = _run_ids(tmp_path)
     assert _values(payload)[run_id, "value(commute, rows)"] == 2.0
     assert len(_calls(tmp_path)) == 2
+    assert payload["analyses"] == {"commute": {"computed": 1, "cached": 0}}
 
 
 def test_init_rerun_accepts_analyses_cache(tmp_path: Path) -> None:

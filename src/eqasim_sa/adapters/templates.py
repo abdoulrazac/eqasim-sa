@@ -11,7 +11,12 @@ from eqasim_sa.templates import project_templates
 
 
 def _relative(path: Path, directory: Path) -> str:
-    return os.path.relpath(Path(os.path.abspath(path)), Path(os.path.abspath(directory)))
+    absolute = Path(os.path.abspath(path))
+    try:
+        return os.path.relpath(absolute, Path(os.path.abspath(directory)))
+    except ValueError:
+        # Windows: another drive has no relative path; write it absolute.
+        return str(absolute)
 
 
 def _runner() -> str:

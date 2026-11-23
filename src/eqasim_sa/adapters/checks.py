@@ -95,9 +95,12 @@ def _path_length_item(meta) -> dict:  # type: ignore[no-untyped-def]
         return {"name": "path_length", "status": "failed", "error": _safe_error(error)}
     if platform.IS_WINDOWS:
         if length <= WINDOWS_PATH_LIMIT:
+            item["note"] = (
+                f"estimated path length {length} is within the limit of {WINDOWS_PATH_LIMIT}"
+            )
             return item
         if platform.windows_long_paths_enabled():
-            item["error"] = (
+            item["note"] = (
                 f"estimated path length {length} exceeds 260 characters; "
                 "Windows long paths are enabled"
             )
@@ -107,7 +110,7 @@ def _path_length_item(meta) -> dict:  # type: ignore[no-untyped-def]
         return item
     limit = DARWIN_PATH_LIMIT if sys.platform == "darwin" else POSIX_PATH_LIMIT
     if length <= limit:
-        item["error"] = f"estimated path length {length} is within the limit of {limit}"
+        item["note"] = f"estimated path length {length} is within the limit of {limit}"
         return item
     item["status"] = "warning"
     item["error"] = (
@@ -127,24 +130,23 @@ def _backend_item(meta) -> dict:  # type: ignore[no-untyped-def]
     return {"name": "backend", "status": "passed", "error": None}
 
 
+def _skipped(name: str, note: str) -> dict:
+    # "error" is reserved for failed and warning items.
+    return {"name": name, "status": "skipped", "error": None, "note": note}
+
+
 def _same_machine_item(meta, specs, deadline=None) -> dict:  # type: ignore[no-untyped-def]
     name = "same_machine"
     if not specs:
-        return {"name": name, "status": "skipped", "error": "no runs in the plan"}
+        return _skipped(name, "no runs in the plan")
     if getattr(meta.execution, "backend", "local") == "slurm":
-        return {
-            "name": name,
-            "status": "skipped",
-            "error": "slurm runs are compared on the compute node when the job starts",
-        }
+        return _skipped(
+            name, "slurm runs are compared on the compute node when the job starts"
+        )
     try:
         existing = CampaignSnapshot.completed_evidence(meta.campaign_root, specs)
         if not any(evidence is not None for evidence in existing.values()):
-            return {
-                "name": name,
-                "status": "skipped",
-                "error": "no completed runs with execution evidence",
-            }
+            return _skipped(name, "no completed runs with execution evidence")
         # Read-only: never hashes the data tree and never runs eqasim.
         require_same_machine(
             existing, current_machine_identity(meta, deadline=deadline)
@@ -448,10 +450,13 @@ def check_from_meta_config(
 ) -> dict:
     """Run static and optional smoke checks for a sealed campaign."""
 
+    started = time.monotonic()
     payload, meta, specs = _static_check(path, calibrations)
     if not smoke or payload["status"] != "valid":
         return payload
     item, _ = _check("smoke", lambda: _smoke(meta, specs))
     payload["checks"].append(item)
     payload["status"] = "valid" if item["status"] == "passed" else "invalid"
+    # The whole command, smoke runs included.
+    payload["elapsedSeconds"] = time.monotonic() - started
     return payload
