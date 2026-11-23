@@ -48,14 +48,20 @@ def _stamp_tokens(analysis: PublishedAnalysis) -> list[tuple[str, str]]:
     """Stamp pieces with the separator that follows each one."""
     report = analysis.governed_report
     claim = "true" if report.get("claimAuthorized") is True else "false"
-    reasons = list(report.get("reasonCodes") or []) or ["none"]
+    status = str(inference_status(analysis))
+    listed = list(report.get("reasonCodes") or [])
+    # The status is often also listed as a reason: show it once.
+    reasons = [reason for reason in listed if reason != status]
+    if not listed:
+        reasons = ["none"]
     tokens = [
         (analysis.method, " · "),
-        (str(inference_status(analysis)), " · "),
+        (status, " · "),
         (f"claimAuthorized={claim}", " · "),
     ]
     tokens += [(reason, ", ") for reason in reasons[:-1]]
-    tokens.append((reasons[-1], " · "))
+    if reasons:
+        tokens.append((reasons[-1], " · "))
     tokens.append((f"génération {analysis.generation_id[:12]}", ""))
     return tokens
 

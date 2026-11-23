@@ -81,6 +81,17 @@ def test_stamp_exact_format() -> None:
     assert "claimAuthorized=false · none · génération" in _texts(fig)
 
 
+def test_stamp_does_not_repeat_the_status_listed_as_a_reason() -> None:
+    fig = Figure()
+    stamp(fig, _stub(reasons=["demonstration_noninferential"]))
+    text = _texts(fig)
+    assert text.count("demonstration_noninferential") == 1
+    assert "claimAuthorized=false · génération" in text
+    fig = Figure()
+    stamp(fig, _stub(reasons=["demonstration_noninferential", "x"]))
+    assert "claimAuthorized=false · x · génération" in _texts(fig)
+
+
 def test_stamp_reads_claim_authorized_from_report() -> None:
     analysis = _stub()
     analysis.governed_report["claimAuthorized"] = True
