@@ -1,5 +1,10 @@
 # Nantes Scientific Protocol Ledger
 
+This folder is an example scientific campaign: a canonical Morris screening
+followed by multi-scramble Sobol factor prioritization and factor fixing, as
+one study (Nantes) wrote it. Use it as a model for authoring your own
+scientific protocol; it is not part of the installed package.
+
 These study-authored files are not `eqasim-sa init` templates. They declare
 intended campaigns but make no execution, planning, simulation, or analysis
 claim. Every phase has an immutable campaign name and a distinct root.

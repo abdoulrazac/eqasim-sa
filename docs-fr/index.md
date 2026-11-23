@@ -17,6 +17,7 @@ Le parseur Python est normatif : le projet ne fournit pas de JSON Schema.
 8. [Dépannage](troubleshooting.md) : erreurs fréquentes et remèdes sûrs.
 9. [Glossaire](glossary.md) : vocabulaire précis du projet.
 10. [Compatibilité de version](compatibility.md) : matrices des schémas, méthodes, statuts, refus et versions.
+11. [Exemple de campagne scientifique](../protocols/nantes-scientific/README.md) (en anglais) : le protocole nantais, pilote et production Morris canonique puis Sobol multi-scramble FP et FF, rédigé pour une étude (non généré par `init`).
 
 ## Choisir une méthode
 
