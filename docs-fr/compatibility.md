@@ -123,7 +123,7 @@ plan, ni sortie de simulation ou d'analyse.
 
 `protocols/nantes-scientific/` est un protocole du dépôt, pas une donnée du
 paquet ni un modèle de `init`. Son renderer ne produit une méta-configuration de
-phase qu'après vérification des plans et preuves amont scellées. Il refuse sans
+phase qu'après vérification des plans et preuves amont scellés. Il refuse sans
 créer de sortie les preuves absentes, liées symboliquement, mal formées,
 altérées, incompatibles avec le contexte ou la phase. Les tests du renderer
 emploient de faux modèles et preuves temporaires. Ils n'établissent pas que le
