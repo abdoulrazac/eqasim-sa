@@ -78,6 +78,12 @@ GITATTRIBUTES_CONTENT = (
     b"*.json text eol=lf\n"
     b"*.lock text eol=lf\n"
 )
+# Layout written by `eqasim-sa plot` (core/figures/plot.py): one directory per
+# analysis generation id, plus hidden staging/retired leftovers of the swap.
+FIGURES_DIRECTORY = "figures"
+FIGURES_INDEX = "figures.json"
+FIGURES_GENERATION = re.compile(r"[0-9a-f]{64}")
+FIGURES_LEFTOVER = re.compile(r"\.(?:staging|retired)-[0-9a-f]{32}")
 INIT_METHODS = ("calibration", "grid", "discrete_oat", "sobol")
 INIT_CONFIGS = {
     "calibration": "configs/00-calibration.yml",
@@ -235,7 +241,7 @@ def _init_campaign_allowed(
     derived = INIT_DERIVED["grid" if method == "calibration" else method]
     allowed = {
         "plan.parquet", "runs", "archives", "logs", ".eqasim-sa",
-        ANALYSIS_STATE_DIRECTORY, ANALYSES_CACHE_DIRECTORY, *derived,
+        ANALYSIS_STATE_DIRECTORY, ANALYSES_CACHE_DIRECTORY, FIGURES_DIRECTORY, *derived,
     }
     temporary = re.compile(r"\.([0-9a-f]{32})\.parquet\.([A-Za-z0-9_-]+)\.tmp")
     backup = re.compile(r"\.([0-9a-f]{32})\.parquet\.([A-Za-z0-9_-]+)\.backup")
@@ -247,6 +253,9 @@ def _init_campaign_allowed(
             continue
         if entry.name == ANALYSES_CACHE_DIRECTORY:
             _analyses_cache_allowed(entry, method)
+            continue
+        if entry.name == FIGURES_DIRECTORY:
+            _figures_allowed(entry, method)
             continue
         if entry.name == ".eqasim-sa":
             _technical_state_allowed(entry, expected_ids, method)
@@ -428,6 +437,30 @@ def _technical_state_allowed(
         _owned_technical_tree(
             slurm_state, f"campaigns/{method}/.eqasim-sa/slurm"
         )
+
+
+def _figures_allowed(path: Path, method: str) -> None:
+    """Accept only what `eqasim-sa plot` writes: recomputable PNG and indexes."""
+
+    def foreign() -> FileExistsError:
+        return FileExistsError(f"foreign content in init campaign: {FIGURES_DIRECTORY}")
+
+    if platform.is_link(path) or not path.is_dir():
+        raise foreign()
+    for child in path.iterdir():
+        if platform.is_link(child) or not child.is_dir():
+            raise foreign()
+        if FIGURES_LEFTOVER.fullmatch(child.name):
+            continue
+        if FIGURES_GENERATION.fullmatch(child.name) is None:
+            raise foreign()
+        for item in child.iterdir():
+            if item.name != FIGURES_INDEX and not item.name.endswith(".png"):
+                raise foreign()
+            try:
+                _regular(item, f"campaigns/{method}/{FIGURES_DIRECTORY}/{child.name}/{item.name}")
+            except FileExistsError as error:
+                raise foreign() from error
 
 
 def _analyses_cache_allowed(path: Path, method: str) -> None:

@@ -337,6 +337,74 @@ def test_init_rerun_accepts_user_created_campaign_state(
     } == protected
 
 
+def _campaign_with_figures(tmp_path: Path):
+    """An init project whose grid campaign holds what `plot` leaves behind."""
+    _, root, model, data = initialize(tmp_path, "project")
+    campaign = root / "campaigns/grid"
+    campaign.mkdir()
+    pq.write_table(pa.table({"runId": ["a" * 32]}), campaign / "plan.parquet")
+    figures = campaign / "figures"
+    generation = figures / ("b" * 64)
+    generation.mkdir(parents=True)
+    (generation / "output-summary.png").write_bytes(b"\x89PNG")
+    (generation / "grid-response-x.png").write_bytes(b"\x89PNG")
+    (generation / "figures.json").write_text("{}\n")
+    (figures / ("c" * 64)).mkdir()
+    (figures / ".staging-0123456789abcdef0123456789abcdef").mkdir()
+    (figures / ".retired-fedcba9876543210fedcba9876543210").mkdir()
+    return root, model, data, figures
+
+
+def test_init_rerun_accepts_figures_written_by_plot(tmp_path: Path) -> None:
+    root, model, data, figures = _campaign_with_figures(tmp_path)
+    before = {
+        path: path.read_bytes() for path in figures.rglob("*") if path.is_file()
+    }
+
+    result = init_from_inputs("project", root, model, data, None, invocation())
+
+    assert result["status"] == "unchanged"
+    assert {
+        path: path.read_bytes() for path in figures.rglob("*") if path.is_file()
+    } == before
+
+
+@pytest.mark.parametrize(
+    "foreign",
+    [
+        "notes.txt",
+        "not-a-generation",
+        "B" * 64,
+        "b" * 64 + "/notes.txt",
+        "b" * 64 + "/nested",
+        ".staging-short",
+        ".other-0123456789abcdef0123456789abcdef",
+    ],
+)
+def test_init_rerun_rejects_foreign_content_in_figures(
+    tmp_path: Path, foreign: str
+) -> None:
+    root, model, data, figures = _campaign_with_figures(tmp_path)
+    path = figures / foreign
+    if "." in Path(foreign).name and not foreign.startswith("."):
+        path.write_text("foreign\n")
+    else:
+        path.mkdir()
+
+    with pytest.raises(FileExistsError, match="foreign content in init campaign: figures"):
+        init_from_inputs("project", root, model, data, None, invocation())
+
+
+def test_init_rerun_rejects_symlinked_figures(tmp_path: Path) -> None:
+    root, model, data, figures = _campaign_with_figures(tmp_path)
+    target = tmp_path / "elsewhere.png"
+    target.write_bytes(b"\x89PNG")
+    make_symlink(figures / ("b" * 64) / "linked.png", target)
+
+    with pytest.raises(FileExistsError, match="foreign content in init campaign: figures"):
+        init_from_inputs("project", root, model, data, None, invocation())
+
+
 @pytest.mark.parametrize("windows", [False, True])
 def test_init_rerun_private_mode_check_is_posix_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, windows: bool
