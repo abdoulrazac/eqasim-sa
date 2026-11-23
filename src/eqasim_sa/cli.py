@@ -14,14 +14,32 @@ from eqasim_sa.core.run import RunSpec, run_one
 EQASIM_PARAMETERS = {"sampling_rate", "hts", "income_assignation_method"}
 
 
+def installed_version() -> str:
+    """The installed eqasim-sa version, or ``unknown`` without package metadata."""
+
+    try:
+        return importlib.metadata.version("eqasim-sa")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
+
+
+class _VersionAction(argparse.Action):
+    """Like argparse's version action, but reads the version only when used."""
+
+    def __init__(self, option_strings, dest=argparse.SUPPRESS, default=argparse.SUPPRESS, help=None):  # type: ignore[no-untyped-def]
+        super().__init__(option_strings, dest, default=default, nargs=0, help=help)
+
+    def __call__(self, parser, namespace, values, option_string=None):  # type: ignore[no-untyped-def]
+        print(f"{parser.prog} {installed_version()}")
+        parser.exit()
+
+
 def parser() -> argparse.ArgumentParser:
     """Build the argument parser for every installed command."""
 
     result = argparse.ArgumentParser(prog="eqasim-sa")
     result.add_argument(
-        "--version",
-        action="version",
-        version=f"%(prog)s {importlib.metadata.version('eqasim-sa')}",
+        "--version", action=_VersionAction, help="print the installed version and exit"
     )
     commands = result.add_subparsers(dest="command")
     init = commands.add_parser(
@@ -190,6 +208,7 @@ def dispatch(
                 for method in ("calibration", "grid", "discrete_oat", "sobol")
             },
             "restored": [],
+            "kept": [],
             "elapsedSeconds": 0.0,
             "error": None,
         }

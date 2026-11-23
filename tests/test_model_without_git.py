@@ -318,17 +318,17 @@ def test_init_without_git_and_absolute_model_config(tmp_path: Path) -> None:
     assert not (model / ".git").exists()
 
 
-def test_init_rerun_names_modified_file(tmp_path: Path) -> None:
+def test_init_rerun_keeps_and_names_an_edited_starter(tmp_path: Path) -> None:
     model, data = init_inputs(tmp_path)
     study = tmp_path / "study"
     init_from_inputs("study", study, model, data, None, DEFAULT_INVOCATION)
     grid = study / "configs" / "01-grid.yml"
     grid.write_text(grid.read_text().replace("seeds: [1201, 1202]", "seeds: [1, 2]"))
 
-    with pytest.raises(FileExistsError) as caught:
-        init_from_inputs("study", study, model, data, None, DEFAULT_INVOCATION)
+    edited = grid.read_bytes()
 
-    assert str(caught.value) == (
-        "init would overwrite configs/01-grid.yml, which differs from what init "
-        "would write (file edited or init inputs changed)"
-    )
+    result = init_from_inputs("study", study, model, data, None, DEFAULT_INVOCATION)
+
+    assert result["status"] == "unchanged"
+    assert result["kept"] == ["configs/01-grid.yml"]
+    assert grid.read_bytes() == edited

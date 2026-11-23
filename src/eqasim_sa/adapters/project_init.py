@@ -8,6 +8,8 @@ import tempfile
 import time
 from pathlib import Path
 
+import yaml
+
 
 from eqasim_sa.adapters.data_manifest import generate_data_manifest, load_data_manifest
 from eqasim_sa.adapters.eqasim.artifacts import DEFAULT_OUTPUT_PREFIX
@@ -230,7 +232,9 @@ def _preflight_project(directory: Path, scratch_relative: Path | None) -> bool:
             if entry.name in {"nantes.yml", "nantes-calibration.yml"}:
                 raise FileExistsError("old starter detected; choose a new project directory")
             raise FileExistsError(f"foreign content in init project: {entry.name}")
-    _regular(directory / "README.md", "README.md")
+    if os.path.lexists(directory / "README.md"):
+        # A missing README is recreated.
+        _regular(directory / "README.md", "README.md")
     _regular(directory / "manifest.json", "manifest.json")
     attributes = directory / GITATTRIBUTES
     if os.path.lexists(attributes) and (
@@ -249,9 +253,6 @@ def _preflight_project(directory: Path, scratch_relative: Path | None) -> bool:
         if platform.is_link(entry) or entry.name not in config_names:
             raise FileExistsError(f"foreign content in init project: configs/{entry.name}")
         _regular(entry, f"configs/{entry.name}")
-    present = {entry.name for entry in (directory / "configs").iterdir()}
-    if present - {ANALYSES_DIRECTORY} != config_names:
-        raise FileExistsError("non-empty directory is not a complete init v3 state")
     if scratch_relative and (directory / scratch_relative.parts[0]).exists():
         current = directory
         for index, part in enumerate(scratch_relative.parts):
@@ -269,6 +270,73 @@ def _preflight_project(directory: Path, scratch_relative: Path | None) -> bool:
                 if names not in (set(), {next_name}):
                     raise FileExistsError("foreign content in init scratch")
     return False
+
+
+# Values that init writes into each starter; a rerun compares only these.
+INIT_FILLED_KEYS = (
+    ("model", "root"),
+    ("model", "config"),
+    ("model", "data_manifest"),
+    ("execution", "scratch"),
+    ("execution", "invocation"),
+    ("execution", "machine_options", "data_path"),
+    ("campaign",),
+    ("campaign_root",),
+)
+_MISSING = object()
+
+
+def _init_value(document: dict, key: tuple[str, ...]) -> object:
+    value: object = document
+    for part in key:
+        if not isinstance(value, dict) or part not in value:
+            return _MISSING
+        value = value[part]
+    return value
+
+
+def _compare_starter(relative: str, actual: bytes, rendered: bytes) -> None:
+    """Refuse a starter whose init-filled values differ from what init renders.
+
+    Everything else in the file is the user's: it is kept as written.
+    """
+
+    try:
+        document = resolve_meta_config_document(load_yaml_source(actual.decode("utf-8")))
+    except (UnicodeDecodeError, TypeError, ValueError, yaml.YAMLError) as error:
+        raise FileExistsError(
+            f"init cannot parse {relative}: {error.__class__.__name__}"
+        ) from error
+    if not isinstance(document, dict):
+        raise FileExistsError(f"init cannot parse {relative}: not a mapping")
+    expected = resolve_meta_config_document(load_yaml_source(rendered.decode("utf-8")))
+    for key in INIT_FILLED_KEYS:
+        if _init_value(document, key) != _init_value(expected, key):
+            raise FileExistsError(
+                f"init inputs changed: {'.'.join(key)} in {relative}"
+            )
+
+
+def _generated_files(
+    directory: Path, rendered: dict[str, bytes]
+) -> tuple[list[str], list[str]]:
+    """Missing generated files to recreate, and edited ones to keep."""
+
+    missing, kept = [], []
+    for name in sorted(rendered, key=lambda item: (item != "README.md", item)):
+        relative = "README.md" if name == "README.md" else f"configs/{name}"
+        path = directory / relative
+        if not os.path.lexists(path):
+            missing.append(relative)
+            continue
+        actual = path.read_bytes()
+        if actual == rendered[name]:
+            continue
+        if name != "README.md":
+            _compare_starter(relative, actual, rendered[name])
+        # The README's only input, --model-config, is checked in the starters.
+        kept.append(relative)
+    return missing, kept
 
 
 def _preflight_campaigns(directory: Path, campaigns: dict[str, str]) -> None:
@@ -731,6 +799,7 @@ def init_from_inputs(
         raise ValueError("directory and scratch must not overlap model-root")
     new_project = _preflight_project(absolute, scratch_relative)
     restored: list[str] = []
+    kept: list[str] = []
     # Like model.config: relative to the eqasim folder, or absolute.
     selected_config = model / model_config
     if platform.is_link(selected_config) or not selected_config.is_file():
@@ -767,25 +836,20 @@ def init_from_inputs(
                     pass
             raise
     else:
+        # Starters first: a renamed campaign is an init input change, not a
+        # foreign campaign folder.
+        missing, kept = _generated_files(absolute, expected)
         _preflight_campaigns(absolute, campaigns)
-        actual = {"README.md": (absolute / "README.md").read_bytes()}
-        actual.update(
-            {
-                name: (absolute / "configs" / name).read_bytes()
-                for name in expected
-                if name != "README.md"
-            }
-        )
-        for name, content in expected.items():
-            if actual[name] != content:
-                target = "README.md" if name == "README.md" else f"configs/{name}"
-                raise FileExistsError(
-                    f"init would overwrite {target}, which differs from what "
-                    "init would write (file edited or init inputs changed)"
-                )
         if not regenerate_data_manifest:
             _validate_project_manifest(absolute / "manifest.json")
         _durable_preflight(absolute, expected_artifacts, campaigns)
+        for relative in missing:
+            name = Path(relative).name
+            # Never overwrite a file that appeared meanwhile.
+            publish_bytes(
+                expected[name], absolute / relative, replace=False, default_mode=0o644
+            )
+            restored.append(relative)
         attributes = absolute / GITATTRIBUTES
         if not os.path.lexists(attributes):
             # Never overwrite a user's .gitattributes; only restore a missing one.
@@ -809,6 +873,7 @@ def init_from_inputs(
         "readme": "README.md",
         "metaConfigs": dict(INIT_CONFIGS),
         "restored": restored,
+        "kept": kept,
         "elapsedSeconds": time.monotonic() - started,
         "error": None,
     }

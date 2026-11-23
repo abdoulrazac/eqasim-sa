@@ -87,6 +87,7 @@ def test_init_is_a_pure_atomic_template_generator(
             "sobol": "configs/03-sobol.yml",
         },
         "restored": [],
+        "kept": [],
         "elapsedSeconds": result["elapsedSeconds"],
         "error": None,
     }
@@ -527,14 +528,8 @@ def test_init_rejects_unsafe_or_foreign_state_without_publication(tmp_path: Path
     assert not root.exists() and not external.exists()
 
 
-def test_init_rejects_modified_and_hardlinked_static_files(tmp_path: Path) -> None:
+def test_init_rejects_hardlinked_static_files(tmp_path: Path) -> None:
     _, root, model, data = initialize(tmp_path, "project")
-    config = root / "configs/01-grid.yml"
-    original = config.read_bytes()
-    config.write_text(config.read_text() + "# changed\n")
-    with pytest.raises(FileExistsError, match=r"init would overwrite .*01-grid\.yml, which differs from what init would write \(file edited or init inputs changed\)"):
-        init_from_inputs("project", root, model, data, None, invocation())
-    config.write_bytes(original)
     # A separately linked README has matching bytes but is not owned template state.
     saved = tmp_path / "README.md"
     saved.write_bytes((root / "README.md").read_bytes())
@@ -914,7 +909,7 @@ def test_init_cli_names_the_edited_starter(
 ) -> None:
     _, root, model, data = initialize(tmp_path, "project")
     config = root / "configs/01-grid.yml"
-    config.write_text(config.read_text() + "# changed\n")
+    config.write_text(config.read_text().replace("root: ", "root: ../elsewhere/", 1))
     monkeypatch.setattr(
         sys, "argv",
         [
@@ -927,8 +922,7 @@ def test_init_cli_names_the_edited_starter(
     assert dispatch(None, None, init_factory=init_from_inputs) == 1
 
     error = json.loads(capsys.readouterr().out)["error"]
-    assert error.startswith("init would overwrite configs/01-grid.yml, which differs")
-    assert "<path>" not in error
+    assert error == "init inputs changed: model.root in configs/01-grid.yml"
 
 
 def test_generated_readme_names_the_selected_model_config(tmp_path: Path) -> None:
@@ -963,3 +957,176 @@ def test_init_cli_failure_reports_the_elapsed_time(monkeypatch, capsys) -> None:
     assert dispatch(None, None, init_factory=slow_failure) == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["elapsedSeconds"] >= 0.05
+
+
+ANALYSES_EDIT = """analyses:
+  commute:
+    script: analyses/commute.py
+    inputs: [trips, activities_spatial, persons]
+indicators:
+  - tv_distance: {outputs: [age, distance, nbr_vehicle]}
+  - value: {output: commute, column: mean_commute_km, where: {group: all}}
+"""
+
+
+def _edit_grid_like_the_analysis_guide(root: Path) -> bytes:
+    grid = root / "configs/01-grid.yml"
+    text = grid.read_text().replace("workers: 2", "workers: 4")
+    grid.write_text(text + ANALYSES_EDIT)
+    (root / "configs/analyses").mkdir()
+    (root / "configs/analyses/commute.py").write_text("def compute(f, p): ...\n")
+    return grid.read_bytes()
+
+
+def test_init_rerun_keeps_a_starter_edited_beyond_init_values(tmp_path: Path) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    edited = _edit_grid_like_the_analysis_guide(root)
+
+    result = init_from_inputs("project", root, model, data, None, invocation())
+
+    assert result["status"] == "unchanged"
+    assert result["kept"] == ["configs/01-grid.yml"]
+    assert result["restored"] == []
+    assert (root / "configs/01-grid.yml").read_bytes() == edited
+
+
+def test_init_regenerates_the_manifest_with_kept_starters(tmp_path: Path) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    edited = _edit_grid_like_the_analysis_guide(root)
+    before = (root / "manifest.json").read_bytes()
+    (data / "second.txt").write_text("second\n")
+
+    result = init_from_inputs(
+        "project", root, model, data, None, invocation(),
+        regenerate_data_manifest=True,
+    )
+
+    assert result["status"] == "initialized"
+    assert result["kept"] == ["configs/01-grid.yml"]
+    assert (root / "configs/01-grid.yml").read_bytes() == edited
+    assert (root / "manifest.json").read_bytes() != before
+
+
+def test_init_rerun_keeps_an_edited_readme(tmp_path: Path) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    readme = root / "README.md"
+    readme.write_text(readme.read_text() + "\nMy notes.\n")
+
+    result = init_from_inputs("project", root, model, data, None, invocation())
+
+    assert result["kept"] == ["README.md"]
+    assert readme.read_text().endswith("My notes.\n")
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "key"),
+    [
+        ("root: ", "root: ../elsewhere/", "model.root"),
+        ('config: "config.yml"', 'config: "other.yml"', "model.config"),
+        ('data_manifest: "../manifest.json"', 'data_manifest: "x.json"', "model.data_manifest"),
+        ("  scratch: ", "  scratch: ../other/", "execution.scratch"),
+        ("    data_path: ", "    data_path: ../other/", "execution.machine_options.data_path"),
+        ("campaign: project-grid", "campaign: project-grid-v2", "campaign"),
+        ("campaign: project-grid", "campaign_root: ../elsewhere\ncampaign: project-grid", "campaign_root"),
+        (
+            "  invocation: [\"python\", \"-m\", \"synpp\"]",
+            "  invocation: [\"python3\", \"-m\", \"synpp\"]",
+            "execution.invocation",
+        ),
+    ],
+)
+def test_init_rerun_refuses_a_changed_init_value_naming_it(
+    tmp_path: Path, old: str, new: str, key: str
+) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    grid = root / "configs/01-grid.yml"
+    text = grid.read_text()
+    assert old in text
+    grid.write_text(text.replace(old, new, 1))
+    edited = grid.read_bytes()
+
+    with pytest.raises(
+        FileExistsError, match=rf"^init inputs changed: {re.escape(key)} in configs/01-grid\.yml$"
+    ):
+        init_from_inputs("project", root, model, data, None, invocation())
+    assert grid.read_bytes() == edited
+
+
+def test_init_rerun_treats_an_absent_invocation_as_the_default(tmp_path: Path) -> None:
+    model, data = inputs(tmp_path)
+    root = tmp_path / "project"
+    init_from_inputs("project", root, model, data, None, DEFAULT_INVOCATION)
+    grid = root / "configs/01-grid.yml"
+    text = grid.read_text().replace(
+        "  scratch: ",
+        f"  invocation: {json.dumps(list(DEFAULT_INVOCATION))}\n  scratch: ",
+    )
+    grid.write_text(text)
+
+    result = init_from_inputs("project", root, model, data, None, DEFAULT_INVOCATION)
+
+    assert result["kept"] == ["configs/01-grid.yml"]
+
+
+def test_init_rerun_reports_a_renamed_campaign_before_its_folder(tmp_path: Path) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    grid = root / "configs/01-grid.yml"
+    grid.write_text(grid.read_text().replace("campaign: project-grid", "campaign: project-v2"))
+    (root / "campaigns/project-v2").mkdir()
+
+    with pytest.raises(
+        FileExistsError, match=r"^init inputs changed: campaign in configs/01-grid\.yml$"
+    ):
+        init_from_inputs("project", root, model, data, None, invocation())
+
+
+@pytest.mark.parametrize("content", ["campaign: [\n", "- not\n- a mapping\n", "a: 1\na: 2\n"])
+def test_init_rerun_refuses_an_unparseable_starter(tmp_path: Path, content: str) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    (root / "configs/01-grid.yml").write_text(content)
+
+    with pytest.raises(FileExistsError, match=r"^init cannot parse configs/01-grid\.yml"):
+        init_from_inputs("project", root, model, data, None, invocation())
+
+
+@pytest.mark.parametrize("name", ["configs/01-grid.yml", "README.md"])
+def test_init_rerun_recreates_a_missing_generated_file(tmp_path: Path, name: str) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    expected = (root / name).read_bytes()
+    (root / name).unlink()
+
+    result = init_from_inputs("project", root, model, data, None, invocation())
+
+    assert result["status"] == "unchanged"
+    assert result["restored"] == [name]
+    assert result["kept"] == []
+    assert (root / name).read_bytes() == expected
+
+
+def test_init_rerun_recreates_every_missing_starter(tmp_path: Path) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    for path in (root / "configs").iterdir():
+        path.unlink()
+
+    result = init_from_inputs("project", root, model, data, None, invocation())
+
+    assert result["restored"] == [
+        "configs/00-calibration.yml", "configs/01-grid.yml",
+        "configs/02-discrete-oat.yml", "configs/03-sobol.yml",
+    ]
+
+
+def test_parser_survives_missing_package_metadata(
+    monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    import importlib.metadata
+
+    def missing(name):  # type: ignore[no-untyped-def]
+        raise importlib.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(importlib.metadata, "version", missing)
+    built = parser()
+    with pytest.raises(SystemExit) as caught:
+        built.parse_args(["--version"])
+    assert caught.value.code == 0
+    assert capsys.readouterr().out == "eqasim-sa unknown\n"
