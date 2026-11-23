@@ -169,7 +169,8 @@ and run `analyze` on your computer: the plan and the run archives are never
 modified. See [Writing an analysis script](docs/analysis-scripts.md).
 
 `plot` draws, from the published analysis, only the figures that are valid for the
-method and the inference status of the campaign, into `figures/<generationId>/`.
+campaign's method and the published tables, into `figures/<generationId>/`. The
+inference status is stamped on each figure.
 See [Figures](docs/workflow-and-results.md#figures).
 
 ## Structured matching configurations

@@ -198,8 +198,10 @@ Le scratch contient les caches synpp et tentatives temporaires. Il est jetable.
 `eqasim-sa plot` dessine des figures à partir de la génération d'analyse
 publiée. Elle lit `analysis-generation.json`, vérifie le sha256 de chaque table
 avant de s'en servir, et écrit des PNG ainsi qu'un index `figures.json` dans
-`figures/<generationId>/`. Elle ne lit ni les runs ni le plan, et n'écrit rien
-sous `analysis/`. Les figures ne font pas partie de la génération scellée et
+`figures/<generationId>/`. Elle ne lit pas les runs ; elle vérifie seulement la
+méta-configuration contre le plan scellé, donc `plot` a besoin de la
+méta-configuration de la campagne et de son plan scellé. Elle n'écrit rien sous
+`analysis/`. Les figures ne font pas partie de la génération scellée et
 peuvent être supprimées puis recréées. Chaque exécution reconstruit
 `figures/<generationId>/` dans son ensemble : aucun fichier périmé ne subsiste,
 et les dossiers des autres générations ne sont pas touchés. Une nouvelle
@@ -210,19 +212,19 @@ si elle est valable pour la méthode analysée et si les tables dont elle a beso
 ont été publiées. Demander une autre figure avec `--figure` est une erreur qui
 liste les figures valables. Sans `--figure`, toutes les figures valables sont
 dessinées. En mode `--descriptive-only`, il n'y a pas de table de sensibilité :
-seules restent `output-summary` et, si la table de dispersion est publiée,
-`grid-response`.
+seule reste `output-summary`, plus `grid-response` pour une campagne `grid`
+dont la table de dispersion est publiée.
 
 | Figure | Méthode | Nécessite | Ce qu'elle montre |
 | --- | --- | --- | --- |
 | `output-summary` | toutes | `output-summary.parquet` | Une ligne d'axe par indicateur, chacune avec sa propre échelle en x : médiane, q05 à q95 et min à max. Légende « distribution sur les positions du plan », jamais une incertitude du modèle. Les indicateurs sans médiane sont notés sur la figure (« non tracé : … »). |
-| `grid-response` | `grid` | `replication-dispersion.parquet`, au moins un paramètre numérique | Une figure par indicateur, un sous-graphique par paramètre numérique pris comme x, une courbe par combinaison des autres paramètres (jamais moyennée), avec l'IC95 publié entre réplications. Un point à une seule réplication n'a pas d'intervalle et le sous-graphique indique « 1 réplication ». Sans paramètre numérique, la figure est ignorée (listée sous `skipped` dans `figures.json`), ou la commande échoue si vous l'avez demandée explicitement. |
+| `grid-response` | `grid` | `replication-dispersion.parquet`, au moins un paramètre numérique | Une figure par indicateur, un sous-graphique par paramètre numérique pris comme x, une courbe par combinaison des autres paramètres (jamais moyennée), avec l'IC95 publié entre réplications. Un point à une seule réplication n'a pas de segment d'intervalle ; quand tous les points de l'indicateur n'ont qu'une réplication, le titre du sous-graphique indique « 1 réplication, sans IC ». L'IC n'est tracé que si ses deux bornes sont publiées. Sans paramètre numérique, la figure est ignorée (listée sous `skipped` dans `figures.json`), ou la commande échoue si vous l'avez demandée explicitement. |
 | `oat-effects` | `discrete_oat` | table de sensibilité | Barres de `mu_star` par facteur, `sigma` en marqueur, `seed_std` en trait de référence. Titre « effets OAT locaux normalisés, non globaux ». Les facteurs sans `mu_star` sont omis et listés. |
 | `sobol-indices` | `sobol` | table de sensibilité | Barres groupées `first_order` et `total_order` avec l'IC bootstrap. Porte le bandeau « démonstration : un seul scramble, IC non inférentiels ». |
 | `morris-plane` | `canonical_morris` | table de sensibilité | Le plan mu*–sigma, l'IC de `mu_star` en barres horizontales et la diagonale sigma = mu*. Un facteur sans `sigma` ou `mu_star` fini est omis et listé. |
 | `morris-convergence` | `canonical_morris` | table de convergence | `mu_star` et son IC selon `checkpoint_trajectories`, une courbe par facteur. |
 | `morris-rank-reversals` | `canonical_morris` | table d'inversions de rang | Carte `factor_a` × `factor_b` de la probabilité que l'ordre publié de la paire soit inversé, au dernier point de contrôle. Affichée n/a quand aucune probabilité n'est publiée pour la paire (par exemple en cas d'égalité). |
-| `morris-noise-floor` | `canonical_morris` | `noise-floor.parquet` | Deux séries distinctes par trajectoire et par rang : l'écart-type intrinsèque et l'erreur-type Monte-Carlo de la moyenne (pas sd ± mcse). Quand `replication-allocation.json` est publié, la ligne de référence `targetMcse` apparaît sur la figure de l'indicateur principal. |
+| `morris-noise-floor` | `canonical_morris` | `noise-floor.parquet` | Deux séries distinctes par trajectoire et par rang : l'écart-type intrinsèque et l'erreur-type Monte-Carlo de la moyenne (pas sd ± mcse). `replication-allocation.json` n'est publié qu'en phase pilote ; quand il l'est et que son `targetMcse` est fini, la ligne de référence `targetMcse` n'est tracée que sur la figure de son `primaryIndicator`. |
 | `multiscramble-indices` | `multiscramble_sobol` | table de sensibilité | `first_order_mean` et `total_order_mean` avec leur IC au dernier point de contrôle. Les facteurs non actionnables (le facteur graine) sont grisés, hachurés, placés à part et sans rang. |
 | `multiscramble-convergence` | `multiscramble_sobol` | table de convergence, rapport gouverné | La largeur de l'IC, par facteur actionnable, de l'ordre qui correspond à l'objectif (premier ordre pour `fp`, ordre total pour `ff`), plus la courbe du maximum utilisée par le critère d'arrêt. Le facteur graine est grisé et exclu de ce maximum. Le seuil `ci_width` est tracé sur l'indicateur principal seulement, quand le rapport gouverné en définit un. |
 | `multiscramble-by-scramble` | `multiscramble_sobol` | table par scramble | Un point par scramble et par facteur, au dernier point de contrôle. |

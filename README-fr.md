@@ -177,8 +177,8 @@ ordinateur : le plan et les archives des runs ne sont jamais modifiés. Voir
 [Écrire un script d'analyse](docs-fr/analysis-scripts.md).
 
 `plot` dessine, à partir de l'analyse publiée, uniquement les figures valables
-pour la méthode et le statut d'inférence de la campagne, dans
-`figures/<generationId>/`. Voir [Figures](docs-fr/workflow-and-results.md#figures).
+pour la méthode de la campagne et les tables publiées, dans
+`figures/<generationId>/`. Le statut d'inférence est estampillé sur chaque figure. Voir [Figures](docs-fr/workflow-and-results.md#figures).
 
 ## Configurations structurées de matching
 

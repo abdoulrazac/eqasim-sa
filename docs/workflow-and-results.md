@@ -196,8 +196,9 @@ Scratch space contains synpp caches and temporary attempts. It is disposable.
 `eqasim-sa plot` draws figures from the published analysis generation. It reads
 `analysis-generation.json`, checks the sha256 of every table before drawing from
 it, and writes PNG files plus an index `figures.json` to
-`figures/<generationId>/`. It never reads the runs or the plan, and writes
-nothing under `analysis/`. The figures are not part of the sealed generation and
+`figures/<generationId>/`. It does not read the runs; it only checks the
+meta-configuration against the sealed plan, so `plot` needs the campaign's
+meta-configuration and sealed plan. It writes nothing under `analysis/`. The figures are not part of the sealed generation and
 can be deleted and recreated. Each run rebuilds
 `figures/<generationId>/` as a whole, so no stale file remains; the directories
 of other generations are left untouched. A new `analyze` publication gets its own
@@ -207,19 +208,19 @@ You never choose what a figure means: a figure is drawn only if it is valid for
 the method that was analyzed and if the tables it needs were published. Asking
 for any other figure with `--figure` is an error that lists the valid ones.
 Without `--figure`, every valid figure is drawn. In `--descriptive-only` mode
-no sensitivity table exists, so only `output-summary` and, if the dispersion
-table is published, `grid-response` remain.
+no sensitivity table exists, so only `output-summary` remains, plus `grid-response` for a `grid`
+campaign whose dispersion table is published.
 
 | Figure | Method | Needs | What it shows |
 | --- | --- | --- | --- |
 | `output-summary` | all | `output-summary.parquet` | One axis row per indicator, each with its own x scale: median, q05 to q95 and min to max. Captioned "distribution sur les positions du plan", never model uncertainty. Indicators with no median are listed on the figure ("non tracé : ..."). |
-| `grid-response` | `grid` | `replication-dispersion.parquet`, at least one numeric parameter | One figure per indicator, one subplot per numeric parameter used as x, one line per combination of the other parameters (never averaged), with the published 95% CI between replications. A point with a single replication has no interval and the subplot says "1 réplication". Without a numeric parameter the figure is skipped (listed under `skipped` in `figures.json`), or the command fails if you requested it explicitly. |
+| `grid-response` | `grid` | `replication-dispersion.parquet`, at least one numeric parameter | One figure per indicator, one subplot per numeric parameter used as x, one line per combination of the other parameters (never averaged), with the published 95% CI between replications, drawn only when both bounds exist. A point with a single replication has no interval segment; when every point of the indicator has a single replication, the subplot title says "1 réplication, sans IC". Without a numeric parameter the figure is skipped (listed under `skipped` in `figures.json`), or the command fails if you requested it explicitly. |
 | `oat-effects` | `discrete_oat` | sensitivity table | Bars of `mu_star` per factor, `sigma` as a marker, `seed_std` as a reference tick. Titled "effets OAT locaux normalisés, non globaux". Factors without `mu_star` are omitted and listed. |
 | `sobol-indices` | `sobol` | sensitivity table | Grouped `first_order` and `total_order` bars with the bootstrap CI. Carries the banner "démonstration : un seul scramble, IC non inférentiels". |
 | `morris-plane` | `canonical_morris` | sensitivity table | The mu*-sigma plane, the CI of `mu_star` as horizontal bars, and the diagonal sigma = mu*. A factor without a finite `sigma` or `mu_star` is omitted and listed. |
 | `morris-convergence` | `canonical_morris` | convergence table | `mu_star` and its CI along `checkpoint_trajectories`, one line per factor. |
 | `morris-rank-reversals` | `canonical_morris` | rank-reversal table | A `factor_a` by `factor_b` map of the probability that the published order of the pair is reversed, at the last checkpoint. Shown as n/a when no probability is published for the pair (for example a tie). |
-| `morris-noise-floor` | `canonical_morris` | `noise-floor.parquet` | Two separate series per trajectory and rank: the intrinsic standard deviation and the Monte Carlo standard error of the mean (not sd +/- mcse). When `replication-allocation.json` is published, the `targetMcse` reference line appears on the primary indicator's figure. |
+| `morris-noise-floor` | `canonical_morris` | `noise-floor.parquet` | Two separate series per trajectory and rank: the intrinsic standard deviation and the Monte Carlo standard error of the mean (not sd +/- mcse). `replication-allocation.json` is published in the pilot phase only; when it is, and its `targetMcse` is finite, the `targetMcse` reference line is drawn on the figure of its `primaryIndicator` only. |
 | `multiscramble-indices` | `multiscramble_sobol` | sensitivity table | `first_order_mean` and `total_order_mean` with their CI at the last checkpoint. Non-actionable factors (the seed factor) are grey, hatched, placed apart, and show no rank. |
 | `multiscramble-convergence` | `multiscramble_sobol` | convergence table, governed report | The CI width, per actionable factor, of the order that matches the objective (first order for `fp`, total order for `ff`), plus the maximum curve used by the stopping criterion. The seed factor is grey and excluded from that maximum. The `ci_width` threshold is drawn on the primary indicator only, when the governed report defines one. |
 | `multiscramble-by-scramble` | `multiscramble_sobol` | by-scramble table | One point per scramble and per factor, at the last checkpoint. |
