@@ -86,7 +86,7 @@ Without `--smoke`, the checks are, in this order:
 | `uniqueConfigSeedPairs` | no Grid duplicates; sealed validation for discrete OAT, canonical Morris, and Sobol | `passed`, `failed` |
 | `eqasimEnvironment` | when `execution.invocation` ends with `-m synpp`, the invocation with those two elements replaced by `-c "import synpp"` must exit 0; otherwise the probe is skipped, with `note: synpp probe skipped: invocation does not end with -m synpp` | `passed`, `skipped`, `failed` |
 | `backend` | the `slurm` backend runs only on Linux | `passed`, `failed` |
-| `path_length` | estimated longest path below `execution.scratch`: eqasim-sa's worker layout, the `check --smoke` layout, and 240 characters for eqasim's own cache. The limit is 260 on Windows (passes above it when Windows long paths are enabled, otherwise fails and says how short `execution.scratch` must be), 1024 on macOS and 4096 on Linux (a `warning` above it). `note` gives the estimate | `passed`, `warning`, `failed` |
+| `path_length` | estimated longest path below `execution.scratch`: eqasim-sa's worker layout, the `check --smoke` layout, and 240 characters for eqasim's own cache. The limit is 260 on Windows (passes above it when Windows long paths are enabled, otherwise fails and says how short `execution.scratch` must be), 1024 on macOS and 4096 on Linux (a `warning` above it). The estimate is in `note` when the item passes, in `error` otherwise | `passed`, `warning`, `failed` |
 | `same_machine` | the completed runs of the campaign were executed on this machine with the same executable, environment variables, model configuration, and eqasim-sa installation (see [Troubleshooting](troubleshooting.md#campaign-runs-were-executed-on-another-machine)). `skipped` before any completed run, for an empty plan, and for the `slurm` backend (compared on the compute node); `note` says which | `passed`, `skipped`, `failed` |
 | `diskSpace` | durable and scratch space based on available observations | `passed`, `failed` |
 
@@ -185,6 +185,7 @@ indicator to `{"computed": n, "cached": m}`: the number of runs whose result
 was computed by running the script, and the number read back from
 `analyses-cache/`. After editing one script, only that analysis has
 `computed` results. It is `{}` when no indicator reads an analysis output.
+In a failed result, `analyses` is `{}` and `warnings` is `[]`.
 `rankReversalsPath` is specific to `canonical_morris`; the two scramble paths are
 specific to `multiscramble_sobol`.
 scientific analysis accepts `multiscramble_sobol` after reconstructing the

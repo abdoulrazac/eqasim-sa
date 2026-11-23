@@ -46,7 +46,10 @@ Le lockfile d'`eqasim-sa` fixe l'environnement du runner. Le lockfile référenc
 dans une méta-configuration entre, lui, dans le contexte scientifique scellé.
 
 Les dossiers `eqasim-sa/`, `eqasim-france/` et `eqasim-data/` côte à côte sous
-une même racine ne sont qu'un exemple. Chacun peut se trouver n'importe où :
+une même racine ne sont qu'un exemple. Chacun peut se trouver n'importe où,
+tant qu'ils ne sont pas imbriqués les uns dans les autres (`init` refuse un
+projet dans le dossier eqasim ou l'inverse, un scratch dans le dossier eqasim
+et un projet dans son scratch) :
 donnez des chemins absolus à `--project`, `--model-root`, `--data-path`,
 `--directory` et `--scratch`. `init` écrit les chemins des starters relativement
 à leur dossier `configs/` (en absolu sous Windows quand le dossier est sur un

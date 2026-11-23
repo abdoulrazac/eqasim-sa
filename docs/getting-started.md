@@ -46,7 +46,10 @@ The `eqasim-sa` lockfile pins the runner environment. The lockfile referenced
 in a meta-configuration, however, is part of the sealed scientific context.
 
 The folders `eqasim-sa/`, `eqasim-france/`, and `eqasim-data/` side by side
-under one root are only an example. Each can be anywhere: give absolute paths
+under one root are only an example. Each can be anywhere, as long as they are
+not nested in one another (`init` refuses a project inside the eqasim folder or
+the reverse, a scratch inside the eqasim folder, and a project inside its
+scratch): give absolute paths
 to `--project`, `--model-root`, `--data-path`, `--directory`, and `--scratch`.
 `init` writes the paths of the starters relative to their `configs/` folder
 (absolute on Windows when the folder is on another drive); if you later move

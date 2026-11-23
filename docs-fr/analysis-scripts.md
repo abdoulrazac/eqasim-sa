@@ -202,9 +202,11 @@ ligne : 9,78 km pour ce run.
 
 Cette seconde analyse a besoin d'une colonne `mode` dans le fichier des
 trajets, qu'eqasim n'écrit que si sa configuration fixe `mode_choice: true`.
-Les configurations officielles d'eqasim (`config.yml`, `config_nantes.yml`...)
-fixent `mode_choice: false` : ajoutez cette analyse seulement si votre copie le
-passe à `true` ; sinon le script s'arrête avec le message qu'il lève et `analyze` échoue
+La plupart des configurations officielles d'eqasim (`config.yml`,
+`config_nantes.yml`, `config_lyon.yml`, `config_toulouse.yml`,
+`config_corsica.yml`) fixent `mode_choice: false` ; `config_full.yml` le fixe à
+`true`. Ajoutez cette analyse seulement si votre copie le fixe à `true` ;
+sinon le script s'arrête avec le message qu'il lève et `analyze` échoue
 (voir [Ce que fait `analyze`](#ce-que-fait-analyze)). Ajoutez à l'exemple
 complet ci-dessus :
 

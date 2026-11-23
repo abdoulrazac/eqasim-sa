@@ -25,8 +25,9 @@
     `check` items, what can be deleted and when, the analysis example rewritten
     on `trips` + `activities_spatial` with the default `tv_distance`
     indicators kept (the mode-share analysis, which needs
-    `mode_choice: true`, is now a separate conditional snippet), paths anywhere, and resuming `run` from another shell or
-    IDE (`same_machine`).
+    `mode_choice: true`, is now a separate conditional snippet), paths
+    anywhere (not nested), and resuming `run` from another shell or IDE
+    (`same_machine`).
 - Fix: commands could hang forever at exit after printing their result;
   Arrow reads (Parquet and CSV) no longer use worker threads.
 - BREAKING: analysis scripts. A new optional `analyses` block declares Python

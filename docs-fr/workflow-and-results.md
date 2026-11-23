@@ -497,11 +497,14 @@ ou contextes.
 
 ## Nettoyage
 
-eqasim-sa ne supprime jamais de lui-même une arborescence de scratch, le cache
-d'analyse ou une génération d'analyse. Il ne retire que ses propres fichiers
-temporaires : le répertoire de tentative d'un run une fois archivé, le
-répertoire `.smoke-<8 hex>/` de `check --smoke`, le travail transactionnel sous
-`analysis/staging/` et une entrée de cache altérée avant de la recalculer. Tout
+eqasim-sa ne supprime jamais de lui-même l'arborescence de scratch d'une
+campagne, le cache d'analyse ou une génération d'analyse. Il ne retire que
+ceci : le répertoire de tentative d'un run une fois archivé ; le répertoire
+`.smoke-<8 hex>/` de `check --smoke` ; le cache synpp `c<hash>/` d'un slot,
+avant de réutiliser le slot, quand son fichier d'état est absent, invalide ou
+pas `clean`, ou quand le répertoire du cache est invalide ; le travail
+transactionnel sous `analysis/staging/` ; et une entrée altérée du cache
+d'analyse avant de la recalculer. Tout
 le reste s'accumule jusqu'à ce que vous le supprimiez. Ne supprimez rien
 pendant qu'une commande `run`, `check --smoke` ou `analyze` tourne sur la
 campagne.

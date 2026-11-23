@@ -199,10 +199,11 @@ row: 9.78 km for that run.
 ### Only with `mode_choice: true`: share of trips by mode
 
 This second analysis needs a `mode` column in the trips file, which eqasim
-writes only when its configuration sets `mode_choice: true`. eqasim's official
-configurations (`config.yml`, `config_nantes.yml`, ...) set
-`mode_choice: false`, so add this analysis only if your copy sets it to
-`true`; otherwise the script
+writes only when its configuration sets `mode_choice: true`. Most of eqasim's
+official configurations (`config.yml`, `config_nantes.yml`, `config_lyon.yml`,
+`config_toulouse.yml`, `config_corsica.yml`) set `mode_choice: false`;
+`config_full.yml` sets it to `true`. Add this analysis only if your copy sets
+it to `true`; otherwise the script
 stops with the message it raises and `analyze` fails (see
 [What `analyze` does](#what-analyze-does)). Add to the complete example above:
 

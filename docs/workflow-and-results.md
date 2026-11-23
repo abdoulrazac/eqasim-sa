@@ -495,11 +495,13 @@ between slots or contexts.
 
 ## Cleaning up
 
-eqasim-sa never deletes a scratch tree, the analysis cache, or an analysis
-generation on its own. It removes only its own temporary files: the attempt
-directory of a run once it is archived, the `.smoke-<8 hex>/` directory of
-`check --smoke`, the transaction work under `analysis/staging/`, and an
-altered cache entry before recomputing it. Everything else accumulates until you
+eqasim-sa never deletes a campaign's scratch tree, the analysis cache, or an
+analysis generation on its own. It removes only these: the attempt directory
+of a run once it is archived; the `.smoke-<8 hex>/` directory of
+`check --smoke`; a slot's synpp cache `c<hash>/`, before reusing the slot,
+when its state file is missing, invalid, or not `clean`, or when the cache
+directory is invalid; the transaction work under `analysis/staging/`; and an
+altered analysis cache entry before recomputing it. Everything else accumulates until you
 delete it. Delete only when no `run`, `check --smoke`, or `analyze` command is
 running on the campaign.
 
