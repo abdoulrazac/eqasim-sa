@@ -1623,8 +1623,16 @@ def test_resume_with_other_executable_is_refused() -> None:
     [
         ("executable_sha256", "0" * 64, "executable differs"),
         ("invocation", (os.path.abspath("other"),), "executable differs"),
-        ("environment_sha256", "0" * 64, "environment differs"),
-        ("environment_variables", ("HOME", "PATH"), "environment differs"),
+        (
+            "environment_sha256",
+            "0" * 64,
+            "environment differs (same variable names, some values differ)",
+        ),
+        (
+            "environment_variables",
+            ("HOME", "PATH"),
+            "environment differs (variables added: HOME)",
+        ),
         ("model_config_sha256", "0" * 64, "model configuration changed"),
         ("eqasim_sa_sha256", "0" * 64, "eqasim-sa installation changed"),
     ],
@@ -1638,6 +1646,26 @@ def test_resume_refusal_names_the_cause(field: str, value: object, cause: str) -
         "campaign runs were executed on another machine or with other inputs: "
         f"{cause} (differing: {field}); prepare a new campaign on this machine"
     )
+
+
+def test_resume_refusal_names_added_and_removed_variables_never_values() -> None:
+    from eqasim_sa.core.run import require_same_machine
+
+    existing = replace(_evidence(), environment_variables=("OLD", "PATH"))
+    current = replace(
+        _evidence(),
+        environment_sha256="0" * 64,
+        environment_variables=("PATH", "UV", "UV_RUN_RECURSION_DEPTH"),
+    )
+    with pytest.raises(ValueError) as error:
+        require_same_machine({"r": existing}, current)
+    assert str(error.value) == (
+        "campaign runs were executed on another machine or with other inputs: "
+        "environment differs (variables added: UV, UV_RUN_RECURSION_DEPTH; "
+        "removed: OLD) (differing: environment_sha256, environment_variables); "
+        "prepare a new campaign on this machine"
+    )
+    assert "3" * 64 not in str(error.value) and "0" * 64 not in str(error.value)
 
 
 def test_resume_refusal_lists_each_cause_once() -> None:

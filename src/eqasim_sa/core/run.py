@@ -368,6 +368,8 @@ def require_same_machine(
     """Refuse to resume a campaign whose runs were executed elsewhere."""
 
     differing = set()
+    added: set[str] = set()
+    removed: set[str] = set()
     for evidence in existing.values():
         if evidence is None:
             continue
@@ -377,8 +379,26 @@ def require_same_machine(
         for field in MACHINE_FIELDS:
             if getattr(evidence, field) != getattr(current, field):
                 differing.add(field)
+        # Only names are recorded per variable; values are covered by one
+        # digest, and are never shown since they may hold secrets.
+        recorded = set(evidence.environment_variables)
+        present = set(current.environment_variables)
+        added |= present - recorded
+        removed |= recorded - present
     if differing:
         causes = sorted({MACHINE_FIELD_CAUSES.get(field, field) for field in differing})
+        environment = MACHINE_FIELD_CAUSES["environment_sha256"]
+        if environment in causes:
+            changes = [
+                f"{label}: {', '.join(sorted(names))}"
+                for label, names in (
+                    ("variables added", added),
+                    ("removed" if added else "variables removed", removed),
+                )
+                if names
+            ]
+            detail = "; ".join(changes) or "same variable names, some values differ"
+            causes[causes.index(environment)] = f"{environment} ({detail})"
         raise ValueError(
             "campaign runs were executed on another machine or with other inputs: "
             f"{', '.join(causes)} (differing: {', '.join(sorted(differing))}); "
