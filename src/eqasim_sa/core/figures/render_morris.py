@@ -59,7 +59,7 @@ def render_morris_plane(analysis: PublishedAnalysis) -> list[RenderedFigure]:
                 [r["mu_star_ci_high"] for r in with_ci],
                 color=CI_COLOR,
                 linewidth=1.2,
-                label="IC de mu* (publié)",
+                label="mu* CI (published)",
             )
         if drawn:
             ax.plot(
@@ -88,10 +88,10 @@ def render_morris_plane(analysis: PublishedAnalysis) -> list[RenderedFigure]:
         )
         ax.set_xlabel(f"mu* ({indicator})")
         ax.set_ylabel("sigma")
-        ax.set_title("plan mu*–sigma", fontsize=10)
+        ax.set_title("mu*–sigma plane", fontsize=10)
         ax.legend(fontsize=7, loc="upper left")
         if omitted:
-            _note(figure, "non tracé (sigma ou mu* absent) : " + ", ".join(omitted))
+            _note(figure, "not plotted (sigma or mu* missing): " + ", ".join(omitted))
         stamp(figure, analysis)
         figures.append(
             RenderedFigure(
@@ -143,14 +143,14 @@ def render_morris_convergence(analysis: PublishedAnalysis) -> list[RenderedFigur
                     linewidth=1.0,
                     alpha=0.7,
                 )
-        ax.set_xlabel("trajectoires au point de contrôle")
+        ax.set_xlabel("trajectories at checkpoint")
         discrete_xticks(ax, (r["checkpoint_trajectories"] for r in subset))
         ax.set_ylabel(f"mu* ({indicator})")
-        ax.set_title("mu* et son IC selon le point de contrôle", fontsize=10)
+        ax.set_title("mu* and its CI by checkpoint", fontsize=10)
         if ax.get_legend_handles_labels()[0]:
             ax.legend(fontsize=7, loc="best")
         if omitted:
-            _note(figure, "non tracé : " + ", ".join(omitted))
+            _note(figure, "not plotted: " + ", ".join(omitted))
         stamp(figure, analysis)
         figures.append(
             RenderedFigure(
@@ -221,15 +221,15 @@ def render_morris_rank_reversals(analysis: PublishedAnalysis) -> list[RenderedFi
                 fontsize=6,
                 color="white" if _finite(probability) and probability < 0.5 else "black",
             )
-        figure.colorbar(image, ax=ax, shrink=0.8, label="P(ordre de mu* inversé)")
-        ax.set_xlabel("facteur b (classé plus bas)")
-        ax.set_ylabel("facteur a (classé plus haut)")
+        figure.colorbar(image, ax=ax, shrink=0.8, label="P(mu* order reversed)")
+        ax.set_xlabel("factor b (ranked lower)")
+        ax.set_ylabel("factor a (ranked higher)")
         ax.set_title(
-            f"inversion de l'ordre de mu* par paire — {last} trajectoires", fontsize=9
+            f"pairwise mu* order reversal — {last} trajectories", fontsize=9
         )
         note = indicator
         if unavailable:
-            note += " · n/a : " + ", ".join(unavailable)
+            note += " · n/a: " + ", ".join(unavailable)
         _note(figure, note)
         stamp(figure, analysis)
         figures.append(
@@ -268,7 +268,7 @@ def render_morris_noise_floor(analysis: PublishedAnalysis) -> list[RenderedFigur
                 usable = [r for r in series if _finite(r[column])]
                 if column == "intrinsic_sd":
                     omitted.extend(
-                        f"trajectoire {trajectory} rang {r['rank']}"
+                        f"trajectory {trajectory} rank {r['rank']}"
                         for r in series
                         if not _finite(r[column])
                     )
@@ -278,26 +278,26 @@ def render_morris_noise_floor(analysis: PublishedAnalysis) -> list[RenderedFigur
                         [r[column] for r in usable],
                         "o-",
                         markersize=3,
-                        label=f"trajectoire {trajectory}",
+                        label=f"trajectory {trajectory}",
                     )
-        ax_sd.set_ylabel("écart-type intrinsèque")
-        ax_mcse.set_ylabel("erreur-type Monte-Carlo de la moyenne")
-        ax_mcse.set_xlabel(f"rang du point dans la trajectoire ({indicator})")
+        ax_sd.set_ylabel("intrinsic standard deviation")
+        ax_mcse.set_ylabel("Monte Carlo standard error of the mean")
+        ax_mcse.set_xlabel(f"point rank within the trajectory ({indicator})")
         discrete_xticks(ax_mcse, (r["rank"] for r in subset))
-        ax_sd.set_title("bruit intrinsèque par point", fontsize=10)
+        ax_sd.set_title("intrinsic noise per point", fontsize=10)
         sources = ["noiseFloor", "governedReport"]
         if allocation is not None and allocation.get("primaryIndicator") == indicator:
             target = allocation.get("targetMcse")
             if _finite(target):
                 ax_mcse.axhline(
-                    target, linestyle=":", color="black", label="cible MCSE"
+                    target, linestyle=":", color="black", label="MCSE target"
                 )
                 sources.insert(1, "replicationAllocation")
         for ax in (ax_sd, ax_mcse):
             if ax.get_legend_handles_labels()[0]:
                 ax.legend(fontsize=7, loc="best")
         if omitted:
-            _note(figure, "non tracé (écart-type indisponible) : " + ", ".join(omitted))
+            _note(figure, "not plotted (standard deviation unavailable): " + ", ".join(omitted))
         stamp(figure, analysis)
         figures.append(
             RenderedFigure(

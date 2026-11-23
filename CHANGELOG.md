@@ -13,6 +13,7 @@
   and nothing is written under `analysis/`. Rerunning `eqasim-sa init` on the
   project accepts the `figures/` directory that `plot` writes. See
   `docs/workflow-and-results.md`.
+- `eqasim-sa plot`: figure text is now in English.
 - Fixes from the end-to-end test on real eqasim and Nantes data:
   - BREAKING: `check` items set `error` only for `failed` and `warning`;
     `passed` and `skipped` items explain themselves in `note`

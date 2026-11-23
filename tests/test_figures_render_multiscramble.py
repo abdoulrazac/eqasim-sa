@@ -75,7 +75,7 @@ def test_nonactionable_seed_is_hatched_and_unranked():
     assert seed_bars and all(p.get_hatch() for p in seed_bars)
     other = [p for p in ax.patches if p not in seed_bars]
     assert other and not any(p.get_hatch() for p in other)
-    assert [t.get_text() for t in ax.texts] == ["rang 1", "rang 2"]
+    assert [t.get_text() for t in ax.texts] == ["rank 1", "rank 2"]
     assert labels == ["a", "b", "seed"]
     assert ticks[2] - ticks[1] > 1.0
 
@@ -99,16 +99,16 @@ def _conv_rows(objective="ff", fw=(0.4, 0.2), tw=(0.1, 0.05)):
 def test_convergence_uses_objective_order_and_excludes_seed(objective, expected):
     ax = render_multiscramble_convergence(_stub(_conv_rows(objective)))[0].figure.axes[0]
     lines = {ln.get_label(): ln for ln in ax.get_lines()}
-    assert list(lines["max (critère)"].get_ydata()) == pytest.approx(expected)
+    assert list(lines["max (criterion)"].get_ydata()) == pytest.approx(expected)
     assert list(lines["a"].get_ydata()) == pytest.approx(expected)
     seed = [ln for lab, ln in lines.items() if lab.startswith("seed")][0]
     assert seed.get_linestyle() == "--"
     assert max(seed.get_ydata()) == 9.0
-    assert ("premier" if objective == "fp" else "total") in ax.get_ylabel()
+    assert ("first" if objective == "fp" else "total") in ax.get_ylabel()
 
 
 def _threshold_lines(ax):
-    return [ln for ln in ax.get_lines() if ln.get_label().startswith("seuil")]
+    return [ln for ln in ax.get_lines() if ln.get_label().startswith("ci_width threshold")]
 
 
 def test_convergence_draws_ci_width_threshold_when_declared():
@@ -201,23 +201,23 @@ def test_convergence_x_axis_is_base_sample_size():
     # The producer iterates checkpoints over baseSampleSizes with a fixed
     # number of scrambles: the x axis is N, not a count of scrambles.
     ax = render_multiscramble_convergence(_stub(_conv_rows()))[0].figure.axes[0]
-    assert ax.get_xlabel() == "taille d'échantillon de base N au point de contrôle"
+    assert ax.get_xlabel() == "base sample size N at checkpoint"
 
 
 def test_indices_and_by_scramble_titles_name_base_sample_size():
     ax = render_multiscramble_indices(_stub(_indices_rows(), role="sensitivity"))[0].figure.axes[0]
     assert "N = 4" in ax.get_title()
-    assert "point de contrôle 4" not in ax.get_title()
+    assert "checkpoint 4" not in ax.get_title()
     ax = render_multiscramble_by_scramble(_stub(_by_rows(), role="byScramble"))[0].figure.axes[0]
     assert "N = 4" in ax.get_title()
-    assert "point de contrôle 4" not in ax.get_title()
+    assert "checkpoint 4" not in ax.get_title()
 
 
 @pytest.mark.parametrize(
     "objective,rule",
     [
-        ("ff", "rang ff : borne haute de ST croissante (rang 1 = meilleur candidat à fixer)"),
-        ("fp", "rang fp : S1 moyen décroissant (rang 1 = facteur le plus influent)"),
+        ("ff", "ff rank: increasing upper bound of ST (rank 1 = best candidate to fix)"),
+        ("fp", "fp rank: decreasing mean S1 (rank 1 = most influential factor)"),
     ],
 )
 def test_indices_title_states_ranking_rule(objective, rule):
@@ -231,7 +231,7 @@ def test_indices_print_average_ranks_without_truncation():
     rows[1]["rank"] = 1.5
     rows[2]["rank"] = 1.5
     ax = render_multiscramble_indices(_stub(rows, role="sensitivity"))[0].figure.axes[0]
-    assert [t.get_text() for t in ax.texts] == ["rang 1.5", "rang 1.5"]
+    assert [t.get_text() for t in ax.texts] == ["rank 1.5", "rank 1.5"]
 
 
 def test_convergence_non_primary_indicator_has_no_criterion_wording():
@@ -243,12 +243,12 @@ def test_convergence_non_primary_indicator_has_no_criterion_wording():
         f.figure.axes[0] for f in render_multiscramble_convergence(_stub(rows, crit))
     )
     labels = [ln.get_label() for ln in primary.get_lines()]
-    assert "max (critère)" in labels
-    assert "critère" in primary.get_title()
+    assert "max (criterion)" in labels
+    assert "criterion" in primary.get_title()
     labels = [ln.get_label() for ln in secondary.get_lines()]
-    assert "max des facteurs actionnables" in labels
-    assert "max (critère)" not in labels
-    assert "critère" not in secondary.get_title()
+    assert "max over actionable factors" in labels
+    assert "max (criterion)" not in labels
+    assert "criterion" not in secondary.get_title()
 
 
 def test_convergence_x_ticks_are_the_published_base_sample_sizes():

@@ -164,7 +164,7 @@ En option, dessiner les figures de l'analyse publiée :
 "${SA[@]}" plot --meta-config "$TARGET"
 ```
 
-Valides pour `sobol` : `output-summary` (une ligne par indicateur : médiane, q05 à q95 et min à max sur les positions du plan, jamais une incertitude du modèle), et `sobol-indices` (barres `first_order` et `total_order` avec l'IC bootstrap, jamais tronqué). La figure porte le bandeau « démonstration : un seul scramble, IC non inférentiels » : les intervalles ne sont pas inférentiels. Voir [Figures](workflow-and-results.md#figures).
+Valides pour `sobol` : `output-summary` (une ligne par indicateur : médiane, q05 à q95 et min à max sur les positions du plan, jamais une incertitude du modèle), et `sobol-indices` (barres `first_order` et `total_order` avec l'IC bootstrap, jamais tronqué). La figure porte le bandeau « demonstration: single scramble, non-inferential CIs » : les intervalles ne sont pas inférentiels. Voir [Figures](workflow-and-results.md#figures).
 
 ## Adapter la démonstration
 

@@ -9,7 +9,7 @@ from matplotlib.figure import Figure
 from eqasim_sa.core.figures.published import PublishedAnalysis
 
 INCOMPLETE_STATUS = "incomplete_noninferential"
-INCOMPLETE_BANNER = "campagne incomplète"
+INCOMPLETE_BANNER = "incomplete campaign"
 
 
 class FigureNotApplicable(ValueError):
@@ -62,7 +62,7 @@ def _stamp_tokens(analysis: PublishedAnalysis) -> list[tuple[str, str]]:
     tokens += [(reason, ", ") for reason in reasons[:-1]]
     if reasons:
         tokens.append((reasons[-1], " · "))
-    tokens.append((f"génération {analysis.generation_id[:12]}", ""))
+    tokens.append((f"generation {analysis.generation_id[:12]}", ""))
     return tokens
 
 

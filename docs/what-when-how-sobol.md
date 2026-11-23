@@ -161,7 +161,7 @@ Optionally, draw the figures of the published analysis:
 "${SA[@]}" plot --meta-config "$TARGET"
 ```
 
-Valid for `sobol`: `output-summary` (one row per indicator: median, q05 to q95 and min to max across the plan positions, never model uncertainty), and `sobol-indices` (`first_order` and `total_order` bars with the bootstrap CI, never clamped). The figure carries the banner "démonstration : un seul scramble, IC non inférentiels": the intervals are not inferential. See [Figures](workflow-and-results.md#figures).
+Valid for `sobol`: `output-summary` (one row per indicator: median, q05 to q95 and min to max across the plan positions, never model uncertainty), and `sobol-indices` (`first_order` and `total_order` bars with the bootstrap CI, never clamped). The figure carries the banner "demonstration: single scramble, non-inferential CIs": the intervals are not inferential. See [Figures](workflow-and-results.md#figures).
 
 ## Adapt the demonstration
 

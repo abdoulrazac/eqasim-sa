@@ -166,7 +166,7 @@ En option, dessiner les figures de l'analyse publiée :
 "${SA[@]}" plot --meta-config "$TARGET"
 ```
 
-Valides pour `discrete_oat` : `output-summary` (une ligne par indicateur : médiane, q05 à q95 et min à max sur les positions du plan, jamais une incertitude du modèle), et `oat-effects` (`mu_star` par facteur, `sigma` en marqueur, `seed_std` en repère ; la figure est titrée « effets OAT locaux normalisés, non globaux »). Elle ne revendique aucune importance globale. Voir [Figures](workflow-and-results.md#figures).
+Valides pour `discrete_oat` : `output-summary` (une ligne par indicateur : médiane, q05 à q95 et min à max sur les positions du plan, jamais une incertitude du modèle), et `oat-effects` (`mu_star` par facteur, `sigma` en marqueur, `seed_std` en repère ; la figure est titrée « local normalized OAT effects, not global »). Elle ne revendique aucune importance globale. Voir [Figures](workflow-and-results.md#figures).
 
 ## Étendre à plusieurs paramètres
 

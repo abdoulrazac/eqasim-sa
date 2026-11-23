@@ -73,13 +73,13 @@ def render_grid_response(analysis: PublishedAnalysis) -> list[RenderedFigure]:
                     )
             ax.set_xlabel(x_name)
             discrete_xticks(ax, (row[x_name] for row in subset))
-            ax.set_ylabel(f"{indicator} (moyenne)")
+            ax.set_ylabel(f"{indicator} (mean)")
             if others and groups:
-                ax.legend(fontsize=7, title="autres paramètres", title_fontsize=7)
+                ax.legend(fontsize=7, title="other parameters", title_fontsize=7)
             ax.set_title(
-                "1 réplication, sans IC"
+                "1 replication, no CI"
                 if single
-                else "moyenne ± IC95 entre réplications",
+                else "mean ± 95% CI across replications",
                 fontsize=9,
             )
         figure.suptitle(indicator, fontsize=11)

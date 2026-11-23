@@ -5,7 +5,7 @@ from matplotlib.figure import Figure
 from eqasim_sa.core.figures.common import RenderedFigure, ordered_indicators, stamp
 from eqasim_sa.core.figures.published import PublishedAnalysis
 
-BANNER = "démonstration : un seul scramble, IC non inférentiels"
+BANNER = "demonstration: single scramble, non-inferential CIs"
 WIDTH = 0.38
 
 
@@ -22,8 +22,8 @@ def render_sobol_indices(analysis: PublishedAnalysis) -> list[RenderedFigure]:
         figure.subplots_adjust(left=0.12, right=0.97, top=0.8, bottom=0.22)
         xs = list(range(len(subset)))
         for offset, key, label, color in (
-            (-WIDTH / 2, "first_order", "premier ordre", "tab:blue"),
-            (WIDTH / 2, "total_order", "ordre total", "tab:orange"),
+            (-WIDTH / 2, "first_order", "first order", "tab:blue"),
+            (WIDTH / 2, "total_order", "total order", "tab:orange"),
         ):
             bars_x = [x + offset for x in xs]
             ax.bar(bars_x, [r[key] or 0.0 for r in subset], WIDTH, color=color, label=label)
@@ -44,9 +44,9 @@ def render_sobol_indices(analysis: PublishedAnalysis) -> list[RenderedFigure]:
                     linewidth=1.2,
                 )
         ax.set_xticks(xs, labels=[r["factor"] for r in subset])
-        ax.set_ylabel(f"indice de Sobol ({indicator})")
+        ax.set_ylabel(f"Sobol index ({indicator})")
         ax.legend(fontsize=7)
-        ax.set_title("IC bootstrap sur un seul scramble", fontsize=9)
+        ax.set_title("bootstrap CI on a single scramble", fontsize=9)
         figure.text(
             0.5,
             0.93,

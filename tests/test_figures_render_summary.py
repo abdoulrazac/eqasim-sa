@@ -66,7 +66,7 @@ def test_stamp_contains_governance_line(grid_analysis) -> None:
     assert "grid" in texts and "demonstration_noninferential" in texts
     assert "claimAuthorized=false" in texts
     assert grid_analysis.generation_id[:12] in texts
-    assert "campagne incomplète" not in texts
+    assert "incomplete campaign" not in texts
 
 
 def test_stamp_exact_format() -> None:
@@ -74,11 +74,11 @@ def test_stamp_exact_format() -> None:
     stamp(fig, _stub(reasons=["x", "y"]))
     assert (
         "grid · demonstration_noninferential · claimAuthorized=false · x, y"
-        " · génération abcdef012345" in _texts(fig)
+        " · generation abcdef012345" in _texts(fig)
     )
     fig = Figure()
     stamp(fig, _stub())
-    assert "claimAuthorized=false · none · génération" in _texts(fig)
+    assert "claimAuthorized=false · none · generation" in _texts(fig)
 
 
 def test_stamp_does_not_repeat_the_status_listed_as_a_reason() -> None:
@@ -86,10 +86,10 @@ def test_stamp_does_not_repeat_the_status_listed_as_a_reason() -> None:
     stamp(fig, _stub(reasons=["demonstration_noninferential"]))
     text = _texts(fig)
     assert text.count("demonstration_noninferential") == 1
-    assert "claimAuthorized=false · génération" in text
+    assert "claimAuthorized=false · generation" in text
     fig = Figure()
     stamp(fig, _stub(reasons=["demonstration_noninferential", "x"]))
-    assert "claimAuthorized=false · x · génération" in _texts(fig)
+    assert "claimAuthorized=false · x · generation" in _texts(fig)
 
 
 def test_stamp_reads_claim_authorized_from_report() -> None:
@@ -110,7 +110,7 @@ LONG_REASONS = [
 
 
 def _stamp_artist(fig: Figure):
-    (text,) = [t for t in fig.texts if "génération" in t.get_text()]
+    (text,) = [t for t in fig.texts if "generation" in t.get_text()]
     return text
 
 
@@ -131,7 +131,7 @@ def test_long_stamp_lies_inside_the_figure(width: float) -> None:
     assert box.y0 <= extent.y0 and extent.y1 <= box.y1
     flat = " ".join(text.get_text().split())
     assert flat.startswith("multiscramble_sobol · incomplete_noninferential")
-    assert flat.endswith("génération abcdef012345")
+    assert flat.endswith("generation abcdef012345")
 
 
 def test_saved_png_keeps_long_tick_labels_and_stamp() -> None:
@@ -154,7 +154,7 @@ def test_saved_png_never_crops_a_long_axis_label(repeat: int) -> None:
     fig = Figure(figsize=(8, 5.2))
     ax = fig.subplots()
     fig.subplots_adjust(left=0.12, right=0.95, top=0.86, bottom=0.2)
-    ax.set_ylabel("largeur de l'IC, premier ordre (tv_distance(age, ref=reference))" * repeat)
+    ax.set_ylabel("CI width, first order (tv_distance(age, ref=reference))" * repeat)
     stamp(fig, _stub(reasons=LONG_REASONS))
     image = PIL.Image.open(io.BytesIO(plot_module._png(fig)))
     width, height = image.size
@@ -168,7 +168,7 @@ def test_saved_png_never_crops_a_long_axis_label(repeat: int) -> None:
 def test_incomplete_campaign_gets_banner() -> None:
     fig = Figure()
     stamp(fig, _stub(status="incomplete_noninferential"))
-    banner = [t for t in fig.texts if "campagne incomplète" in t.get_text()]
+    banner = [t for t in fig.texts if "incomplete campaign" in t.get_text()]
     assert banner and banner[0].get_color() == "red"
 
 
@@ -208,7 +208,7 @@ def test_output_summary_draws_charter_primary_first() -> None:
 def test_output_summary_caption_is_not_uncertainty(grid_analysis) -> None:
     (rendered,) = render_output_summary(grid_analysis)
     title = rendered.figure.axes[0].get_title()
-    assert "distribution sur les positions du plan" in title
+    assert "distribution over plan positions" in title
     assert "incertitude" not in title
     assert rendered.name == "output-summary"
     assert rendered.indicator is None
@@ -219,7 +219,7 @@ def test_null_median_is_omitted() -> None:
     (rendered,) = render_output_summary(_stub())
     assert rendered.omitted == ("empty",)
     assert rendered.sources == ("outputSummary", "governedReport")
-    assert "non tracé : empty" in _texts(rendered.figure)
+    assert "not plotted: empty" in _texts(rendered.figure)
     labels = [ax.get_yticklabels()[0].get_text() for ax in rendered.figure.axes]
     assert labels == ["a", "b"]
 
@@ -235,5 +235,5 @@ def test_status_only_in_governed_report_triggers_banner() -> None:
     analysis.inference_status = None
     fig = Figure()
     stamp(fig, analysis)
-    assert "campagne incomplète" in _texts(fig)
+    assert "incomplete campaign" in _texts(fig)
     assert "incomplete_noninferential" in _texts(fig)

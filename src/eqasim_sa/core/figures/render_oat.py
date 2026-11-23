@@ -5,7 +5,7 @@ from matplotlib.figure import Figure
 from eqasim_sa.core.figures.common import RenderedFigure, ordered_indicators, stamp
 from eqasim_sa.core.figures.published import PublishedAnalysis
 
-TITLE = "effets OAT locaux normalisés, non globaux"
+TITLE = "local normalized OAT effects, not global"
 
 
 def render_oat_effects(analysis: PublishedAnalysis) -> list[RenderedFigure]:
@@ -48,7 +48,7 @@ def render_oat_effects(analysis: PublishedAnalysis) -> list[RenderedFigure]:
                 markersize=14,
                 markeredgewidth=2,
                 linestyle="none",
-                label="écart-type entre graines",
+                label="standard deviation across seeds",
             )
         ax.set_yticks(positions, labels=[r["factor"] for r in drawn])
         ax.invert_yaxis()
@@ -59,7 +59,7 @@ def render_oat_effects(analysis: PublishedAnalysis) -> list[RenderedFigure]:
             figure.text(
                 0.5,
                 0.06,
-                "non tracé : " + ", ".join(omitted),
+                "not plotted: " + ", ".join(omitted),
                 ha="center",
                 va="bottom",
                 fontsize=7,

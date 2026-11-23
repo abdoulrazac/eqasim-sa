@@ -5,7 +5,7 @@ from matplotlib.figure import Figure
 from eqasim_sa.core.figures.common import RenderedFigure, ordered_indicators, stamp
 from eqasim_sa.core.figures.published import PublishedAnalysis
 
-CAPTION = "médiane, q05–q95 et min–max : distribution sur les positions du plan"
+CAPTION = "median, q05–q95 and min–max: distribution over plan positions"
 
 
 def render_output_summary(analysis: PublishedAnalysis) -> list[RenderedFigure]:
@@ -33,7 +33,7 @@ def render_output_summary(analysis: PublishedAnalysis) -> list[RenderedFigure]:
     axes[0].set_title(CAPTION, fontsize=9)
     if omitted:
         figure.text(
-            0.5, 0.06, "non tracé : " + ", ".join(omitted),
+            0.5, 0.06, "not plotted: " + ", ".join(omitted),
             ha="center", va="bottom", fontsize=7,
         )
     stamp(figure, analysis)

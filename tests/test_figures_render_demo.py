@@ -64,7 +64,7 @@ def test_grid_single_replication_has_no_errorbars():
     for ax in rf.figure.axes:
         assert _segments(ax) == []
         assert len(ax.get_lines()) == 2
-    assert "1 réplication" in _all_titles(rf.figure)
+    assert "1 replication" in _all_titles(rf.figure)
 
 
 def test_grid_no_numeric_parameter_not_applicable():
@@ -104,7 +104,7 @@ def test_oat_bar_heights_equal_mu_star():
 
 def test_oat_title_says_local():
     (rf,) = render_oat_effects(_stub("discrete_oat", "sensitivity", _oat()))
-    assert "effets OAT locaux normalisés, non globaux" in rf.figure.axes[0].get_title()
+    assert "local normalized OAT effects, not global" in rf.figure.axes[0].get_title()
 
 
 def test_oat_unusable_mu_star_omitted():
@@ -140,7 +140,7 @@ def _sobol():
 
 def test_sobol_banner_says_demonstration():
     (rf,) = render_sobol_indices(_stub("sobol", "sensitivity", _sobol()))
-    assert "démonstration : un seul scramble, IC non inférentiels" in _texts(rf.figure)
+    assert "demonstration: single scramble, non-inferential CIs" in _texts(rf.figure)
 
 
 def test_sobol_bars_match_first_and_total_order():

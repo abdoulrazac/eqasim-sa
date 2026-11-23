@@ -97,7 +97,7 @@ def test_plane_stamps_incomplete_banner():
     (rf,) = render_morris_plane(
         _stub("sensitivity", _effects(), status="incomplete_noninferential")
     )
-    assert any("campagne incomplète" in t.get_text() for t in rf.figure.texts)
+    assert any("incomplete campaign" in t.get_text() for t in rf.figure.texts)
 
 
 def test_convergence_draws_published_ci_per_checkpoint():
@@ -211,9 +211,9 @@ def _noise():
 def test_noise_floor_two_distinct_series_no_sd_pm_mcse():
     (rf,) = render_morris_noise_floor(_stub("noiseFloor", _noise()))
     ax_sd, ax_mcse = rf.figure.axes
-    assert ax_sd.get_ylabel() == "écart-type intrinsèque"
-    assert ax_mcse.get_ylabel() == "erreur-type Monte-Carlo de la moyenne"
-    assert [l.get_label() for l in ax_sd.get_lines()] == ["trajectoire 0", "trajectoire 1"]
+    assert ax_sd.get_ylabel() == "intrinsic standard deviation"
+    assert ax_mcse.get_ylabel() == "Monte Carlo standard error of the mean"
+    assert [l.get_label() for l in ax_sd.get_lines()] == ["trajectory 0", "trajectory 1"]
     assert [list(l.get_ydata()) for l in ax_sd.get_lines()] == [[0.2, 0.2, 0.2], [0.2, 0.2]]
     # mcse is None for trajectory 1 rank 2 (and rank 2 sd is None): masked in its series only
     assert [list(l.get_ydata()) for l in ax_mcse.get_lines()] == [
@@ -221,7 +221,7 @@ def test_noise_floor_two_distinct_series_no_sd_pm_mcse():
         [0.05, 0.05],
     ]
     assert _hsegments(ax_sd) == [] and _hsegments(ax_mcse) == []
-    assert rf.omitted == ("trajectoire 1 rang 2",)
+    assert rf.omitted == ("trajectory 1 rank 2",)
     assert rf.sources == ("noiseFloor", "governedReport")
 
 
@@ -245,15 +245,15 @@ def test_noise_floor_target_mcse_on_primary_indicator_only():
     figs = {f.indicator: f for f in render_morris_noise_floor(_allocation_stub("y"))}
     assert "replicationAllocation" not in figs["x"].sources
     assert figs["y"].sources == ("noiseFloor", "replicationAllocation", "governedReport")
-    assert [l.get_ydata()[0] for l in figs["x"].figure.axes[1].lines if l.get_label() == "cible MCSE"] == []
-    target = [l for l in figs["y"].figure.axes[1].lines if l.get_label() == "cible MCSE"]
+    assert [l.get_ydata()[0] for l in figs["x"].figure.axes[1].lines if l.get_label() == "MCSE target"] == []
+    target = [l for l in figs["y"].figure.axes[1].lines if l.get_label() == "MCSE target"]
     assert len(target) == 1 and list(target[0].get_ydata()) == [0.03, 0.03]
-    assert not [l for l in figs["y"].figure.axes[0].lines if l.get_label() == "cible MCSE"]
+    assert not [l for l in figs["y"].figure.axes[0].lines if l.get_label() == "MCSE target"]
 
 
 def test_noise_floor_no_target_when_allocation_not_published():
     (rf,) = render_morris_noise_floor(_stub("noiseFloor", _noise()))
-    assert not [l for ax in rf.figure.axes for l in ax.lines if l.get_label() == "cible MCSE"]
+    assert not [l for ax in rf.figure.axes for l in ax.lines if l.get_label() == "MCSE target"]
 
 
 @pytest.mark.usefixtures("synthetic_indicator")
