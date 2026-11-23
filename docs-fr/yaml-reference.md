@@ -77,14 +77,14 @@ calibration:
 # the machine changes. workers and machine_options.processes are yours:
 # change them freely.
 model:
-  root: ../../eqasim-france
-  config: config.yml
-  data_manifest: ../manifest.json
+  root: "../../eqasim-france"
+  config: "config.yml"
+  data_manifest: "../manifest.json"
 execution:
   workers: 2
-  scratch: ../scratch
+  scratch: "../scratch"
   machine_options:
-    data_path: ../../eqasim-data
+    data_path: "../../eqasim-data"
     processes: 1
 ```
 
@@ -118,8 +118,9 @@ Lisez-le de haut en bas :
   du répertoire de travail temporaire sur cette machine. `init` les remplit
   (avec `campaign`) et une relance d'`init` les compare : ne les modifiez que
   si la machine change ; `workers` et `machine_options.processes` sont à vous
-  et se modifient librement. `config: config.yml` est lu depuis le dossier
-  eqasim (`model.root`).
+  et se modifient librement. `config: "config.yml"` est lu depuis le dossier
+  eqasim (`model.root`). `init` écrit ces chemins entre guillemets ; avec ou
+  sans guillemets, YAML lit le même texte.
 
 Avant toute planification, ouvrez votre copie de la configuration eqasim et
 vérifiez que sa liste `run:` contient `analysis.synthesis.population` : les
@@ -143,7 +144,7 @@ Quand une clé est omise, eqasim-sa applique les valeurs par défaut suivantes.
 | `analysis.confidence_level` | `0.95` (Sobol, Morris canonique, Sobol multi-scramble) |
 | `outputs.NOM.file`, `outputs.NOM.separator` (sortie connue) | le fichier et le séparateur eqasim indiqués dans [Sorties connues](#sorties-connues-et-leurs-fichiers) |
 | `outputs.NOM.separator` (autre sortie) | `,` |
-| `outputs.NOM.references` | une liste vide |
+| `outputs.NOM.references` | une liste vide ; `show-config` ne l'écrit pas |
 | `indicators` | une distance de variation totale pour chaque sortie qui a au moins une référence |
 | `execution.backend` | `local` (seulement si un bloc `execution` est présent) |
 | `execution.workers` | `1` (seulement si un bloc `execution` est présent) |
@@ -175,8 +176,10 @@ Pour voir le fichier complet qu'eqasim-sa utilise réellement :
 ```
 
 La commande valide le fichier comme le fait `plan` (dossier eqasim et
-configuration trouvés, facteurs présents dans la configuration eqasim), puis affiche le YAML complet
-sur la sortie standard, toutes valeurs par défaut appliquées. Les chemins sont
+configuration trouvés, facteurs présents dans la configuration eqasim), à ceci
+près que le répertoire de travail temporaire et `machine_options.data_path`
+n'ont pas besoin d'exister encore, puis affiche le YAML complet sur la sortie
+standard, toutes valeurs par défaut appliquées. Les chemins sont
 affichés tels que vous les avez écrits : la sortie est elle-même une
 méta-configuration valide. Si le fichier est invalide, le message d'erreur part
 sur la sortie d'erreur et le code de sortie vaut 1 ; contrairement aux autres
@@ -210,7 +213,7 @@ inconnue est une erreur, et le message liste les clés permises à ce niveau.
 | `outputs` | requise | fichiers conservés de chaque run, et colonnes que les indicateurs y lisent |
 | `analyses` | facultative | scripts qui calculent des sorties d'analyse à partir des fichiers archivés |
 | `indicators` | facultative | grandeurs calculées à partir des sorties |
-| `execution` | facultative pour `plan` et `analyze` ; requise pour `run`, `check` et `estimate` | façon d'exécuter les runs sur cette machine |
+| `execution` | facultative pour `plan`, `analyze`, `plot` et `show-config` ; requise pour `run`, `check` et `estimate` | façon d'exécuter les runs sur cette machine |
 | `calibration` | facultative | fichiers de calibration des ressources |
 | `charter` | facultative ; absence = démonstration | ce que la campagne peut revendiquer |
 
@@ -253,8 +256,11 @@ d'être sous gestion de versions. Son contenu fait partie de l'identité de la
 campagne.
 
 `data_manifest` et `lockfile` sont des fichiers ordinaires dont le contenu est
-haché en SHA-256. Le chargement ne valide pas la structure interne du
-manifeste ; `init` le génère et le valide lors d'une relance.
+haché en SHA-256. Le manifeste doit être un document JSON valide : il est haché
+sous une forme canonique (clés triées, sans espaces), si bien que le remettre en
+forme ne change pas son empreinte. Le lockfile est haché avec ses
+fins de ligne ramenées à LF. Le chargement ne valide pas la structure interne
+du manifeste ; `init` le génère et le valide lors d'une relance.
 
 ### L'empreinte du code d'eqasim
 
@@ -1095,8 +1101,8 @@ execution:
 ```
 
 Le bloc décrit la façon d'exécuter les runs sur cette machine. Il est facultatif
-pour `plan`, `analyze` et `show-config`, mais requis pour `run`, `check` et
-`estimate`.
+pour `plan`, `analyze`, `plot` et `show-config`, mais requis pour `run`, `check`
+et `estimate`.
 
 | Clé | Présence | Contenu |
 | --- | --- | --- |
@@ -1307,10 +1313,15 @@ courantes sont `canonical_morris` pour `screening` indépendant avec
 `finite_seed_factor`. L'OAT discret et Sobol de démonstration (`sobol`) sont
 refusés par une charte scientifique.
 
-Les métadonnées du plan canonique conservent un `scientificContract` normalisé.
-Sa racine contient exactement `charter` et `parameters`. La charte normalisée
-contient exactement `status`, `decision`, `uncertainty`, `budget`, `stopping`,
-`robustness` et `stochastic`; `stopping` et `robustness` sont directement les listes d'éléments.
+Les métadonnées du plan des deux méthodes scientifiques (Morris canonique et
+Sobol multi-scramble) conservent un `scientificContract` normalisé. Sa racine
+contient exactement `schemaVersion` (actuellement 2), `software`
+(`eqasimSaVersion` et `eqasimSaSha256`, l'eqasim-sa qui a scellé le plan),
+`charter` et `parameters`. La charte normalisée contient exactement `status`,
+`decision`, `uncertainty`, `budget`, `stopping`, `robustness` et `stochastic` ;
+`stopping` et `robustness` sont directement les listes d'éléments. `decision`
+scelle aussi la définition résolue de l'indicateur principal et son SHA-256
+(`primary_indicator_definition`, `primary_indicator_definition_sha256`).
 Le criblage sérialise `practical_tolerance: null` et l'indépendance
 `groups: []`. Les paramètres, triés par nom, contiennent exactement nom, support
 et distribution correspondante. Le cœur vérifie toute cette forme et son égalité
@@ -1476,14 +1487,14 @@ calibration:
 # the machine changes. workers and machine_options.processes are yours:
 # change them freely.
 model:
-  root: ../../eqasim-france
-  config: config.yml
-  data_manifest: ../manifest.json
+  root: "../../eqasim-france"
+  config: "config.yml"
+  data_manifest: "../manifest.json"
 execution:
   workers: 2
-  scratch: ../scratch
+  scratch: "../scratch"
   machine_options:
-    data_path: ../../eqasim-data
+    data_path: "../../eqasim-data"
     processes: 1
 ```
 
@@ -1527,14 +1538,14 @@ calibration:
 # the machine changes. workers and machine_options.processes are yours:
 # change them freely.
 model:
-  root: ../../eqasim-france
-  config: config.yml
-  data_manifest: ../manifest.json
+  root: "../../eqasim-france"
+  config: "config.yml"
+  data_manifest: "../manifest.json"
 execution:
   workers: 2
-  scratch: ../scratch
+  scratch: "../scratch"
   machine_options:
-    data_path: ../../eqasim-data
+    data_path: "../../eqasim-data"
     processes: 1
 ```
 
@@ -1656,7 +1667,8 @@ experiment:
   seed: [1201, 1202]
 ```
 
-> experiment (grid) keys must be among method, seeds; unknown: seed
+> experiment (grid) keys must be among method, seeds; missing required: seeds;
+> unknown: seed
 
 Une clé d'analyse qui appartient à une autre méthode :
 
@@ -1768,6 +1780,38 @@ execution:
 
 > analyses need execution.python because execution.invocation does not end
 > with -m synpp
+
+Un fichier qui n'est pas du YAML valide, ici le fichier de départ Grid dont la
+liste des graines a perdu son `]` fermant :
+
+```text
+experiment:
+  method: grid
+  seeds: [1201, 1202
+parameters:
+  sampling_rate: [0.001, 0.002]
+```
+
+> cannot parse meta-config configs/01-grid.yml: ParserError at line 9, column
+> 11: expected ',' or ']', but got ':'
+
+Le message nomme le fichier tel qu'il a été donné sur la ligne de commande,
+puis la ligne et la colonne où le lecteur YAML s'est arrêté, et la cause. Cette
+position peut se trouver après l'erreur réelle : le lecteur ne remarque le `]`
+manquant qu'au deux-points de la clé suivante, `parameters:` (ligne 9 du
+fichier de départ). La même forme sert pour une configuration eqasim illisible
+(`cannot parse model.config config.yml: ...`).
+
+Un chemin qui n'existe pas est nommé tel qu'il est écrit, avec le dossier
+depuis lequel un chemin relatif est lu :
+
+> model.config not found: my_config.yml (a relative path is read from
+> model.root)
+
+La même forme sert pour `model.root`, `model.data_manifest` et
+`model.lockfile` (lus depuis le dossier de la méta-configuration), et pour le
+fichier de méta-configuration lui-même
+(`meta-config not found: configs/01-gird.yml`).
 
 Une clé dupliquée (ici avec en plus un alias YAML, refusé lui aussi) est
 détectée avant toute autre vérification :

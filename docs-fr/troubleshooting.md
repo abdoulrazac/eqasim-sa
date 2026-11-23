@@ -156,7 +156,9 @@ configs/01-grid-structured.yml` pour un autre fichier dans `configs/` ;
 à vous ; `foreign content in init campaign <campagne>: notes.txt` pour un
 fichier à vous dans un dossier de campagne ; `foreign content in init project:
 configs/analyses/lien.py` pour un lien symbolique parmi vos scripts
-d'analyse. Rien n'est écrit. Remède : la relance n'est jamais nécessaire pour
+d'analyse ; `foreign content in init project: scratch` quand le premier `init`
+a placé le scratch dans le projet (le cas par défaut) et que `--scratch`
+désigne maintenant un autre dossier. Rien n'est écrit. Remède : la relance n'est jamais nécessaire pour
 continuer ; `plan`, `run`, `check`, `estimate` et `analyze` fonctionnent
 toujours. Pour la relancer malgré tout, donnez les mêmes options qu'au premier
 `init`, rétablissez la valeur nommée et sortez du projet les autres fichiers et
@@ -205,7 +207,7 @@ Remède : lancer `plan`, puis `run` sur la campagne nommée. Relancer ensuite
 ## `unknown factor` ou `reserved or infrastructure factor`
 
 Cause : nom absent du bloc `config:` eqasim, option dédiée, infrastructure ou
-colonne réservée. Remède : utiliser une clé scientifique active; placer seulement
+colonne réservée. Remède : utiliser une clé scientifique active ; placer seulement
 les options d'environnement autorisées dans `execution.machine_options`.
 
 ## `... keys must be among ...`
@@ -244,7 +246,7 @@ Pour un float requis, comme un `threshold` ou une `reserve_fraction` de charte,
 ## Erreurs de facteur structuré nommé
 
 - `factor 'matching_attributes' must contain exactly ...` : une déclaration de
-  démonstration contient exactement `configurations`; une déclaration scientifique
+  démonstration contient exactement `configurations` ; une déclaration scientifique
   contient exactement `configurations` et `distribution`. Ne mélangez pas
   `values` et `configurations`.
 - `unknown factor` ou `model config value must be a list of strings` : le YAML
@@ -262,7 +264,7 @@ Pour un float requis, comme un `threshold` ou une `reserve_fraction` de charte,
 - `structured plan metadata ...`, `mismatch` ou `unknown label` : dans le schéma
   v3, `structuredFactorsVersion` et la métadonnée canonique `structuredFactors`
   sont scellés avec les labels et identités. Préservez l'état endommagé pour
-  diagnostic et créez un plan sous une nouvelle racine; ne modifiez jamais
+  diagnostic et créez un plan sous une nouvelle racine ; ne modifiez jamais
   `plan.parquet`.
 - L'absence de `--matching_attributes` dans la commande modèle est volontaire.
   Les valeurs composites sont écrites dans le snapshot YAML de chaque run, pas
@@ -283,7 +285,7 @@ des contrôles de robustesse propres à l'étude selon la
 ## Bloc `stochastic` absent ou incompatible
 
 Toute charte scientifique exige un mode exact. Morris canonique exige
-`conditional_mean`, des CRN `within_trajectory` et une allocation; Sobol
+`conditional_mean`, des CRN `within_trajectory` et une allocation ; Sobol
 multi-scramble exige `finite_seed_factor` sans allocation. Un pilote a sélection
 et provenance nulles et au moins son minimum de seeds. La production a une
 provenance pilote non vide et exactement son nombre sélectionné. Ne réparez pas
@@ -293,10 +295,10 @@ racine de campagne.
 ## Allocation `capped` ou `infeasible`
 
 `capped` signifie que la formule MCSE demande plus que
-`maximum_replications`; la cible n'est donc pas démontrée. `infeasible` signifie
+`maximum_replications` ; la cible n'est donc pas démontrée. `infeasible` signifie
 que même les positions structurelles sélectionnées `T*(D+1)*R` dépassent le
 budget hors réserve. Révisez précision, plafond, design ou budget dans une
-nouvelle campagne; n'abaissez jamais le besoin et ne comptez pas les runs
+nouvelle campagne ; n'abaissez jamais le besoin et ne comptez pas les runs
 dédupliqués.
 
 ## Erreur d'objectif, de dépendance ou de budget Morris canonique
@@ -333,7 +335,9 @@ séparer réellement les configurations.
 
 Cause : marqueurs absents ou logs d'échec. Remède : consulter
 `logs/<runId>.log`, corriger le pipeline et relancer `run`. Ne créez pas de
-marqueur à la main.
+marqueur à la main. Pour examiner entre-temps les runs terminés,
+`analyze --descriptive-only` publie leurs sorties descriptives, sans table de
+sensibilité (voir [`analyze`](cli-reference.md#analyze)).
 
 ## `invalid completion marker`
 
@@ -342,15 +346,19 @@ incorrecte ou contenu incohérent. Remède : préserver l'état pour diagnostic,
 puis reconstruire le run par le workflow normal dans une racine saine. Une
 édition manuelle rend la preuve de complétude non fiable.
 
-## `another invocation is already running this campaign`
+## Un second `run` semble bloqué
 
-Cause : une commande `run` détient déjà le verrou de campagne. Remède : attendre
-sa fin. Après un crash, le verrou noyau est libéré automatiquement; ne supprimez
-pas les fichiers de verrou pendant une exécution.
+Cause : un autre `run` est actif sur la même campagne. Il n'y a pas de message
+d'erreur : le second `run` attend les slots de worker et les runs que tient le
+premier, puis saute les runs terminés entre-temps (`skipped`). Remède : laisser
+le premier se terminer, ou arrêter le second avec Ctrl+C. Après un crash, les
+verrous sont libérés automatiquement par le système d'exploitation ; ne
+supprimez pas les fichiers de verrou pendant une exécution.
 
 ## `static check time budget exhausted`
 
-Cause : empreinte du code d'eqasim, lecture des plans/manifeste, sonde synpp ou
+Cause : empreinte du code d'eqasim (signalée alors par `model source
+fingerprint time budget exhausted`), lecture des plans/manifeste, sonde synpp ou
 mesure disque trop lente au-delà du budget de 55 secondes. Remède : vérifier les stockages réseau,
 la taille des fichiers de contrôle et le temps de démarrage de l'environnement.
 
@@ -366,21 +374,23 @@ Quand l'invocation ne se termine pas par `-m synpp`, le contrôle a
 
 ## Échec de `check --smoke`
 
-Cause : moins de deux seeds, absence de `sampling_rate`, pipeline réel en échec,
-fichier de sortie déclaré non écrit. Remède : satisfaire le contrat smoke et
-lire le détail retourné. Attention : cette option exécute deux simulations
-temporaires à `sampling_rate: 0.001`; elle consomme du calcul et accède aux
-données réelles. Le smoke part du YAML modèle scellé et n'applique aucun
-`execution.machine_options`. Si la campagne normale dépend de
-`execution.machine_options.data_path`, le smoke utilise malgré tout le `data_path` du
-modèle; rendez ce chemin accessible ou testez consciemment depuis un environnement
-où il est valide. Les runs de smoke ignorent les indicateurs qui lisent une
+Cause : moins de deux seeds distinctes ou absence de `sampling_rate`
+(`smoke requires sampling_rate and two distinct explicit seeds`), pipeline réel
+en échec, fichier de sortie déclaré non écrit. Remède : satisfaire le contrat
+smoke et lire le détail retourné. Attention : cette option exécute deux
+simulations temporaires à `sampling_rate: 0.001` ; elle consomme du calcul et
+accède aux données réelles. Les runs du smoke utilisent la configuration du
+premier run du plan avec `execution.machine_options` appliqué, comme `run` : le
+dossier de données qu'ils lisent est `execution.machine_options.data_path`
+quand il est renseigné. Les runs de smoke ignorent les indicateurs qui lisent une
 [sortie d'analyse](analysis-scripts.md) : `check` n'exécute jamais les scripts
 d'analyse, si bien qu'un script défaillant n'apparaît qu'à `analyze`.
 
 ## Espace disque ou scratch insuffisant
 
-Cause : `missingDiskBytes` ou `missingScratchBytes` positif. Remède : augmenter
+Cause : `missingDiskBytes` ou `missingScratchBytes` positif ; l'élément
+`diskSpace` de `check` échoue alors avec `insufficient disk space: durable
+missing N bytes; scratch missing M bytes`. Remède : augmenter
 le quota, déplacer `campaign_root` ou `execution.scratch`, ou réduire
 `execution.workers`. Le scratch estimé est le maximum observé par worker multiplié
 par les workers.
@@ -478,7 +488,7 @@ Le backend `slurm` exige Linux. `check` signale l'élément `backend` en échec 
 avec le même message. Préparez l'étude sur le PC, copiez-la vers le cluster par
 `scp`, `sftp` ou tout autre outil de copie, refaites le rendu des chemins machine (marqueurs
 `__MACHINE_*__` de `protocols/*/` avec `render_protocol.py`, ou édition des chemins
-du YAML), puis lancez `check`, `plan` et `run` sur le cluster. Le PC ne soumet
+du YAML), puis lancez `plan`, `check` et `run` sur le cluster. Le PC ne soumet
 jamais de job.
 
 ## `campaign runs were executed on another machine`

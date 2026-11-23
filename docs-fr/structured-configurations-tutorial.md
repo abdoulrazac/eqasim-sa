@@ -11,9 +11,12 @@ ne soutiennent aucune revendication inférentielle ou décisionnelle.
 
 Travaillez sur une copie de la configuration officielle de Nantes
 `config_nantes.yml`, fournie par eqasim, placée dans le dossier eqasim, pour
-laisser le fichier officiel intact :
+laisser le fichier officiel intact. Lancez les commandes de ce tutoriel dans un
+même terminal, en partant du dossier qui contient `eqasim-france`,
+`eqasim-data` et `eqasim-sa` :
 
 ```bash
+ROOT="$(pwd -P)"
 cd "$ROOT/eqasim-france"
 cp config_nantes.yml config_nantes_sa.yml
 cd "$ROOT"
@@ -50,7 +53,6 @@ Initialisez avec cette configuration ; `--model-config` est lu depuis le
 dossier eqasim :
 
 ```bash
-ROOT="$(pwd -P)"
 SA=(uv run --project "$ROOT/eqasim-sa" --locked eqasim-sa)
 PY=(uv run --project "$ROOT/eqasim-sa" --locked python)
 "${SA[@]}" init \
@@ -61,7 +63,7 @@ PY=(uv run --project "$ROOT/eqasim-sa" --locked python)
 cd "$ROOT/matching-structures"
 ```
 
-Les fichiers générés contiennent alors `config: config_nantes_sa.yml` sous `model`.
+Les fichiers générés contiennent alors `config: "config_nantes_sa.yml"` sous `model`.
 Un projet généré existant convient aussi si son `model.config` désigne cette
 configuration et si aucune racine de campagne n'est réutilisée après le changement de
 contexte. Utilisez le tableau `SA=(...)` de son `README.md` s'il diffère.
@@ -117,6 +119,16 @@ pas une seconde copie. Le bloc `parameters` remplace le facteur du fichier de d�
 `"${SA[@]}" show-config configs/04-structured-grid.yml` affiche la configuration
 obtenue, toutes valeurs par défaut écrites.
 
+Cette copie n'est pas un fichier de départ : `init` ne la connaît pas, et le
+bloc de commentaires hérité de `01-grid.yml` (« eqasim-sa init fills in
+campaign ... ») ne s'applique plus à elle. Une relance ultérieure d'`init` sur
+le projet s'arrête sur elle
+(`foreign content in init project: configs/04-structured-grid.yml`), puis, une
+fois le fichier déplacé, sur son dossier de campagne. Il n'est jamais nécessaire de relancer `init` pour
+continuer : `plan`, `run`, `check`, `estimate`, `analyze` et `plot` n'en
+dépendent pas (voir
+[Relancer `init`](cli-reference.md#relancer-init-sur-un-projet-existant)).
+
 Le plan comporte `3 configurations × 2 seeds de réplication = 6` positions et,
 les trois charges ordonnées étant distinctes, 6 runs uniques attendus. La
 variante `age_priority` réutilise les mêmes colonnes EDGT/recensement que la
@@ -132,10 +144,21 @@ TARGET=configs/04-structured-grid.yml
 "${SA[@]}" estimate --meta-config "$TARGET"
 "${SA[@]}" run --meta-config "$TARGET"
 "${SA[@]}" analyze --meta-config "$TARGET"
+"${SA[@]}" plot --meta-config "$TARGET"
 ```
 
-Au premier plan, vérifiez `designPositions: 6` et `uniqueRuns: 6`. `check` et
-`estimate` exigent au moins un run complet dans la calibration référencée.
+Au premier plan, vérifiez `designPositions: 6` et `uniqueRuns: 6`. `estimate`,
+ainsi que l'élément `diskSpace` de `check`, exigent au moins un run complet dans
+la calibration référencée : sans plan de calibration, ils signalent
+`campaign matching-structures-calibration has no plan yet: run plan first`, et
+sans run de calibration terminé
+`no completed calibration run yet: run the calibration campaign
+matching-structures-calibration first`.
+
+`plot` ne dessine que `output-summary` : `grid-response` a besoin d'un
+paramètre numérique pour son axe des abscisses, et les labels d'une
+configuration nommée ne sont pas des nombres ; la figure est donc listée sous
+`skipped` dans `figures.json`.
 
 ## 5. Inspecter le plan scellé avec PyArrow
 

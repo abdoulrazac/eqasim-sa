@@ -145,7 +145,9 @@ configs/01-grid-structured.yml` for another file in `configs/`; `foreign
 content in init project: campaigns/<name>` for a campaign folder of your own;
 `foreign content in init campaign <campaign>: notes.txt` for a file of your
 own inside a campaign folder; `foreign content in init project:
-configs/analyses/link.py` for a symbolic link among your analysis scripts.
+configs/analyses/link.py` for a symbolic link among your analysis scripts;
+`foreign content in init project: scratch` when the first `init` put the
+scratch in the project (the default) and `--scratch` now names another folder.
 Nothing is written. Remedy: the rerun is never needed to continue working;
 `plan`, `run`, `check`, `estimate`, and `analyze` keep working. To rerun it
 anyway, give the same options as the first `init`, restore the named value,
@@ -315,7 +317,9 @@ configurations genuinely distinct.
 
 Cause: markers are missing or failure logs are present. Remedy: inspect
 `logs/<runId>.log`, fix the pipeline, and rerun `run`. Do not create a marker
-manually.
+manually. To look at the completed runs meanwhile, `analyze --descriptive-only`
+publishes their descriptive outputs without sensitivity tables (see
+[`analyze`](cli-reference.md#analyze)).
 
 ## `invalid completion marker`
 
@@ -325,17 +329,20 @@ preserve the state for diagnosis, then rebuild the run through the normal
 workflow in a clean root. Manual editing makes the completeness evidence
 unreliable.
 
-## `another invocation is already running this campaign`
+## A second `run` seems to hang
 
-Cause: a `run` command already holds the campaign lock. Remedy: wait for it to
-finish. After a crash, the kernel lock is released automatically; do not delete
-lock files while an execution is in progress.
+Cause: another `run` on the same campaign is active. There is no error message:
+the second `run` waits for the worker slots and the runs that the first one
+holds, then skips the runs completed meanwhile (`skipped`). Remedy: let the
+first one finish, or stop the second one with Ctrl+C. After a crash, the locks
+are released automatically by the operating system; do not delete lock files
+while an execution is in progress.
 
 ## `static check time budget exhausted`
 
-Cause: the eqasim code fingerprint, plan/manifest reads, the synpp probe, or disk
-measurement took
-longer than the 55-second budget. Remedy: check network storage, control-file
+Cause: the eqasim code fingerprint (then reported as `model source fingerprint
+time budget exhausted`), plan/manifest reads, the synpp probe, or disk
+measurement took longer than the 55-second budget. Remedy: check network storage, control-file
 sizes, and environment startup time.
 
 ## `synpp environment probe failed`
@@ -350,21 +357,22 @@ invocation does not end with `-m synpp`, the check has `status: skipped` and a
 
 ## `check --smoke` failure
 
-Cause: fewer than two seeds, no `sampling_rate`, a failure in the real pipeline,
-a declared output file that was not written. Remedy: satisfy the smoke contract and
-read the returned details. Caution: this option runs two temporary simulations at
-`sampling_rate: 0.001`; it consumes compute resources and accesses real data. The
-smoke check starts from the sealed model YAML and does not apply any
-`execution.machine_options`. If the normal campaign depends on
-`execution.machine_options.data_path`, the smoke check still uses the model's
-`data_path`; make that path accessible or deliberately test from an environment
-where it is valid. The smoke runs skip the indicators that read an
+Cause: fewer than two distinct seeds or no `sampling_rate` (`smoke requires
+sampling_rate and two distinct explicit seeds`), a failure in the real
+pipeline, a declared output file that was not written. Remedy: satisfy the
+smoke contract and read the returned details. Caution: this option runs two
+temporary simulations at `sampling_rate: 0.001`; it consumes compute resources
+and accesses real data. The smoke runs use the configuration of the first run
+of the plan with `execution.machine_options` applied, as `run` does: the data
+folder they read is `execution.machine_options.data_path` when it is set. The smoke runs skip the indicators that read an
 [analysis output](analysis-scripts.md): `check` never runs analysis scripts, so
 a broken script appears only at `analyze`.
 
 ## Insufficient disk or scratch space
 
-Cause: `missingDiskBytes` or `missingScratchBytes` is positive. Remedy: increase
+Cause: `missingDiskBytes` or `missingScratchBytes` is positive; the
+`diskSpace` item of `check` then fails with `insufficient disk space: durable
+missing N bytes; scratch missing M bytes`. Remedy: increase
 the quota, move `campaign_root` or `execution.scratch`, or reduce
 `execution.workers`. Estimated scratch space is the maximum observed per worker
 multiplied by the number of workers.
@@ -455,7 +463,7 @@ with `the slurm backend requires Linux; run eqasim-sa on the cluster`, and `run`
 refuses with the same message. Prepare the study on your PC, copy it to the
 cluster with `scp`, `sftp`, or any copy tool, render the machine paths again (the
 `__MACHINE_*__` markers of `protocols/*/` with `render_protocol.py`, or edit the
-YAML paths), and run `check`, `plan`, and `run` on the cluster. The PC never
+YAML paths), and run `plan`, `check`, and `run` on the cluster. The PC never
 submits jobs.
 
 ## `campaign runs were executed on another machine`

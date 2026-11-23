@@ -13,11 +13,12 @@ flowchart TD
     C --> E[estimate]
     E --> R[run manquants]
     R --> A[analyze]
+    A --> P[plot]
     R -->|reprise| R
     C -. option explicite .-> S[smoke: 2 runs temporaires]
 ```
 
-`init` prépare les fichiers de départ et hache les données; il n'entre pas
+`init` prépare les fichiers de départ et hache les données ; il n'entre pas
 dans les étapes d'exécution du pipeline. La calibration fournit ensuite les
 observations de durée, stockage durable et cache nécessaires au devis d'une
 cible.
@@ -63,7 +64,7 @@ seed séparément. Plus précisément, les binaires exclus sont `git_binary`,
 
 `designId` identifie une position statistique, pas une exécution. Il inclut les
 indices de niveau et de réplication pour Grid, ou le rôle scellé du design pour
-OAT discret, Morris canonique et Sobol. Deux `designId`
+OAT discret, Morris canonique, Sobol et Sobol multi-scramble. Deux `designId`
 distincts peuvent donc partager un `runId`.
 
 ## Positions et runs uniques
@@ -73,7 +74,7 @@ distincts peuvent donc partager un `runId`.
 | Colonne | Type | Sens |
 | --- | --- | --- |
 | `designId` | string | identité de la position |
-| `method` | string | `grid`, `discrete_oat`, `canonical_morris` ou `sobol` |
+| `method` | string | `grid`, `discrete_oat`, `canonical_morris`, `sobol` ou `multiscramble_sobol` |
 | `role` | string | `point`, étape de trajectoire ou matrice Sobol |
 | `runId` | string | identité de l'exécution dédupliquée |
 | `seed` | int64 | seed eqasim |
@@ -81,12 +82,14 @@ distincts peuvent donc partager un `runId`.
 | `<factor>` | type du domaine | valeur projetée de chaque facteur hors seed |
 
 Les démonstrations adjacentes utilisent `discrete_oat` et le
-criblage scientifique `canonical_morris`. Les plans Morris canoniques non structures ont
-`planSchemaVersion: 2` et scellent le contrat scientifique normalisé ainsi que la
-définition complète du design et de l'analyse. Les autres plans non structures utilisent le schéma v1. Tout design pris en charge
-avec un facteur liste structuree nomme utilise le schema v3 et scelle les
-metadonnees structurees canoniques v1 ; la colonne garde le label tandis que le
-`runId` hache la liste ordonnee resolue.
+criblage scientifique `canonical_morris`. Les plans non structurés des deux
+méthodes scientifiques (Morris canonique et Sobol multi-scramble) ont
+`planSchemaVersion: 2` et scellent le contrat scientifique normalisé ainsi que
+la définition complète du design et de l'analyse. Les autres plans non
+structurés utilisent le schéma v1. Tout design pris en charge avec un facteur
+liste structurée nommé utilise le schéma v3 et scelle les métadonnées
+structurées canoniques v1 ; la colonne garde le label tandis que le `runId`
+hache la liste ordonnée résolue.
 
 Le schéma, ses métadonnées et toutes les lignes sont recalculés lors du
 chargement. Pour Sobol, l'ordre physique des lignes peut varier, mais le contenu
@@ -111,7 +114,12 @@ taille du marqueur et de tous les fichiers de son archive.
 - maximum `scratchBytes` observé × nombre de workers pour le scratch.
 
 Ce sont des extrapolations moyennes, pas des garanties de quota ou de durée.
-Les observations de la cible déjà complète sont également prises en compte. Le
+Les observations de la cible déjà complète sont également prises en compte.
+Chaque campagne en jeu doit avoir été planifiée, sinon `estimate` et `check`
+s'arrêtent avec `campaign <campaign> has no plan yet: run plan first` ; et au
+moins un run doit être terminé, sinon `estimate` s'arrête avec, par exemple,
+`no completed calibration run yet: run the calibration campaign
+mon-analyse-sa-calibration first`. Le
 résultat donne aussi le nombre de positions du design comme formule de la
 méthode (`formula`, `formulaInputs` ; voir la
 [référence CLI](cli-reference.md#estimate)).
@@ -183,8 +191,10 @@ tourne (voir [Nettoyage](#nettoyage)).
 `.eqasim-sa/` regroupe la coordination technique durable propre à la campagne :
 leases privées aux modules, transactions run sur le même filesystem et état
 Submitit. Ce répertoire n'est pas du scratch, n'est jamais créé dans le parent
-de la campagne et disparaît avec elle. `init` refuse une campagne contenant
-`.submitit`, `.eqasim-sa-tmp` ou `.eqasim-sa-run-locks`.
+de la campagne et disparaît avec elle. Une relance d'`init` refuse une
+campagne contenant tout élément qu'elle ne reconnaît pas, par exemple
+`.submitit`, `.eqasim-sa-tmp` ou `.eqasim-sa-run-locks`, avec
+`foreign content in init campaign <campaign>: <élément>`.
 
 ```text
 scratch/                      # execution.scratch
@@ -264,8 +274,9 @@ Une étiquette d'axe plus longue que son axe (un long nom d'indicateur, par
 exemple) est repliée sur plusieurs lignes et reste ainsi dans l'axe.
 Avec plusieurs indicateurs, l'indicateur principal de la décision de la charte
 (`decision.primary_indicator` dans le rapport gouverné) passe en premier, puis
-les autres par ordre alphabétique ; sans décision de charte, l'ordre est
-alphabétique. Les fichiers se nomment `<figure>-<indicateur>.png` ;
+les autres par ordre alphabétique ; sans décision de charte, les indicateurs
+signalés par la colonne `is_primary_indicator` de la table, quand elle existe,
+passent en premier ; sinon l'ordre est alphabétique. Les fichiers se nomment `<figure>-<indicateur>.png` ;
 `output-summary.png` n'a pas de suffixe d'indicateur. Dans le nom de fichier,
 tout caractère de l'indicateur hors de `[A-Za-z0-9_-]` devient `_` (par exemple
 `grid-response-tv_distance_age__ref_reference_.png`). Si deux figures devaient

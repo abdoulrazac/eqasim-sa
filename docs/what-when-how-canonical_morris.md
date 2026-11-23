@@ -233,9 +233,11 @@ scientific pilot.
 
 ### 6. Move from pilot to production
 
-Open
-`$ROOT/mon-analyse-sa/campaigns/canonical-morris-pilot/replication-allocation.json`.
-Continue only if `status` is `recommended`. The `capped` and `infeasible`
+Open the pilot's `replication-allocation.json`. Like every analysis output, it
+lies in the current analysis generation: its path, relative to the campaign
+folder `$ROOT/mon-analyse-sa/campaigns/canonical-morris-pilot/`, is the
+`replicationAllocationPath` field of `analysis-generation.json` (and of the
+`analyze` JSON result). Continue only if `status` is `recommended`. The `capped` and `infeasible`
 statuses require you to revise the budget or target precision.
 
 The production renderer reads this recommendation and creates another campaign:
@@ -268,7 +270,9 @@ turn it into production.
 
 ### 7. Read the production result
 
-The main file is `canonical-morris-ranking.parquet`:
+The files below are in the current analysis generation of the production
+campaign, `analysis/generations/<generationId>/` (named by
+`analysis-generation.json`). The main file is `canonical-morris-ranking.parquet`:
 
 | Column | Plain-language meaning |
 | --- | --- |
@@ -314,7 +318,7 @@ final claim.
 Optionally, draw the figures of the published analysis:
 
 ```bash
-"${SA[@]}" plot --meta-config "$TARGET"
+"${SA[@]}" plot --meta-config "$PRODUCTION"
 ```
 
 Valid for `canonical_morris`: `output-summary` (one row per indicator: median, q05 to q95 and min to max across the plan positions, never model uncertainty); `morris-plane` (the mu*-sigma plane with the CI of `mu_star`); `morris-convergence` (`mu_star` and its CI along the checkpoints); `morris-rank-reversals` (probability that the published order of a pair of factors is reversed, at the last checkpoint); and `morris-noise-floor` (intrinsic standard deviation and Monte Carlo standard error of the mean, as two separate series). Each needs its published table. Each carries the foot line with `claimAuthorized` (currently always `false`): none of them authorizes a final claim. See [Figures](workflow-and-results.md#figures).

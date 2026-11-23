@@ -25,8 +25,8 @@ containing private paths or secrets.
 ## Making a change
 
 - Keep changes focused and add regression tests for behavior changes.
-- Preserve deterministic plans, immutable published artifacts, and fail-closed
-  validation at trust boundaries.
+- Preserve deterministic plans, immutable run archives and published analysis
+  generations, and fail-closed validation at trust boundaries.
 - Treat changes to plan identities, schemas, stochastic designs, estimands, or
   claim authorization as compatibility changes. Document them in both `docs/`
   and `docs-fr/` and add an entry to `CHANGELOG.md`.
@@ -38,12 +38,23 @@ test strategy, package boundary, and project invariants in more detail.
 
 ## Validation
 
-Run the checks that apply to your change. Before proposing a release, run the
-complete baseline:
+Run the checks that apply to your change: at least the tests and the lint
+check below (unused imports and variables, redefinitions). The test suite runs
+in a few minutes; CI runs it on Ubuntu, macOS, and Windows
+(`.github/workflows/tests.yml`), but only Linux results are recorded so far in
+[Platform verification](docs/platform-verification.md).
+
+```bash
+uv run --locked --extra test pytest
+uvx ruff check src tests protocols --select F401,F841,F811 --no-cache
+```
+
+Before proposing a release, run the complete baseline:
 
 ```bash
 uv lock --check
-uv run --locked pytest
+uv run --locked --extra test pytest
+uvx ruff check src tests protocols --select F401,F841,F811 --no-cache
 git diff --check
 uv build
 uv run --locked python verify_release_wheel.py \

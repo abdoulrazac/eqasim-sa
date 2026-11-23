@@ -48,15 +48,16 @@ FP/FF et de la classification de tolérance. Les tables de
 convergence apportent des éléments aux tailles déclarées sans déclarer
 automatiquement les critères d'arrêt satisfaits.
 
-Le paquet cible exactement Python 3.13 (`>=3.13,<3.14`). Windows 10+, macOS 13+
-et Linux sont pris en charge nativement, avec une installation par `uv` sans
-droits administrateur (sous Windows :
-`powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`) ;
-la vérification sous Windows et macOS est en attente, voir la
-[vérification des plateformes](docs/platform-verification.md). Sous Windows sans
-chemins longs, un run eqasim réel exige qu'un administrateur les active une fois
-(le cache d'eqasim dépasse à lui seul 260 caractères). Le backend `local`
-fonctionne sur les trois ; le backend `slurm` exige Linux. Une campagne
+Le paquet cible exactement Python 3.13 (`>=3.13,<3.14`), installé avec `uv` sans
+droits administrateur. Il est écrit pour Windows 10+, macOS 13+ et Linux ; la
+suite de tests n'a pour l'instant été exécutée que sous Linux, et la vérification
+sous Windows et macOS est en attente (voir la
+[vérification des plateformes](docs/platform-verification.md), en anglais). Sous
+Windows, uv s'installe avec
+`powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"` ;
+sans chemins longs, un run eqasim réel exige qu'un administrateur les active une
+fois (le cache d'eqasim dépasse à lui seul 260 caractères). Le backend `local`
+est prévu pour les trois systèmes ; le backend `slurm` exige Linux. Une campagne
 s'exécute entièrement sur une seule machine ; l'analyse peut se faire sur une
 autre. Voir le [démarrage](docs-fr/getting-started.md) et le
 [dépannage](docs-fr/troubleshooting.md) (longueur de chemin Windows, fins de
@@ -64,7 +65,8 @@ ligne). Les exemples shell ci-dessous sont en Bash ; sous Windows, lancez-les
 depuis Git Bash. Depuis ce répertoire :
 
 ```bash
-uv sync --extra test --locked
+uv sync --locked
+uv run --locked eqasim-sa --version
 uv run --locked eqasim-sa --help
 ```
 
@@ -99,6 +101,9 @@ remplie par `init` dans un fichier de départ (`init inputs changed: <clé> in
 configs/<fichier>`), un autre fichier dans `configs/` que `configs/analyses/`,
 ou un dossier de campagne à vous (voir
 [Relancer `init`](docs-fr/cli-reference.md#relancer-init-sur-un-projet-existant)).
+Une relance ne hache pas de nouveau les données : après une modification de
+l'arbre des données, ajoutez `--regenerate-data-manifest`, qui remplace
+uniquement `manifest.json`.
 
 Avant de planifier, ajoutez `analysis.synthesis.population` à la liste `run:` de
 cette configuration eqasim : les sorties `age`, `distance` et `nbr_vehicle`
@@ -161,7 +166,7 @@ comprises :
 
 Voir la [référence YAML](docs-fr/yaml-reference.md) pour toutes les clés.
 
-## Workflow standard
+## Enchaînement standard
 
 ```bash
 # Produire d'abord les observations de calibration des ressources.
@@ -188,7 +193,8 @@ ordinateur : le plan et les archives des runs ne sont jamais modifiés. Voir
 
 `plot` dessine, à partir de l'analyse publiée, uniquement les figures valables
 pour la méthode de la campagne et les tables publiées, dans
-`figures/<generationId>/`. Le statut d'inférence est estampillé sur chaque figure. Voir [Figures](docs-fr/workflow-and-results.md#figures).
+`figures/<generationId>/` dans le dossier de campagne. Le statut d'inférence est
+estampillé sur chaque figure. Voir [Figures](docs-fr/workflow-and-results.md#figures).
 
 ## Configurations structurées de matching
 
@@ -212,12 +218,13 @@ nom de campagne pour la cible dérivée. Consultez le
 - [Workflow et résultats](docs-fr/workflow-and-results.md)
 - [Dépannage](docs-fr/troubleshooting.md)
 - [Glossaire](docs-fr/glossary.md)
+- [Compatibilité de version](docs-fr/compatibility.md)
 - [Guide de développement](docs-fr/development-guide.md)
 
 ## Contribuer
 
 Les contributions sont les bienvenues. Consultez
-[CONTRIBUTING-fr.md](CONTRIBUTING-fr.md) pour le workflow de développement, les
+[CONTRIBUTING-fr.md](CONTRIBUTING-fr.md) pour la démarche de développement, les
 commandes de validation et les règles du contrat scientifique.
 
 ## Licence

@@ -28,7 +28,7 @@ montre la variante FF.
 - L'**indice de premier ordre** est la part de variation associée au facteur seul.
 - L'**indice d'ordre total** inclut le facteur et toutes ses interactions.
 - Un **scramble** est une randomisation indépendante de la séquence Sobol.
-- Un **checkpoint** est une taille d'échantillon où l'on vérifie la stabilité.
+- Un **point de contrôle** (*checkpoint*) est une taille d'échantillon où l'on vérifie la stabilité.
 - Un facteur **actionnable** peut faire l'objet d'une décision ; la seed du simulateur ne l'est pas.
 
 Plusieurs scrambles indépendants montrent comment les estimations changent d'une
@@ -45,7 +45,7 @@ Le protocole Nantes n'autorise FP ou FF qu'après une production Morris canoniqu
 - portant le statut `conditional` ;
 - issue d'un plan et d'un rapport gouverné scellés.
 
-Le renderer vérifie cette porte. Ne remplacez pas la campagne de criblage par un
+Le script de rendu vérifie cette condition d'entrée. Ne remplacez pas la campagne de criblage par un
 chemin fictif et ne retirez pas un facteur simplement parce que son rang Morris
 semblait faible : le criblage ne prouve jamais qu'un facteur peut être fixé.
 
@@ -59,7 +59,7 @@ le scratch et une calibration de ressources complète.
 Le cas complet se trouve dans
 [`03-multiscramble-fp.yml`](../protocols/nantes-scientific/03-multiscramble-fp.yml).
 Il s'agit d'un protocole concret, pas d'un fichier directement exécutable : le
-renderer doit d'abord remplacer ses marqueurs machine et y inscrire la provenance
+script de rendu doit d'abord remplacer ses marqueurs machine et y inscrire la provenance
 du criblage. Ce guide n'affirme pas qu'une campagne Nantes réelle a déjà produit
 les résultats fictifs présentés plus bas.
 
@@ -135,7 +135,7 @@ Pour Nantes/EDGT 44, l'indicateur de distance est asymétrique : les classes
 synthétiques utilisent la distance euclidienne entre activités, tandis que HTS
 utilise la distance routée. Il reste un diagnostic secondaire.
 
-### 4. Déclarer les scrambles et les checkpoints
+### 4. Déclarer les scrambles et les points de contrôle
 
 ```yaml
 experiment:
@@ -150,8 +150,8 @@ analysis:
 ```
 
 Les quatre seeds de scramble créent quatre randomisations indépendantes. Dans
-chaque scramble, les tailles `8`, `16` et `32` sont emboîtées : le checkpoint 16
-réutilise les 8 premiers points et le checkpoint 32 réutilise les 16 premiers.
+chaque scramble, les tailles `8`, `16` et `32` sont emboîtées : le point de contrôle 16
+réutilise les 8 premiers points et le point de contrôle 32 réutilise les 16 premiers.
 
 Le nombre maximal de positions utilise `S = 4` scrambles, `N = 32` et `D = 3`
 facteurs, seed comprise :
@@ -186,9 +186,9 @@ uv run --project "$ROOT/eqasim-sa" --locked python \
   --screening-campaign-root "$ROOT/mon-analyse-sa/campaigns/canonical-morris-production"
 ```
 
-Le renderer refuse de produire le YAML si les preuves de criblage sont absentes,
+Le script de rendu refuse de produire le YAML si les preuves de criblage sont absentes,
 incomplètes, instables ou incompatibles. `config_nantes_sa.yml` est la même copie
-de la configuration eqasim de Nantes que pour Morris canonique. Le renderer
+de la configuration eqasim de Nantes que pour Morris canonique. Le script de rendu
 vérifie aussi que la campagne de criblage a été planifiée avec la même
 empreinte du code d'eqasim, le même manifeste de données, le même lockfile et la
 même version d'`eqasim-sa`.
@@ -213,8 +213,10 @@ par les 1 024 positions.
 
 ### 7. Lire une décision FP
 
-Le fichier `multiscramble-sobol-indices.parquet` agrège les quatre scrambles au
-checkpoint final. Pour FP, regardez les colonnes de premier ordre, le rang et
+Les fichiers d'analyse se trouvent dans la génération d'analyse courante de la
+campagne, `analysis/generations/<generationId>/` (désignée par
+`analysis-generation.json`). Le fichier `multiscramble-sobol-indices.parquet` agrège les quatre scrambles au
+point de contrôle final. Pour FP, regardez les colonnes de premier ordre, le rang et
 `is_actionable`.
 
 Illustration **fictive** :
@@ -233,7 +235,7 @@ visible, mais elle ne devient pas une cible d'apprentissage.
 Avant d'écrire cette phrase, vérifiez :
 
 - `multiscramble-sobol-by-scramble.parquet` pour voir les quatre estimations indépendantes ;
-- `multiscramble-sobol-convergence.parquet` pour la stabilité entre checkpoints ;
+- `multiscramble-sobol-convergence.parquet` pour la stabilité entre points de contrôle ;
 - `multiscramble-sobol-diagnostics.parquet` pour les valeurs hors plage, contrastes et duplications ;
 - `convergence-evidence.parquet` pour le passage du critère `ci_width` ;
 - `governed-report.json` pour le statut de la campagne.
@@ -253,17 +255,17 @@ En option, dessiner les figures de l'analyse publiée :
 "${SA[@]}" plot --meta-config "$TARGET"
 ```
 
-Valides pour `multiscramble_sobol` : `output-summary` (une ligne par indicateur : médiane, q05 à q95 et min à max sur les positions du plan, jamais une incertitude du modèle) ; `multiscramble-indices` (moyennes des ordres 1 et total avec leur IC au dernier checkpoint, avec le rang de chaque facteur actionnable selon la règle de classement de l'objectif) ; `multiscramble-convergence` (largeur d'IC selon la taille de base N ; exige la table de convergence et le rapport gouverné) ; et `multiscramble-by-scramble` (un point par scramble et par facteur au dernier checkpoint). Chacune porte la ligne de pied avec `claimAuthorized` (aujourd'hui toujours `false`) : aucune n'autorise une conclusion finale. Voir [Figures](workflow-and-results.md#figures).
+Valides pour `multiscramble_sobol` : `output-summary` (une ligne par indicateur : médiane, q05 à q95 et min à max sur les positions du plan, jamais une incertitude du modèle) ; `multiscramble-indices` (moyennes des ordres 1 et total avec leur IC au dernier point de contrôle, avec le rang de chaque facteur actionnable selon la règle de classement de l'objectif) ; `multiscramble-convergence` (largeur d'IC selon la taille de base N ; exige la table de convergence et le rapport gouverné) ; et `multiscramble-by-scramble` (un point par scramble et par facteur au dernier point de contrôle). Chacune porte la ligne de pied avec `claimAuthorized` (aujourd'hui toujours `false`) : aucune n'autorise une conclusion finale. Voir [Figures](workflow-and-results.md#figures).
 
 ## Variante FF : tester si un facteur peut être fixé
 
 FF doit être une autre campagne, avec l'objectif `ff` et une tolérance déclarée
 **avant** `plan`. Le protocole Nantes
 [`04-multiscramble-ff.yml`](../protocols/nantes-scientific/04-multiscramble-ff.yml)
-utilise `practical_tolerance: 0.05`, des checkpoints `[16, 32, 64]` et quatre
+utilise `practical_tolerance: 0.05`, des points de contrôle `[16, 32, 64]` et quatre
 autres seeds de scramble.
 
-Le renderer s'appelle de la même manière en remplaçant la source, la sortie et
+Le script de rendu s'appelle de la même manière en remplaçant la source, la sortie et
 la racine :
 
 ```bash
@@ -295,8 +297,10 @@ CALIBRATION="$ROOT/mon-analyse-sa/configs/00-calibration.yml"
 ```
 
 Le plan FF contient `4 × 64 × 8 = 2 048` positions structurelles, projetées sur
-les mêmes **36 runs uniques**. Lisez ensuite
-`$ROOT/mon-analyse-sa/campaigns/multiscramble-ff/multiscramble-sobol-indices.parquet`.
+les mêmes **36 runs uniques**. Lisez ensuite `multiscramble-sobol-indices.parquet`
+dans la génération d'analyse courante de
+`$ROOT/mon-analyse-sa/campaigns/multiscramble-ff/` (le dossier
+`analysis/generations/<generationId>/` désigné par `analysis-generation.json`).
 
 Pour l'indicateur principal, FF compare la **borne supérieure de l'intervalle
 d'ordre total**, colonne `total_order_ci_high`, à `0.05`. Cette tolérance est une
@@ -326,7 +330,7 @@ indicateurs ou scénarios. Vous ne pouvez ni classer ni fixer la seed. Avec
 `claimAuthorized: false`, la phrase reste conditionnelle et non autorisée comme
 revendication robuste finale.
 
-## Checklist
+## Points à vérifier
 
 - Une production Morris canonique complète, convergée et conditionnelle existe.
 - La charte choisit exactement un objectif, FP ou FF.

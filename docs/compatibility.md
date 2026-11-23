@@ -1,11 +1,11 @@
 # Release compatibility
 
-**English** | [Francais](../docs-fr/compatibility.md)
+**English** | [Français](../docs-fr/compatibility.md)
 
-This page describes `eqasim-sa` 0.3.0 plus the current Unreleased changes:
-structured factors, an eqasim model identified without Git, and analysis
-scripts. The Python
-parser and analysis code are authoritative. There is no backward compatibility:
+This page describes `eqasim-sa` 0.3.0 plus the changes listed under
+Unreleased in the [changelog](../CHANGELOG.md), among them structured factors,
+an eqasim model identified without Git, analysis scripts, `show-config`, and
+`plot`. The Python parser and analysis code are authoritative. There is no backward compatibility:
 only the current formats are read, and nothing is migrated.
 
 ## Plan and method matrix
@@ -107,8 +107,9 @@ Plans and their evidence use exactly the domains below:
 | Analysis result (analysis, script, inputs, run parameters, environment) | `eqasim-sa:analysis-result:v1` |
 
 Text inputs are hashed after CRLF-to-LF normalization
-(see [Troubleshooting](troubleshooting.md#line-endings-and-gitattributes)). The
-worker scratch layout changed to `<scratch>/esa/<campaign>/w<slot>/c<12 hex>/`.
+(see [Troubleshooting](troubleshooting.md#line-endings-and-gitattributes)).
+Each worker uses `<scratch>/esa/<campaign>/w<slot>/`, holding its cache
+directory `c<12 hex>/` and its attempt directories `a<12 hex>/`.
 
 ## eqasim model and outputs
 
@@ -129,6 +130,9 @@ worker scratch layout changed to `<scratch>/esa/<campaign>/w<slot>/c<12 hex>/`.
   calculations are [analysis scripts](analysis-scripts.md) (`analyses`), run
   by `analyze` on the archived files with eqasim's Python interpreter, or an
   eqasim analysis stage whose CSV file is read with `value`.
+- `plot` draws figures from the published analysis generation into
+  `figures/<generationId>/` of the campaign, with `figures.json`; the figures
+  are not part of the sealed generation.
 
 ## Init and Nantes boundaries
 

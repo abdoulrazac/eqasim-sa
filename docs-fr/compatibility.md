@@ -2,12 +2,12 @@
 
 [English](../docs/compatibility.md) | **Français**
 
-Cette page décrit `eqasim-sa` 0.3.0 ainsi que les changements non publiés
-courants : facteurs structurés, modèle eqasim identifié sans Git et scripts
-d'analyse. Le
-parseur Python et le code d'analyse sont normatifs. Il n'y a aucune
-compatibilité ascendante : seuls les formats courants sont lus et rien n'est
-migré.
+Cette page décrit `eqasim-sa` 0.3.0 ainsi que les changements listés sous
+Unreleased dans le [journal des modifications](../CHANGELOG.md), parmi lesquels
+les facteurs structurés, le modèle eqasim identifié sans Git, les scripts
+d'analyse, `show-config` et `plot`. L'analyseur syntaxique Python et le code
+d'analyse font foi. Il n'y a aucune rétrocompatibilité : seuls les formats
+courants sont lus et rien n'est migré.
 
 ## Matrice des plans et méthodes
 
@@ -25,16 +25,18 @@ clés propres à la machine ni `random_seed`) ; un plan qui ne la porte pas est
 refusé, Grid compris. Le schéma v3 est écrit
 uniquement pour un plan structuré et ajoute la paire canonique exacte
 `structuredFactorsVersion: 1` et `structuredFactors`. Sous le schéma de plan v3,
-Sobol de démonstration et Sobol multi-scramble recopient aussi le mapping complet
-label-vers-payload dans leurs métadonnées de méthode comme second invariant
-scellé ; les deux mappings canoniques doivent être exactement égaux. La version
+Sobol de démonstration et Sobol multi-scramble recopient aussi la correspondance
+complète label-vers-liste dans leurs métadonnées de méthode comme second
+invariant scellé ; les deux correspondances canoniques doivent être exactement
+égales. La version
 du schéma de plan est indépendante de la version du design numérique. Les designs
 scientifiques sont en version v3 (contrat SALib). Les analyseurs scientifiques v3 reconstruisent strictement les
 métadonnées scellées du plan, son contexte et son design SALib. Les analyseurs de
 démonstration valident leurs contrats propres. L'analyse Grid directe valide la forme et les
 labels v3, mais ne dispose d'aucune métadonnée de méthode ni configuration modèle
-pour lier les payloads. Le preflight applicatif CLI fait autorité pour cette liaison
-complète : il reconstruit tout plan structuré depuis la méta-configuration et le
+pour lier les listes. La vérification préalable de l'application (CLI) fait
+autorité pour cette liaison complète : elle reconstruit tout plan structuré
+depuis la méta-configuration et le
 `modelDocument` scellé avant l'analyse cœur.
 Il n'existe aucune migration sémantique ou en place entre les versions de plan.
 
@@ -70,7 +72,7 @@ actionnable et exclue des rangs de décision FP/FF.
 | Morris canonique sans `conditional_mean` ou sans dépendance indépendante | rejeté |
 | Sobol multi-scramble sans objectif `fp`/`ff`, `finite_seed_factor` ou dépendance indépendante | rejeté |
 | Tolérance FF hors de l'intervalle sans dimension `[0,1]` | rejetée |
-| `seed` structurée, alias de payload identique, liste ordonnée mal formée ou clé modèle qui n'est pas une liste de chaînes | rejeté |
+| `seed` structurée, alias de listes identiques, liste ordonnée mal formée ou clé modèle qui n'est pas une liste de chaînes | rejeté |
 | Facteur structuré avec `discrete_oat` ou `canonical_morris` | rejeté car l'ordre nominal des labels est arbitraire |
 | Métadonnées scellées d'un plan scientifique absentes, non prises en charge, non canoniques, altérées ou incompatibles avec le contexte | rejeté avant publication par les analyseurs Morris canonique et Sobol multi-scramble |
 | Sortie connue laissée à son `file` par défaut dont l'étape eqasim manque dans `run:` | rejetée au chargement de la méta-configuration |
@@ -79,7 +81,7 @@ actionnable et exclue des rangs de décision FP/FF.
 | Indicateur `share`, `value` ou `tv_distance` sur une sortie dont le `file` n'est pas un fichier `.csv` | rejeté au chargement de la méta-configuration |
 | Entrée d'indicateur dont la clé n'est pas `tv_distance`, `share` ou `value` | rejetée au chargement de la méta-configuration |
 | `share.category` ou valeur de `where` qui n'est pas une chaîne YAML entre guillemets | rejeté au chargement de la méta-configuration |
-| Plan Grid présenté à l'analyse | l'analyse cœur directe valide méthode, marqueurs, complétude, forme et labels v3 ; le preflight applicatif reconstruit le plan pour lier les payloads au modèle et à la méta-configuration |
+| Plan Grid présenté à l'analyse | l'analyse cœur directe valide méthode, marqueurs, complétude, forme et labels v3 ; la vérification préalable de l'application reconstruit le plan pour lier les listes au modèle et à la méta-configuration |
 | Positions scientifiques au-dessus du budget déclaré après réserve | rejeté avant publication du plan |
 | Analyse OAT ou Sobol incomplète | rejetée car la complétude doit valoir `1.0` |
 | Preuve d'arrêt non prise en charge ou non évaluable | échec fermé, donc non convergée |
@@ -90,6 +92,29 @@ actionnable et exclue des rangs de décision FP/FF.
 | `analyses` avec une `execution.invocation` qui ne se termine pas par `-m synpp` et sans `execution.python` | rejeté au chargement de la méta-configuration |
 | `primary_indicator` qui lit une sortie d'analyse | rejeté au chargement de la méta-configuration |
 | Erreur d'un script d'analyse pour un run quelconque | toute l'analyse échoue, quel que soit `completeness_threshold` |
+
+## Plateformes et domaines de hachage
+
+`eqasim-sa` prend en charge nativement Windows 10+, macOS 13+ et Linux avec le
+backend `local` (vérification sous Windows et macOS en attente, voir la
+[vérification des plateformes](../docs/platform-verification.md)) ; `slurm` est
+réservé à Linux. Les plans et leurs preuves utilisent exactement les domaines
+ci-dessous :
+
+| Domaine | Courant |
+| --- | --- |
+| Contexte d'exécution (`eqasimSourceSha256`) | `eqasim-sa:context:v3` |
+| Empreinte du code d'eqasim | `eqasim-sa:model-source:v1` |
+| Preuves d'exécution (`schemaVersion: 3`, `modelSourceSha256`) | `eqasim-sa:execution-evidence:v3` |
+| Identité logicielle d'`eqasim-sa` | `eqasim-sa:software-identity:v2` |
+| Définition d'indicateur (`tv_distance`, `share`, `value` ; une sortie d'analyse est décrite par `{name, analysis, inputs, separator}`) | `eqasim-sa:indicator-definition:v4` |
+| Résultat d'analyse (analyse, script, entrées, paramètres du run, environnement) | `eqasim-sa:analysis-result:v1` |
+
+Les entrées texte sont
+hachées après normalisation CRLF vers LF (voir le
+[dépannage](troubleshooting.md#fins-de-ligne-et-gitattributes)). Chaque worker
+utilise `<scratch>/esa/<campagne>/w<slot>/`, qui contient son dossier de cache
+`c<12 hex>/` et ses dossiers de tentative `a<12 hex>/`.
 
 ## Modèle eqasim et sorties
 
@@ -113,6 +138,9 @@ actionnable et exclue des rangs de décision FP/FF.
   exécutés par `analyze` sur les fichiers archivés avec l'interpréteur Python
   d'eqasim, ou une étape d'analyse eqasim dont le fichier CSV est lu avec
   `value`.
+- `plot` dessine les figures de la génération d'analyse publiée dans
+  `figures/<generationId>/` de la campagne, avec `figures.json` ; les figures ne
+  font pas partie de la génération scellée.
 
 ## Frontières de init et Nantes
 
@@ -122,34 +150,12 @@ scientifique Morris canonique ou Sobol multi-scramble, ni protocole Nantes, ni
 plan, ni sortie de simulation ou d'analyse.
 
 `protocols/nantes-scientific/` est un protocole du dépôt, pas une donnée du
-paquet ni un modèle de `init`. Son renderer ne produit une méta-configuration de
+paquet ni un modèle de `init`. Son script de rendu ne produit une méta-configuration de
 phase qu'après vérification des plans et preuves amont scellés. Il refuse sans
 créer de sortie les preuves absentes, liées symboliquement, mal formées,
-altérées, incompatibles avec le contexte ou la phase. Les tests du renderer
+altérées, incompatibles avec le contexte ou la phase. Les tests du script de rendu
 emploient de faux modèles et preuves temporaires. Ils n'établissent pas que le
 protocole Nantes réel a été planifié ou exécuté.
-
-## Plateformes et domaines de hash
-
-`eqasim-sa` prend en charge nativement Windows 10+, macOS 13+ et Linux avec le
-backend `local` (vérification sous Windows et macOS en attente, voir la
-[vérification des plateformes](../docs/platform-verification.md)) ; `slurm` est
-réservé à Linux. Les plans et leurs preuves utilisent exactement les domaines
-ci-dessous :
-
-| Domaine | Courant |
-| --- | --- |
-| Contexte d'exécution (`eqasimSourceSha256`) | `eqasim-sa:context:v3` |
-| Empreinte du code d'eqasim | `eqasim-sa:model-source:v1` |
-| Preuves d'exécution (`schemaVersion: 3`, `modelSourceSha256`) | `eqasim-sa:execution-evidence:v3` |
-| Identité logicielle d'`eqasim-sa` | `eqasim-sa:software-identity:v2` |
-| Définition d'indicateur (`tv_distance`, `share`, `value` ; une sortie d'analyse est décrite par `{name, analysis, inputs, separator}`) | `eqasim-sa:indicator-definition:v4` |
-| Résultat d'analyse (analyse, script, entrées, paramètres du run, environnement) | `eqasim-sa:analysis-result:v1` |
-
-Les entrées texte sont
-hachées après normalisation CRLF vers LF (voir le
-[dépannage](troubleshooting.md#fins-de-ligne-et-gitattributes)). La disposition du
-scratch worker est devenue `<scratch>/esa/<campagne>/w<slot>/c<12 hex>/`.
 
 ## Matrice de version
 

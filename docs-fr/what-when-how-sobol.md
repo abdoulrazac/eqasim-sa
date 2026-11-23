@@ -1,4 +1,4 @@
-# Sobol de démonstration : tester le workflow Sobol à un scramble
+# Sobol de démonstration : tester la chaîne Sobol à un scramble
 
 **Cas pratique : vérifier que la chaîne Sobol générée produit bien ses fichiers d'analyse.**
 
@@ -15,7 +15,7 @@ séquence.
 Ce design est une démonstration non inférentielle. Il
 répond uniquement à la question :
 
-> La planification, l'exécution et l'analyse du workflow Sobol à un scramble fonctionnent-elles ?
+> La planification, l'exécution et l'analyse de la chaîne Sobol à un scramble fonctionnent-elles ?
 
 Il ne fournit pas la preuve d'incertitude nécessaire à une priorisation ou une
 fixation scientifique. Pour cela, utilisez
@@ -42,7 +42,7 @@ commandes depuis ce projet généré.
 
 Après `eqasim-sa init`, le fichier rendu `configs/03-sobol.yml` pose une petite
 question de plomberie : « Les valeurs numériques et un ensemble fini de seeds
-traversent-ils correctement tout le workflow ? »
+traversent-ils correctement toute la chaîne de traitement ? »
 
 Sa partie expérience se lit ainsi :
 
@@ -194,7 +194,7 @@ Vous ne pouvez pas faire une revendication scientifique de priorisation ou de
 fixation, ni présenter le bootstrap d'un scramble comme l'équivalent de plusieurs
 scrambles indépendants.
 
-## Checklist
+## Points à vérifier
 
 - La campagne est une démonstration (pas de bloc `charter`, ou `charter.status: demonstration`).
 - `base_sample_size` est une puissance de deux d'au moins 2.

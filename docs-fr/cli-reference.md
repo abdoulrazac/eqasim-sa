@@ -132,9 +132,10 @@ eqasim-sa plan --meta-config PATH
 ```
 
 Scelle le design déterministe dans `<campaign_root>/plan.parquet`. Une relance
-identique renvoie `unchanged`; un plan différent sous la même racine échoue.
-Champs JSON : `status`, `path`, `designPositions`, `uniqueRuns`, `contextHash`,
-`error`.
+identique renvoie `unchanged` ; un plan différent sous la même racine échoue.
+Champs JSON : `status` (`created`, `unchanged` ou `failed`), `path`,
+`designPositions`, `uniqueRuns`, `contextHash`, `error`. Dans un résultat
+`failed`, `path` et `contextHash` valent `null` et les deux nombres valent 0.
 
 ## `check`
 
@@ -144,7 +145,7 @@ eqasim-sa check --meta-config PATH \
 ```
 
 `--calibration-meta-config` est répétable et s'ajoute aux chemins du bloc YAML
-`calibration`; les doublons sont supprimés en conservant l'ordre.
+`calibration` ; les doublons sont supprimés en conservant l'ordre.
 
 Sans `--smoke`, les contrôles sont, dans cet ordre :
 
@@ -177,11 +178,14 @@ d'environnement utilise au plus 20 secondes de ce budget.
 deux runs eqasim temporaires réels avec les deux premières seeds distinctes et
 `sampling_rate: 0.001`, valide leurs marqueurs et vérifie que chaque fichier de
 sortie déclaré a été archivé, puis supprime le répertoire temporaire. Ce répertoire est `<execution.scratch>/.smoke-<8 hex>/` :
-l'estimation `path_length` couvre donc aussi les runs du smoke. Il exige `sampling_rate` et deux seeds explicites. Il
-n'applique pas `execution.machine_options` : sa configuration de départ est le
-YAML modèle scellé. Ainsi, `execution.machine_options.data_path` est ignoré par
-le smoke et
-le `data_path` du modèle doit être utilisable depuis la machine qui lance le test.
+l'estimation `path_length` couvre donc aussi les runs du smoke. Il exige
+`sampling_rate` et deux seeds explicites distinctes (sinon : `smoke requires
+sampling_rate and two distinct explicit seeds`). Sa configuration de départ est
+celle du premier run du plan, avec `execution.machine_options` appliqué comme
+pour `run` : `execution.machine_options.data_path` est donc le dossier de
+données que lisent les runs du smoke. Les indicateurs qui lisent une
+[sortie d'analyse](analysis-scripts.md) sont ignorés, car `check` n'exécute
+jamais les scripts d'analyse.
 
 Champs JSON : `status` (`valid` ou `invalid`), `checkVersion`,
 `elapsedSeconds`, `checks`, les mesures de disque ci-dessous, puis `error`.
@@ -257,14 +261,18 @@ eqasim-sa run --meta-config PATH
 ```
 
 Exige `execution` et un plan scellé. Exécute seulement les `runId` sans marqueur
-valide. Une même campagne ne peut pas avoir deux invocations `run` concurrentes.
-Champs JSON : `status`, `total`, `completed`, `skipped`, `failed`, `failures`,
-`error`. Quand tout est déjà complet, `total` vaut 0.
+valide. Un second `run` lancé sur la même campagne pendant que le premier est
+actif n'échoue pas : il attend les slots de worker et les runs que tient le
+premier, et n'exécute jamais deux fois un `runId` (un run terminé entre-temps
+compte comme `skipped`). Champs JSON : `status` (`completed`, ou `failed` dès
+qu'un run a échoué), `total`, `completed`, `skipped`, `failed`, `failures` (un
+`{runId, error}` par run en échec), `error`. Quand tout est déjà complet,
+`total` vaut 0. Le code de sortie vaut 1 dès que `status` vaut `failed`.
 
 ## `analyze`
 
 ```text
-eqasim-sa analyze --meta-config PATH
+eqasim-sa analyze --meta-config PATH [--descriptive-only]
 ```
 
 Recalcule les indicateurs depuis les fichiers de sortie archivés et publie
@@ -287,14 +295,25 @@ a été calculé en exécutant le script, et le nombre relus depuis
 a des résultats `computed`. Il vaut `{}` quand aucun indicateur ne lit de
 sortie d'analyse. Dans un résultat en échec, `analyses` vaut `{}` et
 `warnings` vaut `[]`.
-`rankReversalsPath` est propre à `canonical_morris`; les deux chemins de scramble
-sont propres à `multiscramble_sobol`.
-`multiscramble_sobol` est accepté pour une charte scientifique après
-reconstruction du plan scellé. En production canonique,
-`replicationAllocationPath` est nul; pilote et production exposent respectivement
-`pilot_only`, puis `unstable` ou `conditional`. Le JSON d'analyse expose en option
-`byScramblePath`, `diagnosticsPath` et réutilise `convergencePath`. Les nouvelles
-démonstrations générées utilisent `discrete_oat`.
+`rankReversalsPath`, `noiseFloorPath` et `replicationAllocationPath` sont
+propres à `canonical_morris` (le dernier à un pilote ; il vaut `null` en
+production) ; `byScramblePath` et `diagnosticsPath` sont propres à
+`multiscramble_sobol` ; `convergencePath` sert aux deux. Un chemin sans objet
+vaut `null`.
+
+`inferenceStatus` vaut `incomplete_noninferential` quand des runs manquent ou
+ont échoué, `demonstration_noninferential` pour Grid, OAT discret et Sobol,
+`pilot_only` pour un pilote Morris canonique, et `conditional` ou `unstable`
+(critères de convergence atteints ou non) pour une production Morris canonique
+et pour Sobol multi-scramble.
+
+`--descriptive-only` ignore `analysis.completeness_threshold` et ne publie que
+les sorties descriptives des runs terminés, même pour une campagne incomplète ou
+vide : `indicators.parquet`, `output-summary.parquet`, `governed-report.json`
+et `replication-dispersion.parquet` quand les seeds sont des réplications.
+Aucune table de sensibilité n'est publiée (`sensitivityMethod` vaut `null`), et
+`inferenceStatus` vaut `descriptive_noninferential`, ou
+`incomplete_noninferential` quand des runs manquent.
 
 ## `plot`
 
@@ -356,5 +375,5 @@ le run archive exactement ces fichiers. Réponse : `runId`, `status`, `error`.
 
 Les erreurs applicatives sont normalement encodées dans le JSON ; `show-config`
 et `plot` les écrivent en texte brut sur la sortie d'erreur. `init` et
-`check` masquent les chemins absolus dans leurs messages; cette garantie n'est
+`check` masquent les chemins absolus dans leurs messages ; cette garantie n'est
 pas appliquée uniformément aux autres commandes.

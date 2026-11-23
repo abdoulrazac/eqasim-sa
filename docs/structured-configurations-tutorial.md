@@ -11,9 +11,11 @@ does not support inferential or decision claims.
 
 Work on a copy of the official Nantes configuration `config_nantes.yml`, which
 eqasim ships, placed in the eqasim folder, so that the official file stays
-untouched:
+untouched. Run the commands of this tutorial in one shell, starting from the
+folder that contains `eqasim-france`, `eqasim-data`, and `eqasim-sa`:
 
 ```bash
+ROOT="$(pwd -P)"
 cd "$ROOT/eqasim-france"
 cp config_nantes.yml config_nantes_sa.yml
 cd "$ROOT"
@@ -48,7 +50,6 @@ Initialize with this configuration; `--model-config` is read from the eqasim
 folder:
 
 ```bash
-ROOT="$(pwd -P)"
 SA=(uv run --project "$ROOT/eqasim-sa" --locked eqasim-sa)
 PY=(uv run --project "$ROOT/eqasim-sa" --locked python)
 "${SA[@]}" init \
@@ -59,7 +60,7 @@ PY=(uv run --project "$ROOT/eqasim-sa" --locked python)
 cd "$ROOT/matching-structures"
 ```
 
-The generated files then contain `config: config_nantes_sa.yml` under `model`.
+The generated files then contain `config: "config_nantes_sa.yml"` under `model`.
 An existing generated project is also usable if its `model.config` names this
 configuration and no campaign root is being reused after the context change. Use
 the `SA=(...)` array rendered in its `README.md` if it differs from the command
@@ -115,6 +116,14 @@ other blocks from `01-grid.yml` unchanged, including:
 `"${SA[@]}" show-config configs/04-structured-grid.yml` prints the resulting
 configuration with every default written out.
 
+This copy is not a starter: `init` does not know it, and the comment block it
+inherits from `01-grid.yml` ("eqasim-sa init fills in campaign ...") no longer
+applies to it. A later rerun of `init` on the project stops at it
+(`foreign content in init project: configs/04-structured-grid.yml`), and, once
+the file is moved away, at its campaign folder. You never need to rerun `init` to continue: `plan`,
+`run`, `check`, `estimate`, `analyze`, and `plot` do not depend on it (see
+[Rerunning `init`](cli-reference.md#rerunning-init-on-an-existing-project)).
+
 There are `3 configurations × 2 replication seeds = 6` design positions and,
 because all three ordered payloads differ, 6 expected unique runs. The
 `age_priority` variant uses the same EDGT/census columns as the default but
@@ -129,10 +138,20 @@ TARGET=configs/04-structured-grid.yml
 "${SA[@]}" estimate --meta-config "$TARGET"
 "${SA[@]}" run --meta-config "$TARGET"
 "${SA[@]}" analyze --meta-config "$TARGET"
+"${SA[@]}" plot --meta-config "$TARGET"
 ```
 
-On first planning, verify `designPositions: 6` and `uniqueRuns: 6`. `check` and
-`estimate` require at least one complete run in the referenced calibration.
+On first planning, verify `designPositions: 6` and `uniqueRuns: 6`. `estimate`,
+and the `diskSpace` item of `check`, need at least one complete run in the
+referenced calibration: without a calibration plan they report
+`campaign matching-structures-calibration has no plan yet: run plan first`,
+and without a completed calibration run
+`no completed calibration run yet: run the calibration campaign
+matching-structures-calibration first`.
+
+`plot` draws `output-summary` only: `grid-response` needs a numeric parameter
+for its x axis, and the labels of a named configuration are not numbers, so it
+is listed under `skipped` in `figures.json`.
 
 ## 5. Inspect the sealed plan with PyArrow
 

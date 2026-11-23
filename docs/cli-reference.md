@@ -128,8 +128,9 @@ eqasim-sa plan --meta-config PATH
 
 Seals the deterministic design in `<campaign_root>/plan.parquet`. An identical
 rerun returns `unchanged`; a different plan under the same root fails. JSON
-fields: `status`, `path`, `designPositions`, `uniqueRuns`, `contextHash`,
-`error`.
+fields: `status` (`created`, `unchanged`, or `failed`), `path`,
+`designPositions`, `uniqueRuns`, `contextHash`, `error`. In a `failed` result,
+`path` and `contextHash` are `null` and both counts are 0.
 
 ## `check`
 
@@ -172,11 +173,14 @@ temporary eqasim runs with the first two distinct seeds and
 `sampling_rate: 0.001`, validates their markers and that every declared output
 file was archived, then deletes
 the temporary directory. That directory is `<execution.scratch>/.smoke-<8 hex>/`,
-so the `path_length` estimate covers the smoke runs too. It requires `sampling_rate` and two explicit seeds. It
-does not apply `execution.machine_options`: its starting configuration is the
-sealed model YAML. Consequently, `execution.machine_options.data_path` is
-ignored by the smoke test, and the model's `data_path` must be usable from the machine running
-the test.
+so the `path_length` estimate covers the smoke runs too. It requires
+`sampling_rate` and two distinct explicit seeds (otherwise: `smoke requires
+sampling_rate and two distinct explicit seeds`). Its starting configuration is
+that of the first run of the plan, with `execution.machine_options` applied as
+for `run`: `execution.machine_options.data_path` is therefore the data folder
+the smoke runs read. The indicators that read an
+[analysis output](analysis-scripts.md) are skipped, since `check` never runs
+analysis scripts.
 
 JSON fields: `status` (`valid` or `invalid`), `checkVersion`,
 `elapsedSeconds`, `checks`, the disk measurements below, then `error`.
@@ -251,14 +255,18 @@ eqasim-sa run --meta-config PATH
 ```
 
 Requires `execution` and a sealed plan. Executes only `runId` values without a
-valid marker. A campaign cannot have two concurrent `run` invocations. JSON
-fields: `status`, `total`, `completed`, `skipped`, `failed`, `failures`,
-`error`. When everything is already complete, `total` is 0.
+valid marker. A second `run` started on the same campaign while the first is
+active does not fail: it waits for the worker slots and runs held by the first,
+and never executes a `runId` twice (a run completed meanwhile counts as
+`skipped`). JSON fields: `status` (`completed`, or `failed` when at least one
+run failed), `total`, `completed`, `skipped`, `failed`, `failures` (one
+`{runId, error}` per failed run), `error`. When everything is already
+complete, `total` is 0. The exit code is 1 whenever `status` is `failed`.
 
 ## `analyze`
 
 ```text
-eqasim-sa analyze --meta-config PATH
+eqasim-sa analyze --meta-config PATH [--descriptive-only]
 ```
 
 Recomputes indicators from the archived output files and atomically publishes
@@ -279,14 +287,25 @@ was computed by running the script, and the number read back from
 `analyses-cache/`. After editing one script, only that analysis has
 `computed` results. It is `{}` when no indicator reads an analysis output.
 In a failed result, `analyses` is `{}` and `warnings` is `[]`.
-`rankReversalsPath` is specific to `canonical_morris`; the two scramble paths are
-specific to `multiscramble_sobol`.
-scientific analysis accepts `multiscramble_sobol` after reconstructing the
-current meta-configuration and sealed plan. Canonical production has a null
-`replicationAllocationPath`; pilot and production report `pilot_only` and
-`unstable` or `conditional`, respectively. Analyze JSON adds optional
-`byScramblePath` and `diagnosticsPath`; `convergencePath` is reused. New generated
-trajectory demonstrations use `discrete_oat`.
+`rankReversalsPath`, `noiseFloorPath`, and `replicationAllocationPath` are
+specific to `canonical_morris` (the last one to a pilot; it is `null` in
+production); `byScramblePath` and `diagnosticsPath` are specific to
+`multiscramble_sobol`; `convergencePath` is used by both. A path that does not
+apply is `null`.
+
+`inferenceStatus` is `incomplete_noninferential` when runs are missing or
+failed, `demonstration_noninferential` for Grid, discrete OAT, and Sobol,
+`pilot_only` for a canonical Morris pilot, and `conditional` or `unstable`
+(convergence criteria met or not) for canonical Morris production and
+multi-scramble Sobol.
+
+`--descriptive-only` ignores `analysis.completeness_threshold` and publishes
+only descriptive outputs of the completed runs, even an incomplete or empty
+campaign: `indicators.parquet`, `output-summary.parquet`,
+`governed-report.json`, and `replication-dispersion.parquet` when seeds are
+replications. No sensitivity table is published (`sensitivityMethod` is
+`null`), and `inferenceStatus` is `descriptive_noninferential`, or
+`incomplete_noninferential` when runs are missing.
 
 ## `plot`
 

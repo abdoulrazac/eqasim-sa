@@ -42,6 +42,9 @@ uv sync --project "$ROOT/eqasim-france" --locked
 SA=(uv run --project "$ROOT/eqasim-sa" --locked eqasim-sa)
 ```
 
+To check the installation, `"${SA[@]}" --version` prints the installed version,
+for example `eqasim-sa 0.3.0`.
+
 The `eqasim-sa` lockfile pins the runner environment. The lockfile referenced
 in a meta-configuration, however, is part of the sealed scientific context.
 
@@ -233,10 +236,10 @@ Optionally, once `analyze` has published, draw the figures:
 
 `check` without `--smoke` validates the meta-configuration, plan, environment,
 and estimated space. `check --smoke` adds two actual temporary runs and should
-therefore be reserved for explicit pipeline validation. It does not apply
-`execution.machine_options`: it starts from the sealed model YAML, forces
-`sampling_rate: 0.001` and the first two seeds. In particular, its `data_path`
-is the model's value, not `execution.machine_options.data_path`.
+therefore be reserved for explicit pipeline validation. It starts from the
+configuration of the first run of the plan, with `execution.machine_options`
+applied as for `run` (so `execution.machine_options.data_path` is used), then
+forces `sampling_rate: 0.001` and the first two distinct seeds.
 
 The provided templates are small demonstration campaigns. Their sizes are not a
 scientific recommendation, and `init` deliberately generates no canonical

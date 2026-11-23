@@ -212,6 +212,8 @@ represented by the 1,024 positions.
 
 ### 7. Read an FP decision
 
+The analysis files are in the current analysis generation of the campaign,
+`analysis/generations/<generationId>/` (named by `analysis-generation.json`).
 The `multiscramble-sobol-indices.parquet` file aggregates the four scrambles at
 the final checkpoint. For FP, examine the first-order columns, rank, and
 `is_actionable`.
@@ -293,8 +295,11 @@ CALIBRATION="$ROOT/mon-analyse-sa/configs/00-calibration.yml"
 ```
 
 The FF plan contains `4 × 64 × 8 = 2,048` structural positions projected onto
-the same **36 unique runs**. Then read
-`$ROOT/mon-analyse-sa/campaigns/multiscramble-ff/multiscramble-sobol-indices.parquet`.
+the same **36 unique runs**. Then read `multiscramble-sobol-indices.parquet` in
+the current analysis generation of
+`$ROOT/mon-analyse-sa/campaigns/multiscramble-ff/` (the
+`analysis/generations/<generationId>/` folder named by
+`analysis-generation.json`).
 
 For the primary indicator, FF compares the **upper bound of the total-order
 interval**, column `total_order_ci_high`, with `0.05`. This tolerance is a

@@ -48,11 +48,11 @@ Return to the [home page](../README.md).
 | --- | --- | --- | --- |
 | Generate a project | `init` | model, data | prepares files and hashes data without running the pipeline |
 | Seal a design | `plan` | valid meta-configuration | immutable `plan.parquet` |
-| Validate statically | `check` | plan; for a target, referenced calibration with at least one complete run | checks without a target run |
+| Validate statically | `check` | plan, and at least one completed run of the referenced calibration (of the campaign itself when none is referenced, as for `00-calibration.yml`) | checks without a target run |
 | Run an actual test | `check --smoke` | `check` conditions | two actual temporary runs |
 | Estimate a target | `estimate` | at least one complete calibration run | JSON runtime/disk/scratch estimate |
 | Run | `run` | sealed plan, `execution` block | missing archives and markers |
-| Recompute the analysis | `analyze` | sufficient completeness | indicator and sensitivity Parquet files |
+| Recompute the analysis | `analyze` | sufficient completeness (none with `--descriptive-only`) | indicator and sensitivity Parquet files |
 | Draw figures | `plot` | published analysis (`analyze` done), campaign meta-configuration and sealed plan | PNG figures valid for the method, plus `figures.json`, under `figures/<generationId>/` |
 
 ## Methods

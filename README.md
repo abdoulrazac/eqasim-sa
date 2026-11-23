@@ -45,22 +45,24 @@ ranks and tolerance classification. Convergence tables report
 evidence at declared sample sizes; they do not automatically declare stopping
 criteria satisfied.
 
-The package targets exactly Python 3.13 (`>=3.13,<3.14`). Windows 10+, macOS
-13+, and Linux are supported natively, installed with `uv` and without
-administrator rights (on Windows:
-`powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`);
-verification on Windows and macOS is pending, see
-[Platform verification](docs/platform-verification.md). On Windows without long
-paths, a real eqasim run needs an administrator to enable them once (eqasim's own
-cache exceeds 260 characters). The `local` backend works on all three; the
-`slurm` backend requires Linux. A campaign runs entirely on one machine; analysis
-can be done on another one. See [Getting started](docs/getting-started.md) and
+The package targets exactly Python 3.13 (`>=3.13,<3.14`), installed with `uv`
+without administrator rights. It is written for Windows 10+, macOS 13+, and
+Linux; so far the test suite has been run on Linux only, and verification on
+Windows and macOS is pending (see
+[Platform verification](docs/platform-verification.md)). On Windows, uv installs
+with `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`;
+without long paths, a real eqasim run needs an administrator to enable them once
+(eqasim's own cache exceeds 260 characters). The `local` backend is meant for all
+three systems; the `slurm` backend requires Linux. A campaign runs entirely on
+one machine; analysis can be done on another one. See
+[Getting started](docs/getting-started.md) and
 [Troubleshooting](docs/troubleshooting.md) (Windows path length, line endings).
 The shell examples below are Bash; on Windows, run them from Git Bash.
 From this directory:
 
 ```bash
-uv sync --extra test --locked
+uv sync --locked
+uv run --locked eqasim-sa --version
 uv run --locked eqasim-sa --help
 ```
 
@@ -94,6 +96,8 @@ naming it, a change of a value that `init` fills in a starter (`init inputs
 changed: <key> in configs/<file>`), another file in `configs/` besides
 `configs/analyses/`, or a campaign folder of your own (see
 [Rerunning `init`](docs/cli-reference.md#rerunning-init-on-an-existing-project)).
+A rerun does not hash the data again: after a change of the data tree, add
+`--regenerate-data-manifest`, which replaces only `manifest.json`.
 
 Before planning, add `analysis.synthesis.population` to the `run:` list of that
 eqasim configuration: the `age`, `distance`, and `nbr_vehicle` outputs compared
@@ -177,7 +181,8 @@ and run `analyze` on your computer: the plan and the run archives are never
 modified. See [Writing an analysis script](docs/analysis-scripts.md).
 
 `plot` draws, from the published analysis, only the figures that are valid for the
-campaign's method and the published tables, into `figures/<generationId>/`. The
+campaign's method and the published tables, into `figures/<generationId>/` in
+the campaign folder. The
 inference status is stamped on each figure.
 See [Figures](docs/workflow-and-results.md#figures).
 
@@ -202,6 +207,7 @@ the [practical structured-configurations tutorial](docs/structured-configuration
 - [Workflow and results](docs/workflow-and-results.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Glossary](docs/glossary.md)
+- [Release compatibility](docs/compatibility.md)
 - [Development guide](docs/development-guide.md)
 
 ## Contributing

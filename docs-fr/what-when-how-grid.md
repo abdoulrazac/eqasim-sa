@@ -44,7 +44,7 @@ Augmenter ce taux peut réduire le bruit d'échantillonnage, mais augmente aussi
 temps de calcul. Nous gardons le modèle, les données et les autres paramètres
 fixes pour rendre la comparaison lisible.
 
-Cette petite campagne reste une **démonstration**. Elle vérifie le workflow et
+Cette petite campagne reste une **démonstration**. Elle vérifie la chaîne de traitement et
 montre ce qui s'est produit pour ces deux valeurs ; elle ne constitue pas une
 analyse de sensibilité scientifique.
 
@@ -263,7 +263,7 @@ Grid n'explore que les combinaisons écrites dans le fichier.
 - Pour un tri numérique local, continuez avec [OAT discret](what-when-how-discrete_oat.md).
 - Pour un criblage scientifique, utilisez [Morris canonique](what-when-how-canonical_morris.md).
 
-## Checklist
+## Points à vérifier
 
 - La question nomme le paramètre, les valeurs et chaque sortie étudiée.
 - Chaque clé de paramètre existe déjà sous `config:` dans votre configuration eqasim, et sa liste `run:` contient les étapes qui écrivent les sorties déclarées.

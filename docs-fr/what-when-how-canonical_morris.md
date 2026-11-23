@@ -202,13 +202,13 @@ uv run --project "$ROOT/eqasim-sa" --locked python \
   --campaign-root "$ROOT/mon-analyse-sa/campaigns/canonical-morris-pilot"
 ```
 
-Le renderer vérifie notamment les valeurs fixes du modèle et remplace les
+Le script de rendu vérifie notamment les valeurs fixes du modèle et remplace les
 marqueurs sans modifier la question scientifique.
 
 `config_nantes_sa.yml` désigne votre copie de la configuration eqasim de
 Nantes, placée dans le dossier eqasim et faite avec
 `cp config_nantes.yml config_nantes_sa.yml` (eqasim fournit lui-même
-`config_nantes.yml` ; ne l'écrasez pas). Le renderer ne la modifie pas : elle doit
+`config_nantes.yml` ; ne l'écrasez pas). Le script de rendu ne la modifie pas : elle doit
 contenir les valeurs fixées par le protocole, les deux paramètres que l'on fait
 varier (`matching_minimum_observations`, `matching_minimum_age`) et
 `analysis.synthesis.population` dans sa liste `run:` (voir le
@@ -236,12 +236,14 @@ le pilote scientifique.
 
 ### 6. Passer du pilote à la production
 
-Ouvrez
-`$ROOT/mon-analyse-sa/campaigns/canonical-morris-pilot/replication-allocation.json`.
-Continuez seulement si `status` vaut `recommended`. Les statuts `capped` et
+Ouvrez le fichier `replication-allocation.json` du pilote. Comme toute sortie
+d'analyse, il se trouve dans la génération d'analyse courante : son chemin,
+relatif au dossier de campagne `$ROOT/mon-analyse-sa/campaigns/canonical-morris-pilot/`,
+est le champ `replicationAllocationPath` de `analysis-generation.json` (et du
+résultat JSON d'`analyze`). Continuez seulement si `status` vaut `recommended`. Les statuts `capped` et
 `infeasible` imposent de revoir le budget ou la précision visée.
 
-Le renderer de production lit cette recommandation et crée une autre campagne :
+Le script de rendu de la production lit cette recommandation et crée une autre campagne :
 
 ```bash
 uv run --project "$ROOT/eqasim-sa" --locked python \
@@ -271,7 +273,10 @@ pour le transformer en production.
 
 ### 7. Lire le résultat de production
 
-Le fichier principal est `canonical-morris-ranking.parquet` :
+Les fichiers ci-dessous se trouvent dans la génération d'analyse courante de la
+campagne de production, `analysis/generations/<generationId>/` (désignée par
+`analysis-generation.json`). Le fichier principal est
+`canonical-morris-ranking.parquet` :
 
 | Colonne | Lecture simple |
 | --- | --- |
@@ -302,7 +307,7 @@ deux facteurs conservés pour savoir lequel apprendre plus précisément en prem
 
 Vérifiez ensuite :
 
-- `canonical-morris-convergence.parquet` pour l'évolution aux checkpoints ;
+- `canonical-morris-convergence.parquet` pour l'évolution aux points de contrôle de convergence ;
 - `canonical-morris-rank-reversals.parquet` pour les inversions de rang ;
 - `noise-floor.parquet` pour le bruit brut entre seeds, notamment `intrinsic_sd` et `mcse` ;
 - `convergence-evidence.parquet` pour le critère d'arrêt ;
@@ -317,10 +322,10 @@ finale autorisée.
 En option, dessiner les figures de l'analyse publiée :
 
 ```bash
-"${SA[@]}" plot --meta-config "$TARGET"
+"${SA[@]}" plot --meta-config "$PRODUCTION"
 ```
 
-Valides pour `canonical_morris` : `output-summary` (une ligne par indicateur : médiane, q05 à q95 et min à max sur les positions du plan, jamais une incertitude du modèle) ; `morris-plane` (le plan mu*-sigma avec l'IC de `mu_star`) ; `morris-convergence` (`mu_star` et son IC le long des checkpoints) ; `morris-rank-reversals` (probabilité que l'ordre publié d'une paire de facteurs soit inversé, au dernier checkpoint) ; et `morris-noise-floor` (écart-type intrinsèque et erreur-type Monte Carlo de la moyenne, en deux séries séparées). Chacune exige sa table publiée. Chacune porte la ligne de pied avec `claimAuthorized` (aujourd'hui toujours `false`) : aucune n'autorise une conclusion finale. Voir [Figures](workflow-and-results.md#figures).
+Valides pour `canonical_morris` : `output-summary` (une ligne par indicateur : médiane, q05 à q95 et min à max sur les positions du plan, jamais une incertitude du modèle) ; `morris-plane` (le plan mu*-sigma avec l'IC de `mu_star`) ; `morris-convergence` (`mu_star` et son IC le long des points de contrôle) ; `morris-rank-reversals` (probabilité que l'ordre publié d'une paire de facteurs soit inversé, au dernier point de contrôle) ; et `morris-noise-floor` (écart-type intrinsèque et erreur-type Monte Carlo de la moyenne, en deux séries séparées). Chacune exige sa table publiée. Chacune porte la ligne de pied avec `claimAuthorized` (aujourd'hui toujours `false`) : aucune n'autorise une conclusion finale. Voir [Figures](workflow-and-results.md#figures).
 
 ## Ce que vous pouvez conclure
 
@@ -332,7 +337,7 @@ Vous ne pouvez pas dire qu'un facteur non retenu est sans importance, qu'il peut
 être fixé, ou que `mu_star` est une part de variance. Vous ne pouvez jamais tirer
 une conclusion du pilote seul.
 
-## Checklist
+## Points à vérifier
 
 - La charte nomme la décision, l'estimand et l'indicateur principal.
 - Chaque support et l'indépendance des facteurs possèdent une justification.

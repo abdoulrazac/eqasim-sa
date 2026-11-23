@@ -4,9 +4,9 @@
 
 ## Domaine d'un facteur
 
-Une valeur de facteur scalaire est exactement un entier signé 64 bits, un float
-fini ou une chaîne non vide sans caractère NUL. Les booléens, `null`, tableaux,
-mappings, NaN et infinis sont interdits comme niveaux scalaires. Les facteurs
+Une valeur de facteur scalaire est exactement un entier signé 64 bits, un
+flottant fini ou une chaîne non vide sans caractère NUL. Les booléens, `null`, listes,
+dictionnaires, NaN et infinis sont interdits comme niveaux scalaires. Les facteurs
 listes structurées nommés sont l'exception explicite décrite plus bas. Toutes les
 valeurs scalaires d'un domaine ont exactement le même type Python : `[1, 2]` et
 `[1.0, 2.0]` sont valides, `[1, 2.0]` ne l'est pas.
@@ -62,7 +62,7 @@ officiel (donc votre copie `config_nantes_sa.yml`) fixe `edgt_44`.
 | `income_assignation_method` | chaîne, `uniform` | méthode de synthèse du revenu, `uniform` ou `bhepop2` | `[uniform, bhepop2]` | Grid, Sobol |
 | `hts` | chaîne, aucune valeur par défaut (`config.yml` officiel : `entd` ; Nantes : `edgt_44`) | donneurs et distributions de référence de l'enquête | `[edgt_44, entd]` | Grid, Sobol, si les deux jeux existent |
 
-Ces valeurs montrent la syntaxe; elles ne constituent pas automatiquement des
+Ces valeurs montrent la syntaxe ; elles ne constituent pas automatiquement des
 domaines scientifiquement justifiés. En particulier :
 
 - augmenter `matching_minimum_observations` force un relâchement plus précoce
@@ -72,7 +72,7 @@ domaines scientifiquement justifiés. En particulier :
 - `income_assignation_method: bhepop2` exige des distributions Filosofi valides
   par attribut et peut retomber sur `uniform` pour certaines communes ; la
   méthode effectivement appliquée n'est pas conservée dans la sortie actuelle,
-  donc ce fallback doit être instrumenté avant une comparaison stricte ;
+  donc ce repli doit être instrumenté avant une comparaison stricte ;
 - le revenu est déjà archivé dans la sortie `households`, mais le pack initial
   ne définit aucun indicateur de revenu ; calculez la mesure de revenu dont vous
   avez besoin avec un [script d'analyse](analysis-scripts.md) qui lit
@@ -85,12 +85,12 @@ Le fichier de départ déclare exactement trois signaux TV : âge contre INSEE, 
 contre HTS brut et nombre de véhicules contre HTS brut. eqasim-france continue
 de produire `HTS adjust with INSEE population weights` pour compatibilité, mais
 cette colonne est une simple mise à l'échelle globale de HTS. La normalisation TV
-annule cette échelle; les nouveaux fichiers de départ ne la déclarent donc pas comme
+annule cette échelle ; les nouveaux fichiers de départ ne la déclarent donc pas comme
 seconde référence.
 
 `matching_attributes` est important et ordonné : le dernier attribut est relâché
-en premier. Déclarez des payloads de listes nommés et distincts sous
-`configurations` ; le plan varie les labels et l'exécution reçoit la liste
+en premier. Déclarez des listes nommées et distinctes sous
+`configurations` ; le plan fait varier les labels et l'exécution reçoit la liste
 ordonnée. Commencez par Grid. N'utilisez Sobol multi-scramble que si les
 probabilités égales des labels et leur provenance sont scientifiquement
 défendables. L'OAT discret et Morris canonique refusent ce facteur nominal. Archivez un
@@ -101,12 +101,13 @@ et ne peut pas être structurée.
 ## Facteurs listes structurées nommés
 
 Un facteur structuré associe chaque label sûr à une liste ordonnée non vide de
-chaînes uniques et non vides. Labels et payloads sont uniques ; les alias de
+chaînes uniques et non vides. Labels et listes sont uniques ; les alias de
 listes identiques sont refusés. La clé du modèle scellé doit déjà être une liste
 de chaînes. Le plan et l'analyse utilisent le support ordonné des labels, mais le
 `runId` hache la liste complètement résolue. Seuls les plans structurés utilisent
-le schéma v3 et scellent le mapping canonique exact. Les octets et schémas v1/v2
-des plans non structurés restent inchangés.
+le schéma v3 et scellent la correspondance canonique exacte. Les plans non
+structurés utilisent le schéma v1 (Grid, OAT discret, Sobol de démonstration) ou
+v2 (Morris canonique, Sobol multi-scramble).
 
 ### Exemple Grid concret
 
@@ -192,9 +193,9 @@ Pour des facteurs de tailles `L1...LD` et `R` seeds :
 
 `positions = runs attendus = R × Π Li`
 
-Exemple : deux taux, trois méthodes de revenu et quatre seeds donnent
+Exemple : deux taux, trois seuils de cellule de donneurs et quatre seeds donnent
 `2 × 3 × 4 = 24` positions. Des configurations identiques après résolution
-peuvent réduire les runs uniques; le `check` Grid les refuse.
+peuvent réduire les runs uniques ; le `check` Grid les refuse.
 
 ## OAT discret
 
@@ -203,8 +204,8 @@ les clés d'expérience `method`, `seeds`, `trajectories` et la clé facultative
 `design_seed`.
 
 L'OAT discret accepte uniquement des facteurs numériques. Chaque domaine contient au
-moins deux niveaux du même type, strictement croissants et distincts. L'ordre
-définit les pas adjacents. Chaque effet divise la différence de sortie par la
+moins deux niveaux du même type, strictement croissants et distincts. L'ordre a
+donc un sens opérationnel : il définit les pas adjacents. Chaque effet divise la différence de sortie par la
 fraction locale du pas dans l'étendue numérique déclarée. Ce sont des effets
 normalisés locaux, pas des effets élémentaires Morris canoniques.
 
@@ -212,7 +213,7 @@ Avec `D` facteurs, `T` trajectoires et `R` seeds de réplication :
 
 `positions = T(D+1)R`
 
-Le nombre maximal de trajectoires candidates est :
+Le nombre maximal de trajectoires candidates entre niveaux adjacents est :
 
 `D! × Π 2(Li-1)`
 
@@ -240,33 +241,45 @@ uniforme discret, transformation identité et provenance déclarés. Il utilise 
 nombre pair `p >= 4` et le pas commun exact `Delta = p/[2(p-1)]` dans l'espace de
 probabilité unitaire.
 
-SALib 1.5.2 génère l'échantillon candidat seedé et applique sa sélection Morris
+SALib 1.5.2 génère l'échantillon candidat à partir d'une graine et applique sa sélection Morris
 publique avec optimisation locale et `optimal_trajectories` égal au nombre de
 trajectoires déclaré. L'échantillonnage candidat se fait avec remise : sur une
 petite grille finie, une même matrice peut donc être sélectionnée plusieurs fois.
 Chaque occurrence reste un bloc de trajectoire explicite avec une seed dérivée
 distincte ; les matrices et les options SALib effectives sont scellées dans les
-métadonnées du plan. Un budget déterministe de calcul et le plafond de 500
-bornent l'appel avant allocation.
+métadonnées du plan. Un budget déterministe de calcul de distances et le plafond
+de 500 candidates bornent l'appel avant allocation.
 
-Les facteurs sont triés lexicalement dans le contrat scellé. Pour un support de
+Une campagne scientifique utilise au moins deux trajectoires sélectionnées,
+chaque point de contrôle de convergence vaut au moins 2, et l'inférence par
+bootstrap déterministe utilise au moins 100 rééchantillonnages.
+
+Les facteurs sont triés lexicographiquement dans le design scellé. Pour un support de
 longueur `L`, l'indice de grille `z` se projette par inverse généralisée uniforme
 discrète : indice 0 pour `z = 0`, sinon
 `min((L*z - 1)//(p - 1), L - 1)`. Les seeds YAML sont des seeds de base. Une seed
-signée 64 bits est dérivée par SHA-256 versionné pour chaque trajectoire et
-réplication ; les `D+1` points du bloc partagent cette seed, ce qui fournit les
-nombres aléatoires communs au contraste, et aucune seed dérivée ne se répète.
+signée 64 bits est dérivée de façon déterministe pour chaque trajectoire et
+réplication, avec des métadonnées SHA-256 versionnées ; les `D+1` points du bloc
+partagent cette seed, et aucune seed dérivée ne se répète d'un bloc à l'autre.
 
 L'estimand est réplication d'abord : pour chaque trajectoire et facteur, les
 effets sont moyennés sur les `R` réplications, puis `mu`, `mu_star` et `sigma`
-sont calculés sur les `T` moyennes de trajectoire. La trajectoire est donc l'unité
-effective du bootstrap, même si `elementary_effects` affiche `T*R`. `seed_std`
-est la racine carrée de la moyenne des variances intra-trajectoire entre seeds ;
-il vaut `null` avec une seule réplication.
+sont calculés sur les `T` moyennes de trajectoire. Le classement vise donc
+l'effet élémentaire de l'indicateur espéré sur les seeds de simulation, et non un
+ensemble de `T*R` effets indépendants. La trajectoire est l'unité effective du
+bootstrap. `seed_std` est la racine carrée de la moyenne des variances
+intra-trajectoire entre seeds ; il vaut `null` avec une seule réplication.
 
 Le classement suit `mu_star` décroissant. Les égalités exactes reçoivent le rang
-moyen ; une égalité qui traverse la coupure top-k partage fractionnellement les
-places restantes. Le bootstrap de trajectoires fournit une preuve d'incertitude
+moyen. À la coupure top-k, les facteurs au-dessus d'un groupe à égalité reçoivent
+le poids 1, un groupe à égalité qui traverse la coupure partage à parts égales
+les places restantes, et les facteurs en dessous reçoivent 0. Les probabilités
+top-k du bootstrap moyennent ces poids. Les sorties par paire publient à part la
+fréquence d'égalité bootstrap dans `tie_probability` ; une égalité ponctuelle a
+`point_order: 0` et une `reversal_probability` nulle. Les sorties de classement
+et de convergence nomment le nombre d'effets `elementary_effects` (`T*R`).
+
+Le bootstrap de trajectoires fournit une preuve d'incertitude
 de design fini conditionnelle au contrat déclaré et scellé. Il ne fournit pas à
 lui seul une preuve décisionnelle calibrée, des parts de variance, une conclusion
 FP/FF, ni une certification automatique des critères d'arrêt et de robustesse.
@@ -278,14 +291,14 @@ que les blocs restent distincts. Pour chaque indicateur, trajectoire et rang,
 `noise-floor.parquet` donne le nombre de réplications, la moyenne, la variance
 intrinsèque non biaisée (unités de l'indicateur au carré), le SD intrinsèque et
 `MCSE = SD/sqrt(R)` (unités de l'indicateur), ainsi que le marqueur d'indicateur
-primaire. Les réplications décrivent le bruit; les trajectoires restent les unités
-indépendantes du bootstrap.
+primaire. Les réplications décrivent le bruit intrinsèque ; les trajectoires
+restent les unités indépendantes du bootstrap.
 
 Un pilote calcule le quantile linéaire NumPy par défaut `q` des variances
 ponctuelles de l'indicateur primaire, puis
 `R_brut = max(R_min, ceil(q / target_mcse^2))` et
 `R_sélectionné = min(R_brut, R_max)`. `recommended` signifie que besoin brut et
-positions structurelles tiennent; `capped` expose `R_brut > R_max`;
+positions structurelles tiennent ; `capped` expose `R_brut > R_max` ;
 `infeasible` expose que `T*(D+1)*R_sélectionné` dépasse le plancher Decimal exact
 du budget hors réserve. Aucun besoin n'est abaissé silencieusement. La sortie
 spécifie une nouvelle campagne/racine de production immuable, avec provenance du
@@ -296,8 +309,9 @@ pilote non vide et exactement le nombre de seeds sélectionné.
 Le `method: sobol` généré est une démonstration non inférentielle : un
 scramble, `N(2D+2)` positions et un bootstrap déterministe des lignes. Le fichier
 inchangé `sobol-indices.parquet` classe l'ordre total décroissant et fournit les
-intervalles bootstrap. Son manifeste déclare
-`inferenceStatus: demonstration_noninferential`.
+intervalles bootstrap. Son manifeste d'analyse déclare
+`inferenceStatus: demonstration_noninferential` ; ne réinterprétez pas ces
+sorties comme une preuve multi-scramble.
 
 Chaque domaine Sobol contient au moins deux valeurs distinctes, homogènes, de
 type `int`, `float` ou `string`. L'ordre des modalités est significatif. Pour un
@@ -305,7 +319,8 @@ tirage quasi-aléatoire `u` dans `[0,1)` et un domaine de longueur `L`, la modal
 retenue est celle d'indice `floor(u × L)`. La seed est toujours un facteur entier
 spécial.
 
-Avec `D` facteurs au total, seed comprise, et `N = base_sample_size` :
+Pour le Sobol de démonstration, avec `D` facteurs au total, seed comprise, et
+`N = base_sample_size` :
 
 `positions = N(2D+2)`
 
@@ -330,22 +345,25 @@ l'analyse.
 ## Sobol multi-scramble
 
 `method: multiscramble_sobol` est la méthode scientifique FP/FF. Avec `S` seeds
-de scramble, le checkpoint maximal `N` et `D` facteurs seed comprise, le plan a
-`S*N(2D+2)` positions. Chaque seed produit un net SciPy Sobol indépendant à `N`;
-les checkpoints inférieurs en sont des préfixes exacts, sans mélange des lignes.
+de scramble, le point de contrôle maximal `N` et `D` facteurs seed comprise, le plan a
+`S*N(2D+2)` positions. Chaque seed de scramble produit un réseau Sobol SciPy à
+`N` ; les points de contrôle déclarés plus petits en sont des préfixes exacts
+emboîtés, et les lignes ne sont jamais mélangées entre scrambles. La projection
+à largeur égale `floor(u * longueur_du_support)` est conservée.
 
-Pour les `S` estimations indépendantes, les sorties donnent moyenne, SD
+Chaque scramble fournit des estimations indépendantes de premier ordre et
+d'ordre total. Sur les `S` estimations, les sorties donnent moyenne, SD
 échantillonnal, `SE = SD/sqrt(S)` et intervalle bilatéral de Student à `S-1`
 degrés de liberté. Aucun bootstrap de lignes n'est utilisé.
 Avant l'appel à SALib, les tableaux finis d'indicateur sont centrés et mis à
 l'échelle selon leur étendue observée. Cela préserve les indices sans dimension
-lors d'un changement commun d'échelle de sortie et évite les overflows
-intermédiaires évitables. L'analyse est refusée si cette mise à l'échelle efface
+lors d'un changement commun d'échelle de sortie et évite les dépassements
+numériques intermédiaires évitables. L'analyse est refusée si cette mise à l'échelle efface
 la variance de base, si un indice devient non fini, ou si la variance de sortie
 dans les unités carrées d'origine sort de la plage représentable en `float64`.
 Les valeurs et indices ne sont jamais tronqués pour forcer une publication. FP
-classe la moyenne de premier ordre décroissante. FF classe la borne supérieure d'ordre total
-croissante. `seed` est une nuisance finie déclarée : ses estimations restent
+classe par moyenne agrégée de premier ordre décroissante. FF classe par borne
+supérieure de confiance d'ordre total croissante. `seed` est une nuisance finie déclarée : ses estimations restent
 diagnostiques, `is_actionable` vaut faux et son rang comme sa tolérance FF sont
 nuls. Ce support n'identifie ni bruit intrinsèque ni facteur contrôlable. Pour
 cette méthode, `practical_tolerance` est une part de variance
@@ -357,11 +375,12 @@ fixation. Seuls les facteurs ordinaires actionnables de l'indicateur primaire
 sont classifiés.
 
 Les clés d'analyse permises sont `completeness_threshold`, qui doit valoir
-`1.0` (la valeur par défaut), et `confidence_level` (par défaut `0.95`). Les quatre sorties sont `multiscramble-sobol-indices.parquet`,
+`1.0` (la valeur par défaut), et `confidence_level` (par défaut `0.95`). Les
+quatre sorties publiées sont `multiscramble-sobol-indices.parquet`,
 `multiscramble-sobol-by-scramble.parquet`,
 `multiscramble-sobol-convergence.parquet` et
 `multiscramble-sobol-diagnostics.parquet`. Les limites sont 1 000 000 positions
-et 20 000 000 cellules de table Arrow.
+et 20 000 000 cellules de table Arrow par plan.
 
 ## Indicateurs et variation totale
 
@@ -371,7 +390,7 @@ normalisation séparée :
 
 `TV(p,q) = 0.5 × Σ |p_i-q_i|`
 
-La valeur 0 indique des distributions identiques; 1 indique des supports
+La valeur 0 indique des distributions identiques ; 1 indique des supports
 totalement disjoints dans les classes fournies. Cette mesure n'établit pas à elle
 seule la qualité causale ou scientifique d'un modèle : elle dépend des classes,
 de la référence et des sorties déclarées.

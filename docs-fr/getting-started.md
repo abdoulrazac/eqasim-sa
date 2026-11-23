@@ -42,7 +42,10 @@ uv sync --project "$ROOT/eqasim-france" --locked
 SA=(uv run --project "$ROOT/eqasim-sa" --locked eqasim-sa)
 ```
 
-Le lockfile d'`eqasim-sa` fixe l'environnement du runner. Le lockfile référencé
+Pour vérifier l'installation, `"${SA[@]}" --version` affiche la version
+installée, par exemple `eqasim-sa 0.3.0`.
+
+Le lockfile d'`eqasim-sa` fixe l'environnement d'exécution d'eqasim-sa. Le lockfile référencé
 dans une méta-configuration entre, lui, dans le contexte scientifique scellé.
 
 Les dossiers `eqasim-sa/`, `eqasim-france/` et `eqasim-data/` côte à côte sous
@@ -98,8 +101,8 @@ mon-analyse-sa/
 ```
 
 `init` écrit aussi un `.gitattributes` qui impose les fins de ligne LF pour
-`*.yml`, `*.yaml`, `*.json` et `*.lock`, afin qu'une conversion CRLF lors d'un
-checkout Windows ne modifie pas les entrées scellées. Il n'écrase jamais un
+`*.yml`, `*.yaml`, `*.json` et `*.lock`, afin qu'une conversion CRLF lors d'une
+extraction Git sous Windows ne modifie pas les entrées scellées. Il n'écrase jamais un
 `.gitattributes` existant ; s'il manque, il est recréé et signalé sous
 `restored`.
 
@@ -135,7 +138,7 @@ correspond plus à son plan : `run` refuse de la reprendre avec `data manifest
 changed since plan (dataManifestSha256)`. Conservez l'ancien état et utilisez
 de nouvelles racines de campagne ou un nouveau projet.
 
-## Runner du projet généré
+## Commande eqasim-sa du projet généré
 
 Le README généré définit un tableau Bash :
 
@@ -143,7 +146,7 @@ Le README généré définit un tableau Bash :
 SA=(...)
 ```
 
-Depuis un checkout source, le rendu utilise
+Depuis une copie des sources, le rendu utilise
 `uv run --project /chemin/vers/eqasim-sa --locked eqasim-sa`. Dans un paquet
 installé sans `pyproject.toml` source détectable, il utilise `eqasim-sa`. Toujours
 invoquer le tableau avec `"${SA[@]}"` pour préserver les arguments.
@@ -218,7 +221,7 @@ Depuis `mon-analyse-sa/`, sceller puis exécuter la calibration :
 
 Le premier `run` fournit les observations dont `check` et `estimate` ont besoin :
 durée, octets durables et taille maximale du cache. Un contrôle statique peut
-être lancé ensuite, mais il n'est pas un prérequis au bootstrap :
+être lancé ensuite, mais il n'est pas un prérequis au démarrage :
 
 ```bash
 "${SA[@]}" check --meta-config configs/00-calibration.yml
@@ -247,10 +250,11 @@ En option, une fois `analyze` publié, dessiner les figures :
 
 `check` sans `--smoke` valide la méta-configuration, le plan, l'environnement et
 l'espace estimé. `check --smoke` ajoute deux vrais runs temporaires et doit donc
-être réservé à une validation explicite du pipeline. Il ne reprend pas
-`execution.machine_options` : il part du YAML modèle scellé, force
-`sampling_rate: 0.001` et les deux premières seeds. En particulier, son
-`data_path` est celui du modèle, pas `execution.machine_options.data_path`.
+être réservé à une validation explicite du pipeline. Il part de la
+configuration du premier run du plan, avec `execution.machine_options`
+appliqué comme pour `run` (`execution.machine_options.data_path` est donc
+utilisé), puis force `sampling_rate: 0.001` et les deux premières seeds
+distinctes.
 
 Les fichiers de départ fournis sont de petites campagnes de démonstration. Leurs tailles ne
 constituent pas une recommandation scientifique et `init` ne génère délibérément
@@ -272,22 +276,22 @@ couvre les six runs, les métadonnées du plan, l'inspection de l'analyse et les
 limites scientifiques. `init` ne modifie pas le YAML modèle et ne génère pas
 automatiquement cette cible.
 
-## Checkpoints minimaux des fichiers de départ générés
+## Points de contrôle minimaux des fichiers de départ générés
 
 Les commandes `plan` renvoient un objet JSON avec `status`, `designPositions` et
 `uniqueRuns`. Avec les fichiers de départ non modifiés issus d'`init`, vérifiez :
 
 | Étape | JSON minimal à la première exécution | Fichiers attendus après `run`/`analyze` |
 | --- | --- | --- |
-| Calibration | `plan`: `created`, 3 positions, 3 runs uniques; `run`: `completed`, 3 complétés | `campaigns/mon-analyse-sa-calibration/plan.parquet`, 3 marqueurs sous `runs/`, 3 archives de huit fichiers chacune (`persons.csv`, …, `activities_spatial.gpkg`, `age.csv`, `distance.csv`, `nbr_vehicle.csv`) |
-| Grid | `plan`: `created`, 4 positions, 4 runs uniques; `run`: 4 complétés; `analyze`: `completed` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `replication-dispersion.parquet`, `output-summary.parquet`, `governed-report.json` |
-| OAT discret | `plan`: `created`, 8 positions, 6 runs uniques; `run`: 6 complétés; `analyze`: sensibilité `discrete_oat` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `replication-dispersion.parquet`, `discrete-oat-effects.parquet`, `output-summary.parquet`, `governed-report.json` |
-| Sobol | `plan`: `created`, 48 positions, 4 runs uniques; `run`: 4 complétés; `analyze`: sensibilité `sobol` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `sobol-indices.parquet`, `output-summary.parquet`, `governed-report.json` |
+| Calibration | `plan` : `created`, 3 positions, 3 runs uniques ; `run` : `completed`, 3 complétés | `campaigns/mon-analyse-sa-calibration/plan.parquet`, 3 marqueurs sous `runs/`, 3 archives de huit fichiers chacune (`persons.csv`, …, `activities_spatial.gpkg`, `age.csv`, `distance.csv`, `nbr_vehicle.csv`) |
+| Grid | `plan` : `created`, 4 positions, 4 runs uniques ; `run` : 4 complétés ; `analyze` : `completed` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `replication-dispersion.parquet`, `output-summary.parquet`, `governed-report.json` |
+| OAT discret | `plan` : `created`, 8 positions, 6 runs uniques ; `run` : 6 complétés ; `analyze` : sensibilité `discrete_oat` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `replication-dispersion.parquet`, `discrete-oat-effects.parquet`, `output-summary.parquet`, `governed-report.json` |
+| Sobol | `plan` : `created`, 48 positions, 4 runs uniques ; `run` : 4 complétés ; `analyze` : sensibilité `sobol` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `sobol-indices.parquet`, `output-summary.parquet`, `governed-report.json` |
 
 Une relance identique de `plan` renvoie `unchanged`. Une campagne déjà complète
 renvoie pour `run` `status: completed` et `total: 0`.
 
-## Checklist de fin
+## Liste de vérification finale
 
 - Les quatre plans correspondent aux cardinalités attendues ou à votre design documenté.
 - Chaque `runId` attendu possède un marqueur valide et une archive lisible.
@@ -295,7 +299,7 @@ renvoie pour `run` `status: completed` et `total: 0`.
 - Les noms de colonnes des fichiers CSV archivés correspondent aux déclarations `category`, `simulated` et `references` sous `outputs`.
 - Les sorties de démonstration Grid, OAT discret et Sobol ont été inspectées, pas seulement créées.
 - Le Sobol généré est une démonstration non inférentielle. Une campagne scientifique
-  multi-scramble doit être rédigée séparément; aucun fichier de départ n'est fourni.
+  multi-scramble doit être rédigée séparément ; aucun fichier de départ n'est fourni.
 - Le modèle, les données, le lockfile et la version d'`eqasim-sa` sont archivés ou traçables.
 
 Voir aussi le [glossaire](glossary.md).

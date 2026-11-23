@@ -71,8 +71,8 @@ mon-analyse-sa/
 ```
 
 Ajouter `analyses` à `configs/01-grid.yml` modifie un fichier de départ : une relance
-ultérieure d'`init` conserve le fichier tel quel et le liste dans `kept`, comme
-le dossier `configs/analyses/`, qu'elle accepte sans le lire (voir
+ultérieure d'`init` conserve le fichier tel quel et le liste dans `kept`. Elle
+accepte aussi le dossier `configs/analyses/`, sans le lire ni le lister (voir
 [Relancer `init`](cli-reference.md#relancer-init-sur-un-projet-existant)).
 Seul le changement des valeurs remplies par `init` est refusé.
 
@@ -442,7 +442,8 @@ run et de l'empreinte de l'environnement. L'empreinte de l'environnement est un
 SHA-256 de la version de Python, des versions de pandas, numpy, pyarrow,
 geopandas, shapely et pyogrio rapportées par l'interpréteur (`null` si une
 bibliothèque est absente), et du SHA-256 de `uv.lock` dans le dossier
-eqasim. Par conséquent :
+eqasim, fins de ligne normalisées (`null` si ce fichier n'existe pas). Par
+conséquent :
 
 - rien n'est recalculé si rien n'a changé ;
 - modifier un script ne recalcule que les résultats de cette analyse ;
@@ -484,9 +485,9 @@ rien n'est perdu, `analyze` le recalcule.
    [Avant les runs](#avant-les-runs--archiver-assez)).
 2. Rapatriez le dossier de campagne sur votre ordinateur (`scp`, `sftp`...).
    Le scratch et l'arborescence de données ne sont pas nécessaires.
-3. Refaites le rendu des chemins machine de la méta-configuration pour votre
-   ordinateur, écrivez les scripts et ajoutez `analyses` et les indicateurs
-   qui les lisent.
+3. Adaptez à votre ordinateur les chemins machine de la méta-configuration
+   (les valeurs sous le commentaire « Machine-specific values »), écrivez les
+   scripts et ajoutez `analyses` et les indicateurs qui les lisent.
 4. Lancez `eqasim-sa analyze --meta-config configs/01-grid.yml`.
 
 L'ordinateur a besoin : du dossier de campagne, de la méta-configuration, des

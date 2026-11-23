@@ -69,8 +69,8 @@ mon-analyse-sa/
 ```
 
 Adding `analyses` to `configs/01-grid.yml` edits a starter: a later rerun of
-`init` keeps the file as it is and lists it in `kept`, like the
-`configs/analyses/` folder, which it accepts without reading it (see
+`init` keeps the file as it is and lists it in `kept`. It also accepts the
+`configs/analyses/` folder, without reading it or listing it (see
 [Rerunning `init`](cli-reference.md#rerunning-init-on-an-existing-project)).
 Only a change of the values that `init` fills in is refused.
 
@@ -428,7 +428,9 @@ Each result is identified by a fingerprint: a SHA-256 (domain
 (line endings normalized), the SHA-256 of each input file, the run parameters,
 and the environment fingerprint. The environment fingerprint is a SHA-256 of
 the Python version, the pandas, numpy, pyarrow, geopandas, shapely, and pyogrio
-versions reported by the interpreter (`null` when a library is absent), and the SHA-256 of `uv.lock` in the eqasim folder. Consequently:
+versions reported by the interpreter (`null` when a library is absent), and
+the SHA-256 of `uv.lock` in the eqasim folder, line endings normalized (`null`
+when that file does not exist). Consequently:
 
 - nothing is recomputed when nothing changed;
 - editing a script recomputes the results of that analysis only;
@@ -466,9 +468,9 @@ lost, `analyze` recomputes it.
    scripts may need (see [Before the runs](#before-the-runs-archive-enough)).
 2. Copy the campaign folder back to your computer (`scp`, `sftp`, ...). The
    scratch and the data tree are not needed.
-3. Render the machine paths of the meta-configuration again for your
-   computer, write the scripts, and add `analyses` and the indicators that
-   read them.
+3. Edit the machine paths of the meta-configuration (the values under the
+   "Machine-specific values" comment) for your computer, write the scripts,
+   and add `analyses` and the indicators that read them.
 4. Run `eqasim-sa analyze --meta-config configs/01-grid.yml`.
 
 The computer needs: the campaign folder, the meta-configuration, the scripts,

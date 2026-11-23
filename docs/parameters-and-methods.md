@@ -103,7 +103,8 @@ non-empty strings. Labels and payloads are unique; identical-list aliases are
 rejected. The sealed model key must already be a list of strings. The plan and
 analysis use the ordered label support, but `runId` hashes the fully resolved
 list. Structured plans alone use plan schema v3 and seal the exact canonical
-mapping. Unstructured plan bytes and v1/v2 schemas are unchanged.
+mapping. Unstructured plans use schema v1 (Grid, discrete OAT, demonstration
+Sobol) or v2 (canonical Morris, multi-scramble Sobol).
 
 ### Concrete Grid example
 
@@ -190,7 +191,7 @@ For factors of sizes `L1...LD` and `R` seeds:
 
 `positions = expected runs = R × Π Li`
 
-Example: two rates, three income methods, and four seeds give
+Example: two rates, three donor-cell thresholds, and four seeds give
 `2 × 3 × 4 = 24` positions. Configurations that are identical after resolution
 may reduce the number of unique runs; the Grid `check` rejects them.
 

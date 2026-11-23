@@ -27,8 +27,9 @@ secrets.
 
 - Gardez un périmètre ciblé et ajoutez des tests de régression pour tout
   changement de comportement.
-- Préservez le déterminisme des plans, l'immutabilité des artefacts publiés et
-  la validation stricte aux frontières de confiance.
+- Préservez le déterminisme des plans, l'immutabilité des archives de run et des
+  générations d'analyse publiées, et la validation stricte aux frontières de
+  confiance.
 - Traitez toute modification des identités de plan, schémas, designs
   stochastiques, estimands ou autorisations de revendication comme un changement
   de compatibilité. Documentez-la dans `docs/` et `docs-fr/`, puis ajoutez une
@@ -42,12 +43,24 @@ projet.
 
 ## Validation
 
-Exécutez les contrôles adaptés à votre modification. Avant de proposer une
-version, exécutez au minimum la validation complète :
+Exécutez les contrôles adaptés à votre modification : au moins les tests et le
+contrôle statique ci-dessous (imports et variables inutilisés, redéfinitions).
+La suite de tests dure quelques minutes ; l'intégration continue l'exécute sous
+Ubuntu, macOS et Windows (`.github/workflows/tests.yml`), mais seuls des
+résultats Linux sont consignés à ce jour dans la
+[vérification des plateformes](docs/platform-verification.md) (en anglais).
+
+```bash
+uv run --locked --extra test pytest
+uvx ruff check src tests protocols --select F401,F841,F811 --no-cache
+```
+
+Avant de proposer une version, exécutez au minimum la validation complète :
 
 ```bash
 uv lock --check
-uv run --locked pytest
+uv run --locked --extra test pytest
+uvx ruff check src tests protocols --select F401,F841,F811 --no-cache
 git diff --check
 uv build
 uv run --locked python verify_release_wheel.py \

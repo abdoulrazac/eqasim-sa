@@ -47,11 +47,11 @@ Retour à la [page d'accueil](../README-fr.md).
 | --- | --- | --- | --- |
 | Générer un projet | `init` | modèle, données | prépare les fichiers et hache les données, sans exécuter le pipeline |
 | Sceller un design | `plan` | méta-config valide | `plan.parquet` immuable |
-| Valider statiquement | `check` | plan; pour une cible, calibration référencée avec au moins un run complet | contrôles sans run cible |
+| Valider statiquement | `check` | plan, et au moins un run terminé de la calibration référencée (de la campagne elle-même quand aucune n'est référencée, comme pour `00-calibration.yml`) | contrôles sans run cible |
 | Tester réellement | `check --smoke` | conditions de `check` | deux runs temporaires réels |
 | Chiffrer une cible | `estimate` | au moins un run complet de calibration | devis JSON temps/disque/scratch |
 | Exécuter | `run` | plan scellé, bloc `execution` | archives et marqueurs manquants |
-| Recalculer l'analyse | `analyze` | complétude suffisante | Parquet d'indicateurs et de sensibilité |
+| Recalculer l'analyse | `analyze` | complétude suffisante (aucune avec `--descriptive-only`) | Parquet d'indicateurs et de sensibilité |
 | Dessiner les figures | `plot` | analyse publiée (`analyze` faite), méta-config de la campagne et plan scellé | figures PNG valides pour la méthode, plus `figures.json`, sous `figures/<generationId>/` |
 
 ## Méthodes

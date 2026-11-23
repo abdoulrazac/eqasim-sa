@@ -1,5 +1,7 @@
 # Release evidence 0.3.0
 
+> Note (2026-11-23): this records release 0.3.0 only and is not rerun against the current development version, whose changes (no `charter` block in the starters, new `show-config` and `plot` commands, and others) are listed under Unreleased in the [changelog](../CHANGELOG.md).
+
 Date: 2026-08-21
 
 All commands below were run from the `eqasim-sa` repository root.

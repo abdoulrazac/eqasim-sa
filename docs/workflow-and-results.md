@@ -6,18 +6,19 @@
 
 ```mermaid
 flowchart LR
-    I[init: templates + manifest] --> PC[plan calibration]
+    I[init: starters + manifest] --> PC[plan calibration]
     PC --> RC[run calibration]
     RC --> PT[plan target]
     PT --> C[static check]
     C --> E[estimate]
     E --> R[run missing]
     R --> A[analyze]
+    A --> P[plot]
     R -->|resume| R
     C -. explicit option .-> S[smoke: 2 temporary runs]
 ```
 
-`init` prepares configuration templates and hashes the data; it does not enter
+`init` writes the starter configurations and hashes the data; it does not enter
 the pipeline execution stages. Calibration then provides the duration,
 durable storage, and cache observations needed to estimate a target.
 `analyze` can be run again at any time after the runs, for example with new
@@ -62,7 +63,7 @@ is `java_memory`. `output_prefix` is not excluded, so its value affects `runId`.
 
 `designId` identifies a statistical position, not an execution. It includes
 level and replication indices for Grid, or the sealed design role for
-discrete OAT, canonical Morris, and Sobol. Two distinct `designId` values
+discrete OAT, canonical Morris, Sobol, and multi-scramble Sobol. Two distinct `designId` values
 can therefore share a `runId`.
 
 ## Positions and Unique Runs
@@ -72,7 +73,7 @@ can therefore share a `runId`.
 | Column | Type | Meaning |
 | --- | --- | --- |
 | `designId` | string | position identity |
-| `method` | string | `grid`, `discrete_oat`, `canonical_morris`, or `sobol` |
+| `method` | string | `grid`, `discrete_oat`, `canonical_morris`, `sobol`, or `multiscramble_sobol` |
 | `role` | string | `point`, trajectory step, or Sobol matrix |
 | `runId` | string | deduplicated execution identity |
 | `seed` | int64 | eqasim seed |
@@ -80,9 +81,10 @@ can therefore share a `runId`.
 | `<factor>` | domain type | projected value of each factor other than seed |
 
 Adjacent-level demonstrations use `discrete_oat`; scientific screening uses
-`canonical_morris`. Unstructured canonical Morris plans have `planSchemaVersion: 2` and seal
-the normalized scientific contract and complete design/analysis definition.
-Other unstructured plans use plan schema v1. Any supported
+`canonical_morris`. Unstructured plans of the two scientific methods (canonical
+Morris and multi-scramble Sobol) have `planSchemaVersion: 2` and seal the
+normalized scientific contract and complete design/analysis definition. Other
+unstructured plans use plan schema v1. Any supported
 design with named structured-list factors uses schema v3 and seals canonical
 structured metadata v1; its factor column stores labels while `runId` hashes the
 resolved ordered list.
@@ -111,7 +113,12 @@ the marker and all files in its archive. `estimate` calculates:
 - maximum observed `scratchBytes` × number of workers for scratch space.
 
 These are mean extrapolations, not quota or duration guarantees. Observations
-from the target that are already complete are also included. The result also
+from the target that are already complete are also included. Every campaign
+involved must have been planned, otherwise `estimate` and `check` stop with
+`campaign <campaign> has no plan yet: run plan first`; and at least one run must
+be complete, otherwise `estimate` stops with, for example,
+`no completed calibration run yet: run the calibration campaign
+mon-analyse-sa-calibration first`. The result also
 gives the number of design positions as a formula of the method (`formula`,
 `formulaInputs`; see the [CLI reference](cli-reference.md#estimate)).
 
@@ -181,8 +188,10 @@ and their error logs; it can be deleted when no command is running (see
 `.eqasim-sa/` contains durable technical coordination local to this campaign:
 module-private leases, same-filesystem run transactions, and Submitit state.
 It is not scratch, but it disappears with the campaign and is never created in
-the campaign parent. `init` refuses a campaign containing
-`.submitit`, `.eqasim-sa-tmp`, or `.eqasim-sa-run-locks`.
+the campaign parent. A rerun of `init` refuses a campaign containing anything
+it does not recognize, for example `.submitit`, `.eqasim-sa-tmp`, or
+`.eqasim-sa-run-locks`, with
+`foreign content in init campaign <campaign>: <entry>`.
 
 ```text
 scratch/                      # execution.scratch
@@ -259,7 +268,8 @@ long indicator name, for example) is wrapped onto several lines, so it stays
 within the axes. With several indicators, the primary
 indicator of the charter decision (`decision.primary_indicator` in the governed
 report) comes first, then the others in alphabetical order; without a charter
-decision the order is alphabetical. Files are named `<figure>-<indicator>.png`;
+decision, the indicators flagged by the table's `is_primary_indicator` column,
+when it has one, come first; otherwise the order is alphabetical. Files are named `<figure>-<indicator>.png`;
 `output-summary.png` has no indicator suffix. In the file name, every character
 of the indicator outside `[A-Za-z0-9_-]` becomes `_` (for example
 `grid-response-tv_distance_age__ref_reference_.png`). If two figures would get

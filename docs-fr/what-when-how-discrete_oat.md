@@ -201,7 +201,7 @@ de fixation des facteurs.
 Pour décider scientifiquement quels facteurs doivent rester à l'étude, utilisez
 [Morris canonique](what-when-how-canonical_morris.md).
 
-## Checklist
+## Points à vérifier
 
 - La question précise les sorties et les voisinages numériques étudiés.
 - Chaque domaine contient au moins deux valeurs strictement croissantes.

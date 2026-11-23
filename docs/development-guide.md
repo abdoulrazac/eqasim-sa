@@ -1,6 +1,6 @@
 # Development Guide
 
-[Français](../docs-fr/development-guide.md)
+**English** | [Français](../docs-fr/development-guide.md)
 
 ## Architecture
 
@@ -19,18 +19,30 @@ eqasim-sa/
 │   │   ├── plan.py
 │   │   ├── run.py
 │   │   ├── ledger.py
+│   │   ├── charter.py
 │   │   ├── campaign_snapshot.py
 │   │   ├── analysis_publication.py
 │   │   ├── analyze.py
-│   │   └── indicators/
+│   │   ├── analyses.py    # analysis-script declarations
+│   │   ├── indicators/
+│   │   ├── methods/       # per-method plans and analyses
+│   │   └── figures/       # plot catalogue and rendering
 │   ├── adapters/
 │   │   ├── application.py
 │   │   ├── meta_config.py
+│   │   ├── meta_config_defaults.py
+│   │   ├── project_init.py
+│   │   ├── checks.py
+│   │   ├── estimate.py
+│   │   ├── analysis_execution.py
+│   │   ├── analysis_runner.py
+│   │   ├── plot.py
 │   │   ├── data_manifest.py
 │   │   ├── worker.py
 │   │   ├── backends/
 │   │   ├── eqasim/       # adapter, code fingerprint, output files, worker workspace
 │   │   └── fake/
+│   ├── utils/            # filesystem, platform, Arrow reads, names
 │   └── templates/
 └── tests/
 ```
@@ -38,8 +50,8 @@ eqasim-sa/
 `ports/` defines the backend and simulator protocols. `core/` owns identities,
 designs, the ledger, and analyses without knowing about the CLI. `adapters/`
 loads YAML, fingerprints the eqasim code, invokes synpp, copies the declared
-output files, manages local/SLURM execution,
-and wires the application together. `cli.py` is limited to parsing and JSON
+output files, runs analysis scripts with eqasim's interpreter, manages
+local/SLURM execution, and wires the application together. `cli.py` is limited to parsing and JSON
 envelopes.
 
 Filesystem responsibilities are deliberately deep: `utils/filesystem.py`
@@ -162,7 +174,13 @@ or absent) is unaffected.
   adapter/core boundary: plans expose labels, resolution and `runId` use lists,
   and schema v3 seals the canonical mapping.
 - Scientific designs use version v3; application preflight validates it.
-- An analysis must not mutate its sources; the code backs them up and restores them if they differ.
+- An analysis must not mutate its sources: indicators read read-only copies, and
+  if a captured source (plan, run marker, archive) changes during `analyze`, the
+  analysis fails with `selected analysis source changed: <path>` and publishes nothing;
+  nothing is restored.
+- Every Parquet read goes through `utils/arrow.py` (`read_parquet`, without
+  Arrow threads) and CSV reads pass `use_threads=False`: a threaded read can
+  hang the process at exit. `tests/test_arrow_threads.py` enforces it.
 
 ## Add an indicator kind
 
