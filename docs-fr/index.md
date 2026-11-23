@@ -12,7 +12,7 @@ Le parseur Python est normatif : le projet ne fournit pas de JSON Schema.
 3. [Référence YAML](yaml-reference.md) : contrat complet d'une méta-configuration.
 4. [Écrire un script d'analyse](analysis-scripts.md) : ajouter des grandeurs calculées à partir des fichiers archivés, même après les runs.
 5. [Paramètres et méthodes](parameters-and-methods.md) : Grid, OAT discret, Morris canonique, Sobol et seeds.
-6. [Workflow et résultats](workflow-and-results.md) : identités, stockage, reprise et figures.
+6. [Déroulement et résultats](workflow-and-results.md) : identités, stockage, reprise et figures.
 7. [Référence CLI](cli-reference.md) : commandes, JSON et codes de sortie.
 8. [Dépannage](troubleshooting.md) : erreurs fréquentes et remèdes sûrs.
 9. [Glossaire](glossary.md) : vocabulaire précis du projet.

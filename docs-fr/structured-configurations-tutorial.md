@@ -244,7 +244,7 @@ Ce sont des comparaisons de démonstration. Grid n'estime aucune part de varianc
 de premier ordre ou totale et ne démontre ni FP ni FF. Un diagnostic
 `matched_counts` par configuration est recommandé avant d'interpréter la
 structure du matching, mais eqasim-sa ne calcule ni n'archive actuellement
-`matched_counts`; organisez séparément cette preuve dans le workflow modèle.
+`matched_counts`; organisez séparément cette preuve dans la chaîne du modèle.
 
 ## 7. Fragment scientifique multi-scramble
 

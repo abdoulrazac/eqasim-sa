@@ -1,4 +1,4 @@
-# Workflow et résultats
+# Déroulement et résultats
 
 [English](../docs/workflow-and-results.md) | [Français](workflow-and-results.md)
 
@@ -358,7 +358,7 @@ Morris canonique, n'estime pas des parts de variance et ne justifie pas FF.
 
 ### `canonical-morris-ranking.parquet`
 
-Produite au checkpoint final de `method: canonical_morris`. Colonnes :
+Produite au point de contrôle final de `method: canonical_morris`. Colonnes :
 `indicator`, `factor`, rang float `rank`, `rank_ci_low`, `rank_ci_high`,
 `top_k_probability`, `trajectories`, `replications`, `elementary_effects`,
 `delta`, `mu`, `mu_star`, `mu_star_ci_low`, `mu_star_ci_high`, `sigma` nullable,
@@ -382,7 +382,7 @@ par défaut. Les bornes de rang utilisent les quantiles empiriques `lower` et
 ### `canonical-morris-convergence.parquet`
 
 Contient les mêmes colonnes et calculs que le classement, avec
-`checkpoint_trajectories` à la place de `trajectories`, pour chaque checkpoint
+`checkpoint_trajectories` à la place de `trajectories`, pour chaque point de contrôle
 déclaré. Ces lignes alimentent la preuve de convergence gouvernée distincte.
 
 ### `canonical-morris-rank-reversals.parquet`
@@ -431,7 +431,7 @@ reste non inférentiel et le manifeste porte
 ### Sorties Sobol multi-scramble
 
 `multiscramble_sobol` publie transactionnellement quatre fichiers :
-`multiscramble-sobol-indices.parquet` pour le checkpoint final et les rangs,
+`multiscramble-sobol-indices.parquet` pour le point de contrôle final et les rangs,
 `multiscramble-sobol-by-scramble.parquet` pour chaque estimation indépendante,
 `multiscramble-sobol-convergence.parquet` pour les moyennes, SD, SE et intervalles
 de Student entre scrambles, et `multiscramble-sobol-diagnostics.parquet` pour les
@@ -462,7 +462,7 @@ Les méthodes scientifiques publient `metric`, `checkpoint` et `value` nullables
 `threshold`, `passed`, `consecutivePasses`, `criterionMet` et
 `evaluationStatus`. Pour Morris canonique, `rank_stability` est le changement de
 rang absolu maximal de l'indicateur primaire sur les facteurs actionnables,
-divisé par `max(1,D-1)`, après le premier checkpoint. Pour Sobol multi-scramble,
+divisé par `max(1,D-1)`, après le premier point de contrôle. Pour Sobol multi-scramble,
 `ci_width` est la largeur maximale de premier ordre en FP ou d'ordre total en FF.
 Le compte final de passages consécutifs doit atteindre la valeur scellée. Une
 métrique non prise en charge, incomplète ou non finie échoue de façon fermée.

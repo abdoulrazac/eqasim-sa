@@ -214,4 +214,4 @@ Pour décider scientifiquement quels facteurs doivent rester à l'étude, utilis
 
 - Précédent : [Grid](what-when-how-grid.md)
 - Suivant : [Morris canonique](what-when-how-canonical_morris.md)
-- Références : [YAML](yaml-reference.md), [paramètres et méthodes](parameters-and-methods.md) et [workflow et résultats](workflow-and-results.md)
+- Références : [YAML](yaml-reference.md), [paramètres et méthodes](parameters-and-methods.md) et [déroulement et résultats](workflow-and-results.md)

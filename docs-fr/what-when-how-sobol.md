@@ -207,4 +207,4 @@ scrambles indépendants.
 
 - Comparaison simple : [Grid](what-when-how-grid.md)
 - Analyse scientifique : [Sobol multi-scramble](what-when-how-multiscramble_sobol.md)
-- Références : [YAML](yaml-reference.md), [paramètres et méthodes](parameters-and-methods.md) et [workflow et résultats](workflow-and-results.md)
+- Références : [YAML](yaml-reference.md), [paramètres et méthodes](parameters-and-methods.md) et [déroulement et résultats](workflow-and-results.md)

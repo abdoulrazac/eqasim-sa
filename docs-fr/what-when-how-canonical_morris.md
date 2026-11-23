@@ -351,4 +351,4 @@ une conclusion du pilote seul.
 - Démonstration locale : [OAT discret](what-when-how-discrete_oat.md)
 - Priorisation ou fixation : [Sobol multi-scramble](what-when-how-multiscramble_sobol.md)
 - Protocole complet : [Nantes scientifique](../protocols/nantes-scientific/README.md)
-- Références : [YAML](yaml-reference.md), [paramètres et méthodes](parameters-and-methods.md) et [workflow et résultats](workflow-and-results.md)
+- Références : [YAML](yaml-reference.md), [paramètres et méthodes](parameters-and-methods.md) et [déroulement et résultats](workflow-and-results.md)

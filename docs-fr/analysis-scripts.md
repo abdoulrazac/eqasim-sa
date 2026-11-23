@@ -518,7 +518,7 @@ le SHA-256 de chaque entrée, ainsi que le SHA-256 et la taille du résultat :
 La définition d'un indicateur qui lit une sortie d'analyse la décrit par
 `{name, analysis, inputs, separator}` (domaine
 `eqasim-sa:indicator-definition:v4`). Voir
-[Workflow et résultats](workflow-and-results.md#scripts-danalyse).
+[Déroulement et résultats](workflow-and-results.md#scripts-danalyse).
 
 ## Limites
 

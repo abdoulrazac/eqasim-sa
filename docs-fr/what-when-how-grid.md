@@ -276,4 +276,4 @@ Grid n'explore que les combinaisons écrites dans le fichier.
 
 - Précédent : [Démarrage](getting-started.md)
 - Suivant : [OAT discret](what-when-how-discrete_oat.md)
-- Références : [YAML](yaml-reference.md), [paramètres et méthodes](parameters-and-methods.md) et [workflow et résultats](workflow-and-results.md)
+- Références : [YAML](yaml-reference.md), [paramètres et méthodes](parameters-and-methods.md) et [déroulement et résultats](workflow-and-results.md)

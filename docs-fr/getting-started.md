@@ -291,7 +291,7 @@ Les commandes `plan` renvoient un objet JSON avec `status`, `designPositions` et
 Une relance identique de `plan` renvoie `unchanged`. Une campagne déjà complète
 renvoie pour `run` `status: completed` et `total: 0`.
 
-## Liste de vérification finale
+## Points à vérifier
 
 - Les quatre plans correspondent aux cardinalités attendues ou à votre design documenté.
 - Chaque `runId` attendu possède un marqueur valide et une archive lisible.

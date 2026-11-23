@@ -345,4 +345,4 @@ revendication robuste finale.
 - Étape précédente : [Morris canonique](what-when-how-canonical_morris.md)
 - Démonstration seulement : [Sobol de démonstration](what-when-how-sobol.md)
 - Protocole complet : [Nantes scientifique](../protocols/nantes-scientific/README.md)
-- Références : [YAML](yaml-reference.md), [paramètres et méthodes](parameters-and-methods.md) et [workflow et résultats](workflow-and-results.md)
+- Références : [YAML](yaml-reference.md), [paramètres et méthodes](parameters-and-methods.md) et [déroulement et résultats](workflow-and-results.md)

@@ -42,5 +42,5 @@
 | **Archive** | Répertoire `archives/<runId>/` contenant une copie à l'octet près de chaque fichier de sortie déclaré du run, nommée `<nom de la sortie><extension>`. |
 | **Scratch** | Stockage temporaire des caches et tentatives des workers ; il est jetable et ne prouve aucune complétude. |
 
-Voir [Workflow et résultats](workflow-and-results.md) pour les formats et
+Voir [Déroulement et résultats](workflow-and-results.md) pour les formats et
 [Paramètres et méthodes](parameters-and-methods.md) pour leur rôle scientifique.

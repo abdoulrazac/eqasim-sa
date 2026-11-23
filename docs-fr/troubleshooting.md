@@ -271,7 +271,7 @@ Pour un float requis, comme un `threshold` ou une `reserve_fraction` de charte,
   transportées par le CLI scalaire de synpp. Inspectez le `config.yml` de la
   tentative en échec au lieu d'ajouter un override CLI manuel contenant la liste.
 
-Le workflow sûr complet figure dans le
+La procédure sûre complète figure dans le
 [tutoriel des configurations structurées](structured-configurations-tutorial.md).
 
 ## `canonical_morris requires charter.status scientific`
@@ -311,9 +311,9 @@ au plan initial. Il impose aussi au plus 500 candidats et un budget
 déterministe de calcul des distances. Réduisez le design ou augmentez un budget
 scientifiquement justifié ; ne rebaptisez pas FP ou FF en criblage.
 
-## Erreur de checkpoint ou bootstrap Morris canonique
+## Erreur de point de contrôle ou de bootstrap Morris canonique
 
-Utilisez au moins 100 rééchantillonnages. Les checkpoints sont des entiers triés,
+Utilisez au moins 100 rééchantillonnages. Les points de contrôle sont des entiers triés,
 uniques, au moins égaux à 2 et se terminent par `trajectories` ;
 `screening_top_k` ne dépasse pas le nombre de facteurs. Ces diagnostics ne
 certifient pas à eux seuls l'arrêt ou la robustesse de la charte.
@@ -343,7 +343,7 @@ sensibilité (voir [`analyze`](cli-reference.md#analyze)).
 
 Cause : fichier manuel, tronqué, mauvais schéma, mauvais contexte, compression
 incorrecte ou contenu incohérent. Remède : préserver l'état pour diagnostic,
-puis reconstruire le run par le workflow normal dans une racine saine. Une
+puis reconstruire le run par la procédure normale dans une racine saine. Une
 édition manuelle rend la preuve de complétude non fiable.
 
 ## Un second `run` semble bloqué
@@ -409,7 +409,7 @@ l'indicateur, les domaines, `N` et la diversité effective des runs. Ne masquez
 pas l'erreur statistique.
 
 Avec `multiscramble_sobol`, une variance non positive ou un contraste A/B
-inefficace à un scramble et checkpoint quelconque est fatal. Augmentez la
+inefficace à un scramble et à un point de contrôle quelconques est fatal. Augmentez la
 première taille ou révisez le support scientifiquement justifié ; aucun scramble
 n'est supprimé et aucun bootstrap de secours n'est appliqué.
 

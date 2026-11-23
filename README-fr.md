@@ -216,7 +216,7 @@ nom de campagne pour la cible dérivée. Consultez le
 - [Référence YAML](docs-fr/yaml-reference.md)
 - [Écrire un script d'analyse](docs-fr/analysis-scripts.md)
 - [Paramètres et méthodes](docs-fr/parameters-and-methods.md)
-- [Workflow et résultats](docs-fr/workflow-and-results.md)
+- [Déroulement et résultats](docs-fr/workflow-and-results.md)
 - [Dépannage](docs-fr/troubleshooting.md)
 - [Glossaire](docs-fr/glossary.md)
 - [Compatibilité de version](docs-fr/compatibility.md)
