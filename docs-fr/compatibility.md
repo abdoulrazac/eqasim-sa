@@ -41,7 +41,7 @@ Il n'existe aucune migration semantique ou en place entre les versions de plan.
 ## Matrice d'analyse et de revendication
 
 Chaque analyse ecrit `analysis-generation.json` version 8 (avec
-`provenance.analyses`), `captured-run-set.json` en version de schéma 2 (avec
+`provenance.analyses` et `provenance.analysisEnvironments`), `captured-run-set.json` en version de schéma 2 (avec
 `analyses` dans chaque run) et `governed-report.json` version 1.
 Pour une analyse scientifique v3, `provenance.numericalEngine` est
 exactement le descripteur scelle dans le plan.

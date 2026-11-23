@@ -334,14 +334,16 @@ Chaque résultat est identifié par une empreinte : un SHA-256 (domaine
 `eqasim-sa:analysis-result:v1`) du nom de l'analyse, du contenu du script (fins
 de ligne normalisées), du SHA-256 de chaque fichier d'entrée, des paramètres du
 run et de l'empreinte de l'environnement. L'empreinte de l'environnement est un
-SHA-256 de la version de Python, des versions de pandas, numpy et pyarrow
-rapportées par l'interpréteur, et du SHA-256 de `uv.lock` dans le dossier
+SHA-256 de la version de Python, des versions de pandas, numpy, pyarrow,
+geopandas, shapely et pyogrio rapportées par l'interpréteur (`null` si une
+bibliothèque est absente), et du SHA-256 de `uv.lock` dans le dossier
 eqasim. Par conséquent :
 
 - rien n'est recalculé si rien n'a changé ;
 - modifier un script ne recalcule que les résultats de cette analyse ;
 - de nouveaux runs ne calculent que leurs propres résultats ;
-- une autre version de Python, pandas, numpy ou pyarrow, ou un autre
+- une autre version de Python, pandas, numpy, pyarrow, geopandas, shapely ou
+  pyogrio, ou un autre
   `uv.lock`, recalcule tous les résultats ; une modification du seul code
   d'eqasim, non (d'où la règle 1).
 
@@ -390,7 +392,10 @@ le SHA-256 de chaque entrée, ainsi que le SHA-256 et la taille du résultat :
 - dans `captured-run-set.json` (version de schéma 2), sous `analyses` dans
   chaque run ;
 - dans `analysis-generation.json` (version 8), sous `provenance.analyses`, par
-  analyse puis par `runId`.
+  analyse puis par `runId` ; les versions rapportées et le SHA-256 de `uv.lock`
+  qui forment l'empreinte de l'environnement sont enregistrés une fois par
+  analyse sous `provenance.analysisEnvironments` (champ additif : le manifeste
+  reste en version 8).
 
 La définition d'un indicateur qui lit une sortie d'analyse la décrit par
 `{name, analysis, inputs, separator}` (domaine

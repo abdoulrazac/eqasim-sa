@@ -417,9 +417,9 @@ Chaque résultat est identifié par son empreinte, un SHA-256 de domaine
 `eqasim-sa:analysis-result:v1` du nom de l'analyse, du SHA-256 du script (fins
 de ligne normalisées), du SHA-256 de chaque entrée, des paramètres du run
 (`runId`, `seed`, `factors`) et de l'empreinte de l'environnement. L'empreinte
-de l'environnement est un SHA-256 des versions de Python, pandas, numpy et
-pyarrow rapportées par l'interpréteur et du SHA-256 de `uv.lock` dans le
-dossier eqasim, mesurée une fois par `analyze`. Les résultats sont gardés dans
+de l'environnement est un SHA-256 des versions de Python, pandas, numpy,
+pyarrow, geopandas, shapely et pyogrio rapportées par l'interpréteur et du
+SHA-256 de `uv.lock` dans le dossier eqasim, mesurée une fois par `analyze`. Les résultats sont gardés dans
 `analyses-cache/<analyse>/<empreinte>.csv`, publié atomiquement après
 `<empreinte>.sha256`. Un résultat dont l'empreinte est en cache est réutilisé ;
 une entrée altérée est supprimée, recalculée et signalée dans le champ
@@ -427,7 +427,8 @@ une entrée altérée est supprimée, recalculée et signalée dans le champ
 
 Pour chaque sortie d'analyse et chaque run, l'analyse publiée enregistre
 l'empreinte du résultat, le SHA-256 du script, l'empreinte de l'environnement,
-le SHA-256 de chaque entrée, ainsi que le SHA-256 et la taille du résultat. Les
+le SHA-256 de chaque entrée, ainsi que le SHA-256 et la taille du résultat ; les versions rapportées sont
+enregistrées une fois par analyse sous `provenance.analysisEnvironments`. Les
 indicateurs qui lisent une sortie d'analyse la décrivent par `{name, analysis,
 inputs, separator}` dans leur définition (domaine
 `eqasim-sa:indicator-definition:v4`). Le `primary_indicator` d'une charte

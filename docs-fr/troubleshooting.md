@@ -482,7 +482,7 @@ le chemin du `python` de l'environnement virtuel d'eqasim. Voir
 ## `analysis interpreter probe failed: ...`
 
 Cause : avant d'exécuter un script, `analyze` lance une fois l'interpréteur
-d'analyse pour lire les versions de Python, pandas, numpy et pyarrow, et ce
+d'analyse pour lire les versions de Python, pandas, numpy, pyarrow, geopandas, shapely et pyogrio, et ce
 lancement a échoué ; le message se termine par la dernière ligne de sa sortie
 d'erreur (par exemple pandas absent, ou `uv` incapable de créer
 l'environnement d'eqasim). Remède : vérifier que la commande
