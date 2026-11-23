@@ -106,5 +106,21 @@ def test_null_median_is_omitted() -> None:
     (rendered,) = render_output_summary(_stub())
     assert rendered.omitted == ("empty",)
     assert rendered.sources == ("outputSummary", "governedReport")
-    labels = [t.get_text() for t in rendered.figure.axes[0].get_yticklabels()]
-    assert sorted(labels) == ["a", "b"]
+    assert "non tracé : empty" in _texts(rendered.figure)
+    labels = [ax.get_yticklabels()[0].get_text() for ax in rendered.figure.axes]
+    assert labels == ["a", "b"]
+
+
+def test_one_axis_per_indicator_with_own_scale() -> None:
+    (rendered,) = render_output_summary(_stub())
+    first, second = rendered.figure.axes
+    assert first.get_xlim() != second.get_xlim()
+
+
+def test_status_only_in_governed_report_triggers_banner() -> None:
+    analysis = _stub(status="incomplete_noninferential")
+    analysis.inference_status = None
+    fig = Figure()
+    stamp(fig, analysis)
+    assert "campagne incomplète" in _texts(fig)
+    assert "incomplete_noninferential" in _texts(fig)

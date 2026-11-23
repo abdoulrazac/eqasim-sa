@@ -20,9 +20,15 @@ class RenderedFigure:
     omitted: tuple[str, ...]
 
 
+def inference_status(analysis: PublishedAnalysis) -> str | None:
+    """Single source for the status: governed report first, manifest second."""
+    status = analysis.governed_report.get("inferenceStatus")
+    return status if status is not None else analysis.inference_status
+
+
 def stamp_text(analysis: PublishedAnalysis) -> str:
     report = analysis.governed_report
-    status = report.get("inferenceStatus", analysis.inference_status)
+    status = inference_status(analysis)
     reasons = ", ".join(report.get("reasonCodes") or []) or "none"
     return (
         f"{analysis.method} · {status} · claimAuthorized=false · {reasons}"
@@ -33,7 +39,7 @@ def stamp_text(analysis: PublishedAnalysis) -> str:
 def stamp(figure: Figure, analysis: PublishedAnalysis) -> None:
     """Put the governance line at the foot, and a red banner when incomplete."""
     figure.text(0.5, 0.01, stamp_text(analysis), ha="center", va="bottom", fontsize=7)
-    if analysis.inference_status == INCOMPLETE_STATUS:
+    if inference_status(analysis) == INCOMPLETE_STATUS:
         figure.text(
             0.5,
             0.99,

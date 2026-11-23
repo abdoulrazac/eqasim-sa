@@ -16,19 +16,26 @@ def render_output_summary(analysis: PublishedAnalysis) -> list[RenderedFigure]:
     for name in ordered_indicators(table):
         (omitted if rows[name].get("median") is None else drawn).append(name)
 
-    figure = Figure(figsize=(8, max(2.5, 0.6 * len(drawn) + 1.5)))
-    ax = figure.add_axes((0.2, 0.18, 0.75, 0.62))
-    for position, name in enumerate(reversed(drawn)):
+    figure = Figure(figsize=(8, max(2.5, 0.9 * len(drawn) + 1.8)))
+    axes = figure.subplots(max(len(drawn), 1), 1, sharex=False, squeeze=False)[:, 0]
+    figure.subplots_adjust(left=0.2, right=0.95, top=0.82, bottom=0.18, hspace=0.9)
+    for ax, name in zip(axes, drawn):
         row = rows[name]
         low, high = row.get("minimum"), row.get("maximum")
         q05, q95 = row.get("q05"), row.get("q95")
         if low is not None and high is not None:
-            ax.hlines(position, low, high, color="0.6", linewidth=1)
+            ax.hlines(0, low, high, color="0.6", linewidth=1)
         if q05 is not None and q95 is not None:
-            ax.hlines(position, q05, q95, color="tab:blue", linewidth=5)
-        ax.plot(row["median"], position, "o", color="black")
-    ax.set_yticks(range(len(drawn)), labels=list(reversed(drawn)))
-    ax.set_title(CAPTION, fontsize=9)
+            ax.hlines(0, q05, q95, color="tab:blue", linewidth=5)
+        ax.plot(row["median"], 0, "o", color="black")
+        ax.set_yticks([0], labels=[name])
+        ax.tick_params(axis="x", labelsize=7)
+    axes[0].set_title(CAPTION, fontsize=9)
+    if omitted:
+        figure.text(
+            0.5, 0.06, "non tracé : " + ", ".join(omitted),
+            ha="center", va="bottom", fontsize=7,
+        )
     stamp(figure, analysis)
     return [
         RenderedFigure(
