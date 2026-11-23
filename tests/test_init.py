@@ -402,7 +402,7 @@ def test_init_rerun_rejects_foreign_content_in_figures(
     else:
         path.mkdir()
 
-    with pytest.raises(FileExistsError, match="foreign content in init campaign: figures"):
+    with pytest.raises(FileExistsError, match="foreign content in init campaign project-grid: figures"):
         init_from_inputs("project", root, model, data, None, invocation())
 
 
@@ -412,7 +412,7 @@ def test_init_rerun_rejects_symlinked_figures(tmp_path: Path) -> None:
     target.write_bytes(b"\x89PNG")
     make_symlink(figures / ("b" * 64) / "linked.png", target)
 
-    with pytest.raises(FileExistsError, match="foreign content in init campaign: figures"):
+    with pytest.raises(FileExistsError, match="foreign content in init campaign project-grid: figures"):
         init_from_inputs("project", root, model, data, None, invocation())
 
 
@@ -462,7 +462,7 @@ def test_init_reports_the_inspected_analysis_state_name(
 
     with pytest.raises(
         FileExistsError,
-        match=rf"init campaign: {re.escape(analysis_state_name)}",
+        match=rf"init campaign project-grid: {re.escape(analysis_state_name)}",
     ):
         init_from_inputs("project", root, model, data, None, invocation())
 
@@ -870,7 +870,8 @@ def test_init_rerun_refuses_links_in_analysis_scripts(tmp_path: Path) -> None:
     make_symlink(analyses / "helpers" / "linked.py", target)
 
     with pytest.raises(
-        FileExistsError, match="foreign content in init project: configs/analyses"
+        FileExistsError,
+        match=r"^foreign content in init project: configs/analyses/helpers/linked\.py$",
     ):
         init_from_inputs("project", root, model, data, None, invocation())
 
@@ -882,7 +883,7 @@ def test_init_rerun_refuses_a_linked_analyses_directory(tmp_path: Path) -> None:
     make_symlink(root / "configs" / "analyses", target, target_is_directory=True)
 
     with pytest.raises(
-        FileExistsError, match="foreign content in init project: configs/analyses"
+        FileExistsError, match=r"^foreign content in init project: configs/analyses$"
     ):
         init_from_inputs("project", root, model, data, None, invocation())
 
@@ -1087,6 +1088,49 @@ def test_init_rerun_refuses_an_unparseable_starter(tmp_path: Path, content: str)
 
     with pytest.raises(FileExistsError, match=r"^init cannot parse configs/01-grid\.yml"):
         init_from_inputs("project", root, model, data, None, invocation())
+
+
+@pytest.mark.parametrize(
+    ("content", "location"),
+    [
+        ("campaign: [\n", "ParserError at line 2, column 1"),
+        ("a: 1\n  b: 2\n", "ScannerError at line 2, column 4"),
+    ],
+)
+def test_init_rerun_names_the_line_and_column_of_a_yaml_error(
+    tmp_path: Path, content: str, location: str
+) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    (root / "configs/01-grid.yml").write_text(content)
+
+    with pytest.raises(FileExistsError) as caught:
+        init_from_inputs("project", root, model, data, None, invocation())
+
+    assert str(caught.value) == f"init cannot parse configs/01-grid.yml: {location}"
+
+
+@pytest.mark.parametrize(
+    ("relative", "reported"),
+    [
+        ("notes.txt", "notes.txt"),
+        ("runs/notes.txt", "runs/notes.txt"),
+        (".eqasim-sa/notes.txt", ".eqasim-sa"),
+    ],
+)
+def test_init_rerun_names_the_campaign_holding_foreign_content(
+    tmp_path: Path, relative: str, reported: str
+) -> None:
+    root, model, data, _ = _campaign_with_figures(tmp_path)
+    path = root / "campaigns/project-grid" / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("foreign\n")
+
+    with pytest.raises(FileExistsError) as caught:
+        init_from_inputs("project", root, model, data, None, invocation())
+
+    assert str(caught.value) == (
+        f"foreign content in init campaign project-grid: {reported}"
+    )
 
 
 @pytest.mark.parametrize("name", ["configs/01-grid.yml", "README.md"])

@@ -184,23 +184,22 @@ def _starter_campaigns(
     return campaigns
 
 
-def _user_analyses(path: Path) -> None:
+def _user_analyses(path: Path, relative: str = f"configs/{ANALYSES_DIRECTORY}") -> None:
     """Accept user analysis scripts as they are: files and folders, no links."""
 
-    def foreign() -> FileExistsError:
-        return FileExistsError(
-            f"foreign content in init project: configs/{ANALYSES_DIRECTORY}"
-        )
+    def foreign(description: str) -> FileExistsError:
+        return FileExistsError(f"foreign content in init project: {description}")
 
     if platform.is_link(path) or not path.is_dir():
-        raise foreign()
+        raise foreign(relative)
     for child in path.iterdir():
+        child_relative = f"{relative}/{child.name}"
         if platform.is_link(child):
-            raise foreign()
+            raise foreign(child_relative)
         if child.is_dir():
-            _user_analyses(child)
+            _user_analyses(child, child_relative)
         elif not child.is_file():
-            raise foreign()
+            raise foreign(child_relative)
 
 
 def _control_names(directory: Path, campaigns: dict[str, str]) -> set[str]:
@@ -304,9 +303,11 @@ def _compare_starter(relative: str, actual: bytes, rendered: bytes) -> None:
     try:
         document = resolve_meta_config_document(load_yaml_source(actual.decode("utf-8")))
     except (UnicodeDecodeError, TypeError, ValueError, yaml.YAMLError) as error:
-        raise FileExistsError(
-            f"init cannot parse {relative}: {error.__class__.__name__}"
-        ) from error
+        reason = error.__class__.__name__
+        mark = getattr(error, "problem_mark", None)
+        if mark is not None:
+            reason += f" at line {mark.line + 1}, column {mark.column + 1}"
+        raise FileExistsError(f"init cannot parse {relative}: {reason}") from error
     if not isinstance(document, dict):
         raise FileExistsError(f"init cannot parse {relative}: not a mapping")
     expected = resolve_meta_config_document(load_yaml_source(rendered.decode("utf-8")))
@@ -371,7 +372,7 @@ def _init_campaign_allowed(
     backup = re.compile(r"\.([0-9a-f]{32})\.parquet\.([A-Za-z0-9_-]+)\.backup")
     for entry in root.iterdir():
         if platform.is_link(entry) or entry.name not in allowed:
-            raise FileExistsError(f"foreign content in init campaign: {entry.name}")
+            raise FileExistsError(f"foreign content in init campaign {campaign}: {entry.name}")
         if entry.name == ANALYSIS_STATE_DIRECTORY:
             _analysis_state_allowed(entry, campaign)
             continue
@@ -388,19 +389,19 @@ def _init_campaign_allowed(
             _regular(entry, f"campaigns/{campaign}/{entry.name}")
             continue
         if not entry.is_dir():
-            raise FileExistsError(f"foreign content in init campaign: {entry.name}")
+            raise FileExistsError(f"foreign content in init campaign {campaign}: {entry.name}")
         for child in entry.iterdir():
             if entry.name == "runs" and (match := temporary.fullmatch(child.name)):
                 if match.group(1) not in expected_ids:
                     raise FileExistsError(
-                        f"foreign content in init campaign: {entry.name}/{child.name}"
+                        f"foreign content in init campaign {campaign}: {entry.name}/{child.name}"
                     )
                 _regular(child, f"campaigns/{campaign}/runs/{child.name}", private=True)
                 continue
             if entry.name == "runs" and (match := backup.fullmatch(child.name)):
                 if match.group(1) not in expected_ids:
                     raise FileExistsError(
-                        f"foreign content in init campaign: {entry.name}/{child.name}"
+                        f"foreign content in init campaign {campaign}: {entry.name}/{child.name}"
                     )
                 _backup(
                     child,
@@ -424,7 +425,7 @@ def _init_campaign_allowed(
                 or child.name != expected_name
             ):
                 raise FileExistsError(
-                    f"foreign content in init campaign: {entry.name}/{child.name}"
+                    f"foreign content in init campaign {campaign}: {entry.name}/{child.name}"
                 )
             if entry.name != "archives":
                 marker_backups = (
@@ -459,7 +460,7 @@ def _init_campaign_allowed(
                     ):
                         relative = f"archives/{child.name}/{artifact.name}"
                         raise FileExistsError(
-                            f"foreign content in init campaign: {relative}"
+                            f"foreign content in init campaign {campaign}: {relative}"
                         )
                     _regular(
                         artifact,
@@ -483,12 +484,12 @@ def _owned_technical_tree(path: Path, description: str) -> None:
         _owned_technical_tree(child, f"{description}/{child.name}")
 
 
-def _owned_technical_directory(path: Path, description: str) -> None:
+def _owned_technical_directory(path: Path, description: str, campaign: str) -> None:
     try:
         info = path.lstat()
     except OSError as error:
         raise FileExistsError(
-            f"foreign content in init campaign: {description}"
+            f"foreign content in init campaign {campaign}: {description}"
         ) from error
     if (
         platform.is_link(path)
@@ -496,27 +497,27 @@ def _owned_technical_directory(path: Path, description: str) -> None:
         or not owned_by_current_user(info)
     ):
         raise FileExistsError(
-            f"foreign content in init campaign: {description}"
+            f"foreign content in init campaign {campaign}: {description}"
         )
 
 
 def _technical_state_allowed(
     path: Path, expected_ids: set[str], campaign: str
 ) -> None:
-    _owned_technical_directory(path, ".eqasim-sa")
+    _owned_technical_directory(path, ".eqasim-sa", campaign)
     children = {entry.name: entry for entry in path.iterdir()}
     if set(children) - {"locks", "transactions", "slurm"}:
-        raise FileExistsError(f"foreign content in init campaign: {path.name}")
+        raise FileExistsError(f"foreign content in init campaign {campaign}: {path.name}")
     locks = children.get("locks")
     if locks is not None:
-        _owned_technical_directory(locks, ".eqasim-sa/locks")
+        _owned_technical_directory(locks, ".eqasim-sa/locks", campaign)
         for entry in locks.iterdir():
             if entry.name == "runs":
-                _owned_technical_directory(entry, ".eqasim-sa/locks/runs")
+                _owned_technical_directory(entry, ".eqasim-sa/locks/runs", campaign)
                 for lease in entry.iterdir():
                     if lease.stem not in expected_ids or lease.suffix != ".lock":
                         raise FileExistsError(
-                            f"foreign content in init campaign: .eqasim-sa/locks/runs/{lease.name}"
+                            f"foreign content in init campaign {campaign}: .eqasim-sa/locks/runs/{lease.name}"
                         )
                     _regular(
                         lease,
@@ -531,11 +532,11 @@ def _technical_state_allowed(
                 )
             else:
                 raise FileExistsError(
-                    f"foreign content in init campaign: .eqasim-sa/locks/{entry.name}"
+                    f"foreign content in init campaign {campaign}: .eqasim-sa/locks/{entry.name}"
                 )
     transactions = children.get("transactions")
     if transactions is not None:
-        _owned_technical_directory(transactions, ".eqasim-sa/transactions")
+        _owned_technical_directory(transactions, ".eqasim-sa/transactions", campaign)
         transaction = re.compile(
             r"\.(?:plan\.parquet|([0-9a-f]{32})\.parquet)\.([A-Za-z0-9_-]+)\.(?:tmp|backup)"
             r"|\.[tb][0-9a-f]{8}"
@@ -548,7 +549,7 @@ def _technical_state_allowed(
                 and match.group(1) not in expected_ids
             ):
                 raise FileExistsError(
-                    f"foreign content in init campaign: .eqasim-sa/transactions/{entry.name}"
+                    f"foreign content in init campaign {campaign}: .eqasim-sa/transactions/{entry.name}"
                 )
             _regular(
                 entry,
@@ -557,7 +558,7 @@ def _technical_state_allowed(
             )
     slurm_state = children.get("slurm")
     if slurm_state is not None:
-        _owned_technical_directory(slurm_state, ".eqasim-sa/slurm")
+        _owned_technical_directory(slurm_state, ".eqasim-sa/slurm", campaign)
         _owned_technical_tree(
             slurm_state, f"campaigns/{campaign}/.eqasim-sa/slurm"
         )
@@ -567,7 +568,7 @@ def _figures_allowed(path: Path, campaign: str) -> None:
     """Accept only what `eqasim-sa plot` writes: recomputable PNG and indexes."""
 
     def foreign() -> FileExistsError:
-        return FileExistsError(f"foreign content in init campaign: {FIGURES_DIRECTORY}")
+        return FileExistsError(f"foreign content in init campaign {campaign}: {FIGURES_DIRECTORY}")
 
     if platform.is_link(path) or not path.is_dir():
         raise foreign()
@@ -591,7 +592,7 @@ def _analyses_cache_allowed(path: Path, campaign: str) -> None:
     """Accept only recomputable analysis results, their logs and temporaries."""
 
     def foreign(relative: str) -> FileExistsError:
-        return FileExistsError(f"foreign content in init campaign: {relative}")
+        return FileExistsError(f"foreign content in init campaign {campaign}: {relative}")
 
     def directory(entry: Path, relative: str) -> None:
         info = entry.lstat()
@@ -625,25 +626,25 @@ def _analysis_state_allowed(path: Path, campaign: str) -> None:
         or platform.is_link(path)
     ):
         raise FileExistsError(
-            f"foreign content in init campaign: {state_name}"
+            f"foreign content in init campaign {campaign}: {state_name}"
         )
     children = {entry.name: entry for entry in path.iterdir()}
     if set(children) - {"staging", "generations"}:
         raise FileExistsError(
-            f"foreign content in init campaign: {state_name}"
+            f"foreign content in init campaign {campaign}: {state_name}"
         )
     staging = children.get("staging")
     if staging is not None:
         if platform.is_link(staging) or not staging.is_dir() or any(staging.iterdir()):
             raise FileExistsError(
-                f"foreign content in init campaign: {state_name}/staging"
+                f"foreign content in init campaign {campaign}: {state_name}/staging"
             )
     generations = children.get("generations")
     if generations is None:
         return
     if platform.is_link(generations) or not generations.is_dir():
         raise FileExistsError(
-            f"foreign content in init campaign: {state_name}/generations"
+            f"foreign content in init campaign {campaign}: {state_name}/generations"
         )
     for generation in generations.iterdir():
         if (
@@ -652,12 +653,12 @@ def _analysis_state_allowed(path: Path, campaign: str) -> None:
             or re.fullmatch(r"[0-9a-f]{64}", generation.name) is None
         ):
             raise FileExistsError(
-                f"foreign content in init campaign: {state_name}/generations"
+                f"foreign content in init campaign {campaign}: {state_name}/generations"
             )
         outputs = tuple(generation.iterdir())
         if not outputs or any(output.name not in OUTPUT_FILENAMES for output in outputs):
             raise FileExistsError(
-                f"foreign content in init campaign: {state_name}/generations/"
+                f"foreign content in init campaign {campaign}: {state_name}/generations/"
                 f"{generation.name}"
             )
         for output in outputs:
