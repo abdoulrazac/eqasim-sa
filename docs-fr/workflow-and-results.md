@@ -6,7 +6,7 @@
 
 ```mermaid
 flowchart TD
-    I[init: modèles + manifeste] --> PC[plan calibration]
+    I[init: fichiers de départ + manifeste] --> PC[plan calibration]
     PC --> RC[run calibration]
     RC --> PT[plan cible]
     PT --> C[check statique]
@@ -17,7 +17,7 @@ flowchart TD
     C -. option explicite .-> S[smoke: 2 runs temporaires]
 ```
 
-`init` prépare les modèles de configuration et hache les données; il n'entre pas
+`init` prépare les fichiers de départ et hache les données; il n'entre pas
 dans les étapes d'exécution du pipeline. La calibration fournit ensuite les
 observations de durée, stockage durable et cache nécessaires au devis d'une
 cible.
@@ -169,7 +169,7 @@ campaigns/mon-analyse-sa-grid/
 
 Les logs n'existent que pour les échecs publiés. L'archive contient un fichier
 par sortie déclarée dans la méta-configuration, ici les huit sorties des
-modèles. Chaque fichier est une copie à l'octet près de ce qu'eqasim a écrit,
+fichiers de départ. Chaque fichier est une copie à l'octet près de ce qu'eqasim a écrit,
 nommée `<nom de la sortie><extension>` ; les fichiers non déclarés ne sont pas
 conservés. eqasim exécute la liste `run:` de votre configuration eqasim sans la
 modifier : cette liste doit donc contenir les étapes qui écrivent les fichiers

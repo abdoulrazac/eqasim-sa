@@ -56,7 +56,9 @@
     an unreadable starter with `init cannot parse configs/<file>: ...`.
     Otherwise the starter, like an edited README, is kept as it is and listed
     in the new `kept` result field. A missing starter or README is recreated
-    and listed in `restored`. Starters are checked before campaign folders.
+    and listed in `restored`, only once every check has passed. Starters are
+    checked before campaign folders, and the archive files accepted in the
+    campaigns follow the outputs of the starters as they are on disk.
   - `init`: a failed result reports the real `elapsedSeconds`; the generated
     README names the actual `--model-config` instead of always `config.yml`.
   - `VIRTUAL_ENV` (eqasim-sa's own environment) is no longer passed to

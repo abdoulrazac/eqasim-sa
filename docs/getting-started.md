@@ -108,7 +108,8 @@ folders (`campaigns/mon-analyse-sa-calibration`, `-grid`, `-discrete_oat`,
 `configs/analyses/` for your analysis scripts. An edited starter (for example
 with `analyses` added) or README is kept as it is and listed in `kept`; a
 missing one is recreated and listed in `restored`. Only a change of a value
-that `init` fills in (`model`, `execution.scratch`, `execution.invocation`,
+that `init` fills in (`model.root`, `model.config`, `model.data_manifest`,
+`execution.scratch`, `execution.invocation`,
 `execution.machine_options.data_path`, `campaign`, `campaign_root`) is refused,
 naming it: `init inputs changed: model.root in configs/01-grid.yml`. Another
 file in `configs/` or a campaign folder of your own is refused too. The

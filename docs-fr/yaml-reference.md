@@ -39,7 +39,7 @@ contient toutes les valeurs par défaut.
 
 ## Un premier fichier
 
-Voici le modèle Grid qu'`init` écrit dans `configs/01-grid.yml`, ici pour un
+Voici le fichier de départ Grid qu'`init` écrit dans `configs/01-grid.yml`, ici pour un
 projet nommé `mon-analyse-sa` :
 
 ```yaml
@@ -96,7 +96,7 @@ Lisez-le de haut en bas :
   les graines de simulation (*seeds*). Chaque combinaison est exécutée une fois
   par graine.
 - `parameters` donne, pour chaque paramètre eqasim que vous faites varier, les
-  valeurs à essayer. Le modèle ne fait varier que `sampling_rate`, que la
+  valeurs à essayer. Le fichier de départ ne fait varier que `sampling_rate`, que la
   configuration officielle d'eqasim contient déjà.
 - `outputs` liste les fichiers de chaque run qu'eqasim-sa conserve. Une sortie
   eqasim connue comme `persons` n'a besoin de rien d'autre (`{}`) ;
@@ -173,7 +173,7 @@ sur la sortie standard, toutes valeurs par défaut appliquées. Les chemins sont
 affichés tels que vous les avez écrits : la sortie est elle-même une
 méta-configuration valide. Si le fichier est invalide, le message d'erreur part
 sur la sortie d'erreur et le code de sortie vaut 1 ; contrairement aux autres
-sous-commandes, `show-config` n'affiche pas d'enveloppe JSON. Pour le modèle
+sous-commandes, `show-config` n'affiche pas d'enveloppe JSON. Pour le fichier de départ
 ci-dessus, la sortie figure dans
 [Exemples complets valides](#le-même-grid-avec-toutes-les-valeurs-par-défaut-écrites).
 
@@ -457,7 +457,7 @@ supports, les identités des candidats, les trajectoires sélectionnées, Delta,
 dérivation des graines et les réglages d'analyse. Le chargement et l'analyse
 reconstruisent et comparent ce contrat.
 
-`init` ne génère pas de modèle Morris canonique, car la revendication
+`init` ne génère pas de fichier de départ Morris canonique, car la revendication
 scientifique, l'inventaire des incertitudes, l'estimande, le budget, les
 critères de convergence, les contrôles de robustesse, les supports et la
 provenance doivent être propres à l'étude. Le fragment suivant n'est qu'une
@@ -809,7 +809,7 @@ suffit.
 `{prefix}` désigne l'`output_prefix` de votre configuration eqasim (par défaut
 `ile_de_france_` dans eqasim) ; c'est le seul gabarit permis dans `file`. Pour
 tout autre nom, `file` est requis et `separator` vaut `,` par défaut. C'est
-ainsi que les modèles conservent le fichier spatial des activités :
+ainsi que les fichiers de départ conservent le fichier spatial des activités :
 
 ```yaml
 outputs:
@@ -956,7 +956,7 @@ l'analyse de sensibilité étudie ensuite. Trois types sont intégrés :
 
 Sans clé `indicators`, eqasim-sa calcule `tv_distance` pour chaque sortie et
 chacune de ses références. Les sorties déclarées sans référence sont ignorées.
-Avec les sorties des modèles, on obtient trois indicateurs :
+Avec les sorties des fichiers de départ, on obtient trois indicateurs :
 `tv_distance(age, ref=INSEE)`, `tv_distance(distance, ref=HTS)` et
 `tv_distance(nbr_vehicle, ref=HTS)`.
 
@@ -1321,22 +1321,22 @@ exister dans le YAML modèle avec les types indiqués. Le fichier
 `00-calibration.yml` référencé doit aussi exister et ne pas contenir de bloc
 `calibration`. Chaque `script` d'analyse doit exister.
 
-Les fichiers rendus par `init` sont des modèles de démonstration :
+Les fichiers rendus par `init` sont des fichiers de départ de démonstration :
 [calibration](../src/eqasim_sa/templates/00-calibration.yml),
 [Grid](../src/eqasim_sa/templates/01-grid.yml),
 [OAT discret](../src/eqasim_sa/templates/02-discrete-oat.yml) et
-[Sobol](../src/eqasim_sa/templates/03-sobol.yml). Aucun modèle Morris canonique
+[Sobol](../src/eqasim_sa/templates/03-sobol.yml). Aucun fichier de départ Morris canonique
 ni Sobol multi-scramble n'est généré ; le
 [protocole scientifique de Nantes](../protocols/nantes-scientific/README.md)
 contient des fichiers scientifiques complets.
 
 ### Grid
 
-Le modèle Grid figure dans [Un premier fichier](#un-premier-fichier).
+Le fichier de départ Grid figure dans [Un premier fichier](#un-premier-fichier).
 
 ### Le même Grid avec toutes les valeurs par défaut écrites
 
-Voici ce qu'affiche `show-config configs/01-grid.yml` pour ce modèle. C'est
+Voici ce qu'affiche `show-config configs/01-grid.yml` pour ce fichier de départ. C'est
 aussi une méta-configuration valide : les deux fichiers décrivent la même
 campagne.
 
@@ -1569,7 +1569,7 @@ execution:
 
 ### Grid avec un script d'analyse
 
-Cette variante du modèle Grid ajoute la distance moyenne domicile-travail du
+Cette variante du fichier de départ Grid ajoute la distance moyenne domicile-travail du
 guide
 [Écrire un script d'analyse](analysis-scripts.md#un-exemple-complet). Le script
 est `configs/analyses/commute.py`, à côté de ce fichier :

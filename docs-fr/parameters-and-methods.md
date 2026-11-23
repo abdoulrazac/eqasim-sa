@@ -81,11 +81,11 @@ domaines scientifiquement justifiés. En particulier :
 - changer `hts` change à la fois les donneurs et les références HTS, et peut
   exiger un cache de données préparé séparément.
 
-Le modèle déclare exactement trois signaux TV : âge contre INSEE, distance
+Le fichier de départ déclare exactement trois signaux TV : âge contre INSEE, distance
 contre HTS brut et nombre de véhicules contre HTS brut. eqasim-france continue
 de produire `HTS adjust with INSEE population weights` pour compatibilité, mais
 cette colonne est une simple mise à l'échelle globale de HTS. La normalisation TV
-annule cette échelle; les nouveaux modèles ne la déclarent donc pas comme
+annule cette échelle; les nouveaux fichiers de départ ne la déclarent donc pas comme
 seconde référence.
 
 `matching_attributes` est important et ordonné : le dernier attribut est relâché

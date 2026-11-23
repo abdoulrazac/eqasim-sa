@@ -36,7 +36,7 @@ planifier la campagne. Ajouter une sortie ensuite demande une nouvelle
 campagne. Archivez donc largement dès le départ : la population (`persons`,
 `households`), les trajets et activités (`trips`, `activities`) et, si vous
 risquez d'avoir besoin de distances ou de lieux, les fichiers spatiaux écrits
-par eqasim (les modèles archivent `activities_spatial`, pas
+par eqasim (les fichiers de départ archivent `activities_spatial`, pas
 `trips_spatial`) :
 
 ```yaml
@@ -57,7 +57,7 @@ contient `gpkg`, ce qui est sa valeur par défaut.
 ## Un exemple complet
 
 Cet exemple ajoute à une campagne Grid la distance moyenne domicile-travail de
-chaque run. Il fonctionne tel quel avec les modèles. Le projet se présente
+chaque run. Il fonctionne tel quel avec les fichiers de départ. Le projet se présente
 ainsi :
 
 ```text
@@ -70,17 +70,17 @@ mon-analyse-sa/
     └── mon-analyse-sa-grid/
 ```
 
-Ajouter `analyses` à `configs/01-grid.yml` modifie un modèle : une relance
+Ajouter `analyses` à `configs/01-grid.yml` modifie un fichier de départ : une relance
 ultérieure d'`init` conserve le fichier tel quel et le liste dans `kept`, comme
 le dossier `configs/analyses/`, qu'elle accepte sans le lire (voir
 [Relancer `init`](cli-reference.md#relancer-init-sur-un-projet-existant)).
 Seul le changement des valeurs remplies par `init` est refusé.
 
-La méta-configuration garde les sorties du modèle Grid, qui archivent déjà
+La méta-configuration garde les sorties du fichier de départ Grid, qui archivent déjà
 tout ce que lit le script, et déclare l'analyse et les indicateurs :
 
 ```yaml
-outputs:                               # les sorties du modèle Grid, inchangées
+outputs:                               # les sorties du fichier de départ Grid, inchangées
   persons: {}
   households: {}
   trips: {}
@@ -104,7 +104,7 @@ analyses:
     script: analyses/commute.py        # relatif à ce fichier YAML
     inputs: [trips, activities_spatial, persons]   # sorties archivées transmises au script
 indicators:
-  - tv_distance: {outputs: [age, distance, nbr_vehicle]}   # indicateurs par défaut du modèle, conservés
+  - tv_distance: {outputs: [age, distance, nbr_vehicle]}   # indicateurs par défaut du fichier de départ, conservés
   - value: {output: commute, column: mean_commute_km, where: {group: all}}
 ```
 
@@ -112,7 +112,7 @@ indicators:
 > ce bloc, chaque sortie qui a des références reçoit un indicateur
 > `tv_distance` ; avec lui, seuls les indicateurs listés sont calculés. La
 > première ligne ci-dessus garde les trois indicateurs `tv_distance` du
-> modèle ; supprimez-la et ils disparaissent des résultats.
+> fichier de départ ; supprimez-la et ils disparaissent des résultats.
 
 La [référence YAML](yaml-reference.md#analyses) décrit chaque clé
 d'`analyses`, et son [exemple complet](yaml-reference.md#grid-avec-un-script-danalyse)
@@ -413,7 +413,7 @@ La seed et les facteurs sont seulement transmis à `compute` ; `commute.py` les
 ignore. Lancez le fichier depuis le dossier du projet en remplaçant
 `<chemin vers eqasim>` par le dossier eqasim, absolu ou relatif au dossier du
 projet (et non à `configs/`, dossier auquel `model.root` est relatif : par
-exemple, `../../eqasim-france` dans un modèle devient `../eqasim-france` ici) :
+exemple, `../../eqasim-france` dans un fichier de départ devient `../eqasim-france` ici) :
 
 ```bash
 uv run --project <chemin vers eqasim> --locked python try_commute.py

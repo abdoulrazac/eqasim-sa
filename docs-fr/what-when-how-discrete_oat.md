@@ -68,7 +68,7 @@ population conservés avec chaque run, et les trois distributions qui donnent,
 par défaut, les trois indicateurs), le fichier de calibration, le modèle et ses
 données, et l'exécution locale. Sans bloc `charter`, la campagne est une
 démonstration, ce qu'exige l'OAT discret. `design_seed` est écrite explicitement
-pour que le modèle choisisse les mêmes trajectoires quel que soit le nom du
+pour que le fichier de départ choisisse les mêmes trajectoires quel que soit le nom du
 projet. Le fichier source
 `src/eqasim_sa/templates/02-discrete-oat.yml` contient des placeholders ; c'est
 la copie créée dans votre projet par `init` qu'il faut exécuter.
@@ -86,7 +86,7 @@ Le fichier déclare :
 - `R = 2` seeds de réplication.
 
 Le plan contient donc `T(D+1)R = 2 × 2 × 2 = 8` positions. Certaines positions
-peuvent désigner exactement le même réglage et la même seed. Le modèle produit
+peuvent désigner exactement le même réglage et la même seed. Le fichier de départ produit
 ainsi **8 positions statistiques mais 6 runs uniques**. Le simulateur n'exécute
 pas deux fois un même `runId`. Si vous retirez `design_seed`, sa valeur par
 défaut est dérivée du nom de campagne et le nombre de runs uniques peut changer.

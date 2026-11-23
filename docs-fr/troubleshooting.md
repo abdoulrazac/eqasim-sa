@@ -122,7 +122,7 @@ sont pas scellées dans le plan : aucun run n'est à refaire.
 ## Relance d'`init` : `init inputs changed: ...` ou `foreign content in init project: ...`
 
 Cause : relancer `init` sur un projet existant (relance identique ou
-`--regenerate-data-manifest`) conserve les modèles et le README modifiés, mais
+`--regenerate-data-manifest`) conserve les fichiers de départ et le README modifiés, mais
 refuse ce qu'il ne peut pas reprendre (voir
 [Relancer `init`](cli-reference.md#relancer-init-sur-un-projet-existant)). Le
 message le nomme : `init inputs changed: model.root in configs/01-grid.yml`
@@ -131,7 +131,7 @@ quand une valeur remplie par `init` (`model.root`, `model.config`,
 `execution.machine_options.data_path`, `campaign`, `campaign_root`) diffère de
 ce qu'écrirait cet `init`, parce qu'une option diffère du premier `init` ou que
 la valeur a été modifiée ; `init cannot parse configs/<fichier>: ...` pour un
-modèle qui n'est pas du YAML valide ; `foreign content in init project:
+fichier de départ qui n'est pas du YAML valide ; `foreign content in init project:
 configs/01-grid-structured.yml` pour un autre fichier dans `configs/` ;
 `foreign content in init project: campaigns/<nom>` pour un dossier de campagne
 à vous. Rien n'est écrit. Remède : la relance n'est jamais nécessaire pour
@@ -234,7 +234,7 @@ Le workflow sûr complet figure dans le
 ## `canonical_morris requires charter.status scientific`
 
 Cause : Morris canonique est configuré comme démonstration ou sans charte.
-Remède : ne transformez pas mécaniquement le modèle OAT discret généré. Rédigez
+Remède : ne transformez pas mécaniquement le fichier de départ OAT discret généré. Rédigez
 une charte scientifique, des distributions, un budget, des critères d'arrêt et
 des contrôles de robustesse propres à l'étude selon la
 [référence YAML](yaml-reference.md#morris-canonique).

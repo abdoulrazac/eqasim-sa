@@ -15,17 +15,17 @@ Il fonctionne avec eqasim officiel, non modifié : indiquez-lui un dossier eqasi
 empreinte de son contenu, et synpp exécute la liste `run:` de votre
 configuration eqasim telle quelle.
 
-Tous les modèles générés, dont calibration, Grid, OAT discret et Sobol, sont
+Tous les fichiers de départ générés, dont calibration, Grid, OAT discret et Sobol, sont
 des démonstrations : ils
 valident la configuration, l'exécution, le stockage et la plomberie d'analyse,
 mais ne peuvent soutenir aucune revendication inférentielle ou décisionnelle.
-Aucun modèle Morris canonique n'est généré : ses revendications scientifiques,
+Aucun fichier de départ Morris canonique n'est généré : ses revendications scientifiques,
 son modèle d'incertitude, son estimand, son budget, ses critères de convergence
 et ses contrôles de robustesse doivent être propres à l'étude. Le
 fichier généré `03-sobol.yml` est une démonstration : son
 scramble unique et son bootstrap de lignes sont non inférentiels.
 
-Les modèles générés ne font varier que `sampling_rate`, un paramètre de la
+Les fichiers de départ générés ne font varier que `sampling_rate`, un paramètre de la
 configuration officielle d'eqasim. L'OAT discret utilise des niveaux numériques adjacents et des effets normalisés
 locaux ; ce n'est pas Morris canonique. Morris canonique est pris en charge
 uniquement pour le criblage scientifique, pas pour FP ni FF. Il cible la moyenne
@@ -82,9 +82,9 @@ SA=(uv run --project "$ROOT/eqasim-sa" --locked eqasim-sa)
 cd "$ROOT/mon-etude"
 ```
 
-`init` génère uniquement un projet modèle et `manifest.json`, qui hache l'arbre
+`init` génère uniquement un squelette de projet et `manifest.json`, qui hache l'arbre
 des données. Il ne crée aucun plan et n'exécute ni synpp, ni campagne, ni
-analyse. Les modèles utilisent le `config.yml` officiel du dossier eqasim ;
+analyse. Les fichiers de départ utilisent le `config.yml` officiel du dossier eqasim ;
 pour utiliser votre propre copie, faites-la dans le dossier eqasim
 (`cp config.yml my_config.yml`, ou `cp config_nantes.yml config_nantes_sa.yml`
 pour Nantes : eqasim fournit lui-même `config_nantes.yml`) et ajoutez
@@ -92,18 +92,18 @@ pour Nantes : eqasim fournit lui-même `config_nantes.yml`) et ajoutez
 
 Relancer plus tard le même `init` renvoie `unchanged`, même après des plans,
 des runs et des analyses : il recrée les fichiers générés manquants (listés
-dans `restored`) et conserve tels quels les modèles et le README modifiés
+dans `restored`) et conserve tels quels les fichiers de départ et le README modifiés
 (listés dans `kept`). Il refuse, en le nommant, le changement d'une valeur
-remplie par `init` dans un modèle (`init inputs changed: <clé> in
+remplie par `init` dans un fichier de départ (`init inputs changed: <clé> in
 configs/<fichier>`), un autre fichier dans `configs/` que `configs/analyses/`,
 ou un dossier de campagne à vous (voir
 [Relancer `init`](docs-fr/cli-reference.md#relancer-init-sur-un-projet-existant)).
 
 Avant de planifier, ajoutez `analysis.synthesis.population` à la liste `run:` de
 cette configuration eqasim : les sorties `age`, `distance` et `nbr_vehicle`
-comparées par les modèles sont écrites par cette étape, et le `config.yml`
+comparées par les fichiers de départ sont écrites par cette étape, et le `config.yml`
 officiel ne liste que `synthesis.output`. Sinon, eqasim-sa refuse de charger un
-modèle.
+fichier de départ.
 
 ## Le fichier de configuration
 

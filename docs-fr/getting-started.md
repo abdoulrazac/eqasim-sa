@@ -51,11 +51,13 @@ tant qu'ils ne sont pas imbriqués les uns dans les autres (`init` refuse un
 projet dans le dossier eqasim ou l'inverse, un scratch dans le dossier eqasim
 et un projet dans son scratch) :
 donnez des chemins absolus à `--project`, `--model-root`, `--data-path`,
-`--directory` et `--scratch`. `init` écrit les chemins des modèles relativement
-à leur dossier `configs/` (en absolu sous Windows quand le dossier est sur un
+`--directory` et `--scratch`. `init` écrit les chemins des *fichiers de
+départ* (les quatre méta-configurations de démonstration qu'il crée dans
+`configs/`, appelées *starters* dans la documentation anglaise) relativement à
+leur dossier `configs/` (en absolu sous Windows quand le dossier est sur un
 autre lecteur) ; si vous déplacez ensuite le projet sans ces dossiers,
 modifiez les chemins sous le commentaire « Rempli par eqasim-sa init » de
-chaque modèle.
+chaque fichier de départ.
 
 ## Initialiser un projet
 
@@ -73,10 +75,10 @@ eqasim, pour laisser les fichiers officiels intacts :
 `cp config.yml my_config.yml` en général, ou, pour Nantes,
 `cp config_nantes.yml config_nantes_sa.yml` (eqasim fournit lui-même
 `config_nantes.yml` ; ne l'écrasez pas). Ajoutez ensuite `--model-config my_config.yml` (ou
-`--model-config config_nantes_sa.yml`) ; les modèles contiennent alors
+`--model-config config_nantes_sa.yml`) ; les fichiers de départ contiennent alors
 `config: my_config.yml` (ou `config: config_nantes_sa.yml`).
 
-`init` est strictement un générateur atomique de modèle. Il rend quatre YAML,
+`init` est strictement un générateur atomique de projet. Il rend quatre YAML,
 un README et un `manifest.json` contenant la taille et le SHA-256 de chaque
 fichier de données. Il ne lance aucun sous-processus, ne vérifie pas
 l'environnement synpp, ne planifie rien et n'exécute aucune étape du pipeline.
@@ -105,14 +107,15 @@ Une relance identique renvoie `status: unchanged` sans rehacher les données.
 `--regenerate-data-manifest` remplace atomiquement le manifeste local, mais ne
 modifie ni les YAML, ni les plans, ni les résultats ; elle renvoie
 `status: initialized`. Les deux fonctionnent après avoir planifié, lancé et
-analysé les modèles : avant d'écrire quoi que ce soit, `init` accepte les
-fichiers générés, les dossiers de campagne des modèles
+analysé les fichiers de départ : avant d'écrire quoi que ce soit, `init` accepte les
+fichiers générés, les dossiers de campagne des fichiers de départ
 (`campaigns/mon-analyse-sa-calibration`, `-grid`, `-discrete_oat`, `-sobol`)
 avec ce qu'eqasim-sa y a écrit (`figures/` compris), et `configs/analyses/`
-pour vos scripts d'analyse. Un modèle (par exemple complété par `analyses`) ou
+pour vos scripts d'analyse. Un fichier de départ (par exemple complété par `analyses`) ou
 un README modifié est conservé tel quel et listé dans `kept` ; un fichier
 manquant est recréé et listé dans `restored`. Seul le changement d'une valeur
-remplie par `init` (`model`, `execution.scratch`, `execution.invocation`,
+remplie par `init` (`model.root`, `model.config`, `model.data_manifest`,
+`execution.scratch`, `execution.invocation`,
 `execution.machine_options.data_path`, `campaign`, `campaign_root`) est
 refusé, en la nommant : `init inputs changed: model.root in
 configs/01-grid.yml`. Un autre fichier dans `configs/` ou un dossier de
@@ -159,7 +162,7 @@ Chaque fichier de `configs/` est court : le nom de la campagne, la méthode et s
 graines, les valeurs de paramètres à essayer, les sorties du modèle à comparer
 aux données de référence et, sous une ligne de commentaire, les chemins
 qu'`init` a remplis pour cette machine. Tout le reste prend une valeur par
-défaut. La [référence YAML](yaml-reference.md#un-premier-fichier) lit le modèle
+défaut. La [référence YAML](yaml-reference.md#un-premier-fichier) lit le fichier de départ
 Grid ligne par ligne. Pour voir la configuration complète qu'eqasim-sa
 utilisera, toutes valeurs par défaut écrites :
 
@@ -172,11 +175,11 @@ commande écrit l'erreur sur la sortie d'erreur et se termine avec le code 1.
 
 ## Préparer votre configuration eqasim
 
-Les modèles fonctionnent avec eqasim officiel, non modifié. Avant le premier
+Les fichiers de départ fonctionnent avec eqasim officiel, non modifié. Avant le premier
 `plan`, vérifiez deux points dans la configuration eqasim désignée par
 `model.config` :
 
-- Sa liste `run:` doit contenir `analysis.synthesis.population`. Les modèles
+- Sa liste `run:` doit contenir `analysis.synthesis.population`. Les fichiers de départ
   comparent les distributions `age`, `distance` et `nbr_vehicle` aux données du
   recensement et des enquêtes, et ces fichiers sont écrits par cette étape
   d'eqasim. Le `config.yml` officiel ne liste que `synthesis.output` ; ajoutez
@@ -192,7 +195,7 @@ Les modèles fonctionnent avec eqasim officiel, non modifié. Avant le premier
   le chargement s'arrête avec `output 'age' is written by eqasim stage
   'analysis.synthesis.population', which is not in run: of ...`.
 - Chaque paramètre que vous faites varier doit être écrit dans sa section
-  `config:`. Les modèles ne font varier que `sampling_rate`, que la
+  `config:`. Les fichiers de départ ne font varier que `sampling_rate`, que la
   configuration officielle contient. Pour en faire varier un autre, par exemple
   `matching_minimum_age`, écrivez-le d'abord dans `config:`.
 
@@ -245,9 +248,9 @@ l'espace estimé. `check --smoke` ajoute deux vrais runs temporaires et doit don
 `sampling_rate: 0.001` et les deux premières seeds. En particulier, son
 `data_path` est celui du modèle, pas `execution.machine_options.data_path`.
 
-Les modèles fournis sont de petites campagnes de démonstration. Leurs tailles ne
+Les fichiers de départ fournis sont de petites campagnes de démonstration. Leurs tailles ne
 constituent pas une recommandation scientifique et `init` ne génère délibérément
-aucun modèle Morris canonique. Consultez [Paramètres et méthodes](parameters-and-methods.md)
+aucun fichier de départ Morris canonique. Consultez [Paramètres et méthodes](parameters-and-methods.md)
 avant d'étendre les domaines ou de rédiger une campagne scientifique propre à l'étude.
 Utilisez les guides courts de [Grid](what-when-how-grid.md),
 [OAT discret](what-when-how-discrete_oat.md),
@@ -265,10 +268,10 @@ couvre les six runs, les métadonnées du plan, l'inspection de l'analyse et les
 limites scientifiques. `init` ne modifie pas le YAML modèle et ne génère pas
 automatiquement cette cible.
 
-## Checkpoints minimaux des modèles générés
+## Checkpoints minimaux des fichiers de départ générés
 
 Les commandes `plan` renvoient un objet JSON avec `status`, `designPositions` et
-`uniqueRuns`. Avec les modèles non modifiés issus d'`init`, vérifiez :
+`uniqueRuns`. Avec les fichiers de départ non modifiés issus d'`init`, vérifiez :
 
 | Étape | JSON minimal à la première exécution | Fichiers attendus après `run`/`analyze` |
 | --- | --- | --- |
@@ -288,7 +291,7 @@ renvoie pour `run` `status: completed` et `total: 0`.
 - Les noms de colonnes des fichiers CSV archivés correspondent aux déclarations `category`, `simulated` et `references` sous `outputs`.
 - Les sorties de démonstration Grid, OAT discret et Sobol ont été inspectées, pas seulement créées.
 - Le Sobol généré est une démonstration non inférentielle. Une campagne scientifique
-  multi-scramble doit être rédigée séparément; aucun modèle n'est fourni.
+  multi-scramble doit être rédigée séparément; aucun fichier de départ n'est fourni.
 - Le modèle, les données, le lockfile et la version d'`eqasim-sa` sont archivés ou traçables.
 
 Voir aussi le [glossaire](glossary.md).

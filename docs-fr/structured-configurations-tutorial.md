@@ -22,7 +22,7 @@ cd "$ROOT"
 Dans `config_nantes_sa.yml`, écrivez `config.matching_attributes` sous forme de
 liste de chaînes, et vérifiez que `run:` contient
 `analysis.synthesis.population`, qui écrit les sorties `age`, `distance` et
-`nbr_vehicle` comparées par les modèles :
+`nbr_vehicle` comparées par les fichiers de départ :
 
 ```yaml
 run:
@@ -78,7 +78,7 @@ exécutée :
 
 ## 3. Dériver une cible Grid séparée
 
-Conservez le modèle généré intact :
+Conservez le fichier de départ généré intact :
 
 ```bash
 cp configs/01-grid.yml configs/04-structured-grid.yml
@@ -104,7 +104,7 @@ parameters:
 ```
 
 La ligne `campaign` remplace la ligne de premier niveau existante ; n'en ajoutez
-pas une seconde copie. Le bloc `parameters` remplace le facteur du modèle
+pas une seconde copie. Le bloc `parameters` remplace le facteur du fichier de départ
 (`sampling_rate`). Gardez tous les autres blocs de `01-grid.yml`, notamment :
 
 - `method: grid` et les deux seeds de réplication `[1201, 1202]` ;

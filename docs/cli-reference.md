@@ -37,8 +37,8 @@ JSON statuses: `initialized`, `unchanged`, or `failed`. Fields: `initVersion`,
 also in a `failed` result. On a rerun, `restored` lists the generated files
 that were missing and were recreated (`.gitattributes`, `README.md`, a
 starter), and `kept` lists the edited starters and README that were kept as
-they are (project-relative paths; both empty for a new project). An existing
-file is never overwritten.
+they are (project-relative paths; both empty for a new project). No starter,
+README or `.gitattributes` is ever overwritten.
 The command is template-only: hashing the data is not a pipeline execution.
 
 ### Rerunning `init` on an existing project

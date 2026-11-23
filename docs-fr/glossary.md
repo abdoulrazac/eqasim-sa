@@ -5,6 +5,7 @@
 | Terme | Définition |
 | --- | --- |
 | **Méta-configuration** | L'unique fichier YAML qui décrit une campagne ; les clés omises prennent des valeurs par défaut, et `show-config` affiche le fichier complet résolu. |
+| **Fichier de départ** | L'une des quatre méta-configurations de démonstration qu'`init` écrit dans `configs/` (`00-calibration.yml`, `01-grid.yml`, `02-discrete-oat.yml`, `03-sobol.yml`) ; en anglais *starter*. Une relance d'`init` conserve un fichier de départ modifié tant que les valeurs remplies par `init` sont inchangées. |
 | **Campagne** | Ensemble durable décrit par une méta-configuration et stocké sous son dossier `campaign_root`, par défaut `../campaigns/<campaign>`. |
 | **Cible** | Campagne dont on veut exécuter et analyser le design, par opposition à la calibration des ressources. Une cible générée reste une démonstration sans contrat scientifique satisfait. |
 | **Campagne de démonstration** | Petite campagne qui valide configuration, exécution, stockage et plomberie d'analyse ; elle ne soutient aucune revendication inférentielle ou décisionnelle. |

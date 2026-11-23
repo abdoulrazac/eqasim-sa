@@ -62,7 +62,7 @@ cd mon-analyse-sa
 ```
 
 `init` crée un fichier **rendu et utilisable** `configs/01-grid.yml`. Le fichier
-du code source `src/eqasim_sa/templates/01-grid.yml` n'est qu'un modèle contenant
+du code source `src/eqasim_sa/templates/01-grid.yml` n'est qu'un gabarit contenant
 des placeholders ; ne l'exécutez pas directement.
 
 ### 3. Déclarer le paramètre et les réplications
@@ -85,7 +85,7 @@ parameters:
   sampling_rate: [0.001, 0.002]
 ```
 
-Par rapport au modèle, seuls le nom de campagne et la troisième seed changent.
+Par rapport au fichier de départ, seuls le nom de campagne et la troisième seed changent.
 Le reste du fichier généré, notamment `outputs`, `calibration`, `model` et `execution`,
 reste inchangé. Le nouveau nom de `campaign` donne aussi à la campagne son
 propre dossier, `campaigns/mon-analyse-sa-grid-sampling-rate/`. Pour vérifier la
