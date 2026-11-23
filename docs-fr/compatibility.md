@@ -96,9 +96,11 @@ actionnable et exclue des rangs de décision FP/FF.
 ## Plateformes et domaines de hachage
 
 `eqasim-sa` prend en charge nativement Windows 10+, macOS 13+ et Linux avec le
-backend `local` (vérification sous Windows et macOS en attente, voir la
-[vérification des plateformes](../docs/platform-verification.md)) ; `slurm` est
-réservé à Linux. Les plans et leurs preuves utilisent exactement les domaines
+backend `local` (la suite est testée sous Linux, Python 3.13 : 1557 réussis,
+4 ignorés ; le flux d'intégration continue GitHub Actions
+`.github/workflows/tests.yml` l'exécute sous Ubuntu, macOS et Windows, et aucun
+résultat Windows ou macOS n'est revendiqué tant que l'intégration continue n'a
+pas tourné) ; `slurm` est réservé à Linux. Les plans et leurs preuves utilisent exactement les domaines
 ci-dessous :
 
 | Domaine | Courant |
@@ -162,7 +164,3 @@ protocole Nantes réel a été planifié ou exécuté.
 | Version | Python | Schémas de plan lus/écrits | Manifeste d'analyse | Migration |
 | --- | --- | --- | --- | --- |
 | 0.3.0 + Unreleased | `>=3.13,<3.14` | schémas de plan v1/v2/v3 ; design scientifique v3 uniquement | v8 | aucune |
-
-Voir les [preuves de version](../docs/release-evidence-0.3.0.md) pour les
-commandes réellement exécutées, les empreintes des artefacts et les limites de
-l'environnement.

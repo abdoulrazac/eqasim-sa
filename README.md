@@ -47,9 +47,9 @@ criteria satisfied.
 
 The package targets exactly Python 3.13 (`>=3.13,<3.14`), installed with `uv`
 without administrator rights. It is written for Windows 10+, macOS 13+, and
-Linux; so far the test suite has been run on Linux only, and verification on
-Windows and macOS is pending (see
-[Platform verification](docs/platform-verification.md)). On Windows, uv installs
+Linux: the suite is tested on Linux (Python 3.13: 1557 passed, 4 skipped), and the
+GitHub Actions CI workflow `.github/workflows/tests.yml` runs it on Ubuntu,
+macOS, and Windows; no Windows or macOS result is claimed until CI has run. On Windows, uv installs
 with `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`;
 without long paths, a real eqasim run needs an administrator to enable them once
 (eqasim's own cache exceeds 260 characters). The `local` backend is meant for all

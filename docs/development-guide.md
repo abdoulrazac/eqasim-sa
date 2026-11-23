@@ -144,9 +144,10 @@ Inspect and test the newly produced artifacts; do not assume that pre-existing
 - The SLURM backend tested with Submitit doubles and reload contracts.
 - Interruption, resumption, idempotency, and concurrency tests.
 
-The SLURM tests do not demonstrate operation on a real cluster. The CI workflow
-`.github/workflows/tests.yml` runs the suite on Ubuntu, macOS, and Windows; record
-results in [Platform verification](platform-verification.md). Platform test
+The SLURM tests do not demonstrate operation on a real cluster. The suite is tested
+on Linux (Python 3.13: 1557 passed, 4 skipped); the GitHub Actions CI workflow
+`.github/workflows/tests.yml` runs it on Ubuntu, macOS, and Windows, and no
+Windows or macOS result is claimed until CI has run. Platform test
 markers: `posix_only`, `windows_only`, and `linux_only` (slurm backend) are skipped
 automatically elsewhere.
 

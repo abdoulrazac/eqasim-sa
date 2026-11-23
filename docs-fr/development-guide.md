@@ -147,10 +147,11 @@ répertoires `build/` ou `dist/` préexistants reflètent la source actuelle.
 - Backend SLURM testé avec doubles Submitit et contrats de rechargement.
 - Tests d'interruption, reprise, idempotence et concurrence.
 
-Les tests SLURM ne démontrent pas le fonctionnement sur un cluster réel. Le
-flux d'intégration continue `.github/workflows/tests.yml` exécute la suite sous Ubuntu, macOS et
-Windows ; consignez les résultats dans la
-[vérification des plateformes](../docs/platform-verification.md). Marqueurs de
+Les tests SLURM ne démontrent pas le fonctionnement sur un cluster réel. La
+suite est testée sous Linux (Python 3.13 : 1557 réussis, 4 ignorés) ; le flux
+d'intégration continue GitHub Actions `.github/workflows/tests.yml` l'exécute
+sous Ubuntu, macOS et Windows, et aucun résultat Windows ou macOS n'est
+revendiqué tant que l'intégration continue n'a pas tourné. Marqueurs de
 plateforme : `posix_only`, `windows_only` et `linux_only` (backend slurm) sont
 ignorés automatiquement ailleurs.
 

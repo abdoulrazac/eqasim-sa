@@ -57,7 +57,7 @@ written by earlier versions are not read: plan and run the campaigns again.
   and no administrator rights (locks, atomic replace, fsync, links,
   process-tree supervision with a Windows Job Object, explicit UTF-8 text
   I/O). The test suite has been run on Linux only; Windows and macOS
-  verification is pending (see `docs/platform-verification.md`). A CI
+  verification is pending until the CI workflow has run. A CI
   workflow runs the tests on Ubuntu, macOS, and Windows. The `slurm` backend
   remains Linux only and is refused early by `check` and `run` elsewhere. On
   Windows without long paths no scratch fits eqasim's own cache, so a real

@@ -93,8 +93,10 @@ excluded from FP/FF decision ranks.
 ## Platforms and hash domains
 
 `eqasim-sa` supports Windows 10+, macOS 13+, and Linux natively with the `local`
-backend (verification on Windows and macOS is pending, see
-[Platform verification](platform-verification.md)); `slurm` is Linux only.
+backend (the suite is tested on Linux, Python 3.13: 1557 passed, 4 skipped; the
+GitHub Actions CI workflow `.github/workflows/tests.yml` runs it on Ubuntu,
+macOS, and Windows, and no Windows or macOS result is claimed until CI has run);
+`slurm` is Linux only.
 Plans and their evidence use exactly the domains below:
 
 | Domain | Current |
@@ -154,6 +156,3 @@ Nantes protocol has been planned or executed.
 | Release | Python | Plan schemas read/written | Analysis manifest | Migration |
 | --- | --- | --- | --- | --- |
 | 0.3.0 + Unreleased | `>=3.13,<3.14` | plan schemas v1/v2/v3; scientific design v3 only | v8 | none |
-
-See [release evidence](release-evidence-0.3.0.md) for commands actually run,
-artifact hashes, and environment limitations.
