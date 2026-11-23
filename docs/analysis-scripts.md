@@ -55,23 +55,21 @@ contains `gpkg`, which is its default.
 
 ## A complete example
 
-This example adds two quantities to a Grid campaign: the mean home-to-work
-distance of each run, and the share of trips by mode. The project looks like
-this:
+This example adds the mean home-to-work distance of each run to a Grid
+campaign. It works as-is with the starters. The project looks like this:
 
 ```text
 mon-analyse-sa/
 ├── configs/
 │   ├── 01-grid.yml
 │   └── analyses/
-│       ├── commute.py
-│       └── mode_share.py
+│       └── commute.py
 └── campaigns/
     └── mon-analyse-sa-grid/
 ```
 
 The meta-configuration keeps the outputs of the Grid starter, which already
-archive everything the scripts read, and declares the two analyses and the
+archive everything the script reads, and declares the analysis and the
 indicators:
 
 ```yaml
@@ -98,15 +96,9 @@ analyses:
   commute:
     script: analyses/commute.py        # relative to this YAML file
     inputs: [trips, activities_spatial, persons]   # archived outputs given to the script
-  mode_share:
-    script: analyses/mode_share.py
-    inputs: [trips]
-    category: mode                     # columns of the table the script returns
-    simulated: share
 indicators:
   - tv_distance: {outputs: [age, distance, nbr_vehicle]}   # the starter's default indicators, kept
   - value: {output: commute, column: mean_commute_km, where: {group: all}}
-  - share: {output: mode_share, category: car}
 ```
 
 > **Declaring an `indicators` block replaces the default indicators.** Without
@@ -204,6 +196,27 @@ male,260,10.108180054962318
 The indicator `value(commute, mean_commute_km, group=all)` reads the first
 row: 9.78 km for that run.
 
+### Only with `mode_choice: true`: share of trips by mode
+
+This second analysis needs a `mode` column in the trips file, which eqasim
+writes only when its configuration sets `mode_choice: true`. eqasim's official
+configurations (`config.yml`, `config_nantes.yml`, ...) set
+`mode_choice: false`, so add this analysis only if your copy sets it to
+`true`; otherwise the script
+stops with the message it raises and `analyze` fails (see
+[What `analyze` does](#what-analyze-does)). Add to the complete example above:
+
+```yaml
+analyses:
+  mode_share:
+    script: analyses/mode_share.py
+    inputs: [trips]
+    category: mode                     # columns of the table the script returns
+    simulated: share
+indicators:
+  - share: {output: mode_share, category: car}
+```
+
 `configs/analyses/mode_share.py` counts the trips of each mode:
 
 ```python
@@ -224,9 +237,6 @@ def compute(files, parameters):
     )
 ```
 
-eqasim writes a `mode` column in the trips file only when its configuration
-sets `mode_choice: true`; otherwise this script stops with the message it
-raises, and `analyze` reports it (see [What `analyze` does](#what-analyze-does)).
 Because the analysis declares `category: mode` and `simulated: share`, the
 `share(mode_share, car)` indicator reads the share of car trips. With a
 reference column in the returned table (for example survey shares written as
@@ -405,8 +415,11 @@ results were computed and how many were read from the cache. After editing
 `commute.py` in the example above, on a campaign of four runs:
 
 ```json
-"analyses": {"commute": {"computed": 4, "cached": 0}, "mode_share": {"computed": 0, "cached": 4}}
+"analyses": {"commute": {"computed": 4, "cached": 0}}
 ```
+
+Running `analyze` again without any change reads every result back:
+`"analyses": {"commute": {"computed": 0, "cached": 4}}`.
 
 The cache can be deleted at any time when no command is running: nothing is
 lost, `analyze` recomputes it.

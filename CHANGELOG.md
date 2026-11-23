@@ -18,11 +18,14 @@
     `analyses` and `warnings`.
   - `init`: on Windows, a model, data, or scratch folder on another drive is
     written as an absolute path in the starters (no relative path exists);
-    the generated README states the starters' `workers: 2`.
+    the generated README states the starters' `workers: 2`; an `init` rerun
+    accepts the `collected/` folder that a failed run leaves in its scratch
+    attempt.
   - Docs: real scratch layout (`scratch/esa/<campaign>/w<slot>/`), the nine
     `check` items, what can be deleted and when, the analysis example rewritten
     on `trips` + `activities_spatial` with the default `tv_distance`
-    indicators kept, paths anywhere, and resuming `run` from another shell or
+    indicators kept (the mode-share analysis, which needs
+    `mode_choice: true`, is now a separate conditional snippet), paths anywhere, and resuming `run` from another shell or
     IDE (`same_machine`).
 - Fix: commands could hang forever at exit after printing their result;
   Arrow reads (Parquet and CSV) no longer use worker threads.
