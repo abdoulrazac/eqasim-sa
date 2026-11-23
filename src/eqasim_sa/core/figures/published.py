@@ -26,6 +26,12 @@ class PublishedAnalysis:
     outputs: Mapping[str, Path]
     _sha256: Mapping[str, str]
 
+    def source_sha256(self, role: str) -> str:
+        """The sha256 the manifest records for a published output (read-only)."""
+        if role not in self._sha256:
+            raise KeyError(f"analysis generation publishes no {role!r} output")
+        return self._sha256[role]
+
     def table(self, role: str) -> pa.Table:
         """Read a published table, parsing the very bytes whose sha256 matched."""
         if role not in self.outputs:

@@ -29,6 +29,7 @@ from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator
 from eqasim_sa.adapters.fake.simulator import FakeSimulator
 from eqasim_sa.adapters.estimate import estimate_from_meta_config
 from eqasim_sa.adapters.meta_config import load_meta_config
+from eqasim_sa.adapters.plot import plot_from_meta_config
 from eqasim_sa.adapters.meta_config_defaults import resolve_meta_config_document
 from eqasim_sa.adapters.project_init import init_from_inputs
 from eqasim_sa.adapters.worker import ordered_results, worker_batches
@@ -402,6 +403,7 @@ def main() -> int:
             init_from_inputs,
             analyze_from_meta_config,
             show_config_from_meta_config,
+            plot_from_meta_config,
         )
     except KeyboardInterrupt:
         return 130

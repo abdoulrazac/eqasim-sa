@@ -96,6 +96,17 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="publish non-inferential descriptive outputs from completed runs",
     )
+    plot = commands.add_parser(
+        "plot", help="draw the figures valid for the published analysis"
+    )
+    plot.add_argument("--meta-config", type=Path, required=True)
+    plot.add_argument(
+        "--figure",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="draw only this figure; repeat for several (default: every valid figure)",
+    )
     fake = commands.add_parser("fake-run", help="execute one installed fake run")
     fake.add_argument("--campaign-root", type=Path, required=True)
     fake.add_argument("--campaign", required=True)
@@ -133,6 +144,7 @@ def dispatch(
     init_factory: Any = None,
     analyze_factory: Any = None,
     show_config_factory: Any = None,
+    plot_factory: Any = None,
 ) -> int:
     """Dispatch one parsed command and emit its stable JSON response."""
 
@@ -354,6 +366,18 @@ def dispatch(
         except (Exception, KeyboardInterrupt) as error:
             message = str(error).strip() or error.__class__.__name__
             print(json.dumps({**empty, "error": message}, sort_keys=True))
+            return 130 if isinstance(error, KeyboardInterrupt) else 1
+    if arguments.command == "plot":
+        try:
+            if plot_factory is None:
+                raise RuntimeError("plot adapter is not configured")
+            payload = plot_factory(arguments.meta_config, tuple(arguments.figure))
+            print(json.dumps(payload, sort_keys=True, allow_nan=False))
+            return 0
+        except (Exception, KeyboardInterrupt) as error:
+            print(
+                str(error).strip() or error.__class__.__name__, file=sys.stderr
+            )
             return 130 if isinstance(error, KeyboardInterrupt) else 1
     try:
         if arguments.command == "fake-run":
