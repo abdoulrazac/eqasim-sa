@@ -11,7 +11,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from matplotlib.transforms import Bbox
 
-from eqasim_sa.core.figures.catalogue import FIGURES, select_figures
+from eqasim_sa.core.figures.catalogue import select_figures
 from eqasim_sa.core.figures.common import (
     FigureNotApplicable,
     RenderedFigure,
