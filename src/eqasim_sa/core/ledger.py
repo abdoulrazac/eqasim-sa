@@ -34,6 +34,7 @@ from eqasim_sa.utils.filesystem import (
 )
 from eqasim_sa.ports.simulator import Artifact, ExecutionEvidence
 
+# Indirection kept so tests can monkeypatch the metadata-only ParquetFile.
 _PARQUET_FILE = pq.ParquetFile
 
 RESERVED_COLUMNS = (
