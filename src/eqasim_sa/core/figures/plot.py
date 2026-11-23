@@ -58,7 +58,15 @@ def _file_name(name: str, indicator: str | None) -> str:
 
 def _png(figure) -> bytes:
     buffer = io.BytesIO()
-    figure.savefig(buffer, format="png", dpi=150, metadata={"Software": None})
+    # A tight bounding box keeps every artist (long tick labels, the stamp).
+    figure.savefig(
+        buffer,
+        format="png",
+        dpi=150,
+        metadata={"Software": None},
+        bbox_inches="tight",
+        pad_inches=0.1,
+    )
     return buffer.getvalue()
 
 

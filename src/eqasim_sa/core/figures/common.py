@@ -30,19 +30,55 @@ def inference_status(analysis: PublishedAnalysis) -> str | None:
     return status if status is not None else analysis.inference_status
 
 
-def stamp_text(analysis: PublishedAnalysis) -> str:
+STAMP_FONTSIZE = 7
+# Generous upper bound of the DejaVu Sans advance width, in em, used to wrap
+# the stamp before drawing so that it always fits the figure width.
+_EM_PER_CHARACTER = 0.62
+
+
+def _stamp_tokens(analysis: PublishedAnalysis) -> list[tuple[str, str]]:
+    """Stamp pieces with the separator that follows each one."""
     report = analysis.governed_report
-    status = inference_status(analysis)
-    reasons = ", ".join(report.get("reasonCodes") or []) or "none"
-    return (
-        f"{analysis.method} · {status} · claimAuthorized=false · {reasons}"
-        f" · génération {analysis.generation_id[:12]}"
-    )
+    claim = "true" if report.get("claimAuthorized") is True else "false"
+    reasons = list(report.get("reasonCodes") or []) or ["none"]
+    tokens = [
+        (analysis.method, " · "),
+        (str(inference_status(analysis)), " · "),
+        (f"claimAuthorized={claim}", " · "),
+    ]
+    tokens += [(reason, ", ") for reason in reasons[:-1]]
+    tokens.append((reasons[-1], " · "))
+    tokens.append((f"génération {analysis.generation_id[:12]}", ""))
+    return tokens
+
+
+def stamp_text(analysis: PublishedAnalysis, width: int | None = None) -> str:
+    """The governance line, wrapped at ``width`` characters when given."""
+    lines: list[str] = []
+    line = ""
+    for token, separator in _stamp_tokens(analysis):
+        candidate = line + token
+        if width is not None and line and len(candidate) > width:
+            lines.append(line.rstrip())
+            candidate = token
+        line = candidate + separator
+    lines.append(line.rstrip())
+    return "\n".join(lines)
 
 
 def stamp(figure: Figure, analysis: PublishedAnalysis) -> None:
     """Put the governance line at the foot, and a red banner when incomplete."""
-    figure.text(0.5, 0.01, stamp_text(analysis), ha="center", va="bottom", fontsize=7)
+    usable_points = 0.94 * figure.get_figwidth() * 72
+    width = max(20, int(usable_points / (STAMP_FONTSIZE * _EM_PER_CHARACTER)))
+    figure.text(
+        0.5,
+        0.01,
+        stamp_text(analysis, width),
+        ha="center",
+        va="bottom",
+        fontsize=STAMP_FONTSIZE,
+        linespacing=1.3,
+    )
     if inference_status(analysis) == INCOMPLETE_STATUS:
         figure.text(
             0.5,

@@ -1,10 +1,14 @@
+import io
 from pathlib import Path
 
+import PIL.Image
 import pyarrow as pa
 import pytest
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
 from eqasim_sa.core.analyze import analyze
+from eqasim_sa.core.figures import plot as plot_module
 from eqasim_sa.core.figures.common import ordered_indicators, stamp
 from eqasim_sa.core.figures.published import load_published_analysis
 from eqasim_sa.core.figures.render_summary import render_output_summary
@@ -75,6 +79,61 @@ def test_stamp_exact_format() -> None:
     fig = Figure()
     stamp(fig, _stub())
     assert "claimAuthorized=false · none · génération" in _texts(fig)
+
+
+def test_stamp_reads_claim_authorized_from_report() -> None:
+    analysis = _stub()
+    analysis.governed_report["claimAuthorized"] = True
+    fig = Figure()
+    stamp(fig, analysis)
+    assert "claimAuthorized=true" in _texts(fig)
+    assert "claimAuthorized=false" not in _texts(fig)
+
+
+LONG_REASONS = [
+    "incomplete_noninferential",
+    "stopping_not_met",
+    "robustness_pending",
+    "demonstration_noninferential",
+]
+
+
+def _stamp_artist(fig: Figure):
+    (text,) = [t for t in fig.texts if "génération" in t.get_text()]
+    return text
+
+
+@pytest.mark.parametrize("width", [4.0, 6.0, 8.0])
+def test_long_stamp_lies_inside_the_figure(width: float) -> None:
+    analysis = _stub(status="incomplete_noninferential", reasons=LONG_REASONS)
+    analysis.method = "multiscramble_sobol"
+    fig = Figure(figsize=(width, 5.2))
+    fig.subplots()
+    stamp(fig, analysis)
+    canvas = FigureCanvasAgg(fig)
+    canvas.draw()
+    renderer = canvas.get_renderer()
+    text = _stamp_artist(fig)
+    extent = text.get_window_extent(renderer)
+    box = fig.bbox
+    assert box.x0 <= extent.x0 and extent.x1 <= box.x1
+    assert box.y0 <= extent.y0 and extent.y1 <= box.y1
+    flat = " ".join(text.get_text().split())
+    assert flat.startswith("multiscramble_sobol · incomplete_noninferential")
+    assert flat.endswith("génération abcdef012345")
+
+
+def test_saved_png_keeps_long_tick_labels_and_stamp() -> None:
+    # Saving with a tight bounding box enlarges the canvas to every artist:
+    # a label sticking out on the left is kept, not cut.
+    analysis = _stub(reasons=LONG_REASONS)
+    fig = Figure(figsize=(8, 3))
+    ax = fig.subplots()
+    fig.subplots_adjust(left=0.2)
+    ax.set_yticks([0], labels=["tv_distance(age, ref=reference) long indicator name " * 2])
+    stamp(fig, analysis)
+    image = PIL.Image.open(io.BytesIO(plot_module._png(fig)))
+    assert image.size[0] > 8 * 150
 
 
 def test_incomplete_campaign_gets_banner() -> None:
