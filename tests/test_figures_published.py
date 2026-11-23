@@ -86,3 +86,32 @@ def test_document_reads_verified_json_and_refuses_tampering(tmp_path: Path) -> N
     path.write_text(path.read_text() + " ")
     with pytest.raises(ValueError, match="governedReport.*sha256"):
         published.document("governedReport")
+
+
+@pytest.mark.usefixtures("synthetic_indicator")
+@pytest.mark.parametrize("generation_id", ["../analysis", "A" * 64, "0" * 63, 7])
+def test_unsafe_generation_id_is_refused(tmp_path: Path, generation_id) -> None:
+    # The id names the figures directory that plot renames and deletes.
+    root = _published(tmp_path)
+    manifest = root / "analysis-generation.json"
+    data = json.loads(manifest.read_text())
+    data["generationId"] = generation_id
+    manifest.write_text(json.dumps(data))
+
+    with pytest.raises(ValueError, match="unsupported analysis manifest: .*generationId"):
+        load_published_analysis(root)
+
+
+@pytest.mark.usefixtures("synthetic_indicator")
+def test_output_outside_its_generation_is_refused(tmp_path: Path) -> None:
+    root = _published(tmp_path)
+    manifest = root / "analysis-generation.json"
+    data = json.loads(manifest.read_text())
+    entry = data["outputs"]["outputSummary"]
+    outside = root / "output-summary.parquet"
+    outside.write_bytes((root / entry["path"]).read_bytes())
+    entry["path"] = "output-summary.parquet"
+    manifest.write_text(json.dumps(data))
+
+    with pytest.raises(ValueError, match="unsupported analysis manifest: outputSummary"):
+        load_published_analysis(root)

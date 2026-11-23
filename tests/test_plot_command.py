@@ -176,6 +176,59 @@ def test_render_failure_writes_nothing_and_keeps_previous(tmp_path: Path, monkey
     assert _names(Path(first["directory"]).parent) == {first["generationId"]}
 
 
+def _failing_rename(monkeypatch, failing_calls: set[int]) -> list[tuple[Path, Path]]:
+    real = plot_module.rename_with_retry
+    calls: list[tuple[Path, Path]] = []
+
+    def rename(source: Path, destination: Path) -> None:
+        calls.append((source, destination))
+        if len(calls) in failing_calls:
+            raise PermissionError(f"rename {len(calls)} refused")
+        real(source, destination)
+
+    monkeypatch.setattr(plot_module, "rename_with_retry", rename)
+    return calls
+
+
+def test_failed_swap_restores_previous_figures(tmp_path: Path, monkeypatch) -> None:
+    root = _published(tmp_path)
+    first = plot_campaign(root, ())
+    directory = Path(first["directory"])
+    before = _inventory(directory)
+    calls = _failing_rename(monkeypatch, {2})
+
+    with pytest.raises(PermissionError, match="rename 2 refused"):
+        plot_campaign(root, ())
+
+    assert len(calls) == 3  # retire, publish (fails), roll back
+    assert calls[2] == (calls[0][1], directory)
+    assert _inventory(directory) == before
+    assert _names(directory.parent) == {directory.name}
+
+
+def test_failed_rollback_keeps_the_original_error(tmp_path: Path, monkeypatch) -> None:
+    root = _published(tmp_path)
+    plot_campaign(root, ())
+    _failing_rename(monkeypatch, {2, 3})
+
+    with pytest.raises(PermissionError, match="rename 2 refused"):
+        plot_campaign(root, ())
+
+
+def test_retired_cleanup_failure_is_best_effort(tmp_path: Path, monkeypatch) -> None:
+    root = _published(tmp_path)
+    plot_campaign(root, ())
+
+    def refuse(path: Path) -> None:
+        raise PermissionError("locked")
+
+    monkeypatch.setattr(plot_module, "remove_tree", refuse)
+    result = plot_campaign(root, ())
+
+    directory = Path(result["directory"])
+    assert _names(directory) >= {"output-summary.png", "figures.json"}
+
+
 def test_not_applicable_is_skipped_in_auto_and_fatal_when_explicit(
     tmp_path: Path, monkeypatch
 ) -> None:

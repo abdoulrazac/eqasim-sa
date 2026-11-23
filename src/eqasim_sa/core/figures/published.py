@@ -2,14 +2,17 @@
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 import pyarrow as pa
 
+from eqasim_sa.core.analysis_publication import ANALYSIS_STATE_DIRECTORY
 from eqasim_sa.utils.arrow import read_parquet
 
+GENERATION_ID = re.compile(r"[0-9a-f]{64}")
 MANIFEST_NAME = "analysis-generation.json"
 MANIFEST_VERSION = 8
 MANIFEST_LAYOUT = "immutable-generation-v1"
@@ -75,12 +78,25 @@ def load_published_analysis(campaign_root: Path) -> PublishedAnalysis:
             f"version {manifest.get('version')!r} and layout "
             f"{manifest.get('layout')!r}"
         )
+    generation_id = manifest.get("generationId")
+    # Same rule as analysis_publication: the id later names a directory that
+    # plot renames and deletes, so it must be exactly a lowercase sha256.
+    if type(generation_id) is not str or GENERATION_ID.fullmatch(generation_id) is None:
+        raise ValueError(
+            f"unsupported analysis manifest: invalid generationId {generation_id!r}"
+        )
+    generation_root = (
+        campaign_root / ANALYSIS_STATE_DIRECTORY / "generations" / generation_id
+    ).resolve()
     outputs: dict[str, Path] = {}
     hashes: dict[str, str] = {}
     for role, entry in manifest["outputs"].items():
         path = (campaign_root / entry["path"]).resolve()
-        if not path.is_relative_to(campaign_root):
-            raise ValueError(f"{role} path escapes the campaign root: {entry['path']}")
+        if not path.is_relative_to(generation_root):
+            raise ValueError(
+                f"unsupported analysis manifest: {role} path {entry['path']!r} is not "
+                f"inside {ANALYSIS_STATE_DIRECTORY}/generations/{generation_id}/"
+            )
         outputs[role] = path
         hashes[role] = entry["sha256"]
     if "governedReport" not in outputs:
@@ -91,7 +107,7 @@ def load_published_analysis(campaign_root: Path) -> PublishedAnalysis:
     options = manifest["provenance"]["analysisOptions"]
     return PublishedAnalysis(
         campaign_root=campaign_root,
-        generation_id=manifest["generationId"],
+        generation_id=generation_id,
         method=options["method"],
         seed_role=options["seedRole"],
         inference_status=manifest.get("inferenceStatus"),

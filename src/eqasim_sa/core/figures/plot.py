@@ -3,7 +3,6 @@
 import io
 import json
 import re
-import shutil
 import uuid
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -31,6 +30,7 @@ from eqasim_sa.core.figures.render_oat import render_oat_effects
 from eqasim_sa.core.figures.render_sobol import render_sobol_indices
 from eqasim_sa.core.figures.render_summary import render_output_summary
 from eqasim_sa.utils.filesystem import write_bytes_atomic
+from eqasim_sa.utils.platform import remove_tree, rename_with_retry
 
 RENDERERS: Mapping[str, Callable[[PublishedAnalysis], list[RenderedFigure]]] = {
     "output-summary": render_output_summary,
@@ -68,6 +68,15 @@ def _png(figure) -> bytes:
         pad_inches=0.1,
     )
     return buffer.getvalue()
+
+
+def _remove_best_effort(path: Path) -> None:
+    if not path.exists():
+        return
+    try:
+        remove_tree(path)
+    except OSError:
+        pass  # a leftover hidden directory is harmless and accepted by init
 
 
 def plot_campaign(campaign_root: Path, requested: tuple[str, ...]) -> dict:
@@ -129,14 +138,17 @@ def plot_campaign(campaign_root: Path, requested: tuple[str, ...]) -> dict:
             write_bytes_atomic(data, staging / file)
         write_bytes_atomic(index_bytes, staging / INDEX_NAME)
         if target.exists():
-            target.rename(retired)
-        staging.rename(target)
+            rename_with_retry(target, retired)
+        rename_with_retry(staging, target)
     except BaseException:
-        shutil.rmtree(staging, ignore_errors=True)
+        _remove_best_effort(staging)
         if retired.exists() and not target.exists():
-            retired.rename(target)
+            try:
+                rename_with_retry(retired, target)
+            except OSError:
+                pass  # the original error matters more; .retired-* stays
         raise
-    shutil.rmtree(retired, ignore_errors=True)
+    _remove_best_effort(retired)
     return {
         "status": "completed",
         "generationId": analysis.generation_id,
