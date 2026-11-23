@@ -35,7 +35,11 @@ analysis:
   bootstrap_resamples: 99
 calibration:
   meta_configs: [00-calibration.yml]
-# --- Rempli par eqasim-sa init : à modifier seulement si la machine change ---
+# --- Machine-specific values ---
+# eqasim-sa init fills in campaign (above), the paths below and, when given,
+# the eqasim command, and compares them when it is rerun: edit them only when
+# the machine changes. workers and machine_options.processes are yours:
+# change them freely.
 model:
   root: @MODEL_ROOT@
   config: @MODEL_CONFIG@
