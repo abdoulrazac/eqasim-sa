@@ -283,3 +283,20 @@ def test_end_to_end_canonical_pilot(tmp_path: Path) -> None:
             texts = " ".join(t.get_text() for t in rf.figure.texts)
             assert "pilot_only" in texts
             assert "governedReport" in rf.sources
+
+
+def _ticks(ax):
+    return [float(t) for t in ax.get_xticks()], [t.get_text() for t in ax.get_xticklabels()]
+
+
+def test_convergence_x_ticks_are_the_published_checkpoints():
+    table = _effects("checkpoint_trajectories", (2, 4))
+    (rf,) = render_morris_convergence(_stub("convergence", table))
+    assert _ticks(rf.figure.axes[0]) == ([2.0, 4.0], ["2", "4"])
+
+
+def test_noise_floor_x_ticks_are_the_published_point_ranks():
+    (rf,) = render_morris_noise_floor(_stub("noiseFloor", _noise()))
+    ax_sd, ax_mcse = rf.figure.axes
+    assert _ticks(ax_mcse) == ([0.0, 1.0, 2.0], ["0", "1", "2"])
+    assert [float(t) for t in ax_sd.get_xticks()] == [0.0, 1.0, 2.0]

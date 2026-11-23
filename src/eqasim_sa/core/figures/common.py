@@ -1,5 +1,6 @@
 """Shared figure plumbing: rendered-figure record, governance stamp, ordering."""
 
+import math
 from dataclasses import dataclass
 
 import pyarrow as pa
@@ -22,6 +23,13 @@ class RenderedFigure:
     figure: Figure
     sources: tuple[str, ...]
     omitted: tuple[str, ...]
+
+
+def discrete_xticks(ax, values) -> None:
+    """Tick a discrete x axis only at the published values, never in between."""
+    ticks = sorted({float(v) for v in values if v is not None and math.isfinite(v)})
+    if ticks:
+        ax.set_xticks(ticks, labels=[f"{v:g}" for v in ticks])
 
 
 def inference_status(analysis: PublishedAnalysis) -> str | None:

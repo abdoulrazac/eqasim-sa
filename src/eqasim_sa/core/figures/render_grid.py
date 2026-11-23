@@ -7,6 +7,7 @@ from matplotlib.figure import Figure
 from eqasim_sa.core.figures.common import (
     FigureNotApplicable,
     RenderedFigure,
+    discrete_xticks,
     ordered_indicators,
     stamp,
 )
@@ -71,6 +72,7 @@ def render_grid_response(analysis: PublishedAnalysis) -> list[RenderedFigure]:
                         linewidth=1.2,
                     )
             ax.set_xlabel(x_name)
+            discrete_xticks(ax, (row[x_name] for row in subset))
             ax.set_ylabel(f"{indicator} (moyenne)")
             if others and groups:
                 ax.legend(fontsize=7, title="autres paramètres", title_fontsize=7)

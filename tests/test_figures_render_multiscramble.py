@@ -249,3 +249,9 @@ def test_convergence_non_primary_indicator_has_no_criterion_wording():
     assert "max des facteurs actionnables" in labels
     assert "max (critère)" not in labels
     assert "critère" not in secondary.get_title()
+
+
+def test_convergence_x_ticks_are_the_published_base_sample_sizes():
+    ax = render_multiscramble_convergence(_stub(_conv_rows()))[0].figure.axes[0]
+    assert [float(t) for t in ax.get_xticks()] == [2.0, 4.0]
+    assert [t.get_text() for t in ax.get_xticklabels()] == ["2", "4"]

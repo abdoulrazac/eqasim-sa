@@ -4,7 +4,12 @@ import math
 
 from matplotlib.figure import Figure
 
-from eqasim_sa.core.figures.common import RenderedFigure, ordered_indicators, stamp
+from eqasim_sa.core.figures.common import (
+    RenderedFigure,
+    discrete_xticks,
+    ordered_indicators,
+    stamp,
+)
 from eqasim_sa.core.figures.published import PublishedAnalysis
 
 WIDTH = 0.38
@@ -180,6 +185,7 @@ def render_multiscramble_convergence(analysis: PublishedAnalysis) -> list[Render
             )
         # Checkpoints iterate over baseSampleSizes; the number of scrambles is fixed.
         ax.set_xlabel("taille d'échantillon de base N au point de contrôle")
+        discrete_xticks(ax, (r["checkpoint"] for r in subset))
         ax.set_ylabel(f"largeur de l'IC, {order_label} ({indicator})")
         ax.legend(fontsize=7)
         ax.set_title(

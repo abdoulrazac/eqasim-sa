@@ -10,6 +10,7 @@ from matplotlib.figure import Figure
 from eqasim_sa.core.figures.common import (
     FigureNotApplicable,
     RenderedFigure,
+    discrete_xticks,
     ordered_indicators,
     stamp,
 )
@@ -143,6 +144,7 @@ def render_morris_convergence(analysis: PublishedAnalysis) -> list[RenderedFigur
                     alpha=0.7,
                 )
         ax.set_xlabel("trajectoires au point de contrôle")
+        discrete_xticks(ax, (r["checkpoint_trajectories"] for r in subset))
         ax.set_ylabel(f"mu* ({indicator})")
         ax.set_title("mu* et son IC selon le point de contrôle", fontsize=10)
         if ax.get_legend_handles_labels()[0]:
@@ -281,6 +283,7 @@ def render_morris_noise_floor(analysis: PublishedAnalysis) -> list[RenderedFigur
         ax_sd.set_ylabel("écart-type intrinsèque")
         ax_mcse.set_ylabel("erreur-type Monte-Carlo de la moyenne")
         ax_mcse.set_xlabel(f"rang du point dans la trajectoire ({indicator})")
+        discrete_xticks(ax_mcse, (r["rank"] for r in subset))
         ax_sd.set_title("bruit intrinsèque par point", fontsize=10)
         sources = ["noiseFloor", "governedReport"]
         if allocation is not None and allocation.get("primaryIndicator") == indicator:

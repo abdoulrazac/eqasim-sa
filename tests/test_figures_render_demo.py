@@ -183,3 +183,15 @@ def test_grid_non_bracketing_ci_drawn_exactly():
     (rf,) = render_grid_response(_stub("grid", "dispersion", t))
     ax = next(a for a in rf.figure.axes if a.get_xlabel() == "a")
     assert (1.5, 1.8) in [(round(a, 12), round(b, 12)) for a, b in _segments(ax)]
+
+
+def _ticks(ax):
+    return [float(t) for t in ax.get_xticks()], [t.get_text() for t in ax.get_xticklabels()]
+
+
+def test_grid_x_ticks_are_the_published_parameter_values():
+    table = _dispersion(params={"a": [0.001, 0.001, 0.0025, 0.0025], "b": [10, 20, 10, 20]})
+    (rf,) = render_grid_response(_stub("grid", "dispersion", table))
+    ax_a, ax_b = rf.figure.axes[:2]
+    assert _ticks(ax_a) == ([0.001, 0.0025], ["0.001", "0.0025"])
+    assert _ticks(ax_b) == ([10.0, 20.0], ["10", "20"])
