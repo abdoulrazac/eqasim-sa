@@ -93,8 +93,8 @@ a changed design, and a new project when the sealed model or data context change
 ## Prepare your eqasim configuration
 
 The starters work with the official, unmodified eqasim: `model.config` is
-`config.yml`, read from the eqasim folder. Two things to check in your copy of
-that configuration:
+`@MODEL_CONFIG_PATH@` (the `--model-config` given to `init`; a relative path is
+read from the eqasim folder). Two things to check in that configuration:
 
 - `run:` must include `analysis.synthesis.population`, because the `age`,
   `distance` and `nbr_vehicle` outputs are written by that stage. The official

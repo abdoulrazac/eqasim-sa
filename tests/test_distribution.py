@@ -842,3 +842,16 @@ def test_installed_cli_publishes_eqasim_failure_log(tmp_path: Path) -> None:
     assert "code 7" in payload["error"]
     assert (tmp_path / "campaign" / "logs" / f"{payload['runId']}.log").is_file()
     assert not (tmp_path / "campaign" / "runs" / f"{payload['runId']}.parquet").exists()
+
+
+def test_version_option_prints_the_installed_version(tmp_path: Path) -> None:
+    completed = subprocess.run(
+        [installed_script("eqasim-sa"), "--version"],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        timeout=300,
+    )
+
+    assert completed.returncode == 0
+    assert completed.stdout == f"eqasim-sa {importlib.metadata.version('eqasim-sa')}\n"

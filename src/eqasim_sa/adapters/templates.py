@@ -41,12 +41,15 @@ def render_project(
     """Render every packaged starter with project-relative paths and commands."""
 
     configs = directory / "configs"
+    config_text = (
+        str(model_config) if model_config.is_absolute() else model_config.as_posix()
+    )
     values = {
         "@PROJECT_NAME@": project_name,
+        # Plain text for the README; the YAML value below is quoted.
+        "@MODEL_CONFIG_PATH@": config_text,
         # model.config is read from model.root when relative.
-        "@MODEL_CONFIG@": json.dumps(
-            str(model_config) if model_config.is_absolute() else model_config.as_posix()
-        ),
+        "@MODEL_CONFIG@": json.dumps(config_text),
         "@MODEL_ROOT@": json.dumps(_relative(model_root, configs)),
         "@DATA_MANIFEST@": json.dumps("../manifest.json"),
         "@SCRATCH@": json.dumps(_relative(scratch, configs)),

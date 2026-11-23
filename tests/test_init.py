@@ -284,7 +284,7 @@ def test_init_rerun_accepts_user_created_campaign_state(
     tmp_path: Path, analysis_state_name: str,
 ) -> None:
     _, root, model, data = initialize(tmp_path, "project")
-    campaign = root / "campaigns/grid"
+    campaign = root / "campaigns/project-grid"
     campaign.mkdir()
     run_id = "a" * 32
     pq.write_table(pa.table({"runId": [run_id]}), campaign / "plan.parquet")
@@ -350,7 +350,7 @@ def test_init_rerun_accepts_user_created_campaign_state(
 def _campaign_with_figures(tmp_path: Path):
     """An init project whose grid campaign holds what `plot` leaves behind."""
     _, root, model, data = initialize(tmp_path, "project")
-    campaign = root / "campaigns/grid"
+    campaign = root / "campaigns/project-grid"
     campaign.mkdir()
     pq.write_table(pa.table({"runId": ["a" * 32]}), campaign / "plan.parquet")
     figures = campaign / "figures"
@@ -424,7 +424,7 @@ def test_init_rerun_private_mode_check_is_posix_only(
     from eqasim_sa.utils import platform
 
     _, root, model, data = initialize(tmp_path, "project")
-    campaign = root / "campaigns/grid"
+    campaign = root / "campaigns/project-grid"
     campaign.mkdir()
     run_id = "a" * 32
     pq.write_table(pa.table({"runId": [run_id]}), campaign / "plan.parquet")
@@ -449,7 +449,7 @@ def test_init_reports_the_inspected_analysis_state_name(
     tmp_path: Path, analysis_state_name: str,
 ) -> None:
     _, root, model, data = initialize(tmp_path, "project")
-    campaign = root / "campaigns/grid"
+    campaign = root / "campaigns/project-grid"
     campaign.mkdir()
     pq.write_table(
         pa.table({"runId": ["a" * 32]}),
@@ -800,3 +800,166 @@ def test_init_rerun_accepts_a_failed_attempt_left_in_scratch(tmp_path: Path) -> 
 
     assert payload["status"] == "unchanged", payload
     assert (attempt / "collected").is_dir()
+
+
+def test_init_rerun_after_a_plan_is_unchanged(tmp_path: Path) -> None:
+    from eqasim_sa.adapters.application import plan_from_meta_config
+
+    _, root, model, data = initialize(tmp_path, "project")
+    plan_from_meta_config(root / "configs/00-calibration.yml")
+    assert (root / "campaigns/project-calibration/plan.parquet").is_file()
+
+    result = init_from_inputs("project", root, model, data, None, invocation())
+
+    assert result["status"] == "unchanged"
+
+
+def test_init_regenerates_the_manifest_of_a_planned_project(tmp_path: Path) -> None:
+    from eqasim_sa.adapters.application import (
+        plan_from_meta_config,
+        run_from_meta_config,
+    )
+
+    _, root, model, data = initialize(tmp_path, "project")
+    config = root / "configs/00-calibration.yml"
+    plan_from_meta_config(config)
+    plan = root / "campaigns/project-calibration/plan.parquet"
+    sealed = plan.read_bytes()
+    (data / "second.txt").write_text("second\n")
+
+    result = init_from_inputs(
+        "project", root, model, data, None, invocation(),
+        regenerate_data_manifest=True,
+    )
+
+    assert result["status"] == "initialized"
+    assert plan.read_bytes() == sealed
+    # The sealed plan now names the drift instead of resuming silently.
+    with pytest.raises(ValueError, match=r"data manifest changed since plan"):
+        run_from_meta_config(config)
+
+
+@pytest.mark.parametrize("name", ["grid", "other", "project-grid-structured"])
+def test_init_rerun_refuses_a_campaign_directory_no_starter_creates(
+    tmp_path: Path, name: str
+) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    (root / "campaigns" / name).mkdir()
+
+    with pytest.raises(
+        FileExistsError, match=rf"foreign content in init project: campaigns/{name}$"
+    ):
+        init_from_inputs("project", root, model, data, None, invocation())
+
+
+def test_init_rerun_accepts_user_analysis_scripts(tmp_path: Path) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    analyses = root / "configs" / "analyses"
+    (analyses / "helpers").mkdir(parents=True)
+    (analyses / "commute.py").write_text("print('anything')\n")
+    (analyses / "helpers" / "geometry.py").write_text("x = 1\n")
+    (analyses / "helpers" / "data.csv").write_text("a\n1\n")
+
+    result = init_from_inputs("project", root, model, data, None, invocation())
+
+    assert result["status"] == "unchanged"
+    assert (analyses / "commute.py").read_text() == "print('anything')\n"
+
+
+def test_init_rerun_refuses_links_in_analysis_scripts(tmp_path: Path) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    analyses = root / "configs" / "analyses"
+    (analyses / "helpers").mkdir(parents=True)
+    target = tmp_path / "elsewhere.py"
+    target.write_text("x = 1\n")
+    make_symlink(analyses / "helpers" / "linked.py", target)
+
+    with pytest.raises(
+        FileExistsError, match="foreign content in init project: configs/analyses"
+    ):
+        init_from_inputs("project", root, model, data, None, invocation())
+
+
+def test_init_rerun_refuses_a_linked_analyses_directory(tmp_path: Path) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    target = tmp_path / "scripts"
+    target.mkdir()
+    make_symlink(root / "configs" / "analyses", target, target_is_directory=True)
+
+    with pytest.raises(
+        FileExistsError, match="foreign content in init project: configs/analyses"
+    ):
+        init_from_inputs("project", root, model, data, None, invocation())
+
+
+@pytest.mark.parametrize("directory", [False, True])
+def test_init_rerun_still_refuses_other_entries_in_configs(
+    tmp_path: Path, directory: bool
+) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    other = root / "configs" / "notes"
+    if directory:
+        other.mkdir()
+    else:
+        other.write_text("notes\n")
+
+    with pytest.raises(
+        FileExistsError, match="foreign content in init project: configs/notes"
+    ):
+        init_from_inputs("project", root, model, data, None, invocation())
+
+
+def test_init_cli_names_the_edited_starter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    config = root / "configs/01-grid.yml"
+    config.write_text(config.read_text() + "# changed\n")
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "eqasim-sa", "init", "--project-name", "project",
+            "--directory", str(root), "--model-root", str(model),
+            "--data-path", str(data), *(f"--invocation={item}" for item in invocation()),
+        ],
+    )
+
+    assert dispatch(None, None, init_factory=init_from_inputs) == 1
+
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error.startswith("init would overwrite configs/01-grid.yml, which differs")
+    assert "<path>" not in error
+
+
+def test_generated_readme_names_the_selected_model_config(tmp_path: Path) -> None:
+    model, data = inputs(tmp_path)
+    shutil.copy(model / "config.yml", model / "config_local_nantes.yml")
+
+    init_from_inputs(
+        "project", tmp_path / "project", model, data, None, invocation(),
+        Path("config_local_nantes.yml"),
+    )
+
+    flat = " ".join((tmp_path / "project/README.md").read_text().split())
+    assert "`model.config` is `config_local_nantes.yml`" in flat
+    assert "`model.config` is `config.yml`" not in flat
+
+
+def test_generated_readme_names_the_default_model_config(tmp_path: Path) -> None:
+    _, root, _, _ = initialize(tmp_path)
+
+    flat = " ".join((root / "README.md").read_text().split())
+    assert "`model.config` is `config.yml`" in flat
+
+
+def test_init_cli_failure_reports_the_elapsed_time(monkeypatch, capsys) -> None:
+    import time
+
+    def slow_failure(*arguments):
+        time.sleep(0.05)
+        raise ValueError("invalid init")
+
+    monkeypatch.setattr(sys, "argv", ["eqasim-sa", "init", "--project-name", "demo"])
+    assert dispatch(None, None, init_factory=slow_failure) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["elapsedSeconds"] >= 0.05

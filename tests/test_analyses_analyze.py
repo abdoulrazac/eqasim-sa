@@ -417,7 +417,7 @@ def test_altered_cache_entry_is_recomputed_and_reported(
 
 def test_init_rerun_accepts_analyses_cache(tmp_path: Path) -> None:
     _, root, model, data = initialize(tmp_path, "project")
-    campaign_root = root / "campaigns" / "grid"
+    campaign_root = root / "campaigns" / "project-grid"
     campaign_root.mkdir()
     run_id = "a" * 32
     pq.write_table(pa.table({"runId": [run_id]}), campaign_root / "plan.parquet")

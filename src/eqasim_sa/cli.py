@@ -1,9 +1,11 @@
 """Define the command-line interface and its JSON response envelope."""
 
 import argparse
+import importlib.metadata
 import json
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +18,11 @@ def parser() -> argparse.ArgumentParser:
     """Build the argument parser for every installed command."""
 
     result = argparse.ArgumentParser(prog="eqasim-sa")
+    result.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {importlib.metadata.version('eqasim-sa')}",
+    )
     commands = result.add_subparsers(dest="command")
     init = commands.add_parser(
         "init",
@@ -171,6 +178,7 @@ def dispatch(
             )
             return 1
     if arguments.command == "init":
+        started = time.monotonic()
         empty = {
             "status": "failed",
             "initVersion": 3,
@@ -212,9 +220,12 @@ def dispatch(
                 "<path>",
                 str(error).strip() or error.__class__.__name__,
             )
-            print(
-                json.dumps({**empty, "error": message}, sort_keys=True, allow_nan=False)
-            )
+            failed = {
+                **empty,
+                "elapsedSeconds": time.monotonic() - started,
+                "error": message,
+            }
+            print(json.dumps(failed, sort_keys=True, allow_nan=False))
             return 130 if isinstance(error, KeyboardInterrupt) else 1
     if arguments.command == "plan":
         try:

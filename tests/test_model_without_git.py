@@ -329,6 +329,6 @@ def test_init_rerun_names_modified_file(tmp_path: Path) -> None:
         init_from_inputs("study", study, model, data, None, DEFAULT_INVOCATION)
 
     assert str(caught.value) == (
-        f"init would overwrite {grid.resolve()}, which differs from what init "
+        "init would overwrite configs/01-grid.yml, which differs from what init "
         "would write (file edited or init inputs changed)"
     )

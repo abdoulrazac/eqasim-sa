@@ -84,7 +84,6 @@ FIGURES_DIRECTORY = "figures"
 FIGURES_INDEX = "figures.json"
 FIGURES_GENERATION = re.compile(r"[0-9a-f]{64}")
 FIGURES_LEFTOVER = re.compile(r"\.(?:staging|retired)-[0-9a-f]{32}")
-INIT_METHODS = ("calibration", "grid", "discrete_oat", "sobol")
 INIT_CONFIGS = {
     "calibration": "configs/00-calibration.yml",
     "grid": "configs/01-grid.yml",
@@ -158,10 +157,54 @@ def _backup(path: Path, destination: Path, description: str) -> None:
         raise FileExistsError(f"foreign content in init project: {description}")
 
 
-def _control_names(directory: Path) -> set[str]:
+ANALYSES_DIRECTORY = "analyses"
+
+
+def _starter_campaigns(
+    directory: Path, rendered: dict[str, bytes]
+) -> dict[str, str]:
+    """Campaign folder name, under ``campaigns/``, of each rendered starter.
+
+    Derived from each starter's ``campaign`` and (default) ``campaign_root``,
+    read from ``configs/``, so it always matches what ``plan`` creates.
+    """
+
+    campaigns = {}
+    configs = directory / "configs"
+    for method, relative in INIT_CONFIGS.items():
+        document = resolve_meta_config_document(
+            load_yaml_source(rendered[Path(relative).name].decode("utf-8"))
+        )
+        root = Path(os.path.normpath(configs / document["campaign_root"]))
+        if root.parent != directory / "campaigns":
+            raise ValueError(f"starter {relative} has no campaign folder under campaigns/")
+        campaigns[method] = root.name
+    return campaigns
+
+
+def _user_analyses(path: Path) -> None:
+    """Accept user analysis scripts as they are: files and folders, no links."""
+
+    def foreign() -> FileExistsError:
+        return FileExistsError(
+            f"foreign content in init project: configs/{ANALYSES_DIRECTORY}"
+        )
+
+    if platform.is_link(path) or not path.is_dir():
+        raise foreign()
+    for child in path.iterdir():
+        if platform.is_link(child):
+            raise foreign()
+        if child.is_dir():
+            _user_analyses(child)
+        elif not child.is_file():
+            raise foreign()
+
+
+def _control_names(directory: Path, campaigns: dict[str, str]) -> set[str]:
     names = set()
-    for method in INIT_METHODS:
-        root = directory / "campaigns" / method
+    for name in campaigns.values():
+        root = directory / "campaigns" / name
         digest = hashlib.sha256(os.fsencode(root)).hexdigest()[:16]
         names.update(
             {f".eqasim-sa-plan-{digest}.lock", f".eqasim-sa-campaign-{digest}.lock"}
@@ -170,6 +213,7 @@ def _control_names(directory: Path) -> set[str]:
 
 
 def _preflight_project(directory: Path, scratch_relative: Path | None) -> bool:
+    """Check the top-level layout; campaign folders are checked once rendered."""
     if not directory.exists():
         return True
     if platform.is_link(directory) or not directory.is_dir():
@@ -199,20 +243,15 @@ def _preflight_project(directory: Path, scratch_relative: Path | None) -> bool:
             raise FileExistsError(f"foreign content in init project: {name}")
     config_names = {Path(path).name for path in INIT_CONFIGS.values()}
     for entry in (directory / "configs").iterdir():
+        if entry.name == ANALYSES_DIRECTORY:
+            _user_analyses(entry)
+            continue
         if platform.is_link(entry) or entry.name not in config_names:
             raise FileExistsError(f"foreign content in init project: configs/{entry.name}")
         _regular(entry, f"configs/{entry.name}")
-    if {entry.name for entry in (directory / "configs").iterdir()} != config_names:
+    present = {entry.name for entry in (directory / "configs").iterdir()}
+    if present - {ANALYSES_DIRECTORY} != config_names:
         raise FileExistsError("non-empty directory is not a complete init v3 state")
-    campaigns = directory / "campaigns"
-    controls = _control_names(directory)
-    for entry in campaigns.iterdir():
-        if platform.is_link(entry):
-            raise FileExistsError(f"foreign content in init project: campaigns/{entry.name}")
-        if entry.name in controls:
-            _regular(entry, f"campaigns/{entry.name}", private=True)
-        elif entry.name not in INIT_METHODS or not entry.is_dir():
-            raise FileExistsError(f"foreign content in init project: campaigns/{entry.name}")
     if scratch_relative and (directory / scratch_relative.parts[0]).exists():
         current = directory
         for index, part in enumerate(scratch_relative.parts):
@@ -232,6 +271,20 @@ def _preflight_project(directory: Path, scratch_relative: Path | None) -> bool:
     return False
 
 
+def _preflight_campaigns(directory: Path, campaigns: dict[str, str]) -> None:
+    """Accept under campaigns/ only the folders the starters' plans create."""
+
+    controls = _control_names(directory, campaigns)
+    names = set(campaigns.values())
+    for entry in (directory / "campaigns").iterdir():
+        if platform.is_link(entry):
+            raise FileExistsError(f"foreign content in init project: campaigns/{entry.name}")
+        if entry.name in controls:
+            _regular(entry, f"campaigns/{entry.name}", private=True)
+        elif entry.name not in names or not entry.is_dir():
+            raise FileExistsError(f"foreign content in init project: campaigns/{entry.name}")
+
+
 def _init_campaign_allowed(
     root: Path,
     expected_ids: set[str],
@@ -239,6 +292,7 @@ def _init_campaign_allowed(
     expected_artifacts: set[str] | None = None,
 ) -> None:
     derived = INIT_DERIVED["grid" if method == "calibration" else method]
+    campaign = root.name
     allowed = {
         "plan.parquet", "runs", "archives", "logs", ".eqasim-sa",
         ANALYSIS_STATE_DIRECTORY, ANALYSES_CACHE_DIRECTORY, FIGURES_DIRECTORY, *derived,
@@ -249,19 +303,19 @@ def _init_campaign_allowed(
         if platform.is_link(entry) or entry.name not in allowed:
             raise FileExistsError(f"foreign content in init campaign: {entry.name}")
         if entry.name == ANALYSIS_STATE_DIRECTORY:
-            _analysis_state_allowed(entry, method)
+            _analysis_state_allowed(entry, campaign)
             continue
         if entry.name == ANALYSES_CACHE_DIRECTORY:
-            _analyses_cache_allowed(entry, method)
+            _analyses_cache_allowed(entry, campaign)
             continue
         if entry.name == FIGURES_DIRECTORY:
-            _figures_allowed(entry, method)
+            _figures_allowed(entry, campaign)
             continue
         if entry.name == ".eqasim-sa":
-            _technical_state_allowed(entry, expected_ids, method)
+            _technical_state_allowed(entry, expected_ids, campaign)
             continue
         if entry.name == "plan.parquet" or entry.name in derived:
-            _regular(entry, f"campaigns/{method}/{entry.name}")
+            _regular(entry, f"campaigns/{campaign}/{entry.name}")
             continue
         if not entry.is_dir():
             raise FileExistsError(f"foreign content in init campaign: {entry.name}")
@@ -271,7 +325,7 @@ def _init_campaign_allowed(
                     raise FileExistsError(
                         f"foreign content in init campaign: {entry.name}/{child.name}"
                     )
-                _regular(child, f"campaigns/{method}/runs/{child.name}", private=True)
+                _regular(child, f"campaigns/{campaign}/runs/{child.name}", private=True)
                 continue
             if entry.name == "runs" and (match := backup.fullmatch(child.name)):
                 if match.group(1) not in expected_ids:
@@ -281,7 +335,7 @@ def _init_campaign_allowed(
                 _backup(
                     child,
                     root / "runs" / f"{match.group(1)}.parquet",
-                    f"campaigns/{method}/runs/{child.name}",
+                    f"campaigns/{campaign}/runs/{child.name}",
                 )
                 continue
             expected_name = (
@@ -317,12 +371,12 @@ def _init_campaign_allowed(
                     _backup(
                         marker_backups[0],
                         child,
-                        f"campaigns/{method}/runs/{marker_backups[0].name}",
+                        f"campaigns/{campaign}/runs/{marker_backups[0].name}",
                     )
                 else:
                     _regular(
                         child,
-                        f"campaigns/{method}/{entry.name}/{child.name}",
+                        f"campaigns/{campaign}/{entry.name}/{child.name}",
                         private=entry.name == "logs",
                     )
             if entry.name == "archives":
@@ -339,7 +393,7 @@ def _init_campaign_allowed(
                         )
                     _regular(
                         artifact,
-                        f"campaigns/{method}/archives/{child.name}/{artifact.name}",
+                        f"campaigns/{campaign}/archives/{child.name}/{artifact.name}",
                     )
 
 
@@ -377,7 +431,7 @@ def _owned_technical_directory(path: Path, description: str) -> None:
 
 
 def _technical_state_allowed(
-    path: Path, expected_ids: set[str], method: str
+    path: Path, expected_ids: set[str], campaign: str
 ) -> None:
     _owned_technical_directory(path, ".eqasim-sa")
     children = {entry.name: entry for entry in path.iterdir()}
@@ -396,13 +450,13 @@ def _technical_state_allowed(
                         )
                     _regular(
                         lease,
-                        f"campaigns/{method}/.eqasim-sa/locks/runs/{lease.name}",
+                        f"campaigns/{campaign}/.eqasim-sa/locks/runs/{lease.name}",
                         private=True,
                     )
             elif entry.name in {"analysis.lock", "slurm.lock"}:
                 _regular(
                     entry,
-                    f"campaigns/{method}/.eqasim-sa/locks/{entry.name}",
+                    f"campaigns/{campaign}/.eqasim-sa/locks/{entry.name}",
                     private=True,
                 )
             else:
@@ -428,18 +482,18 @@ def _technical_state_allowed(
                 )
             _regular(
                 entry,
-                f"campaigns/{method}/.eqasim-sa/transactions/{entry.name}",
+                f"campaigns/{campaign}/.eqasim-sa/transactions/{entry.name}",
                 private=True,
             )
     slurm_state = children.get("slurm")
     if slurm_state is not None:
         _owned_technical_directory(slurm_state, ".eqasim-sa/slurm")
         _owned_technical_tree(
-            slurm_state, f"campaigns/{method}/.eqasim-sa/slurm"
+            slurm_state, f"campaigns/{campaign}/.eqasim-sa/slurm"
         )
 
 
-def _figures_allowed(path: Path, method: str) -> None:
+def _figures_allowed(path: Path, campaign: str) -> None:
     """Accept only what `eqasim-sa plot` writes: recomputable PNG and indexes."""
 
     def foreign() -> FileExistsError:
@@ -458,12 +512,12 @@ def _figures_allowed(path: Path, method: str) -> None:
             if item.name != FIGURES_INDEX and not item.name.endswith(".png"):
                 raise foreign()
             try:
-                _regular(item, f"campaigns/{method}/{FIGURES_DIRECTORY}/{child.name}/{item.name}")
+                _regular(item, f"campaigns/{campaign}/{FIGURES_DIRECTORY}/{child.name}/{item.name}")
             except FileExistsError as error:
                 raise foreign() from error
 
 
-def _analyses_cache_allowed(path: Path, method: str) -> None:
+def _analyses_cache_allowed(path: Path, campaign: str) -> None:
     """Accept only recomputable analysis results, their logs and temporaries."""
 
     def foreign(relative: str) -> FileExistsError:
@@ -489,10 +543,10 @@ def _analyses_cache_allowed(path: Path, method: str) -> None:
         for item in child.iterdir():
             if not any(pattern.fullmatch(item.name) for pattern in patterns):
                 raise foreign(f"{relative}/{item.name}")
-            _regular(item, f"campaigns/{method}/{relative}/{item.name}")
+            _regular(item, f"campaigns/{campaign}/{relative}/{item.name}")
 
 
-def _analysis_state_allowed(path: Path, method: str) -> None:
+def _analysis_state_allowed(path: Path, campaign: str) -> None:
     state_name = path.name
     info = path.lstat()
     if (
@@ -539,7 +593,7 @@ def _analysis_state_allowed(path: Path, method: str) -> None:
         for output in outputs:
             _regular(
                 output,
-                f"campaigns/{method}/{state_name}/generations/"
+                f"campaigns/{campaign}/{state_name}/generations/"
                 f"{generation.name}/{output.name}",
             )
 
@@ -596,26 +650,28 @@ def _declared_archive_files(rendered: dict[str, bytes], prefix: str) -> set[str]
     return names
 
 
-def _durable_preflight(directory: Path, expected_artifacts: set[str]) -> None:
-    for method in INIT_METHODS:
-        root = directory / "campaigns" / method
+def _durable_preflight(
+    directory: Path, expected_artifacts: set[str], campaigns: dict[str, str]
+) -> None:
+    for method, name in campaigns.items():
+        root = directory / "campaigns" / name
         if not root.exists():
             continue
         plan = root / "plan.parquet"
         if not plan.exists():
             if any(root.iterdir()):
-                raise FileExistsError(f"init campaign {method} has state without a plan")
+                raise FileExistsError(f"init campaign {name} has state without a plan")
             continue
-        _regular(plan, f"campaigns/{method}/plan.parquet")
+        _regular(plan, f"campaigns/{name}/plan.parquet")
         try:
             run_ids = set(read_parquet(plan, columns=["runId"])["runId"].to_pylist())
         except Exception as error:
-            raise FileExistsError(f"invalid init campaign plan: {method}") from error
+            raise FileExistsError(f"invalid init campaign plan: {name}") from error
         if not run_ids or any(
             not isinstance(run_id, str) or re.fullmatch(r"[0-9a-f]{32}", run_id) is None
             for run_id in run_ids
         ):
-            raise FileExistsError(f"invalid init campaign plan: {method}")
+            raise FileExistsError(f"invalid init campaign plan: {name}")
         _init_campaign_allowed(root, run_ids, method, expected_artifacts)
 
 
@@ -682,14 +738,16 @@ def init_from_inputs(
     model_document = load_yaml_document(selected_config)
     validate_eqasim_document(model_document)
     data = _directory(data_path, "data-path")
-    campaign_names = {f"{project_name}-{method}" for method in INIT_METHODS}
     if scratch_relative is None and selected_scratch.exists():
         selected_scratch = _directory(selected_scratch, "scratch")
-        WorkerWorkspace.validate_scratch(selected_scratch, campaign_names)
     expected = render_project(
         absolute, project_name, model, data, selected_scratch,
         invocation, model_config,
     )
+    campaigns = _starter_campaigns(absolute, expected)
+    campaign_names = set(campaigns.values())
+    if scratch_relative is None and selected_scratch.exists():
+        WorkerWorkspace.validate_scratch(selected_scratch, campaign_names)
     prefix = model_document["config"].get("output_prefix", DEFAULT_OUTPUT_PREFIX)
     expected_artifacts = _declared_archive_files(
         expected, prefix if isinstance(prefix, str) else DEFAULT_OUTPUT_PREFIX
@@ -709,6 +767,7 @@ def init_from_inputs(
                     pass
             raise
     else:
+        _preflight_campaigns(absolute, campaigns)
         actual = {"README.md": (absolute / "README.md").read_bytes()}
         actual.update(
             {
@@ -719,16 +778,14 @@ def init_from_inputs(
         )
         for name, content in expected.items():
             if actual[name] != content:
-                target = absolute / (
-                    "README.md" if name == "README.md" else f"configs/{name}"
-                )
+                target = "README.md" if name == "README.md" else f"configs/{name}"
                 raise FileExistsError(
                     f"init would overwrite {target}, which differs from what "
                     "init would write (file edited or init inputs changed)"
                 )
         if not regenerate_data_manifest:
             _validate_project_manifest(absolute / "manifest.json")
-        _durable_preflight(absolute, expected_artifacts)
+        _durable_preflight(absolute, expected_artifacts, campaigns)
         attributes = absolute / GITATTRIBUTES
         if not os.path.lexists(attributes):
             # Never overwrite a user's .gitattributes; only restore a missing one.
