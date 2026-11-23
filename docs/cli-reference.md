@@ -32,50 +32,63 @@ eqasim-sa init --project-name NAME [options]
 | `--regenerate-data-manifest` | no | false | rehashes and replaces only `manifest.json` |
 
 JSON statuses: `initialized`, `unchanged`, or `failed`. Fields: `initVersion`,
-`projectName`, `manifest`, `readme`, `metaConfigs`, `restored`, `elapsedSeconds`,
-`error`. `elapsedSeconds` is the duration of the command, also in a `failed`
-result. `restored` lists generated files that were missing from an existing
-project and were recreated (currently only `.gitattributes`); an existing
-`.gitattributes` is never overwritten.
+`projectName`, `manifest`, `readme`, `metaConfigs`, `restored`, `kept`,
+`elapsedSeconds`, `error`. `elapsedSeconds` is the duration of the command,
+also in a `failed` result. On a rerun, `restored` lists the generated files
+that were missing and were recreated (`.gitattributes`, `README.md`, a
+starter), and `kept` lists the edited starters and README that were kept as
+they are (project-relative paths; both empty for a new project). An existing
+file is never overwritten.
 The command is template-only: hashing the data is not a pipeline execution.
 
 ### Rerunning `init` on an existing project
 
 Rerunning `init` with the same options returns `unchanged` without rehashing
-the data. It first checks, without writing anything, that the project holds
-only what `init` and the commands run on the starters wrote:
+the data. Before writing anything, it checks the project:
 
-- at the top: `manifest.json`, `README.md`, `.gitattributes`, `configs/`,
+- at the top: only `manifest.json`, `README.md`, `.gitattributes`, `configs/`,
   `campaigns/`, and the scratch folder when it is inside the project;
-- in `configs/`: the four starters, byte for byte as `init` would write them,
-  and optionally `configs/analyses/`, the folder of your analysis scripts
-  (regular files and subfolders, no symbolic link; their content is not read);
+- in `configs/`: only the four starters and, optionally, `configs/analyses/`,
+  the folder of your analysis scripts (regular files and subfolders, no
+  symbolic link; their content is not read);
+- the starters: an edited starter is kept as it is and listed in `kept`, as
+  long as the values `init` fills in are still those `init` would write:
+  `model.root`, `model.config`, `model.data_manifest`, `execution.scratch`,
+  `execution.invocation` (absent means the default), and
+  `execution.machine_options.data_path`, plus `campaign` and `campaign_root`
+  (absent means `../campaigns/<campaign>`). Adding `analyses`, indicators, or
+  changing `workers` or `seeds` is therefore accepted. If one of these values
+  differs, the rerun stops with `init inputs changed: <key> in
+  configs/<file>`, for example `init inputs changed: model.root in
+  configs/01-grid.yml`: this happens when an option (`--model-root`,
+  `--model-config`, `--data-path`, `--scratch`, `--invocation`, `--directory`,
+  `--project-name`) differs from the first `init`, or when you edited that
+  value. A starter that cannot be read as YAML stops the rerun with `init
+  cannot parse configs/<file>: ...`. An edited `README.md` is kept and listed
+  in `kept`. A missing starter or README is recreated and listed in
+  `restored`;
 - in `campaigns/`: only the campaign folders of the four starters, named after
-  their `campaign` (default `campaign_root` `../campaigns/<campaign>`):
-  `<project>-calibration`, `<project>-grid`, `<project>-discrete_oat`, and
-  `<project>-sobol`. Each may hold only what `plan`, `run`, `analyze`, and
-  `plot` write there: `plan.parquet`, `runs/`, `archives/`, `logs/`,
-  `.eqasim-sa/`, `analysis/`, `analyses-cache/`, `figures/`, and the published
-  result files.
+  their `campaign`: `<project>-calibration`, `<project>-grid`,
+  `<project>-discrete_oat`, and `<project>-sobol`. Each may hold only what
+  `plan`, `run`, `analyze`, and `plot` write there: `plan.parquet`, `runs/`,
+  `archives/`, `logs/`, `.eqasim-sa/`, `analysis/`, `analyses-cache/`,
+  `figures/`, and the published result files.
 
 Anything else stops the rerun with `foreign content in init project: <entry>`
 or `foreign content in init campaign: <entry>`: another file or folder in
 `configs/` (for example a copied meta-configuration), a campaign folder of
-your own (for example `<project>-grid-structured`), or a symbolic link. An
-edited starter or README is refused with the file named, for example
-`init would overwrite configs/01-grid.yml, which differs from what init would
-write (file edited or init inputs changed)`; the same refusal appears when an
-option (`--model-config`, `--scratch`, `--invocation`, ...) differs from the
-first `init`. Adding `analyses` to `configs/01-grid.yml`, as in
-[Writing an analysis script](analysis-scripts.md), therefore makes later
-reruns refuse. Rerunning `init` is never required to continue: `plan`, `run`,
-`check`, `estimate`, and `analyze` do not depend on it.
+your own (for example `<project>-grid-structured`), or a symbolic link. The
+starters are compared before the campaign folders, so a renamed `campaign` is
+reported as `init inputs changed: campaign in ...`. Rerunning `init` is never
+required to continue: `plan`, `run`, `check`, `estimate`, and `analyze` do not
+depend on it.
 
-With `--regenerate-data-manifest`, the project must pass the same checks; then
-only `manifest.json` is replaced and the status is `initialized`. Plans and
-results are not rewritten. If the data changed, a campaign planned before
-refuses to resume: `run` stops with `data manifest changed since plan
-(dataManifestSha256)`.
+After a change of the data tree, refresh `manifest.json` with
+`--regenerate-data-manifest`: the project must pass the same checks (kept
+starters included); then only `manifest.json` is replaced and the status is
+`initialized`. Plans and results are not rewritten. If the data changed, a
+campaign planned before refuses to resume: `run` stops with `data manifest
+changed since plan (dataManifestSha256)`.
 
 ## `show-config`
 

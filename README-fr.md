@@ -15,17 +15,17 @@ Il fonctionne avec eqasim officiel, non modifié : indiquez-lui un dossier eqasi
 empreinte de son contenu, et synpp exécute la liste `run:` de votre
 configuration eqasim telle quelle.
 
-Tous les starters générés, dont calibration, Grid, OAT discret et Sobol, sont
+Tous les modèles générés, dont calibration, Grid, OAT discret et Sobol, sont
 des démonstrations : ils
 valident la configuration, l'exécution, le stockage et la plomberie d'analyse,
 mais ne peuvent soutenir aucune revendication inférentielle ou décisionnelle.
-Aucun starter Morris canonique n'est généré : ses revendications scientifiques,
+Aucun modèle Morris canonique n'est généré : ses revendications scientifiques,
 son modèle d'incertitude, son estimand, son budget, ses critères de convergence
 et ses contrôles de robustesse doivent être propres à l'étude. Le
 fichier généré `03-sobol.yml` est une démonstration : son
 scramble unique et son bootstrap de lignes sont non inférentiels.
 
-Les starters générés ne font varier que `sampling_rate`, un paramètre de la
+Les modèles générés ne font varier que `sampling_rate`, un paramètre de la
 configuration officielle d'eqasim. L'OAT discret utilise des niveaux numériques adjacents et des effets normalisés
 locaux ; ce n'est pas Morris canonique. Morris canonique est pris en charge
 uniquement pour le criblage scientifique, pas pour FP ni FF. Il cible la moyenne
@@ -90,12 +90,13 @@ pour utiliser votre propre copie, faites-la dans le dossier eqasim
 pour Nantes : eqasim fournit lui-même `config_nantes.yml`) et ajoutez
 `--model-config my_config.yml`.
 
-Relancer plus tard le même `init` renvoie `unchanged` (il recrée seulement un
-`.gitattributes` ou un dossier de scratch manquant), même après des plans, des
-runs et des analyses, tant que le projet ne contient que
-les fichiers générés, inchangés, les dossiers de campagne des modèles et
-`configs/analyses/` ; un modèle modifié, un autre fichier dans `configs/` ou un
-dossier de campagne à vous est refusé, avec son nom (voir
+Relancer plus tard le même `init` renvoie `unchanged`, même après des plans,
+des runs et des analyses : il recrée les fichiers générés manquants (listés
+dans `restored`) et conserve tels quels les modèles et le README modifiés
+(listés dans `kept`). Il refuse, en le nommant, le changement d'une valeur
+remplie par `init` dans un modèle (`init inputs changed: <clé> in
+configs/<fichier>`), un autre fichier dans `configs/` que `configs/analyses/`,
+ou un dossier de campagne à vous (voir
 [Relancer `init`](docs-fr/cli-reference.md#relancer-init-sur-un-projet-existant)).
 
 Avant de planifier, ajoutez `analysis.synthesis.population` à la liste `run:` de

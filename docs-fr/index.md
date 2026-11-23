@@ -31,7 +31,7 @@ multi-scramble seulement si vous préparez une campagne scientifique déclarée.
 | [Grid](what-when-how-grid.md) | Que se passe-t-il pour chaque combinaison déclarée ? | Démonstration | Petites comparaisons lisibles et configurations structurées nommées |
 | [OAT discret](what-when-how-discrete_oat.md) | Quels changements numériques locaux demandent de l'attention ? | Démonstration | Tri descriptif local pour préparer une étude ultérieure |
 | [Morris canonique](what-when-how-canonical_morris.md) | Quels facteurs doivent rester à l'étude ? | Criblage scientifique | Pilote propre à l'étude, puis production séparée |
-| [Sobol de démonstration](what-when-how-sobol.md) | La plomberie Sobol à un scramble fonctionne-t-elle ? | Démonstration non inférentielle | Exécuter le starter généré |
+| [Sobol de démonstration](what-when-how-sobol.md) | La plomberie Sobol à un scramble fonctionne-t-elle ? | Démonstration non inférentielle | Exécuter le modèle généré |
 | [Sobol multi-scramble](what-when-how-multiscramble_sobol.md) | Que faut-il apprendre d'abord, ou que peut-on fixer ? | FP ou FF scientifique | Priorisation ou fixation des facteurs propre à l'étude |
 
 ## Documentation contributeur
@@ -68,8 +68,8 @@ Retour à la [page d'accueil](../README-fr.md).
 nombre de positions, car plusieurs positions statistiques peuvent désigner la
 même configuration résolue.
 
-`init` génère des starters de démonstration Grid, OAT discret et Sobol. Il ne
-génère ni starter Sobol multi-scramble, dont la charte FP/FF et les seeds de
+`init` génère des modèles de démonstration Grid, OAT discret et Sobol. Il ne
+génère ni modèle Sobol multi-scramble, dont la charte FP/FF et les seeds de
 scrambles doivent être propres à l'étude, ni Morris canonique, dont le contrat de criblage scientifique doit être
 propre à l'étude.
 

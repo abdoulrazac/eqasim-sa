@@ -6,7 +6,7 @@
 
 ## En bref
 
-Le starter `sobol` fait varier ses entrées (le taux d'échantillonnage et la
+Le modèle `sobol` fait varier ses entrées (le taux d'échantillonnage et la
 graine du simulateur), puis calcule des indices de
 premier ordre et d'ordre total. Il utilise cependant une seule séquence de Sobol
 randomisée, appelée **scramble**, et un bootstrap des lignes de cette même
@@ -78,7 +78,7 @@ facteur seed n'a besoin d'aucune clé du modèle. N'ajoutez jamais
 
 ### 2. Comprendre ce qui est mesuré
 
-Sans bloc `indicators`, le starter calcule trois indicateurs TV :
+Sans bloc `indicators`, le modèle calcule trois indicateurs TV :
 
 | Indicateur | Comparaison |
 | --- | --- |
@@ -103,7 +103,7 @@ N(2D+2) = 8 × (2×2+2) = 48 positions
 ```
 
 La projection sur seulement deux valeurs par facteur crée des positions qui
-désignent le même réglage final. Le starter contient **48 positions
+désignent le même réglage final. Le modèle contient **48 positions
 statistiques mais 4 runs uniques** (deux taux par deux seeds). Ces duplications sont attendues dans cette
 petite démonstration ; elles ne rendent pas le design scientifiquement suffisant.
 
@@ -174,7 +174,7 @@ Vous pouvez tester une autre entrée scalaire du modèle, par exemple
 `config:` de votre configuration eqasim. Le coût suit toujours `N(2D+2)`.
 
 N'ajoutez `income_assignation_method` (`[uniform, bhepop2]`) que si vous
-disposez d'un indicateur de revenu adapté : les trois indicateurs du starter ne
+disposez d'un indicateur de revenu adapté : les trois indicateurs du modèle ne
 mesurent pas directement le revenu. Calculez une mesure de revenu avec un
 [script d'analyse](analysis-scripts.md) qui lit `households` et lisez-la avec un
 indicateur `value` (voir
@@ -187,7 +187,7 @@ ces indices comme des preuves.
 
 ## Ce que vous pouvez conclure
 
-Vous pouvez dire que le starter a validé la chaîne et produit les
+Vous pouvez dire que le modèle a validé la chaîne et produit les
 fichiers Sobol attendus.
 
 Vous ne pouvez pas faire une revendication scientifique de priorisation ou de

@@ -111,23 +111,25 @@ text. Remedy: print the first line of the archived file
 `outputs` or `indicators`, and rerun `analyze`. These keys are not sealed in the
 plan, so no run needs to be repeated.
 
-## `init` rerun: `foreign content in init project: ...` or `init would overwrite ...`
+## `init` rerun: `init inputs changed: ...` or `foreign content in init project: ...`
 
 Cause: rerunning `init` on an existing project (identical rerun or
-`--regenerate-data-manifest`) accepts only the generated files, unchanged, the
-starters' campaign folders with what eqasim-sa wrote in them, and
-`configs/analyses/` for analysis scripts (see
+`--regenerate-data-manifest`) keeps edited starters and README, but refuses
+what it cannot take over (see
 [Rerunning `init`](cli-reference.md#rerunning-init-on-an-existing-project)).
-The message names what it refuses: `foreign content in init project:
-configs/01-grid-structured.yml` for another file in `configs/`, `foreign
-content in init project: campaigns/<name>` for a campaign folder of your own,
-`init would overwrite configs/01-grid.yml, which differs from what init would
-write (file edited or init inputs changed)` for an edited starter or an option
-that differs from the first `init`. Nothing is written. Remedy: the rerun is
-never needed to continue working; `plan`, `run`, `check`, `estimate`, and
-`analyze` keep working. To rerun it anyway, give the same options as the first
-`init`, restore edited starters as generated, and move other files and
-campaign folders out of the project.
+The message names it: `init inputs changed: model.root in configs/01-grid.yml`
+when a value that `init` fills in (`model.root`, `model.config`,
+`model.data_manifest`, `execution.scratch`, `execution.invocation`,
+`execution.machine_options.data_path`, `campaign`, `campaign_root`) differs
+from what this `init` would write, because an option differs from the first
+`init` or because the value was edited; `init cannot parse configs/<file>:
+...` for a starter that is not valid YAML; `foreign content in init project:
+configs/01-grid-structured.yml` for another file in `configs/`; `foreign
+content in init project: campaigns/<name>` for a campaign folder of your own.
+Nothing is written. Remedy: the rerun is never needed to continue working;
+`plan`, `run`, `check`, `estimate`, and `analyze` keep working. To rerun it
+anyway, give the same options as the first `init`, restore the named value,
+and move other files and campaign folders out of the project.
 
 ## `plan differs; choose a new campaign_root`
 

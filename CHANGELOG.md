@@ -48,15 +48,23 @@
     content not read). Other entries in `configs/` and `campaigns/` are still
     refused; `campaigns/<method>` folders, which no starter creates, are now
     refused too.
-  - `init`: the refusal of an edited starter names the file
-    (`init would overwrite configs/01-grid.yml, ...`) instead of `<path>`; a
-    failed result reports the real `elapsedSeconds`; the generated README names
-    the actual `--model-config` instead of always `config.yml`.
+  - `init` rerun: an edited starter is no longer refused. Only the values
+    `init` fills in are compared (`model.root`, `model.config`,
+    `model.data_manifest`, `execution.scratch`, `execution.invocation`,
+    `execution.machine_options.data_path`, `campaign`, `campaign_root`); a
+    difference is refused with `init inputs changed: <key> in configs/<file>`,
+    an unreadable starter with `init cannot parse configs/<file>: ...`.
+    Otherwise the starter, like an edited README, is kept as it is and listed
+    in the new `kept` result field. A missing starter or README is recreated
+    and listed in `restored`. Starters are checked before campaign folders.
+  - `init`: a failed result reports the real `elapsedSeconds`; the generated
+    README names the actual `--model-config` instead of always `config.yml`.
   - `VIRTUAL_ENV` (eqasim-sa's own environment) is no longer passed to
     eqasim, the synpp probe, analysis scripts, or the analysis interpreter
     probe, and no longer enters the `same_machine` environment identity, so uv
     no longer warns that it does not match eqasim's `.venv`.
-  - New `eqasim-sa --version`.
+  - New `eqasim-sa --version` (prints `unknown` when the package metadata is
+    missing).
   - Docs: exact rules of an `init` rerun; "Trying a script by hand" with
     placeholders for the eqasim path and the campaign, and uv's fallback to
     another Python when the path does not exist; the example analysis numbers

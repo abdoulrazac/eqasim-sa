@@ -116,8 +116,8 @@ actionnable et exclue des rangs de decision FP/FF.
 
 ## Frontieres de init et Nantes
 
-`eqasim-sa init` genere seulement des starters de demonstration pour calibration,
-Grid, OAT discret et Sobol de demonstration a un scramble. Il ne genere ni starter
+`eqasim-sa init` genere seulement des modèles de demonstration pour calibration,
+Grid, OAT discret et Sobol de demonstration a un scramble. Il ne genere ni modèle
 scientifique Morris canonique ou Sobol multi-scramble, ni protocole Nantes, ni
 plan, ni sortie de simulation ou d'analyse.
 

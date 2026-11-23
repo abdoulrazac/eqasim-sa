@@ -51,11 +51,11 @@ tant qu'ils ne sont pas imbriqués les uns dans les autres (`init` refuse un
 projet dans le dossier eqasim ou l'inverse, un scratch dans le dossier eqasim
 et un projet dans son scratch) :
 donnez des chemins absolus à `--project`, `--model-root`, `--data-path`,
-`--directory` et `--scratch`. `init` écrit les chemins des starters relativement
+`--directory` et `--scratch`. `init` écrit les chemins des modèles relativement
 à leur dossier `configs/` (en absolu sous Windows quand le dossier est sur un
 autre lecteur) ; si vous déplacez ensuite le projet sans ces dossiers,
 modifiez les chemins sous le commentaire « Rempli par eqasim-sa init » de
-chaque starter.
+chaque modèle.
 
 ## Initialiser un projet
 
@@ -105,18 +105,25 @@ Une relance identique renvoie `status: unchanged` sans rehacher les données.
 `--regenerate-data-manifest` remplace atomiquement le manifeste local, mais ne
 modifie ni les YAML, ni les plans, ni les résultats ; elle renvoie
 `status: initialized`. Les deux fonctionnent après avoir planifié, lancé et
-analysé les modèles : avant d'écrire quoi que ce soit, `init` n'accepte que les
-fichiers générés, inchangés, les dossiers de campagne des modèles
+analysé les modèles : avant d'écrire quoi que ce soit, `init` accepte les
+fichiers générés, les dossiers de campagne des modèles
 (`campaigns/mon-analyse-sa-calibration`, `-grid`, `-discrete_oat`, `-sobol`)
 avec ce qu'eqasim-sa y a écrit (`figures/` compris), et `configs/analyses/`
-pour vos scripts d'analyse. Il refuse tout le reste en le nommant : un modèle
-modifié (`init would overwrite configs/01-grid.yml, which differs from what
-init would write ...`), un autre fichier dans `configs/` ou un dossier de
-campagne à vous. La [référence CLI](cli-reference.md#relancer-init-sur-un-projet-existant)
-donne la liste exacte. Il n'est jamais nécessaire de relancer `init` pour
+pour vos scripts d'analyse. Un modèle (par exemple complété par `analyses`) ou
+un README modifié est conservé tel quel et listé dans `kept` ; un fichier
+manquant est recréé et listé dans `restored`. Seul le changement d'une valeur
+remplie par `init` (`model`, `execution.scratch`, `execution.invocation`,
+`execution.machine_options.data_path`, `campaign`, `campaign_root`) est
+refusé, en la nommant : `init inputs changed: model.root in
+configs/01-grid.yml`. Un autre fichier dans `configs/` ou un dossier de
+campagne à vous est aussi refusé. La
+[référence CLI](cli-reference.md#relancer-init-sur-un-projet-existant) donne
+les règles exactes. Il n'est jamais nécessaire de relancer `init` pour
 continuer à travailler.
 
-Si les données ont changé, une campagne planifiée avant la régénération ne
+Après un changement de l'arbre de données, rafraîchissez le manifeste avec
+`--regenerate-data-manifest`. Si les données ont changé, une campagne planifiée
+avant la régénération ne
 correspond plus à son plan : `run` refuse de la reprendre avec `data manifest
 changed since plan (dataManifestSha256)`. Conservez l'ancien état et utilisez
 de nouvelles racines de campagne ou un nouveau projet.
@@ -240,7 +247,7 @@ l'espace estimé. `check --smoke` ajoute deux vrais runs temporaires et doit don
 
 Les modèles fournis sont de petites campagnes de démonstration. Leurs tailles ne
 constituent pas une recommandation scientifique et `init` ne génère délibérément
-aucun starter Morris canonique. Consultez [Paramètres et méthodes](parameters-and-methods.md)
+aucun modèle Morris canonique. Consultez [Paramètres et méthodes](parameters-and-methods.md)
 avant d'étendre les domaines ou de rédiger une campagne scientifique propre à l'étude.
 Utilisez les guides courts de [Grid](what-when-how-grid.md),
 [OAT discret](what-when-how-discrete_oat.md),
@@ -281,7 +288,7 @@ renvoie pour `run` `status: completed` et `total: 0`.
 - Les noms de colonnes des fichiers CSV archivés correspondent aux déclarations `category`, `simulated` et `references` sous `outputs`.
 - Les sorties de démonstration Grid, OAT discret et Sobol ont été inspectées, pas seulement créées.
 - Le Sobol généré est une démonstration non inférentielle. Une campagne scientifique
-  multi-scramble doit être rédigée séparément; aucun starter n'est fourni.
+  multi-scramble doit être rédigée séparément; aucun modèle n'est fourni.
 - Le modèle, les données, le lockfile et la version d'`eqasim-sa` sont archivés ou traçables.
 
 Voir aussi le [glossaire](glossary.md).

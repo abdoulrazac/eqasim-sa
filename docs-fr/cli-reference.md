@@ -32,29 +32,44 @@ eqasim-sa init --project-name NAME [options]
 | `--regenerate-data-manifest` | non | faux | rehache et remplace uniquement `manifest.json` |
 
 Statuts JSON : `initialized`, `unchanged` ou `failed`. Champs : `initVersion`,
-`projectName`, `manifest`, `readme`, `metaConfigs`, `restored`,
+`projectName`, `manifest`, `readme`, `metaConfigs`, `restored`, `kept`,
 `elapsedSeconds`, `error`. `elapsedSeconds` est la durée de la commande, aussi
-dans un résultat `failed`. `restored` liste les fichiers générés qui manquaient
-dans un projet existant et ont été recréés (aujourd'hui seulement
-`.gitattributes`) ; un `.gitattributes` existant n'est jamais écrasé.
+dans un résultat `failed`. Lors d'une relance, `restored` liste les fichiers
+générés qui manquaient et ont été recréés (`.gitattributes`, `README.md`, un
+modèle), et `kept` liste les modèles et le README modifiés, conservés tels
+quels (chemins relatifs au projet ; les deux sont vides pour un nouveau
+projet). Un fichier existant n'est jamais écrasé.
 La commande est template-only : le hachage des données n'est pas une exécution
 du pipeline.
 
 ### Relancer `init` sur un projet existant
 
 Relancer `init` avec les mêmes options renvoie `unchanged` sans rehacher les
-données. La commande vérifie d'abord, sans rien écrire, que le projet ne
-contient que ce qu'ont écrit `init` et les commandes lancées sur les modèles :
+données. Avant d'écrire quoi que ce soit, la commande vérifie le projet :
 
-- à la racine : `manifest.json`, `README.md`, `.gitattributes`, `configs/`,
-  `campaigns/`, et le dossier de scratch s'il est dans le projet ;
-- dans `configs/` : les quatre modèles, octet pour octet tels qu'`init` les
-  écrirait, et éventuellement `configs/analyses/`, le dossier de vos scripts
-  d'analyse (fichiers ordinaires et sous-dossiers, sans lien symbolique ; leur
-  contenu n'est pas lu) ;
+- à la racine : seulement `manifest.json`, `README.md`, `.gitattributes`,
+  `configs/`, `campaigns/`, et le dossier de scratch s'il est dans le projet ;
+- dans `configs/` : seulement les quatre modèles et, éventuellement,
+  `configs/analyses/`, le dossier de vos scripts d'analyse (fichiers ordinaires
+  et sous-dossiers, sans lien symbolique ; leur contenu n'est pas lu) ;
+- les modèles : un modèle modifié est conservé tel quel et listé dans `kept`,
+  tant que les valeurs remplies par `init` sont toujours celles qu'`init`
+  écrirait : `model.root`, `model.config`, `model.data_manifest`,
+  `execution.scratch`, `execution.invocation` (absente vaut la valeur par
+  défaut) et `execution.machine_options.data_path`, ainsi que `campaign` et
+  `campaign_root` (absente vaut `../campaigns/<campaign>`). Ajouter `analyses`,
+  des indicateurs, ou changer `workers` ou `seeds` est donc accepté. Si l'une
+  de ces valeurs diffère, la relance s'arrête avec `init inputs changed: <clé>
+  in configs/<fichier>`, par exemple `init inputs changed: model.root in
+  configs/01-grid.yml` : c'est le cas quand une option (`--model-root`,
+  `--model-config`, `--data-path`, `--scratch`, `--invocation`, `--directory`,
+  `--project-name`) diffère du premier `init`, ou quand vous avez modifié cette
+  valeur. Un modèle illisible en YAML arrête la relance avec `init cannot
+  parse configs/<fichier>: ...`. Un `README.md` modifié est conservé et listé
+  dans `kept`. Un modèle ou un README manquant est recréé et listé dans
+  `restored` ;
 - dans `campaigns/` : seulement les dossiers de campagne des quatre modèles,
-  nommés d'après leur `campaign` (`campaign_root` par défaut
-  `../campaigns/<campaign>`) : `<projet>-calibration`, `<projet>-grid`,
+  nommés d'après leur `campaign` : `<projet>-calibration`, `<projet>-grid`,
   `<projet>-discrete_oat` et `<projet>-sobol`. Chacun ne peut contenir que ce
   qu'y écrivent `plan`, `run`, `analyze` et `plot` : `plan.parquet`, `runs/`,
   `archives/`, `logs/`, `.eqasim-sa/`, `analysis/`, `analyses-cache/`,
@@ -64,20 +79,17 @@ Tout le reste arrête la relance avec `foreign content in init project: <entrée
 ou `foreign content in init campaign: <entrée>` : un autre fichier ou dossier
 dans `configs/` (par exemple une méta-configuration copiée), un dossier de
 campagne à vous (par exemple `<projet>-grid-structured`) ou un lien
-symbolique. Un modèle ou un README modifié est refusé en nommant le fichier,
-par exemple `init would overwrite configs/01-grid.yml, which differs from what
-init would write (file edited or init inputs changed)` ; le même refus apparaît
-quand une option (`--model-config`, `--scratch`, `--invocation`, ...) diffère
-du premier `init`. Ajouter `analyses` à `configs/01-grid.yml`, comme dans
-[Écrire un script d'analyse](analysis-scripts.md), fait donc refuser les
-relances suivantes. Relancer `init` n'est jamais nécessaire pour continuer :
-`plan`, `run`, `check`, `estimate` et `analyze` n'en dépendent pas.
+symbolique. Les modèles sont comparés avant les dossiers de campagne : une
+`campaign` renommée est donc signalée par `init inputs changed: campaign in
+...`. Relancer `init` n'est jamais nécessaire pour continuer : `plan`, `run`,
+`check`, `estimate` et `analyze` n'en dépendent pas.
 
-Avec `--regenerate-data-manifest`, le projet doit passer les mêmes contrôles ;
-seul `manifest.json` est alors remplacé et le statut est `initialized`. Les
-plans et résultats ne sont pas réécrits. Si les données ont changé, une
-campagne planifiée avant refuse de reprendre : `run` s'arrête avec
-`data manifest changed since plan (dataManifestSha256)`.
+Après un changement de l'arbre de données, rafraîchissez `manifest.json` avec
+`--regenerate-data-manifest` : le projet doit passer les mêmes contrôles
+(modèles conservés compris) ; seul `manifest.json` est alors remplacé et le
+statut est `initialized`. Les plans et résultats ne sont pas réécrits. Si les
+données ont changé, une campagne planifiée avant refuse de reprendre : `run`
+s'arrête avec `data manifest changed since plan (dataManifestSha256)`.
 
 ## `show-config`
 

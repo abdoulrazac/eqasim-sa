@@ -119,23 +119,26 @@ fichier archivé (`head -n 1 archives/<runId>/age.csv`), corriger les noms de
 colonnes sous `outputs` ou `indicators`, puis relancer `analyze`. Ces clés ne
 sont pas scellées dans le plan : aucun run n'est à refaire.
 
-## Relance d'`init` : `foreign content in init project: ...` ou `init would overwrite ...`
+## Relance d'`init` : `init inputs changed: ...` ou `foreign content in init project: ...`
 
 Cause : relancer `init` sur un projet existant (relance identique ou
-`--regenerate-data-manifest`) n'accepte que les fichiers générés, inchangés,
-les dossiers de campagne des modèles avec ce qu'eqasim-sa y a écrit, et
-`configs/analyses/` pour les scripts d'analyse (voir
+`--regenerate-data-manifest`) conserve les modèles et le README modifiés, mais
+refuse ce qu'il ne peut pas reprendre (voir
 [Relancer `init`](cli-reference.md#relancer-init-sur-un-projet-existant)). Le
-message nomme ce qui est refusé : `foreign content in init project:
-configs/01-grid-structured.yml` pour un autre fichier dans `configs/`,
+message le nomme : `init inputs changed: model.root in configs/01-grid.yml`
+quand une valeur remplie par `init` (`model.root`, `model.config`,
+`model.data_manifest`, `execution.scratch`, `execution.invocation`,
+`execution.machine_options.data_path`, `campaign`, `campaign_root`) diffère de
+ce qu'écrirait cet `init`, parce qu'une option diffère du premier `init` ou que
+la valeur a été modifiée ; `init cannot parse configs/<fichier>: ...` pour un
+modèle qui n'est pas du YAML valide ; `foreign content in init project:
+configs/01-grid-structured.yml` pour un autre fichier dans `configs/` ;
 `foreign content in init project: campaigns/<nom>` pour un dossier de campagne
-à vous, `init would overwrite configs/01-grid.yml, which differs from what init
-would write (file edited or init inputs changed)` pour un modèle modifié ou une
-option différente du premier `init`. Rien n'est écrit. Remède : la relance
-n'est jamais nécessaire pour continuer ; `plan`, `run`, `check`, `estimate` et
-`analyze` fonctionnent toujours. Pour la relancer malgré tout, donnez les mêmes
-options qu'au premier `init`, rétablissez les modèles modifiés tels que
-générés et sortez du projet les autres fichiers et dossiers de campagne.
+à vous. Rien n'est écrit. Remède : la relance n'est jamais nécessaire pour
+continuer ; `plan`, `run`, `check`, `estimate` et `analyze` fonctionnent
+toujours. Pour la relancer malgré tout, donnez les mêmes options qu'au premier
+`init`, rétablissez la valeur nommée et sortez du projet les autres fichiers et
+dossiers de campagne.
 
 ## `plan differs; choose a new campaign_root`
 
@@ -231,7 +234,7 @@ Le workflow sûr complet figure dans le
 ## `canonical_morris requires charter.status scientific`
 
 Cause : Morris canonique est configuré comme démonstration ou sans charte.
-Remède : ne transformez pas mécaniquement le starter OAT discret généré. Rédigez
+Remède : ne transformez pas mécaniquement le modèle OAT discret généré. Rédigez
 une charte scientifique, des distributions, un budget, des critères d'arrêt et
 des contrôles de robustesse propres à l'étude selon la
 [référence YAML](yaml-reference.md#morris-canonique).

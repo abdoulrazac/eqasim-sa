@@ -69,9 +69,10 @@ mon-analyse-sa/
 ```
 
 Adding `analyses` to `configs/01-grid.yml` edits a starter: a later rerun of
-`init` on the project then refuses, naming that file (see
+`init` keeps the file as it is and lists it in `kept`, like the
+`configs/analyses/` folder, which it accepts without reading it (see
 [Rerunning `init`](cli-reference.md#rerunning-init-on-an-existing-project)).
-The `configs/analyses/` folder itself does not prevent a rerun.
+Only a change of the values that `init` fills in is refused.
 
 The meta-configuration keeps the outputs of the Grid starter, which already
 archive everything the script reads, and declares the analysis and the

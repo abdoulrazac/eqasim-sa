@@ -78,7 +78,7 @@ exécutée :
 
 ## 3. Dériver une cible Grid séparée
 
-Conservez le starter généré intact :
+Conservez le modèle généré intact :
 
 ```bash
 cp configs/01-grid.yml configs/04-structured-grid.yml
@@ -104,7 +104,7 @@ parameters:
 ```
 
 La ligne `campaign` remplace la ligne de premier niveau existante ; n'en ajoutez
-pas une seconde copie. Le bloc `parameters` remplace le facteur du starter
+pas une seconde copie. Le bloc `parameters` remplace le facteur du modèle
 (`sampling_rate`). Gardez tous les autres blocs de `01-grid.yml`, notamment :
 
 - `method: grid` et les deux seeds de réplication `[1201, 1202]` ;

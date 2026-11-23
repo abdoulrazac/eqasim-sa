@@ -87,12 +87,12 @@ use a copy of your own, make it in the eqasim folder
 for Nantes: eqasim ships `config_nantes.yml` itself) and add
 `--model-config my_config.yml`.
 
-Rerunning the same `init` later returns `unchanged` (it only recreates a
-missing `.gitattributes` or scratch folder), even after plans, runs, and
-analyses, as long as the project holds only the
-generated files, unchanged, the starters' campaign folders, and
-`configs/analyses/`; an edited starter, another file in `configs/`, or a
-campaign folder of your own is refused, with its name (see
+Rerunning the same `init` later returns `unchanged`, even after plans, runs,
+and analyses: it recreates missing generated files (listed in `restored`) and
+keeps edited starters and README as they are (listed in `kept`). It refuses,
+naming it, a change of a value that `init` fills in a starter (`init inputs
+changed: <key> in configs/<file>`), another file in `configs/` besides
+`configs/analyses/`, or a campaign folder of your own (see
 [Rerunning `init`](docs/cli-reference.md#rerunning-init-on-an-existing-project)).
 
 Before planning, add `analysis.synthesis.population` to the `run:` list of that

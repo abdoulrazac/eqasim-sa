@@ -102,17 +102,22 @@ An identical rerun returns `status: unchanged` without rehashing the data.
 `--regenerate-data-manifest` atomically replaces the local manifest but does
 not modify the YAML files, plans, or results; it returns `status: initialized`.
 Both work after you have planned, run, and analyzed the starters: before
-writing anything, `init` accepts only the generated files, unchanged, the
-starters' campaign folders (`campaigns/mon-analyse-sa-calibration`,
-`-grid`, `-discrete_oat`, `-sobol`) with what eqasim-sa wrote in them
-(including `figures/`), and `configs/analyses/` for your analysis scripts.
-It refuses everything else, naming it: an edited starter (`init would
-overwrite configs/01-grid.yml, which differs from what init would write ...`),
-another file in `configs/`, or a campaign folder of your own. The
+writing anything, `init` accepts the generated files, the starters' campaign
+folders (`campaigns/mon-analyse-sa-calibration`, `-grid`, `-discrete_oat`,
+`-sobol`) with what eqasim-sa wrote in them (including `figures/`), and
+`configs/analyses/` for your analysis scripts. An edited starter (for example
+with `analyses` added) or README is kept as it is and listed in `kept`; a
+missing one is recreated and listed in `restored`. Only a change of a value
+that `init` fills in (`model`, `execution.scratch`, `execution.invocation`,
+`execution.machine_options.data_path`, `campaign`, `campaign_root`) is refused,
+naming it: `init inputs changed: model.root in configs/01-grid.yml`. Another
+file in `configs/` or a campaign folder of your own is refused too. The
 [CLI reference](cli-reference.md#rerunning-init-on-an-existing-project) gives
-the exact list. You never need to rerun `init` to continue working.
+the exact rules. You never need to rerun `init` to continue working.
 
-If the data changed, a campaign planned before the regeneration no longer
+After a change of the data tree, refresh the manifest with
+`--regenerate-data-manifest`. If the data changed, a campaign planned before
+the regeneration no longer
 matches its plan: `run` refuses to resume it with `data manifest changed since
 plan (dataManifestSha256)`. Keep the old state and use new campaign roots or a
 new project.
