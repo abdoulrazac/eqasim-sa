@@ -4,7 +4,7 @@
 
 ## Prérequis
 
-- Windows 10 ou ultérieur, macOS 13 ou ultérieur, ou Linux (pris en charge ; la suite est testée sous Linux, Python 3.13 : 1557 réussis, 4 ignorés ; le flux d'intégration continue GitHub Actions `.github/workflows/tests.yml` l'exécute sous Ubuntu, macOS et Windows, et aucun résultat Windows ou macOS n'est revendiqué tant que l'intégration continue n'a pas tourné). Le backend `local` se comporte de la même façon sur les trois ; le backend `slurm` exige Linux (voir le [dépannage](troubleshooting.md#backend-slurm-sous-windows-ou-macos)). Aucun droit administrateur n'est nécessaire, sauf sous Windows sans chemins longs, où un run eqasim réel exige qu'un administrateur les active une fois (voir [Scratch court sous Windows](#scratch-court-sous-windows)).
+- Windows 10 ou ultérieur, macOS 13 ou ultérieur, ou Linux (pris en charge ; la suite est testée sous Linux, Python 3.13 : 1558 réussis, 4 ignorés ; le flux d'intégration continue GitHub Actions `.github/workflows/tests.yml` l'exécute sous Ubuntu, macOS et Windows, et aucun résultat Windows ou macOS n'est revendiqué tant que l'intégration continue n'a pas tourné). Le backend `local` se comporte de la même façon sur les trois ; le backend `slurm` exige Linux (voir le [dépannage](troubleshooting.md#backend-slurm-sous-windows-ou-macos)). Aucun droit administrateur n'est nécessaire, sauf sous Windows sans chemins longs, où un run eqasim réel exige qu'un administrateur les active une fois (voir [Scratch court sous Windows](#scratch-court-sous-windows)).
 - Campagnes, scratch et données sur un disque local NTFS, APFS, ext4 ou xfs, ou sur le système de fichiers partagé du cluster. Les volumes FAT/exFAT et les partages SMB ne sont pas pris en charge pour les campagnes (non détectés : eqasim-sa ne les refuse pas, vérifiez donc où se trouvent vos chemins).
 - Python 3.13 exactement dans la plage déclarée `>=3.13,<3.14`.
 - `uv` disponible. Git n'est pas nécessaire.
@@ -43,7 +43,14 @@ SA=(uv run --project "$ROOT/eqasim-sa" --locked eqasim-sa)
 ```
 
 Pour vérifier l'installation, `"${SA[@]}" --version` affiche la version
-installée, par exemple `eqasim-sa 0.3.0`.
+installée, par exemple `eqasim-sa 0.4.0`.
+
+Sans copie des sources, installez une version publiée sur GitHub comme outil uv :
+
+```bash
+uv tool install git+https://github.com/abdoulrazac/eqasim-sa@v0.4.0
+SA=(eqasim-sa)
+```
 
 Le lockfile d'`eqasim-sa` fixe l'environnement d'exécution d'eqasim-sa. Le lockfile référencé
 dans une méta-configuration entre, lui, dans le contexte scientifique scellé.

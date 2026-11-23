@@ -183,7 +183,7 @@ le run archive exactement ces fichiers. Réponse : `runId`, `status`, `error`.
 - Tests d'interruption, reprise, idempotence et concurrence.
 
 Les tests SLURM ne démontrent pas le fonctionnement sur un cluster réel. La
-suite est testée sous Linux (Python 3.13 : 1557 réussis, 4 ignorés) ; le flux
+suite est testée sous Linux (Python 3.13 : 1558 réussis, 4 ignorés) ; le flux
 d'intégration continue GitHub Actions `.github/workflows/tests.yml` l'exécute
 sous Ubuntu, macOS et Windows, et aucun résultat Windows ou macOS n'est
 revendiqué tant que l'intégration continue n'a pas tourné. Marqueurs de

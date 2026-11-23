@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 - 2026-11-23
 
 Entries marked BREAKING change a file format, an identity, a JSON field, or a
 message that scripts may rely on. Plans, markers, archives, and analyses
@@ -72,6 +72,9 @@ written by earlier versions are not read: plan and run the campaigns again.
   adjacent or probability-space meaning).
 - The project is distributed under GPL-2.0-only, with contribution guidance in
   English and French.
+- Releases are published on GitHub only: pushing a `v*` tag runs
+  `.github/workflows/release.yml` (lockfile check, tests, build, wheel content
+  check) and creates the GitHub release with the wheel and the sdist attached.
 
 ### Changed
 
@@ -210,6 +213,13 @@ written by earlier versions are not read: plan and run the campaigns again.
     ',' or ']', but got '<stream end>'`);
   - `check` and `estimate` before `plan` say `campaign <campaign> has no plan
     yet: run plan first`.
+- BREAKING: errors about a declared output say `output '<name>'` instead of
+  `artifact '<name>'` (for example `output 'age' is missing declared column
+  'x'`), and archive integrity errors say `archived file` instead of
+  `archive artifact`.
+- The internal `fake-run` and `eqasim-run` commands no longer appear in
+  `eqasim-sa --help`; they are documented in the development guide only.
+  `init --help` no longer mentions Nantes.
 
 ### Removed
 
@@ -226,6 +236,9 @@ written by earlier versions are not read: plan and run the campaigns again.
   `.eqasim-sa-tmp`, and `.eqasim-sa-run-locks` in a campaign; and the
   `charter.legacy` flag (a missing charter still means a demonstration
   charter).
+- `verify_release_wheel.py` at the repository root (now
+  `.github/scripts/verify_release_wheel.py`, run by the release workflow) and
+  the release-evidence and platform-verification pages.
 - BREAKING: `method: morris` ("historical Morris") and its
   `morris-ranking.parquet` output; a configuration using it is refused. Use
   `discrete_oat` (adjacent-level demonstration) or `canonical_morris`

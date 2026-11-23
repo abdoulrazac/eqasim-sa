@@ -46,7 +46,7 @@ projet.
 Exécutez les contrôles adaptés à votre modification : au moins les tests et le
 contrôle statique ci-dessous (imports et variables inutilisés, redéfinitions).
 La suite de tests dure quelques minutes. Elle est testée sous Linux
-(Python 3.13 : 1557 réussis, 4 ignorés) ; le flux d'intégration continue
+(Python 3.13 : 1558 réussis, 4 ignorés) ; le flux d'intégration continue
 GitHub Actions `.github/workflows/tests.yml` l'exécute sous Ubuntu, macOS et
 Windows, et aucun résultat Windows ou macOS n'est revendiqué tant que
 l'intégration continue n'a pas tourné.

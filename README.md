@@ -47,7 +47,7 @@ criteria satisfied.
 
 The package targets exactly Python 3.13 (`>=3.13,<3.14`), installed with `uv`
 without administrator rights. It is written for Windows 10+, macOS 13+, and
-Linux: the suite is tested on Linux (Python 3.13: 1557 passed, 4 skipped), and the
+Linux: the suite is tested on Linux (Python 3.13: 1558 passed, 4 skipped), and the
 GitHub Actions CI workflow `.github/workflows/tests.yml` runs it on Ubuntu,
 macOS, and Windows; no Windows or macOS result is claimed until CI has run. On Windows, uv installs
 with `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`;
@@ -58,7 +58,17 @@ one machine; analysis can be done on another one. See
 [Getting started](docs/getting-started.md) and
 [Troubleshooting](docs/troubleshooting.md) (Windows path length, line endings).
 The shell examples below are Bash; on Windows, run them from Git Bash.
-From this directory:
+
+Releases are published on GitHub only: the release page of each version
+carries its wheel and sdist. To install release 0.4.0 as a uv tool:
+
+```bash
+uv tool install git+https://github.com/abdoulrazac/eqasim-sa@v0.4.0
+eqasim-sa --version
+```
+
+With the tool installed, use `SA=(eqasim-sa)` in the examples below. To work from a
+source checkout instead, from this directory:
 
 ```bash
 uv sync --locked

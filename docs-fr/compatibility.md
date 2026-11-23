@@ -2,8 +2,8 @@
 
 [English](../docs/compatibility.md) | **Français**
 
-Cette page décrit `eqasim-sa` 0.3.0 ainsi que les changements listés sous
-Unreleased dans le [journal des modifications](../CHANGELOG.md), parmi lesquels
+Cette page décrit `eqasim-sa` 0.4.0 ; le [journal des modifications](../CHANGELOG.md)
+liste ses changements depuis la 0.3.0, parmi lesquels
 les facteurs structurés, le modèle eqasim identifié sans Git, les scripts
 d'analyse, `show-config` et `plot`. L'analyseur syntaxique Python et le code
 d'analyse font foi. Il n'y a aucune rétrocompatibilité : seuls les formats
@@ -96,7 +96,7 @@ actionnable et exclue des rangs de décision FP/FF.
 ## Plateformes et domaines de hachage
 
 `eqasim-sa` prend en charge nativement Windows 10+, macOS 13+ et Linux avec le
-backend `local` (la suite est testée sous Linux, Python 3.13 : 1557 réussis,
+backend `local` (la suite est testée sous Linux, Python 3.13 : 1558 réussis,
 4 ignorés ; le flux d'intégration continue GitHub Actions
 `.github/workflows/tests.yml` l'exécute sous Ubuntu, macOS et Windows, et aucun
 résultat Windows ou macOS n'est revendiqué tant que l'intégration continue n'a
@@ -163,4 +163,4 @@ protocole Nantes réel a été planifié ou exécuté.
 
 | Version | Python | Schémas de plan lus/écrits | Manifeste d'analyse | Migration |
 | --- | --- | --- | --- | --- |
-| 0.3.0 + Unreleased | `>=3.13,<3.14` | schémas de plan v1/v2/v3 ; design scientifique v3 uniquement | v8 | aucune |
+| 0.4.0 | `>=3.13,<3.14` | schémas de plan v1/v2/v3 ; design scientifique v3 uniquement | v8 | aucune |

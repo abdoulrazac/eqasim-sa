@@ -50,7 +50,7 @@ automatiquement les critères d'arrêt satisfaits.
 
 Le paquet cible exactement Python 3.13 (`>=3.13,<3.14`), installé avec `uv` sans
 droits administrateur. Il est écrit pour Windows 10+, macOS 13+ et Linux : la suite est
-testée sous Linux (Python 3.13 : 1557 réussis, 4 ignorés), et le flux
+testée sous Linux (Python 3.13 : 1558 réussis, 4 ignorés), et le flux
 d'intégration continue GitHub Actions `.github/workflows/tests.yml` l'exécute
 sous Ubuntu, macOS et Windows ; aucun résultat Windows ou macOS n'est revendiqué
 tant que l'intégration continue n'a pas tourné. Sous
@@ -63,7 +63,19 @@ s'exécute entièrement sur une seule machine ; l'analyse peut se faire sur une
 autre. Voir le [démarrage](docs-fr/getting-started.md) et le
 [dépannage](docs-fr/troubleshooting.md) (longueur de chemin Windows, fins de
 ligne). Les exemples shell ci-dessous sont en Bash ; sous Windows, lancez-les
-depuis Git Bash. Depuis ce répertoire :
+depuis Git Bash.
+
+Les versions sont publiées uniquement sur GitHub : la page de chaque version
+porte sa roue (wheel) et son archive source (sdist). Pour installer la version
+0.4.0 comme outil uv :
+
+```bash
+uv tool install git+https://github.com/abdoulrazac/eqasim-sa@v0.4.0
+eqasim-sa --version
+```
+
+Avec l'outil installé, utilisez `SA=(eqasim-sa)` dans les exemples ci-dessous. Pour
+travailler depuis une copie des sources, depuis ce répertoire :
 
 ```bash
 uv sync --locked

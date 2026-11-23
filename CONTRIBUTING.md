@@ -40,7 +40,7 @@ test strategy, package boundary, and project invariants in more detail.
 
 Run the checks that apply to your change: at least the tests and the lint
 check below (unused imports and variables, redefinitions). The test suite runs
-in a few minutes. It is tested on Linux (Python 3.13: 1557 passed, 4 skipped);
+in a few minutes. It is tested on Linux (Python 3.13: 1558 passed, 4 skipped);
 the GitHub Actions CI workflow `.github/workflows/tests.yml` runs it on Ubuntu,
 macOS, and Windows, and no Windows or macOS result is claimed until CI has run.
 

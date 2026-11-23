@@ -2,8 +2,8 @@
 
 **English** | [Français](../docs-fr/compatibility.md)
 
-This page describes `eqasim-sa` 0.3.0 plus the changes listed under
-Unreleased in the [changelog](../CHANGELOG.md), among them structured factors,
+This page describes `eqasim-sa` 0.4.0; the [changelog](../CHANGELOG.md) lists
+its changes since 0.3.0, among them structured factors,
 an eqasim model identified without Git, analysis scripts, `show-config`, and
 `plot`. The Python parser and analysis code are authoritative. There is no backward compatibility:
 only the current formats are read, and nothing is migrated.
@@ -93,7 +93,7 @@ excluded from FP/FF decision ranks.
 ## Platforms and hash domains
 
 `eqasim-sa` supports Windows 10+, macOS 13+, and Linux natively with the `local`
-backend (the suite is tested on Linux, Python 3.13: 1557 passed, 4 skipped; the
+backend (the suite is tested on Linux, Python 3.13: 1558 passed, 4 skipped; the
 GitHub Actions CI workflow `.github/workflows/tests.yml` runs it on Ubuntu,
 macOS, and Windows, and no Windows or macOS result is claimed until CI has run);
 `slurm` is Linux only.
@@ -155,4 +155,4 @@ Nantes protocol has been planned or executed.
 
 | Release | Python | Plan schemas read/written | Analysis manifest | Migration |
 | --- | --- | --- | --- | --- |
-| 0.3.0 + Unreleased | `>=3.13,<3.14` | plan schemas v1/v2/v3; scientific design v3 only | v8 | none |
+| 0.4.0 | `>=3.13,<3.14` | plan schemas v1/v2/v3; scientific design v3 only | v8 | none |
