@@ -159,6 +159,14 @@ The other files help you verify this interpretation:
 - `replication-dispersion.parquet` shows dispersion across seeds;
 - `governed-report.json` contains `demonstration_noninferential` and `claimAuthorized: false`.
 
+Optionally, draw the figures of the published analysis:
+
+```bash
+"${SA[@]}" plot --meta-config "$TARGET"
+```
+
+Valid for `discrete_oat`: `output-summary` (one row per indicator: median, q05 to q95 and min to max across the plan positions, never model uncertainty), and `oat-effects` (`mu_star` per factor, `sigma` as a marker, `seed_std` as a reference tick; titled "local normalized OAT effects, not global" in the figure). It does not claim a global importance. See [Figures](workflow-and-results.md#figures).
+
 ## Extend the example to several parameters
 
 In a new campaign, you can compare, for example:

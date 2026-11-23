@@ -200,6 +200,14 @@ TARGET=configs/01-grid.yml
 "${SA[@]}" analyze --meta-config "$TARGET"
 ```
 
+En option, une fois `analyze` publié, dessiner les figures :
+
+```bash
+"${SA[@]}" plot --meta-config "$TARGET"
+```
+
+`plot` écrit les figures PNG valides pour la méthode, plus un index `figures.json`, dans `figures/<generationId>/` ; il ne touche pas à `analysis/`. Voir [Figures](workflow-and-results.md#figures).
+
 `check` sans `--smoke` valide la méta-configuration, le plan, l'environnement et
 l'espace estimé. `check --smoke` ajoute deux vrais runs temporaires et doit donc
 être réservé à une validation explicite du pipeline. Il ne reprend pas

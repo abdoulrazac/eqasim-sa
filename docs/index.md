@@ -12,7 +12,7 @@ The Python parser is authoritative: the project does not provide a JSON Schema.
 3. [YAML reference](yaml-reference.md): the complete meta-configuration contract.
 4. [Writing an analysis script](analysis-scripts.md): add quantities computed from the archived files, even after the runs.
 5. [Parameters and methods](parameters-and-methods.md): Grid, discrete OAT, canonical Morris, Sobol, and seeds.
-6. [Workflow and results](workflow-and-results.md): identities, storage, and resumption.
+6. [Workflow and results](workflow-and-results.md): identities, storage, resumption, and figures.
 7. [CLI reference](cli-reference.md): commands, JSON, and exit codes.
 8. [Troubleshooting](troubleshooting.md): common errors and safe remedies.
 9. [Glossary](glossary.md): precise project terminology.
@@ -53,6 +53,7 @@ Return to the [home page](../README.md).
 | Estimate a target | `estimate` | at least one complete calibration run | JSON runtime/disk/scratch estimate |
 | Run | `run` | sealed plan, `execution` block | missing archives and markers |
 | Recompute the analysis | `analyze` | sufficient completeness | indicator and sensitivity Parquet files |
+| Draw figures | `plot` | published analysis (`analyze` done), campaign meta-configuration and sealed plan | PNG figures valid for the method, plus `figures.json`, under `figures/<generationId>/` |
 
 ## Methods
 

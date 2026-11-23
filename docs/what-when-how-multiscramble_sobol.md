@@ -246,6 +246,14 @@ only a priority conditional on the declared setting. The current contract leaves
 robustness checks pending and has `claimAuthorized: false`; it therefore does not
 produce an authorized, robust final claim.
 
+Optionally, draw the figures of the published analysis:
+
+```bash
+"${SA[@]}" plot --meta-config "$TARGET"
+```
+
+Valid for `multiscramble_sobol`: `output-summary` (one row per indicator: median, q05 to q95 and min to max across the plan positions, never model uncertainty); `multiscramble-indices` (first and total order means with their CI at the last checkpoint, with the rank of each actionable factor under the objective's ranking rule); `multiscramble-convergence` (CI width against the base sample size N; needs the convergence table and the governed report); and `multiscramble-by-scramble` (one point per scramble and per factor at the last checkpoint). Each carries the foot line with `claimAuthorized` (currently always `false`): none of them authorizes a final claim. See [Figures](workflow-and-results.md#figures).
+
 ## FF variant: test whether a factor can be fixed
 
 FF must be a separate campaign, with objective `ff` and a tolerance declared

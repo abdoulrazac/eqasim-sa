@@ -155,6 +155,14 @@ independently randomized Sobol sequences.
 The `governed-report.json` report records this as
 `inferenceStatus: demonstration_noninferential` and `claimAuthorized: false`.
 
+Optionally, draw the figures of the published analysis:
+
+```bash
+"${SA[@]}" plot --meta-config "$TARGET"
+```
+
+Valid for `sobol`: `output-summary` (one row per indicator: median, q05 to q95 and min to max across the plan positions, never model uncertainty), and `sobol-indices` (`first_order` and `total_order` bars with the bootstrap CI, never clamped). The figure carries the banner "démonstration : un seul scramble, IC non inférentiels": the intervals are not inferential. See [Figures](workflow-and-results.md#figures).
+
 ## Adapt the demonstration
 
 You can test another scalar input through the pipeline, such as

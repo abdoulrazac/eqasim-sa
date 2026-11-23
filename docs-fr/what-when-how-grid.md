@@ -238,6 +238,14 @@ plus faible, mais la différence est petite au regard de la variabilité observ�
 Il faudrait davantage de réplications et un design scientifique déclaré pour
 aller au-delà de cette observation.
 
+En option, dessiner les figures de l'analyse publiée :
+
+```bash
+"${SA[@]}" plot --meta-config "$TARGET"
+```
+
+Valides pour `grid` : `output-summary` (une ligne par indicateur : médiane, q05 à q95 et min à max sur les positions du plan, jamais une incertitude du modèle), et `grid-response` (la moyenne publiée par valeur de chaque paramètre numérique, une ligne par combinaison des autres paramètres, avec l'IC à 95 % entre réplications quand les deux bornes existent ; ignorée si aucun paramètre n'est numérique). Les deux décrivent seulement les valeurs et les seeds observées. Voir [Figures](workflow-and-results.md#figures).
+
 ## Ce que vous pouvez conclure
 
 Vous pouvez décrire les différences observées entre `0.001` et `0.002` pour les

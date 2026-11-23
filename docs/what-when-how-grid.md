@@ -237,6 +237,14 @@ lower mean age TV, but the difference is small relative to the observed
 variation." More replications and a declared scientific design would be needed
 to go beyond this observation.
 
+Optionally, draw the figures of the published analysis:
+
+```bash
+"${SA[@]}" plot --meta-config "$TARGET"
+```
+
+Valid for `grid`: `output-summary` (one row per indicator: median, q05 to q95 and min to max across the plan positions, never model uncertainty), and `grid-response` (the published mean per value of each numeric parameter, one line per combination of the other parameters, with the 95% CI between replications when both bounds exist; skipped if no parameter is numeric). Both describe the observed values and seeds only. See [Figures](workflow-and-results.md#figures).
+
 ## What you can conclude
 
 You can describe the observed differences between `0.001` and `0.002` for the

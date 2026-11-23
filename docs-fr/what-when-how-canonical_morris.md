@@ -314,6 +314,14 @@ conditionnel à la charte. Le contrat actuel laisse les contrôles de robustesse
 attente et conserve `claimAuthorized: false` : il ne produit pas une revendication
 finale autorisée.
 
+En option, dessiner les figures de l'analyse publiée :
+
+```bash
+"${SA[@]}" plot --meta-config "$TARGET"
+```
+
+Valides pour `canonical_morris` : `output-summary` (une ligne par indicateur : médiane, q05 à q95 et min à max sur les positions du plan, jamais une incertitude du modèle) ; `morris-plane` (le plan mu*-sigma avec l'IC de `mu_star`) ; `morris-convergence` (`mu_star` et son IC le long des checkpoints) ; `morris-rank-reversals` (probabilité que l'ordre publié d'une paire de facteurs soit inversé, au dernier checkpoint) ; et `morris-noise-floor` (écart-type intrinsèque et erreur-type Monte Carlo, en deux séries séparées). Chacune exige sa table publiée. Chacune porte la ligne de pied avec `claimAuthorized` (aujourd'hui toujours `false`) : aucune n'autorise une conclusion finale. Voir [Figures](workflow-and-results.md#figures).
+
 ## Ce que vous pouvez conclure
 
 Après une production complète et convergée, vous pouvez dire quels facteurs sont

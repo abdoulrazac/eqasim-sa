@@ -158,6 +158,14 @@ indices changeraient entre plusieurs séquences Sobol randomisées indépendamme
 Le rapport `governed-report.json` l'indique avec
 `inferenceStatus: demonstration_noninferential` et `claimAuthorized: false`.
 
+En option, dessiner les figures de l'analyse publiée :
+
+```bash
+"${SA[@]}" plot --meta-config "$TARGET"
+```
+
+Valides pour `sobol` : `output-summary` (une ligne par indicateur : médiane, q05 à q95 et min à max sur les positions du plan, jamais une incertitude du modèle), et `sobol-indices` (barres `first_order` et `total_order` avec l'IC bootstrap, jamais tronqué). La figure porte le bandeau « démonstration : un seul scramble, IC non inférentiels » : les intervalles ne sont pas inférentiels. Voir [Figures](workflow-and-results.md#figures).
+
 ## Adapter la démonstration
 
 Vous pouvez tester une autre entrée scalaire du modèle, par exemple

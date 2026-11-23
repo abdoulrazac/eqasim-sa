@@ -247,6 +247,14 @@ seulement une priorité conditionnelle au cadre déclaré. Le contrat actuel lai
 les contrôles de robustesse en attente et porte `claimAuthorized: false` ; il ne
 produit donc pas une revendication finale robuste.
 
+En option, dessiner les figures de l'analyse publiée :
+
+```bash
+"${SA[@]}" plot --meta-config "$TARGET"
+```
+
+Valides pour `multiscramble_sobol` : `output-summary` (une ligne par indicateur : médiane, q05 à q95 et min à max sur les positions du plan, jamais une incertitude du modèle) ; `multiscramble-indices` (moyennes des ordres 1 et total avec leur IC au dernier checkpoint, avec le rang de chaque facteur actionnable selon la règle de classement de l'objectif) ; `multiscramble-convergence` (largeur d'IC selon la taille de base N ; exige la table de convergence et le rapport gouverné) ; et `multiscramble-by-scramble` (un point par scramble et par facteur au dernier checkpoint). Chacune porte la ligne de pied avec `claimAuthorized` (aujourd'hui toujours `false`) : aucune n'autorise une conclusion finale. Voir [Figures](workflow-and-results.md#figures).
+
 ## Variante FF : tester si un facteur peut être fixé
 
 FF doit être une autre campagne, avec l'objectif `ff` et une tolérance déclarée
