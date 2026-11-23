@@ -17,7 +17,7 @@ from eqasim_sa.adapters.eqasim.execution import (
 )
 from eqasim_sa.adapters.eqasim.simulator import probe_environment
 from eqasim_sa.adapters.eqasim.workspace import workspace_prefix_length
-from eqasim_sa.adapters.estimate import _estimate_state, _remaining
+from eqasim_sa.adapters.estimate import _estimate_state, _remaining, require_plan
 from eqasim_sa.adapters.meta_config import load_meta_config
 from eqasim_sa.adapters.worker import ordered_results, worker_batches
 from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
@@ -190,6 +190,7 @@ def _static_check(path: Path, calibrations: tuple[Path, ...]):  # type: ignore[n
     def sealed_plan():  # type: ignore[no-untyped-def]
         if meta is None:
             raise ValueError("meta-config unavailable")
+        require_plan(meta)
         verify_software_source_states(meta.software_identity)
         loaded = load_run_specs(
             meta.campaign_root / "plan.parquet", design, meta.campaign
@@ -236,6 +237,7 @@ def _static_check(path: Path, calibrations: tuple[Path, ...]):  # type: ignore[n
     def disk():  # type: ignore[no-untyped-def]
         if meta is None:
             raise ValueError("meta-config unavailable")
+        require_plan(meta)
         snapshot = []
         estimate, _, _, durable = _estimate_state(
             path, calibrations, meta, deadline, snapshot

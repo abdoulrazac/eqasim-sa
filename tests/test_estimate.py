@@ -495,3 +495,15 @@ def test_estimate_cli_serializes_exact_success_and_failure_schema(
         "estimatedScratchBytes": 0,
         "error": "Exception",
     }
+
+
+def test_estimate_before_plan_says_to_run_plan_first(tmp_path: Path) -> None:
+    from eqasim_sa.adapters.application import estimate_from_meta_config
+    from tests.test_campaign_run import meta_fixture
+
+    meta, _, _, _ = meta_fixture(tmp_path)
+
+    with pytest.raises(
+        ValueError, match=r"^campaign demo has no plan yet: run plan first$"
+    ):
+        estimate_from_meta_config(meta, ())

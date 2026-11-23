@@ -1,5 +1,6 @@
 """Estimate campaign resource needs from sealed campaign snapshots."""
 
+import os
 import time
 from pathlib import Path
 
@@ -9,6 +10,13 @@ from eqasim_sa.core.campaign_snapshot import CampaignSnapshot
 from eqasim_sa.core.plan import estimate_plan, load_run_specs
 from eqasim_sa.core.run import compute_run_id
 from eqasim_sa.utils.filesystem import path_state
+
+
+def require_plan(meta) -> None:  # type: ignore[no-untyped-def]
+    """Refuse, with the next step, a campaign that has not been planned yet."""
+
+    if not os.path.lexists(meta.campaign_root / "plan.parquet"):
+        raise ValueError(f"campaign {meta.campaign} has no plan yet: run plan first")
 
 
 def _remaining(deadline: float | None) -> None:
@@ -28,6 +36,7 @@ def _estimate_state(
         if deadline
         else load_meta_config(path)
     )
+    require_plan(target)
     target_root = target.campaign_root.resolve(strict=True)
     target_specs = ()
     target_plan_state = None
@@ -43,6 +52,7 @@ def _estimate_state(
     )
     for meta in (target, *calibrations):
         _remaining(deadline)
+        require_plan(meta)
         if snapshot is not None:
             snapshot.extend(getattr(meta, "control_states", ()))
         root = meta.campaign_root.resolve(strict=True)

@@ -593,6 +593,7 @@ def _static_payload(
 ) -> dict:
     root = tmp_path / "campaign"
     root.mkdir(exist_ok=True)
+    (root / "plan.parquet").write_bytes(b"plan")
     meta = SimpleNamespace(
         campaign="demo",
         campaign_root=root,
@@ -829,3 +830,30 @@ def test_slurm_backend_accepted_on_linux(
     monkeypatch.setattr(sys, "platform", "linux")
     payload = _static_payload(tmp_path, monkeypatch, tmp_path, backend="slurm")
     assert _entry(payload, "backend")["status"] == "passed"
+
+
+@pytest.mark.parametrize("campaign_folder", [False, True])
+def test_check_before_plan_says_to_run_plan_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, campaign_folder: bool
+) -> None:
+    from eqasim_sa.adapters import application
+    from tests.test_campaign_run import add_execution, meta_fixture
+
+    meta, _, _, _ = meta_fixture(tmp_path)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    add_execution(meta, scratch)
+    if campaign_folder:
+        (tmp_path / "campaign").mkdir()
+    monkeypatch.setattr(check_service, "probe_environment", lambda *args: None)
+
+    payload = application.check_from_meta_config(meta, (), False)
+
+    checks = {item["name"]: item for item in payload["checks"]}
+    expected = "campaign demo has no plan yet: run plan first"
+    assert checks["sealedPlan"] == {
+        "name": "sealedPlan", "status": "failed", "error": expected,
+    }
+    assert checks["diskSpace"] == {
+        "name": "diskSpace", "status": "failed", "error": expected,
+    }
