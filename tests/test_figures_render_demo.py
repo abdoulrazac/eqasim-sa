@@ -1,6 +1,6 @@
 import pyarrow as pa
 import pytest
-from matplotlib.container import ErrorbarContainer
+from matplotlib.collections import LineCollection
 from matplotlib.figure import Figure
 
 from eqasim_sa.core.figures.common import FigureNotApplicable
@@ -34,6 +34,15 @@ def _dispersion(n=3, params=None):
     )
 
 
+def _segments(ax):
+    out = []
+    for c in ax.collections:
+        if isinstance(c, LineCollection):
+            for seg in c.get_segments():
+                out.append((float(seg[0][1]), float(seg[1][1])))
+    return out
+
+
 def _all_titles(fig: Figure) -> str:
     sup = fig._suptitle.get_text() if fig._suptitle else ""
     return " ".join(a.get_title() for a in fig.axes) + _texts(fig) + sup
@@ -46,14 +55,14 @@ def test_grid_two_parameters_draws_one_line_per_other_value():
     ax_a = next(a for a in rf.figure.axes if a.get_xlabel() == "a")
     labelled = [t.get_text() for t in ax_a.get_legend().get_texts()]
     assert sorted(labelled) == ["b=10", "b=20"]
-    assert len([c for c in ax_a.containers if isinstance(c, ErrorbarContainer)]) == 2
+    assert len(_segments(ax_a)) == 4
     assert "governedReport" in rf.sources
 
 
 def test_grid_single_replication_has_no_errorbars():
     (rf,) = render_grid_response(_stub("grid", "dispersion", _dispersion(n=1)))
     for ax in rf.figure.axes:
-        assert not any(isinstance(c, ErrorbarContainer) for c in ax.containers)
+        assert _segments(ax) == []
         assert len(ax.get_lines()) == 2
     assert "1 réplication" in _all_titles(rf.figure)
 
@@ -138,4 +147,39 @@ def test_sobol_bars_match_first_and_total_order():
     (rf,) = render_sobol_indices(_stub("sobol", "sensitivity", _sobol()))
     ax = rf.figure.axes[0]
     assert [p.get_height() for p in ax.patches] == [0.6, 0.1, 0.8, 0.2]
-    assert any(isinstance(c, ErrorbarContainer) for c in ax.containers)
+    assert len(_segments(ax)) == 4
+
+
+def test_sobol_non_bracketing_ci_drawn_exactly():
+    t = _sobol()
+    t = t.set_column(
+        t.schema.get_field_index("first_order"), "first_order",
+        pa.array([0.5, 0.1], pa.float64()),
+    )
+    t = t.set_column(
+        t.schema.get_field_index("first_order_ci_low"), "first_order_ci_low",
+        pa.array([0.6, 0.0], pa.float64()),
+    )
+    t = t.set_column(
+        t.schema.get_field_index("first_order_ci_high"), "first_order_ci_high",
+        pa.array([0.8, 0.2], pa.float64()),
+    )
+    (rf,) = render_sobol_indices(_stub("sobol", "sensitivity", t))
+    assert (0.6, 0.8) in [
+        (round(a, 12), round(b, 12)) for a, b in _segments(rf.figure.axes[0])
+    ]
+
+
+def test_grid_non_bracketing_ci_drawn_exactly():
+    t = _dispersion()
+    t = t.set_column(
+        t.schema.get_field_index("ci95_low"), "ci95_low",
+        pa.array([1.5, 1.5, 2.5, 3.5], pa.float64()),
+    )
+    t = t.set_column(
+        t.schema.get_field_index("ci95_high"), "ci95_high",
+        pa.array([1.8, 2.5, 3.5, 4.5], pa.float64()),
+    )
+    (rf,) = render_grid_response(_stub("grid", "dispersion", t))
+    ax = next(a for a in rf.figure.axes if a.get_xlabel() == "a")
+    assert (1.5, 1.8) in [(round(a, 12), round(b, 12)) for a, b in _segments(ax)]

@@ -35,15 +35,13 @@ def render_sobol_indices(analysis: PublishedAnalysis) -> list[RenderedFigure]:
                 and r[f"{key}_ci_high"] is not None
             ]
             if bounded:
-                lower = [max(r[key] - r[f"{key}_ci_low"], 0.0) for _, r in bounded]
-                upper = [max(r[f"{key}_ci_high"] - r[key], 0.0) for _, r in bounded]
-                ax.errorbar(
-                    [bx for bx, _ in bounded],
-                    [r[key] for _, r in bounded],
-                    yerr=[lower, upper],
-                    fmt="none",
-                    ecolor="black",
-                    capsize=3,
+                bx = [x for x, _ in bounded]
+                ax.vlines(
+                    bx,
+                    [r[f"{key}_ci_low"] for _, r in bounded],
+                    [r[f"{key}_ci_high"] for _, r in bounded],
+                    color="black",
+                    linewidth=1.2,
                 )
         ax.set_xticks(xs, labels=[r["factor"] for r in subset])
         ax.set_ylabel(f"indice de Sobol ({indicator})")

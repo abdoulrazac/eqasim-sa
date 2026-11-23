@@ -63,16 +63,12 @@ def render_grid_response(analysis: PublishedAnalysis) -> list[RenderedFigure]:
                     if p["ci95_low"] is not None and p["ci95_high"] is not None
                 ]
                 if bounded:
-                    ax.errorbar(
+                    ax.vlines(
                         [p[x_name] for p in bounded],
-                        [p["mean"] for p in bounded],
-                        yerr=[
-                            [p["mean"] - p["ci95_low"] for p in bounded],
-                            [p["ci95_high"] - p["mean"] for p in bounded],
-                        ],
-                        fmt="none",
-                        ecolor=line.get_color(),
-                        capsize=3,
+                        [p["ci95_low"] for p in bounded],
+                        [p["ci95_high"] for p in bounded],
+                        color=line.get_color(),
+                        linewidth=1.2,
                     )
             ax.set_xlabel(x_name)
             ax.set_ylabel(f"{indicator} (moyenne)")
