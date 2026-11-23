@@ -301,7 +301,9 @@ smoke check starts from the sealed model YAML and does not apply any
 `execution.machine_options`. If the normal campaign depends on
 `execution.machine_options.data_path`, the smoke check still uses the model's
 `data_path`; make that path accessible or deliberately test from an environment
-where it is valid.
+where it is valid. The smoke runs skip the indicators that read an
+[analysis output](analysis-scripts.md): `check` never runs analysis scripts, so
+a broken script appears only at `analyze`.
 
 ## Insufficient disk or scratch space
 
@@ -424,6 +426,71 @@ are part of the environment hash, so resume from an environment like the one tha
 started the campaign. For the `slurm` backend, `same_machine` is skipped on the submitting
 host and enforced inside the Slurm job.
 
+## `analysis '...' failed for run ...`
+
+Full message: `analysis '<name>' failed for run <runId>: <last line of the
+error>`. Cause: the analysis script raised an error, or broke its contract, for
+that run. Any script error stops the whole `analyze`, even with
+`completeness_threshold` below 1. The complete error output, with the Python
+traceback and anything the script printed, is in
+`<campaign_root>/analyses-cache/logs/<name>-<runId>.log`. Frequent last lines:
+
+| Last line | Cause and remedy |
+| --- | --- |
+| `TypeError: analysis script must define compute(files, parameters)` | the script has no `compute` function, or it is misspelled |
+| `TypeError: compute must return a pandas.DataFrame, not ...` | return a `pandas.DataFrame`, not a dict, a list, or a number |
+| `ValueError: compute must return a table with at least one column` | the returned table has no column |
+| `ValueError: compute returned a duplicate column name: ...` or `compute must return non-empty text column names, not ...` | rename the columns: unique, non-empty strings |
+| `ModuleNotFoundError: No module named ...` | a module missing from eqasim's environment, or a helper module placed next to the script: the script runs from a copy and cannot import it; copy the code into the script |
+| `KeyError: ...` | a name absent from `files` (it must be listed in `inputs`) or a column absent from the file; check the separator (`;` for the population files) |
+
+Remedy: try the script by hand on the archive of that run (see
+[Trying a script by hand](analysis-scripts.md#trying-a-script-by-hand)), fix
+it, and run `analyze` again; results already computed are reused.
+
+## `analyses need execution.python because execution.invocation does not end with -m synpp`
+
+Cause: the meta-configuration declares `analyses` and its
+`execution.invocation` does not end with `-m synpp`, so eqasim-sa cannot
+deduce which Python runs the scripts. Remedy: add `execution.python`, the
+command of eqasim's interpreter, for example `python: [uv, run, --locked,
+python]` or the path of the `python` of eqasim's virtual environment. See
+[Which Python runs the script](analysis-scripts.md#which-python-runs-the-script).
+
+## `analysis interpreter probe failed: ...`
+
+Cause: before running any script, `analyze` starts the analysis interpreter
+once to read the Python, pandas, numpy, and pyarrow versions, and that start
+failed; the message ends with the last line of its error output (for example
+pandas missing, or `uv` unable to create eqasim's environment). Remedy: check
+that the command of `execution.python` (or the default) works in the eqasim
+folder, for example `uv run --locked python -c "import pandas"` from
+`model.root`.
+
+## Analysis declaration errors
+
+These messages stop loading the meta-configuration; each names the analysis:
+
+| Message | Remedy |
+| --- | --- |
+| `analysis 'commute' input 'trips_spatial' is not declared in outputs` | declare the output under `outputs`; after the runs, only already archived outputs can be read |
+| `analysis 'commute' input 'mode_share' is an analysis; inputs must be outputs declared in outputs` | an analysis cannot read another analysis; read the archived outputs in one script |
+| `analysis 'commute' input 'x' file '...' must be a .csv or .gpkg file` | scripts read `.csv` and `.gpkg` files only |
+| `analysis 'commute' script '...' does not exist` | the path is relative to the YAML file (or absolute) |
+| `analysis 'commute' script must be a .py file`, `... must be a regular file`, `... must not be a symlink` | point `script` at the `.py` file itself |
+| `analysis name 'trips' is already an output name` | give the analysis another name |
+| `analysis name 'logs' is reserved for the analyses cache logs` | give the analysis another name |
+| `primary_indicator must not use analysis output 'commute'` | the primary indicator must read an archived output; keep the analysis indicator as a secondary indicator |
+
+## `analysis cache entry ... was altered; it was removed and recomputed`
+
+This is a warning in the `warnings` field of the `analyze` result, not an
+error. Cause: a cached result under `analyses-cache/` no longer matched its
+recorded SHA-256 (edited or damaged file). It was deleted and computed again
+from the archives; the published analysis uses the recomputed result. Nothing
+needs to be done; the whole `analyses-cache/` folder can be deleted when no
+command is running.
+
 ## Analyzing on another machine
 
 `analyze` does not need the data tree or the scratch, and never compares the
@@ -434,7 +501,9 @@ again for that machine, the eqasim folder (its code, configuration, and
 against what `plan.parquet` sealed), and a data manifest file (a small JSON
 file; the data tree itself is not needed).
 `metaConfigSha256` is published provenance, not an equality constraint, so
-different machine paths do not block analysis.
+different machine paths do not block analysis. With [analysis
+scripts](analysis-scripts.md), it also needs the scripts and eqasim's Python
+environment, which runs them (`uv run --locked` creates it on first use).
 
 ## Ctrl+C on Windows
 

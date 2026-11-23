@@ -20,6 +20,9 @@ flowchart LR
 `init` prepares configuration templates and hashes the data; it does not enter
 the pipeline execution stages. Calibration then provides the duration,
 durable storage, and cache observations needed to estimate a target.
+`analyze` can be run again at any time after the runs, for example with new
+[analysis scripts](#analysis-scripts); it never modifies the plan or the run
+archives.
 
 ## Sealed Identities
 
@@ -139,6 +142,11 @@ campaigns/mon-analyse-sa-grid/
 │       ├── submission-intent.json  # only while submission outcome is unproved
 │       ├── active-jobs.json  # present only while jobs are owned
 │       └── submitit/
+├── analyses-cache/  # recomputable results of analysis scripts
+│   ├── <analysis>/
+│   │   ├── <fingerprint>.csv
+│   │   └── <fingerprint>.sha256
+│   └── logs/<analysis>-<runId>.log
 ├── analysis/
 │   ├── staging/
 │   └── generations/
@@ -161,6 +169,8 @@ contain the stages that write the declared files.
 Final analysis outputs live in one immutable
 `analysis/generations/<generationId>/` directory. `analysis/staging/` contains
 only transactional work and is empty after a normal command completes.
+`analyses-cache/` holds the results of [analysis scripts](#analysis-scripts)
+and their error logs; it can be deleted when no command is running.
 `.eqasim-sa/` contains durable technical coordination local to this campaign:
 module-private leases, same-filesystem run transactions, and Submitit state.
 It is not scratch, but it disappears with the campaign and is never created in
@@ -379,10 +389,58 @@ remain in that generation with their hashes.
 Publication remains transactional.
 
 For scientific methods, the application adapter recomputes the design from the
-current meta-configuration and validates every run identity before invoking core
+meta-configuration and the eqasim configuration sealed in the plan
+(`modelDocument`), and validates every run identity before invoking core
 analysis. Standalone core analysis cannot recompute run IDs because it does not
 receive the base model configuration; full-context run identity is therefore an
 adapter preflight, not a weaker core heuristic.
+
+`captured-run-set.json` (schema version 2) lists the runs read by the
+analysis; each run carries an `analyses` mapping, empty when no indicator reads
+an analysis output. The manifest repeats these records under
+`provenance.analyses`, by analysis then by `runId`.
+
+## Analysis Scripts
+
+An analysis script, declared under
+[`analyses`](yaml-reference.md#analyses), computes an analysis output from the
+archived files of each run; the guide
+[Writing an analysis script](analysis-scripts.md) explains how to write one.
+`analyze` runs only the analyses read by at least one indicator, after it has
+captured and verified the run archives, under the `analysis.lock` lease. Each
+script runs in a separate process with eqasim's interpreter, on copies of the
+archived inputs; the archives and the plan are never modified. Up to
+`execution.workers` scripts run at once. Any script error fails the whole
+analysis, even with `completeness_threshold` below 1, with
+`analysis '<name>' failed for run <runId>: <last line of the error>`; the full
+error output is in `analyses-cache/logs/<name>-<runId>.log`.
+
+Each result is identified by its fingerprint, a SHA-256 under domain
+`eqasim-sa:analysis-result:v1` of the analysis name, the script SHA-256 (line
+endings normalized), the SHA-256 of each input, the run parameters
+(`runId`, `seed`, `factors`), and the environment fingerprint. The environment
+fingerprint is a SHA-256 of the Python, pandas, numpy, and pyarrow versions
+reported by the interpreter and of the SHA-256 of `uv.lock` in the eqasim
+folder, measured once per `analyze`. Results are cached in
+`analyses-cache/<analysis>/<fingerprint>.csv`, published atomically after
+`<fingerprint>.sha256`. A result whose fingerprint is cached is reused; an
+altered entry is removed, recomputed, and reported in the `warnings` field of
+the `analyze` result. Deleting the cache loses nothing.
+
+For every analysis output and every run, the published analysis records the
+result fingerprint, the script SHA-256, the environment fingerprint, the
+SHA-256 of each input, and the SHA-256 and size of the result. Indicators
+reading an analysis output describe it by `{name, analysis, inputs,
+separator}` in their definition (domain `eqasim-sa:indicator-definition:v4`).
+A scientific charter's `primary_indicator` cannot read an analysis output.
+
+A typical sequence: plan and run the campaign on a cluster, copy the campaign
+folder back, add scripts and the indicators that read them to the
+meta-configuration, then run `analyze`. Because `analyze` checks the
+meta-configuration against what the plan sealed, eqasim may change on the
+analyzing machine; `check` does not run the scripts (its smoke runs skip the
+indicators reading analysis outputs), so a broken script appears only at
+`analyze`.
 
 ## Idempotence and Recovery
 

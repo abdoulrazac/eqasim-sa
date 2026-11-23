@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+- BREAKING: analysis scripts. A new optional `analyses` block declares Python
+  scripts (`script`, relative to the meta-configuration or absolute; `inputs`,
+  archived `.csv` or `.gpkg` outputs; optional `category`, `simulated`,
+  `references`) whose `compute(files, parameters)` returns a
+  `pandas.DataFrame`; the table is an analysis output that `tv_distance`,
+  `share`, and `value` read like an output. `analyze` runs the scripts read by
+  indicators, after the runs and without eqasim, synpp, cache, or data, with
+  eqasim's interpreter (new `execution.python`, by default
+  `execution.invocation` without `-m synpp`, or `uv run --locked python`), on
+  copies of the archived files, `execution.workers` at a time. Results are
+  cached in `analyses-cache/` under a fingerprint (domain
+  `eqasim-sa:analysis-result:v1`) of the script, inputs, run parameters, and
+  Python environment (Python, pandas, numpy, pyarrow versions and eqasim's
+  `uv.lock`); an altered cache entry is recomputed and reported in the new
+  `warnings` field of the `analyze` result. A script error fails the whole
+  analysis and its log is kept in `analyses-cache/logs/`. A
+  `primary_indicator` cannot read an analysis output, and default indicators
+  ignore them. `check` does not run scripts: its smoke runs skip the
+  indicators reading analysis outputs. Indicator definitions use domain
+  `eqasim-sa:indicator-definition:v4` (an analysis output is described by
+  `{name, analysis, inputs, separator}`); the analysis manifest is version 8
+  with `provenance.analyses`, and `captured-run-set.json` is schema version 2
+  with per-run `analyses` records. See `docs/analysis-scripts.md`.
+- BREAKING: the plan seals the eqasim configuration as `modelDocument` (its
+  canonical form without the machine-only keys and `random_seed`); a plan
+  without it is refused. `analyze` checks the meta-configuration against the
+  sealed plan, so editing the eqasim code, configuration, or `uv.lock` after
+  the runs does not block it, while `run` refuses to resume with a message
+  naming what changed (`eqasim config changed since plan`). Editing a
+  machine-only key such as `data_path` or `processes` changes neither the plan
+  nor the resumption.
+
 - BREAKING: eqasim-sa runs the official, unmodified eqasim and no longer needs
   Git. `model.root` is any eqasim folder (clone, copy, or archive); eqasim-sa
   never calls `git`. The eqasim code is identified by a content fingerprint
@@ -27,7 +59,8 @@
   `tv_distance`, `share` (`share(output, category)`), and `value`
   (`value(output, column[, column=value])`); `share.category` and `where` values
   must be quoted YAML strings. Custom indicator plugins are removed: compute
-  custom quantities in an eqasim analysis stage and read them with `value`. The
+  custom quantities in an analysis script (see above) or in an eqasim analysis
+  stage read with `value`. The
   `init` starters vary only `sampling_rate` and keep the population files. The
   synpp probe of `check` runs the invocation with `-m synpp` replaced by
   `-c "import synpp"`. Plans, markers, and archives of earlier versions
@@ -67,7 +100,7 @@
   SLURM active-job journal v1 and the `<campaign>/.submitit` directory; the
   `.eqasim-sa-analysis` analysis state directory (only `analysis/` remains);
   flat analysis outputs at the campaign root and their cleanup; analysis
-  generation manifest v6 (only v7 with immutable generations); `init` no longer
+  generation manifest v6 (only immutable generations are read); `init` no longer
   tolerates `.submitit`, `.eqasim-sa-tmp`, or `.eqasim-sa-run-locks` in a
   campaign; and the `charter.legacy` flag (a missing charter still means a
   demonstration charter).

@@ -31,6 +31,7 @@
 | **Option machine** | Valeur d'infrastructure sous `execution.machine_options`, appliquée seulement à l'exécution, hors design et hors `runId`. |
 | **Sortie** | Fichier écrit par eqasim pour chaque run et conservé par eqasim-sa, déclaré sous `outputs` avec son `file` et son `separator` (des valeurs par défaut existent pour les douze sorties eqasim connues) et, pour les indicateurs, sa colonne de classes (`category`), sa colonne simulée (`simulated`) et ses colonnes de référence (`references`). |
 | **Indicateur** | Nombre calculé à partir des sorties d'un run, que l'analyse étudie : `tv_distance` (distance de variation totale entre distributions simulée et de référence), `share` (proportion d'une classe) ou `value` (un nombre lu dans une table). |
+| **Script d'analyse** | Fichier Python déclaré sous `analyses` dont la fonction `compute(files, parameters)` transforme les fichiers archivés d'un run en une table, la *sortie d'analyse*, lue par les indicateurs comme une sortie. `analyze` l'exécute avec l'interpréteur d'eqasim et garde ses résultats en cache dans `analyses-cache/`. |
 | **Backend** | Mécanisme d'exécution des lots, `local` ou `slurm`. |
 | **Empreinte du code d'eqasim** | SHA-256 des fichiers de code d'eqasim (`*.py`, `*.java`, `pom.xml`, `pyproject.toml`, `uv.lock`) sous `model.root`, indépendante de Git ; elle identifie le code d'eqasim dans le `contextHash`. |
 | **`contextHash`** | SHA-256 domain-separated de l'empreinte du code d'eqasim, du manifeste, du lockfile et de la version d'`eqasim-sa`. |

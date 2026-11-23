@@ -3,7 +3,8 @@
 **English** | [Francais](../docs-fr/compatibility.md)
 
 This page describes `eqasim-sa` 0.3.0 plus the current Unreleased changes:
-structured factors, and an eqasim model identified without Git. The Python
+structured factors, an eqasim model identified without Git, and analysis
+scripts. The Python
 parser and analysis code are authoritative. There is no backward compatibility:
 only the current formats are read, and nothing is migrated.
 
@@ -17,7 +18,9 @@ only the current formats are read, and nothing is migrated.
 | `canonical_morris` | scientific only | `screening`; `conditional_mean`; CRN within trajectory; declared pilot or production replication allocation | v2 | `canonicalMorrisDesignVersion` v3 (SALib) | current v3 supports scientific screening subject to budget, stopping, and robustness |
 | `multiscramble_sobol` | scientific only | `fp` or `ff`; `finite_seed_factor`; independent dependence; at least four explicit independent scrambles | v2; v3 with structured factors | `multiScrambleSobolDesignVersion` v3 (SALib) | current v3 supports scientific FP/FF subject to a defensible label distribution, budget, stopping, and robustness |
 
-All plans use `canonicalizationVersion` v1. Schema v3 is written only for a
+All plans use `canonicalizationVersion` v1 and carry the sealed `modelDocument`
+metadata (the canonical eqasim configuration without the machine-only keys and
+`random_seed`); a plan without it is refused, Grid included. Schema v3 is written only for a
 structured plan and adds the exact canonical pair `structuredFactorsVersion: 1`
 and `structuredFactors`. Under plan schema v3, demonstration Sobol and multi-scramble
 Sobol also copy that complete label-to-payload mapping into their method design
@@ -29,14 +32,16 @@ their method-specific contracts.
 Direct core Grid analysis validates schema-v3 metadata shape and labels but has no
 method design metadata or model configuration with which to bind payloads. The CLI
 application preflight is authoritative for that full binding: it reconstructs
-every structured plan from the meta-configuration before core analysis. There is
+every structured plan from the meta-configuration and the sealed
+`modelDocument` before core analysis. There is
 no in-place or semantic
 migration between plan versions.
 
 ## Analysis and claim matrix
 
-Every analysis writes `analysis-generation.json` version 8 and
-`governed-report.json` version 1.
+Every analysis writes `analysis-generation.json` version 8 (with
+`provenance.analyses`), `captured-run-set.json` schema version 2 (with
+`analyses` in each run), and `governed-report.json` version 1.
 For a scientific v3 analysis, `provenance.numericalEngine` is exactly the
 descriptor sealed in the plan.
 
@@ -77,6 +82,13 @@ excluded from FP/FF decision ranks.
 | Scientific positions above the declared budget after reserve | rejected before plan publication |
 | Incomplete OAT or Sobol analysis | rejected because completeness must equal `1.0` |
 | Unsupported or unevaluable stopping evidence | fails closed as not converged |
+| Plan without the sealed `modelDocument` | rejected by `run`, `check`, `estimate`, and `analyze`: `plan.parquet has no sealed modelDocument; plan a new campaign` |
+| Analysis input not declared in `outputs`, another analysis, or a file that is not `.csv` or `.gpkg` | rejected when the meta-configuration is loaded |
+| Analysis script missing, not a regular `.py` file, or a symbolic link | rejected when the meta-configuration is loaded |
+| Analysis named like an output (ignoring case) or `logs` | rejected when the meta-configuration is loaded |
+| `analyses` with an `execution.invocation` not ending with `-m synpp` and no `execution.python` | rejected when the meta-configuration is loaded |
+| `primary_indicator` reading an analysis output | rejected when the meta-configuration is loaded |
+| Analysis script error for any run | the whole analysis fails, whatever `completeness_threshold` |
 
 ## Platforms and hash domains
 
@@ -92,6 +104,7 @@ Plans and their evidence use exactly the domains below:
 | Execution evidence (`schemaVersion: 3`, `modelSourceSha256`) | `eqasim-sa:execution-evidence:v3` |
 | `eqasim-sa` software identity | `eqasim-sa:software-identity:v2` |
 | Indicator definition (`tv_distance`, `share`, `value`; an analysis output is described by `{name, analysis, inputs, separator}`) | `eqasim-sa:indicator-definition:v4` |
+| Analysis result (analysis, script, inputs, run parameters, environment) | `eqasim-sa:analysis-result:v1` |
 
 Text inputs are hashed after CRLF-to-LF normalization
 (see [Troubleshooting](troubleshooting.md#line-endings-and-gitattributes)). The
@@ -113,8 +126,9 @@ worker scratch layout changed to `<scratch>/esa/<campaign>/w<slot>/c<12 hex>/`.
   machine-only keys); `analyze` checks the meta-configuration against it, so
   eqasim may change after the runs without blocking analysis.
 - The indicator kinds are `tv_distance`, `share`, and `value`. Custom
-  calculations belong in an eqasim analysis stage whose CSV file is read with
-  `value`.
+  calculations are [analysis scripts](analysis-scripts.md) (`analyses`), run
+  by `analyze` on the archived files with eqasim's Python interpreter, or an
+  eqasim analysis stage whose CSV file is read with `value`.
 
 ## Init and Nantes boundaries
 

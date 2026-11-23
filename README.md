@@ -6,8 +6,9 @@
 synpp-driven eqasim pipeline. Its current vocabulary is Grid, discrete OAT,
 canonical Morris, demonstration Sobol, and multi-scramble Sobol. It provides
 deterministic plans, per-run resumption, byte-for-byte archives of the output
-files you declare, indicators computed from those files (`tv_distance`,
-`share`, `value`), and local and SLURM backends.
+files you declare, indicators computed from those files or from your own
+analysis scripts (`tv_distance`, `share`, `value`), and local and SLURM
+backends.
 
 It works with the official, unmodified eqasim: point it at an eqasim folder
 (a clone, a copy, or an archive) and the configuration file of your study.
@@ -132,7 +133,9 @@ Below a comment line, `init` has filled in the machine-specific `model` and
 outputs such as `persons` or `age` have default files, the campaign folder is
 `../campaigns/<campaign>`, and without an `indicators` block the total variation
 distance is computed for every output against each of its references. Custom
-quantities are computed in an eqasim analysis stage and read with `value`.
+quantities (a mean commute distance, a modal share) come from short Python
+[analysis scripts](docs/analysis-scripts.md) that read the archived files of
+each run; they can be added after the runs, without running eqasim again.
 To see the complete configuration, defaults included:
 
 ```bash
@@ -159,6 +162,11 @@ See the [YAML reference](docs/yaml-reference.md) for every key.
 Calibration covers runtime, durable storage, and worker cache. It does not
 calibrate eqasim's scientific parameters.
 
+`analyze` can be run again at any time. After a campaign on a cluster, copy the
+campaign folder back, add analysis scripts and the indicators that read them,
+and run `analyze` on your computer: the plan and the run archives are never
+modified. See [Writing an analysis script](docs/analysis-scripts.md).
+
 ## Structured matching configurations
 
 Grid can compare named ordered `matching_attributes` lists while preserving the
@@ -175,6 +183,7 @@ the [practical structured-configurations tutorial](docs/structured-configuration
 - [Named structured configurations tutorial](docs/structured-configurations-tutorial.md)
 - [CLI reference](docs/cli-reference.md)
 - [YAML reference](docs/yaml-reference.md)
+- [Writing an analysis script](docs/analysis-scripts.md)
 - [Parameters and methods](docs/parameters-and-methods.md)
 - [Workflow and results](docs/workflow-and-results.md)
 - [Troubleshooting](docs/troubleshooting.md)

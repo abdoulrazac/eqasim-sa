@@ -75,8 +75,8 @@ domaines scientifiquement justifiés. En particulier :
   donc ce fallback doit être instrumenté avant une comparaison stricte ;
 - le revenu est déjà archivé dans la sortie `households`, mais le pack initial
   ne définit aucun indicateur de revenu ; calculez la mesure de revenu dont vous
-  avez besoin dans une étape d'analyse eqasim, déclarez son fichier CSV sous
-  `outputs` et lisez-la avec un indicateur `value` avant d'interpréter ce
+  avez besoin avec un [script d'analyse](analysis-scripts.md) qui lit
+  `households`, et lisez-la avec un indicateur `value` avant d'interpréter ce
   facteur (voir [Vos propres calculs](yaml-reference.md#vos-propres-calculs)) ;
 - changer `hts` change à la fois les donneurs et les références HTS, et peut
   exiger un cache de données préparé séparément.

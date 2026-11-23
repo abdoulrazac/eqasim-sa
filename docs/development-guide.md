@@ -166,9 +166,10 @@ or absent) is unaffected.
 
 ## Add an indicator kind
 
-The indicator kinds are `tv_distance`, `share`, and `value`, all built in. A user who needs another quantity computes it in an
-eqasim analysis stage, declares the CSV file under `outputs`, and reads it with
-`value`; that code is then covered by the eqasim code fingerprint.
+The indicator kinds are `tv_distance`, `share`, and `value`, all built in. A user who needs another quantity writes an
+[analysis script](analysis-scripts.md) (`analyses`) that returns a table read
+by these kinds, or computes it in an eqasim analysis stage, declares the CSV
+file under `outputs`, and reads it with `value`.
 
 A new built-in kind is a change to eqasim-sa itself. Implement it in
 `core/indicators/` (computation, canonical definition, and `KIND_VERSIONS`),

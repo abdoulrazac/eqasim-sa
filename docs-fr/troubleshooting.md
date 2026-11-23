@@ -57,10 +57,17 @@ Cause : à la reprise ou à la lecture d'une campagne (`run`, `check`, `estimate
 des entrées actuelles est comparé au `plan.parquet` scellé. Le message nomme ce
 qui diffère : `eqasim source` (`eqasimSourceSha256`), `data manifest`
 (`dataManifestSha256`), `lockfile` (`lockfileSha256`), `eqasim-sa version`
-(`eqasimSaVersion`), ou une sortie (`output 'age' changed since plan: file`,
+(`eqasimSaVersion`), la configuration eqasim (`eqasim config changed since
+plan` : une clé autre que `data_path`, `processes`, les binaires,
+`java_memory`, `output_path`, `working_directory` ou `random_seed` a été
+modifiée), ou une sortie (`output 'age' changed since plan: file`,
 `... separator`, `output '...' added since plan`,
-`output '...' removed since plan`). Remède : restaurer ce qui a changé, ou
-planifier une nouvelle campagne.
+`output '...' removed since plan`). `analyze` ne compare que la
+méta-configuration au plan : modifier le code, la configuration, le `uv.lock`
+ou le manifeste de données d'eqasim après les runs ne le bloque pas. Remède :
+restaurer ce qui a changé, ou planifier une nouvelle campagne.
+`plan.parquet has no sealed modelDocument; plan a new campaign` signifie que le
+plan a été produit par une version antérieure d'eqasim-sa.
 
 ## `model config changed after context sealing`
 
@@ -305,7 +312,9 @@ données réelles. Le smoke part du YAML modèle scellé et n'applique aucun
 `execution.machine_options`. Si la campagne normale dépend de
 `execution.machine_options.data_path`, le smoke utilise malgré tout le `data_path` du
 modèle; rendez ce chemin accessible ou testez consciemment depuis un environnement
-où il est valide.
+où il est valide. Les runs de smoke ignorent les indicateurs qui lisent une
+[sortie d'analyse](analysis-scripts.md) : `check` n'exécute jamais les scripts
+d'analyse, si bien qu'un script défaillant n'apparaît qu'à `analyze`.
 
 ## Espace disque ou scratch insuffisant
 
@@ -391,10 +400,11 @@ eqasim-sa hache les entrées texte après normalisation CRLF vers LF : une copie
 en CRLF produit donc les mêmes identités que sur le cluster. Cela concerne
 l'empreinte du code d'eqasim (`eqasimSourceSha256`), le hash de `uv.lock`
 (`lockfileSha256`), la forme JSON canonique du manifeste de données
-(`dataManifestSha256`), l'identité logicielle d'`eqasim-sa`, les définitions
-des indicateurs intégrés et la configuration eqasim dans les preuves
-d'exécution (`model_config_sha256`). Les fichiers de données restent hachés
-octet pour octet. `init` écrit aussi un `.gitattributes` (sans jamais écraser le
+(`dataManifestSha256`), l'identité logicielle d'`eqasim-sa` et les définitions
+des indicateurs intégrés. La configuration eqasim dans les preuves d'exécution
+(`model_config_sha256`) est le hash de sa forme scellée (`modelDocument`),
+indépendant des fins de ligne et de la mise en forme. Les fichiers de données
+restent hachés octet pour octet. `init` écrit aussi un `.gitattributes` (sans jamais écraser le
 vôtre) qui impose LF pour les fichiers YAML, JSON et `*.lock`. Si `check`
 signale une divergence après un transfert, comparez les fichiers sur les deux
 machines avant de soupçonner les données.
@@ -424,7 +434,7 @@ clair, suivie des champs `differing` :
 | --- | --- | --- |
 | `executable differs` | `executable_sha256`, `invocation` | autre machine, ou environnement eqasim réinstallé ou déplacé |
 | `environment differs` | `environment_sha256`, `environment_variables` | autre machine, ou environnement de shell différent (environnement virtuel, `PATH`, autres variables) |
-| `model configuration changed` | `model_config_sha256` | le fichier `model.config` d'eqasim a été modifié depuis les premiers runs |
+| `model configuration changed` | `model_config_sha256` | le fichier `model.config` d'eqasim a été modifié depuis les premiers runs (hors clés propres à la machine comme `data_path` ou `processes`) |
 | `eqasim-sa installation changed` | `eqasim_sa_sha256` | `eqasim-sa` a été mis à jour ou réinstallé |
 
 Remède : préparer une nouvelle campagne (nouveau `campaign_root`) sur cette
@@ -436,14 +446,88 @@ dans le hash d'environnement, reprenez donc depuis un environnement semblable à
 celui qui a démarré la campagne. Pour le backend `slurm`, `same_machine` est ignoré sur la machine qui
 soumet et appliqué dans le job Slurm.
 
+## `analysis '...' failed for run ...`
+
+Message complet : `analysis '<nom>' failed for run <runId>: <dernière ligne de
+l'erreur>`. Cause : le script d'analyse a levé une erreur, ou n'a pas respecté
+son contrat, pour ce run. Toute erreur de script arrête tout `analyze`, même
+avec `completeness_threshold` inférieur à 1. La sortie d'erreur complète, avec
+la trace Python et ce que le script a affiché, se trouve dans
+`<campaign_root>/analyses-cache/logs/<nom>-<runId>.log`. Dernières lignes
+fréquentes :
+
+| Dernière ligne | Cause et remède |
+| --- | --- |
+| `TypeError: analysis script must define compute(files, parameters)` | le script n'a pas de fonction `compute`, ou son nom est mal orthographié |
+| `TypeError: compute must return a pandas.DataFrame, not ...` | renvoyer un `pandas.DataFrame`, pas un dictionnaire, une liste ou un nombre |
+| `ValueError: compute must return a table with at least one column` | la table renvoyée n'a aucune colonne |
+| `ValueError: compute returned a duplicate column name: ...` ou `compute must return non-empty text column names, not ...` | renommer les colonnes : chaînes uniques et non vides |
+| `ModuleNotFoundError: No module named ...` | un module absent de l'environnement d'eqasim, ou un module utilitaire placé à côté du script : le script s'exécute depuis une copie et ne peut pas l'importer ; recopiez le code dans le script |
+| `KeyError: ...` | un nom absent de `files` (il doit figurer dans `inputs`) ou une colonne absente du fichier ; vérifiez le séparateur (`;` pour les fichiers de population) |
+
+Remède : essayer le script à la main sur l'archive de ce run (voir
+[Essayer un script à la main](analysis-scripts.md#essayer-un-script-à-la-main)),
+le corriger, puis relancer `analyze` ; les résultats déjà calculés sont
+réutilisés.
+
+## `analyses need execution.python because execution.invocation does not end with -m synpp`
+
+Cause : la méta-configuration déclare `analyses` et son `execution.invocation`
+ne se termine pas par `-m synpp` : eqasim-sa ne peut pas en déduire le Python
+qui exécute les scripts. Remède : ajouter `execution.python`, la commande de
+l'interpréteur d'eqasim, par exemple `python: [uv, run, --locked, python]` ou
+le chemin du `python` de l'environnement virtuel d'eqasim. Voir
+[Quel Python exécute le script](analysis-scripts.md#quel-python-exécute-le-script).
+
+## `analysis interpreter probe failed: ...`
+
+Cause : avant d'exécuter un script, `analyze` lance une fois l'interpréteur
+d'analyse pour lire les versions de Python, pandas, numpy et pyarrow, et ce
+lancement a échoué ; le message se termine par la dernière ligne de sa sortie
+d'erreur (par exemple pandas absent, ou `uv` incapable de créer
+l'environnement d'eqasim). Remède : vérifier que la commande
+d'`execution.python` (ou celle par défaut) fonctionne dans le dossier eqasim,
+par exemple `uv run --locked python -c "import pandas"` depuis `model.root`.
+
+## Erreurs de déclaration d'une analyse
+
+Ces messages arrêtent le chargement de la méta-configuration ; chacun nomme
+l'analyse :
+
+| Message | Remède |
+| --- | --- |
+| `analysis 'commute' input 'trips_spatial' is not declared in outputs` | déclarer la sortie sous `outputs` ; après les runs, seules les sorties déjà archivées peuvent être lues |
+| `analysis 'commute' input 'mode_share' is an analysis; inputs must be outputs declared in outputs` | une analyse ne peut pas lire une autre analyse ; lire les sorties archivées dans un seul script |
+| `analysis 'commute' input 'x' file '...' must be a .csv or .gpkg file` | les scripts ne lisent que des fichiers `.csv` et `.gpkg` |
+| `analysis 'commute' script '...' does not exist` | le chemin est relatif au fichier YAML (ou absolu) |
+| `analysis 'commute' script must be a .py file`, `... must be a regular file`, `... must not be a symlink` | faire pointer `script` sur le fichier `.py` lui-même |
+| `analysis name 'trips' is already an output name` | donner un autre nom à l'analyse |
+| `analysis name 'logs' is reserved for the analyses cache logs` | donner un autre nom à l'analyse |
+| `primary_indicator must not use analysis output 'commute'` | l'indicateur principal doit lire une sortie archivée ; garder l'indicateur d'analyse comme indicateur secondaire |
+
+## `analysis cache entry ... was altered; it was removed and recomputed`
+
+C'est un avertissement du champ `warnings` du résultat d'`analyze`, pas une
+erreur. Cause : un résultat en cache sous `analyses-cache/` ne correspondait
+plus à son SHA-256 enregistré (fichier modifié ou endommagé). Il a été
+supprimé puis recalculé à partir des archives ; l'analyse publiée utilise le
+résultat recalculé. Rien à faire ; tout le dossier `analyses-cache/` peut être
+supprimé quand aucune commande ne tourne.
+
 ## Analyser sur une autre machine
 
 `analyze` n'a besoin ni de l'arborescence de données ni du scratch, et ne compare
 jamais la preuve d'exécution à la machine qui analyse. Il faut : le dossier de
-campagne rapatrié (`scp` ou `sftp`), le dossier eqasim avec le même code, le même
-`uv.lock` et le même manifeste de données, et le rendu des chemins machine refait
-pour cette machine. `metaConfigSha256` est une provenance publiée, pas une
-contrainte d'égalité : des chemins machine différents ne bloquent pas l'analyse.
+campagne rapatrié (`scp` ou `sftp`), la méta-configuration avec le rendu des
+chemins machine refait pour cette machine, le dossier eqasim (son code, sa
+configuration et son `uv.lock` peuvent différer de ceux des runs : `analyze`
+vérifie la méta-configuration par rapport à ce que `plan.parquet` a scellé) et
+un fichier manifeste de données (un petit fichier JSON ; l'arborescence de
+données elle-même n'est pas nécessaire). `metaConfigSha256` est une provenance
+publiée, pas une contrainte d'égalité : des chemins machine différents ne
+bloquent pas l'analyse. Avec des [scripts d'analyse](analysis-scripts.md), il
+faut aussi les scripts et l'environnement Python d'eqasim, qui les exécute
+(`uv run --locked` le crée à la première utilisation).
 
 ## Ctrl+C sous Windows
 

@@ -29,6 +29,7 @@ contient toutes les valeurs par défaut.
 - [`parameters`](#parameters)
 - [`analysis`](#analysis)
 - [`outputs`](#outputs)
+- [`analyses`](#analyses)
 - [`indicators`](#indicators)
 - [`execution`](#execution)
 - [`calibration`](#calibration)
@@ -140,6 +141,8 @@ Quand une clé est omise, eqasim-sa applique les valeurs par défaut suivantes.
 | `execution.backend` | `local` (seulement si un bloc `execution` est présent) |
 | `execution.workers` | `1` (seulement si un bloc `execution` est présent) |
 | `execution.invocation` | `[uv, run, --locked, python, -m, synpp]` (seulement si un bloc `execution` est présent) |
+| `execution.python` | `execution.invocation` privée de son `-m synpp` final, ou `[uv, run, --locked, python]` sans bloc `execution` ; `show-config` ne l'écrit pas |
+| `analyses.NOM.references` | une liste vide ; `show-config` ne l'écrit pas |
 
 Les chemins sont relatifs au répertoire du fichier YAML : la racine de campagne
 par défaut se trouve donc à côté du répertoire `configs/`. Les chemins par
@@ -198,6 +201,7 @@ inconnue est une erreur, et le message liste les clés permises à ce niveau.
 | `parameters` | requise | paramètres eqasim que l'on fait varier, et leurs valeurs |
 | `analysis` | facultative | réglages de l'analyse |
 | `outputs` | requise | fichiers conservés de chaque run, et colonnes que les indicateurs y lisent |
+| `analyses` | facultative | scripts qui calculent des sorties d'analyse à partir des fichiers archivés |
 | `indicators` | facultative | grandeurs calculées à partir des sorties |
 | `execution` | facultative pour `plan` et `analyze` ; requise pour `run`, `check` et `estimate` | façon d'exécuter les runs sur cette machine |
 | `calibration` | facultative | fichiers de calibration des ressources |
@@ -843,6 +847,11 @@ SHA-256. Un fichier déclaré qu'eqasim n'a pas écrit fait échouer le run avec
 message qui nomme le chemin attendu et rappelle de vérifier `run:` dans votre
 configuration eqasim. Les fichiers non déclarés ne sont pas conservés.
 
+Les [scripts d'analyse](#analyses) ne lisent que ces fichiers archivés :
+déclarez, avant de planifier, tous les fichiers que vous voudrez peut-être
+analyser plus tard (population, trajets, activités et leurs fichiers
+spatiaux `.gpkg`).
+
 Seuls `file` et `separator` déterminent ce qui est archivé : seules ces deux
 clés, avec le nom de la sortie, sont scellées dans le plan. `category`,
 `simulated` et `references` relèvent de l'analyse : vous pouvez les ajouter ou
@@ -876,6 +885,60 @@ head -n 1 campaigns/mon-analyse-sa-calibration/archives/<runId>/age.csv
 ```
 
 Remplacez `<runId>` par un identifiant réel.
+
+## `analyses`
+
+`analyses` déclare des scripts Python qui calculent de nouvelles tables à
+partir des fichiers archivés de chaque run, au moment d'`analyze`. Chaque table
+est une *sortie d'analyse*, qui porte le nom de son analyse et que
+`tv_distance`, `share` et `value` lisent comme une sortie. eqasim n'exécute
+rien : les scripts ne lisent que les archives des runs, si bien qu'on peut
+ajouter ou modifier des analyses après les runs. Le guide
+[Écrire un script d'analyse](analysis-scripts.md) explique comment en écrire
+un.
+
+```yaml
+outputs:
+  persons: {}
+  trips_spatial:
+    file: "{prefix}trips.gpkg"
+analyses:
+  commute:
+    script: analyses/commute.py
+    inputs: [trips_spatial, persons]
+indicators:
+  - value: {output: commute, column: mean_commute_km, where: {group: all}}
+```
+
+Chaque analyse accepte cinq clés :
+
+| Clé | Présence | Contenu |
+| --- | --- | --- |
+| `script` | requise | chemin du fichier `.py`, relatif à ce fichier YAML ou absolu |
+| `inputs` | requise | liste non vide et sans doublon des sorties transmises au script |
+| `category` | facultative | colonne de la table renvoyée qui contient les classes |
+| `simulated` | facultative | colonne de la table renvoyée qui contient les valeurs simulées |
+| `references` | facultative, vide par défaut | colonnes de la table renvoyée qui contiennent les valeurs de référence |
+
+Le nom d'une analyse suit les règles des noms de sortie (lettres, chiffres,
+`_` et `-`, aucun nom réservé de Windows). Il doit différer de tout nom de
+sortie et de tout autre nom d'analyse, sans tenir compte de la casse, et `logs`
+est réservé (le cache y range ses journaux d'erreur). `script` doit être un
+fichier `.py` ordinaire existant ; son dernier composant ne doit pas être un
+lien symbolique. Chaque nom de `inputs` doit être déclaré dans `outputs` avec
+un fichier `.csv` ou `.gpkg` ; une analyse ne peut pas lire une autre analyse.
+`category`, `simulated` et `references` suivent les règles des
+[colonnes lues par les indicateurs](#colonnes-lues-par-les-indicateurs) et
+nomment des colonnes de la table que renvoie le script.
+
+Les analyses ne sont pas scellées dans le plan : elles sont lues dans la
+méta-configuration courante à chaque `analyze`, comme `category`, `simulated`,
+`references` et les indicateurs. Seules les analyses lues par au moins un
+indicateur sont calculées. Sans bloc `indicators`, les indicateurs par défaut
+ignorent les sorties d'analyse, et le `primary_indicator` d'une charte
+scientifique ne peut pas en lire une (`primary_indicator must not use analysis
+output 'commute'`). Le script s'exécute avec l'interpréteur d'eqasim, choisi
+par [`execution.python`](#execution).
 
 ## `indicators`
 
@@ -988,11 +1051,17 @@ entre guillemets (`zone: "44"`, pas `zone: 44`). La sortie n'a besoin ni de
 ### Vos propres calculs
 
 Quand il vous faut une grandeur que les trois types ci-dessus ne calculent pas
-(un revenu moyen, un taux par zone, une part modale), calculez-la dans eqasim : écrivez
-une étape d'analyse eqasim qui enregistre une petite table CSV dans le dossier
-de sortie, ajoutez cette étape à `run:` dans votre configuration eqasim,
-déclarez le fichier sous `outputs` et lisez-le avec `value`. Par exemple, si
-votre étape écrit `analysis_population/{prefix}summary.csv` :
+(une distance moyenne domicile-travail, un taux par zone, une part modale),
+écrivez un [script d'analyse](analysis-scripts.md) : il lit les fichiers
+archivés de chaque run et renvoie une petite table, que `value`, `share` ou
+`tv_distance` lisent ensuite. Il peut être ajouté après les runs, sans relancer
+eqasim. Voir [`analyses`](#analyses).
+
+Vous pouvez aussi calculer la grandeur dans eqasim : écrivez une étape
+d'analyse eqasim qui enregistre une petite table CSV dans le dossier de sortie,
+ajoutez cette étape à `run:` dans votre configuration eqasim, déclarez le
+fichier sous `outputs` avant de planifier et lisez-le avec `value`. Par
+exemple, si votre étape écrit `analysis_population/{prefix}summary.csv` :
 
 ```yaml
 outputs:
@@ -1004,7 +1073,7 @@ indicators:
 
 Comme l'étape fait partie du code d'eqasim, elle entre dans l'empreinte du code
 et dans l'identité de la campagne, et son fichier CSV est archivé avec chaque
-run.
+run ; la modifier demande une nouvelle campagne.
 
 ## `execution`
 
@@ -1027,12 +1096,22 @@ pour `plan`, `analyze` et `show-config`, mais requis pour `run`, `check` et
 | `backend` | facultative, défaut `local` | `local` ou `slurm` |
 | `workers` | facultative, défaut `1` | nombre de runs exécutés en parallèle |
 | `invocation` | facultative, défaut `[uv, run, --locked, python, -m, synpp]` | commande qui lance synpp |
+| `python` | facultative, défaut `invocation` sans `-m synpp` | commande de l'interpréteur Python qui exécute les [scripts d'analyse](#analyses) |
 | `machine_options` | facultative, vide par défaut | options d'environnement eqasim propres à cette machine |
 | `slurm` | facultative | ressources du cluster, seulement avec `backend: slurm` |
 
 `workers` est un entier dans `[1, 1024]`. `scratch` est une chaîne non vide, sans
 NUL ni traversée de lien symbolique, qui doit déjà désigner un répertoire.
 `invocation` est une liste non vide de chaînes non vides sans NUL.
+
+`python` est aussi une liste non vide de chaînes non vides sans NUL. Il est
+exécuté dans le dossier eqasim et doit fournir pandas (l'environnement
+d'eqasim le fournit). Sans lui, eqasim-sa retire le `-m synpp` final
+d'`invocation` ; sans bloc `execution`, il utilise
+`[uv, run, --locked, python]`. Quand `invocation` ne se termine pas par
+`-m synpp`, un fichier qui déclare `analyses` doit écrire `python`, sinon le
+chargement échoue avec `analyses need execution.python because
+execution.invocation does not end with -m synpp`.
 
 ### `machine_options`
 
@@ -1239,7 +1318,7 @@ manifeste et le lockfile doivent être des fichiers ordinaires,
 le répertoire scratch doit exister, et les facteurs et options machine doivent
 exister dans le YAML modèle avec les types indiqués. Le fichier
 `00-calibration.yml` référencé doit aussi exister et ne pas contenir de bloc
-`calibration`.
+`calibration`. Chaque `script` d'analyse doit exister.
 
 Les fichiers rendus par `init` sont des modèles de démonstration :
 [calibration](../src/eqasim_sa/templates/00-calibration.yml),
@@ -1482,6 +1561,54 @@ execution:
     data_path: ../../eqasim-data
 ```
 
+### Grid avec un script d'analyse
+
+Cette variante du modèle Grid archive le fichier spatial des trajets et ajoute
+la distance moyenne domicile-travail du guide
+[Écrire un script d'analyse](analysis-scripts.md#un-exemple-complet). Le script
+est `configs/analyses/commute.py`, à côté de ce fichier :
+
+```yaml
+campaign: mon-analyse-sa-grid-commute
+experiment:
+  method: grid
+  seeds: [1201, 1202]
+parameters:
+  sampling_rate: [0.001, 0.002]
+outputs:
+  persons: {}
+  trips: {}
+  trips_spatial:
+    file: "{prefix}trips.gpkg"
+  age:
+    category: Age class
+    simulated: Proportion_EQASIM
+    references: [INSEE]
+analyses:
+  commute:
+    script: analyses/commute.py
+    inputs: [trips_spatial, persons]
+indicators:
+  - tv_distance: {output: age, reference: INSEE}
+  - value: {output: commute, column: mean_commute_km, where: {group: all}}
+calibration:
+  meta_configs: [00-calibration.yml]
+# --- Rempli par eqasim-sa init : à modifier seulement si la machine change ---
+model:
+  root: ../../eqasim-france
+  config: config.yml
+  data_manifest: ../manifest.json
+execution:
+  workers: 2
+  scratch: ../scratch
+  machine_options:
+    data_path: ../../eqasim-data
+    processes: 1
+```
+
+L'`invocation` par défaut se termine par `-m synpp` : les scripts s'exécutent
+donc avec `uv run --locked python` dans `../../eqasim-france`.
+
 ## Exemples invalides
 
 Chaque fragment ci-dessous fait échouer un fichier par ailleurs valide, avec le
@@ -1584,6 +1711,38 @@ parameters:
 
 > discrete OAT factor 'sampling_rate' levels must be distinct and strictly
 > increasing
+
+Une entrée d'analyse qui n'est pas déclarée dans `outputs` :
+
+```yaml
+analyses:
+  commute:
+    script: analyses/commute.py
+    inputs: [trips_spatial]
+```
+
+> analysis 'commute' input 'trips_spatial' is not declared in outputs
+
+Un script d'analyse qui n'existe pas :
+
+```yaml
+analyses:
+  commute:
+    script: analyses/comute.py
+    inputs: [trips]
+```
+
+> analysis 'commute' script 'analyses/comute.py' does not exist
+
+Des analyses avec une invocation qui ne lance pas synpp comme module :
+
+```yaml
+execution:
+  invocation: [eqasim-run]
+```
+
+> analyses need execution.python because execution.invocation does not end
+> with -m synpp
 
 Une clé dupliquée (ici avec en plus un alias YAML, refusé lui aussi) est
 détectée avant toute autre vérification :

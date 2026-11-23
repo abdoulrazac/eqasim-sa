@@ -75,8 +75,8 @@ scientific domains. In particular:
   must be instrumented before a strict method comparison;
 - household income is already archived in the `households` output, but the
   starter pack defines no income indicator; compute the income measure you need
-  in an eqasim analysis stage, declare its CSV file under `outputs`, and read it
-  with a `value` indicator before interpreting this factor (see
+  with an [analysis script](analysis-scripts.md) reading `households`, and read
+  it with a `value` indicator before interpreting this factor (see
   [Your own calculations](yaml-reference.md#your-own-calculations));
 - changing `hts` changes both the donor population and HTS references, and may
   require a separate prepared data cache.

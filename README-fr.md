@@ -6,8 +6,8 @@
 pour un pipeline eqasim piloté par synpp. Son vocabulaire actuel est Grid, OAT
 discret, Morris canonique, Sobol de démonstration et Sobol multi-scramble. Il fournit des plans déterministes, une
 reprise par run, une archive à l'octet près des fichiers de sortie que vous
-déclarez, des indicateurs calculés sur ces fichiers (`tv_distance`, `share`,
-`value`) et des backends local et SLURM.
+déclarez, des indicateurs calculés sur ces fichiers ou par vos propres scripts
+d'analyse (`tv_distance`, `share`, `value`) et des backends local et SLURM.
 
 Il fonctionne avec eqasim officiel, non modifié : indiquez-lui un dossier eqasim
 (un clone, une copie ou une archive) et le fichier de configuration de votre
@@ -138,8 +138,11 @@ Sous une ligne de commentaire, `init` a rempli les chemins `model` et
 les sorties eqasim connues comme `persons` ou `age` ont un fichier par défaut,
 le dossier de campagne est `../campaigns/<campaign>`, et sans bloc `indicators`
 la distance de variation totale est calculée pour chaque sortie et chacune de
-ses références. Les grandeurs personnalisées se calculent dans une étape
-d'analyse eqasim et se lisent avec `value`. Pour voir la configuration complète, valeurs par défaut
+ses références. Les grandeurs personnalisées (une distance moyenne
+domicile-travail, une part modale) viennent de courts
+[scripts d'analyse](docs-fr/analysis-scripts.md) en Python qui lisent les
+fichiers archivés de chaque run ; on peut les ajouter après les runs, sans
+relancer eqasim. Pour voir la configuration complète, valeurs par défaut
 comprises :
 
 ```bash
@@ -166,6 +169,12 @@ Voir la [référence YAML](docs-fr/yaml-reference.md) pour toutes les clés.
 La calibration concerne le temps, le stockage durable et le cache worker. Elle
 ne calibre pas les paramètres scientifiques d'eqasim.
 
+`analyze` peut être relancé à tout moment. Après une campagne sur un
+supercalculateur, rapatriez le dossier de campagne, ajoutez des scripts
+d'analyse et les indicateurs qui les lisent, puis lancez `analyze` sur votre
+ordinateur : le plan et les archives des runs ne sont jamais modifiés. Voir
+[Écrire un script d'analyse](docs-fr/analysis-scripts.md).
+
 ## Configurations structurées de matching
 
 Grid peut comparer des listes ordonnées `matching_attributes` nommées tout en
@@ -183,6 +192,7 @@ nom de campagne pour la cible dérivée. Consultez le
 - [Tutoriel des configurations structurées nommées](docs-fr/structured-configurations-tutorial.md)
 - [Référence CLI](docs-fr/cli-reference.md)
 - [Référence YAML](docs-fr/yaml-reference.md)
+- [Écrire un script d'analyse](docs-fr/analysis-scripts.md)
 - [Paramètres et méthodes](docs-fr/parameters-and-methods.md)
 - [Workflow et résultats](docs-fr/workflow-and-results.md)
 - [Dépannage](docs-fr/troubleshooting.md)

@@ -10,12 +10,13 @@ Le parseur Python est normatif : le projet ne fournit pas de JSON Schema.
 1. [Démarrage](getting-started.md) : installation, `init` et première campagne.
 2. [Tutoriel des configurations structurées nommées](structured-configurations-tutorial.md) : comparer de bout en bout des listes `matching_attributes` ordonnées.
 3. [Référence YAML](yaml-reference.md) : contrat complet d'une méta-configuration.
-4. [Paramètres et méthodes](parameters-and-methods.md) : Grid, OAT discret, Morris canonique, Sobol et seeds.
-5. [Workflow et résultats](workflow-and-results.md) : identités, stockage et reprise.
-6. [Référence CLI](cli-reference.md) : commandes, JSON et codes de sortie.
-7. [Dépannage](troubleshooting.md) : erreurs fréquentes et remèdes sûrs.
-8. [Glossaire](glossary.md) : vocabulaire précis du projet.
-9. [Compatibilité de version](compatibility.md) : matrices des schémas, méthodes, statuts, refus et versions.
+4. [Écrire un script d'analyse](analysis-scripts.md) : ajouter des grandeurs calculées à partir des fichiers archivés, même après les runs.
+5. [Paramètres et méthodes](parameters-and-methods.md) : Grid, OAT discret, Morris canonique, Sobol et seeds.
+6. [Workflow et résultats](workflow-and-results.md) : identités, stockage et reprise.
+7. [Référence CLI](cli-reference.md) : commandes, JSON et codes de sortie.
+8. [Dépannage](troubleshooting.md) : erreurs fréquentes et remèdes sûrs.
+9. [Glossaire](glossary.md) : vocabulaire précis du projet.
+10. [Compatibilité de version](compatibility.md) : matrices des schémas, méthodes, statuts, refus et versions.
 
 ## Choisir une méthode
 
@@ -78,7 +79,8 @@ fournit les observations de ressources utilisées par `check` et `estimate`.
 
 - Exécuter la calibration avant `check` ou `estimate` d'une cible qui la référence.
 - Ne jamais modifier `plan.parquet` ni `runs/<runId>.parquet` à la main.
-- Ne pas modifier le code ni la configuration d'eqasim pendant une campagne : ils font partie de son identité.
+- Ne pas modifier le code ni la configuration d'eqasim pendant une campagne : ils font partie de son identité. Une fois les runs terminés, `analyze` fonctionne toujours après de telles modifications.
+- Déclarer sous `outputs`, avant de planifier, tous les fichiers que vous voudrez peut-être analyser plus tard : les scripts d'analyse ne lisent que des fichiers archivés.
 - Ajouter `analysis.synthesis.population` à `run:` dans votre configuration eqasim avant d'utiliser les sorties `age`, `distance` ou `nbr_vehicle`.
 - Utiliser un nouveau nom `campaign` (donc un nouveau dossier de campagne) lorsque le contexte ou le design change.
 - Considérer le scratch comme jetable, jamais comme preuve de complétude.

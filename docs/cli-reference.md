@@ -142,12 +142,16 @@ eqasim-sa analyze --meta-config PATH
 Recomputes indicators from the archived output files and atomically publishes
 analysis outputs. The output columns (`category`, `simulated`, `references`)
 and the indicators are read from the current meta-configuration, so they can be
-corrected after the runs. JSON fields: `status`, `path`, `runs`, `indicators`, `values`,
+corrected after the runs. The [analysis scripts](analysis-scripts.md) read by
+indicators run here, on copies of the archived files, with a cache under
+`analyses-cache/`. JSON fields: `status`, `path`, `runs`, `indicators`, `values`,
 `completionRate`, `expected`, `completed`, `missing`, `failed`,
 `dispersionPath`, `sensitivityMethod`, `sensitivityPath`, `convergencePath`,
 `rankReversalsPath`, `byScramblePath`, `diagnosticsPath`, `noiseFloorPath`,
 `replicationAllocationPath`, `outputSummaryPath`, `convergenceEvidencePath`,
-`governedReportPath`, `inferenceStatus`, `error`.
+`governedReportPath`, `inferenceStatus`, `warnings`, `error`.
+`warnings` lists altered analysis cache entries that were removed and
+recomputed (empty otherwise).
 `rankReversalsPath` is specific to `canonical_morris`; the two scramble paths are
 specific to `multiscramble_sobol`.
 scientific analysis accepts `multiscramble_sobol` after reconstructing the

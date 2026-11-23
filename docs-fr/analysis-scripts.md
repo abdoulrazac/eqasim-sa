@@ -1,0 +1,408 @@
+# Écrire un script d'analyse
+
+[English](../docs/analysis-scripts.md) | **Français**
+
+Au moment de lancer une campagne, on ne sait pas toujours quelles grandeurs on
+voudra étudier. Un script d'analyse permet d'en ajouter une après coup : un
+court fichier Python lit les fichiers archivés de chaque run et renvoie un
+tableau. Ce tableau devient une *sortie d'analyse*, que les indicateurs
+`tv_distance`, `share` et `value` lisent comme n'importe quelle autre sortie.
+
+Le calcul d'une sortie d'analyse ne lance jamais eqasim ni synpp, ne lit jamais
+le cache de synpp et n'a besoin d'aucune donnée d'entrée : il ne lit que les
+archives des runs. Le plan et les archives ne sont jamais modifiés. On peut donc
+exécuter toutes les simulations sur un supercalculateur, rapatrier le dossier de
+campagne sur son ordinateur, y écrire des scripts et lancer `analyze`.
+
+## Sommaire
+
+- [Avant les runs : archiver assez](#avant-les-runs--archiver-assez)
+- [Un exemple complet](#un-exemple-complet)
+- [Le contrat du script](#le-contrat-du-script)
+- [Règles pour un script](#règles-pour-un-script)
+- [Quel Python exécute le script](#quel-python-exécute-le-script)
+- [Ce que fait `analyze`](#ce-que-fait-analyze)
+- [Essayer un script à la main](#essayer-un-script-à-la-main)
+- [Cache et recalcul](#cache-et-recalcul)
+- [Après une campagne sur un supercalculateur](#après-une-campagne-sur-un-supercalculateur)
+- [Ce qui est enregistré](#ce-qui-est-enregistré)
+- [Limites](#limites)
+
+## Avant les runs : archiver assez
+
+Un script ne peut lire que les fichiers que chaque run a archivés, c'est-à-dire
+les sorties déclarées sous [`outputs`](yaml-reference.md#outputs) avant de
+planifier la campagne. Ajouter une sortie ensuite demande une nouvelle
+campagne. Archivez donc largement dès le départ : la population (`persons`,
+`households`), les trajets et activités (`trips`, `activities`) et, si vous
+risquez d'avoir besoin de distances ou de lieux, les fichiers spatiaux écrits
+par eqasim :
+
+```yaml
+outputs:
+  persons: {}
+  households: {}
+  trips: {}
+  activities: {}
+  trips_spatial:
+    file: "{prefix}trips.gpkg"
+  activities_spatial:
+    file: "{prefix}activities.gpkg"
+```
+
+eqasim écrit les fichiers `.gpkg` quand `output_formats` de sa configuration
+contient `gpkg`, ce qui est sa valeur par défaut.
+
+## Un exemple complet
+
+Cet exemple ajoute deux grandeurs à une campagne Grid : la distance moyenne
+domicile-travail de chaque run et la part des trajets par mode. Le projet se
+présente ainsi :
+
+```text
+mon-analyse-sa/
+├── configs/
+│   ├── 01-grid.yml
+│   └── analyses/
+│       ├── commute.py
+│       └── mode_share.py
+└── campaigns/
+    └── mon-analyse-sa-grid/
+```
+
+La méta-configuration déclare les sorties que lisent les scripts, les deux
+analyses et les indicateurs qui les utilisent :
+
+```yaml
+outputs:
+  persons: {}
+  trips: {}
+  trips_spatial:
+    file: "{prefix}trips.gpkg"
+analyses:
+  commute:
+    script: analyses/commute.py        # relatif à ce fichier YAML
+    inputs: [trips_spatial, persons]   # sorties archivées transmises au script
+  mode_share:
+    script: analyses/mode_share.py
+    inputs: [trips]
+    category: mode                     # colonnes du tableau renvoyé par le script
+    simulated: share
+indicators:
+  - value: {output: commute, column: mean_commute_km, where: {group: all}}
+  - share: {output: mode_share, category: car}
+```
+
+La [référence YAML](yaml-reference.md#analyses) décrit chaque clé
+d'`analyses`, et son [exemple complet](yaml-reference.md#grid-avec-un-script-danalyse)
+montre un fichier entier.
+
+`configs/analyses/commute.py` mesure la longueur à vol d'oiseau de chaque trajet
+du domicile au travail, en kilomètres, et en fait la moyenne pour l'ensemble
+des actifs qui se déplacent et pour chaque sexe :
+
+```python
+"""Mean home-to-work distance of one run, for all commuters and by sex."""
+
+import geopandas
+import pandas
+
+
+def compute(files, parameters):
+    trips = geopandas.read_file(files["trips_spatial"])
+    persons = pandas.read_csv(files["persons"], sep=";", usecols=["person_id", "sex"])
+
+    if trips.crs is None or not trips.crs.is_projected:
+        raise ValueError("trips_spatial must use projected coordinates in metres")
+
+    is_commute = (trips["preceding_purpose"] == "home") & (
+        trips["following_purpose"] == "work"
+    )
+    commutes = pandas.DataFrame(
+        {
+            "person_id": trips.loc[is_commute, "person_id"].to_numpy(),
+            "distance_km": trips.loc[is_commute].geometry.length.to_numpy() / 1000.0,
+        }
+    ).merge(persons, on="person_id")
+    if commutes.empty:
+        raise ValueError("no home-to-work trip in this run")
+
+    groups = [("all", commutes)] + [
+        (str(sex), table) for sex, table in commutes.groupby("sex")
+    ]
+    return pandas.DataFrame(
+        {
+            "group": [name for name, _ in groups],
+            "commuters": [len(table) for _, table in groups],
+            "mean_commute_km": [table["distance_km"].mean() for _, table in groups],
+        }
+    )
+```
+
+Pour un run d'une petite population nantaise, il renvoie :
+
+```text
+group,commuters,mean_commute_km
+all,460,9.696102057336434
+female,208,8.721819935082106
+male,252,10.500271428086036
+```
+
+L'indicateur `value(commute, mean_commute_km, group=all)` lit la première
+ligne : 9,70 km pour ce run.
+
+`configs/analyses/mode_share.py` compte les trajets de chaque mode :
+
+```python
+"""Share of trips by mode in one run."""
+
+import pandas
+
+
+def compute(files, parameters):
+    trips = pandas.read_csv(files["trips"], sep=";")
+    if "mode" not in trips.columns:
+        raise ValueError(
+            "trips has no mode column; set mode_choice: true in the eqasim configuration"
+        )
+    counts = trips["mode"].astype(str).value_counts().sort_index()
+    return pandas.DataFrame(
+        {"mode": counts.index, "share": counts.to_numpy() / counts.sum()}
+    )
+```
+
+eqasim n'écrit de colonne `mode` dans le fichier des trajets que si sa
+configuration fixe `mode_choice: true` ; sinon ce script s'arrête avec le
+message qu'il lève, et `analyze` le signale (voir
+[Ce que fait `analyze`](#ce-que-fait-analyze)). Comme l'analyse déclare
+`category: mode` et `simulated: share`, l'indicateur `share(mode_share, car)`
+lit la part des trajets en voiture. Avec une colonne de référence dans le
+tableau renvoyé (par exemple des parts d'enquête écrites comme constantes dans
+le script) et `references` dans l'analyse, `tv_distance` comparerait les deux
+distributions.
+
+## Le contrat du script
+
+Un script est un fichier `.py` qui définit une fonction :
+
+```python
+def compute(files, parameters):
+    ...
+    return table  # un pandas.DataFrame
+```
+
+`files` associe à chaque nom listé dans `inputs` le chemin d'une copie du
+fichier archivé, par exemple `{"trips_spatial": ".../trips_spatial.gpkg",
+"persons": ".../persons.csv"}`. La copie garde le nom de l'archive,
+`<nom de la sortie><extension>`. Lisez le fichier avec le séparateur
+qu'eqasim a utilisé : `;` pour les fichiers de population (`persons`,
+`trips`...), `,` pour les fichiers d'`analysis_population` ;
+`geopandas.read_file` lit les fichiers `.gpkg`.
+
+`parameters` décrit le run :
+
+```python
+{
+    "runId": "0e599693c300002e9a1c0dffe06ff0ff",
+    "seed": 1201,
+    "factors": {"sampling_rate": 0.001},
+}
+```
+
+`factors` donne la valeur de chaque paramètre varié ; pour une
+[configuration nommée](yaml-reference.md#configurations-nommées), il donne le
+libellé, pas le contenu. La plupart des scripts ignorent `parameters` ; ils
+servent quand le calcul dépend du run (par exemple pour rapporter un effectif
+au `sampling_rate`).
+
+La valeur renvoyée doit être un `pandas.DataFrame` d'au moins une colonne, aux
+noms de colonnes uniques, non vides et textuels. eqasim-sa l'écrit en CSV
+(séparateur virgule, sans index, UTF-8) puis le relit avec les mêmes règles que
+les autres sorties : les cellules sont lues comme du texte, et les colonnes
+qu'un indicateur utilise comme nombres sont converties explicitement. Une
+valeur manquante (`NaN`) devient une cellule vide, que `value`, `share` et
+`tv_distance` refusent avec une erreur nommant la colonne ; levez plutôt une
+erreur claire dans le script, comme le fait `commute.py` quand un run n'a aucun
+trajet domicile-travail.
+
+## Règles pour un script
+
+1. **Ne pas importer de modules d'eqasim.** L'empreinte d'un résultat couvre le
+   script, ses entrées, les paramètres du run et l'environnement Python, pas le
+   code d'eqasim. Un script qui importerait du code d'eqasim ne serait pas
+   recalculé quand ce code change. Utilisez pandas, numpy, geopandas et la
+   bibliothèque standard.
+2. **Ne lire que les fichiers de `files`.** Un fichier lu ailleurs ne fait pas
+   partie de l'empreinte : ses modifications passeraient inaperçues. Les
+   constantes écrites dans le script (valeurs de référence, bornes de classes)
+   sont permises : elles font partie du script.
+3. **Ne rien écrire : renvoyer le tableau.** Les fichiers d'entrée sont des
+   copies temporaires, supprimées à la fin du script, et rien de ce qui est
+   écrit ailleurs n'est conservé ni tracé. Les archives ne sont jamais exposées
+   au script.
+4. **Garder le script en un seul fichier.** eqasim-sa exécute une copie du
+   script depuis un dossier temporaire : le dossier du script n'est donc pas
+   dans `sys.path`, et un module utilitaire placé à côté ne peut pas être
+   importé. Recopiez les fonctions communes dans chaque script.
+5. **Renvoyer le même tableau pour les mêmes entrées.** Les résultats sont
+   mis en cache et réutilisés ; un script qui tire des nombres aléatoires doit
+   fixer sa graine, par exemple à partir de `parameters["seed"]`.
+6. **`print` seulement pour déboguer.** Ce que le script affiche n'est conservé
+   qu'en cas d'échec, dans son journal d'erreur.
+
+## Quel Python exécute le script
+
+Le script s'exécute dans un processus séparé, avec l'interpréteur Python
+d'eqasim, dans le dossier eqasim (`model.root`) : pandas, numpy et geopandas
+viennent de l'environnement d'eqasim, pas de celui d'eqasim-sa. La commande de
+l'interpréteur est, par ordre de priorité :
+
+1. `execution.python`, si vous l'écrivez, par exemple
+   `python: [uv, run, --locked, python]` ou le chemin de l'interpréteur d'un
+   environnement virtuel ;
+2. sinon `execution.invocation` privée de son `-m synpp` final : l'invocation
+   par défaut donne donc `uv run --locked python` ;
+3. sans bloc `execution`, `uv run --locked python`.
+
+Si `execution.invocation` ne se termine pas par `-m synpp` et
+qu'`execution.python` est absent, le chargement d'une méta-configuration qui
+déclare des analyses échoue avec `analyses need execution.python because
+execution.invocation does not end with -m synpp`. La commande est résolue comme
+l'invocation d'eqasim, y compris sous Windows. La partie du processus fournie
+par eqasim-sa fonctionne avec Python 3.9 ou plus récent.
+
+## Ce que fait `analyze`
+
+`analyze` ne calcule que les analyses lues par au moins un indicateur. Pour
+chacune, il copie le script une fois (modifier le script pendant `analyze`
+n'a pas d'effet sur cette analyse), mesure une fois l'environnement Python,
+puis, pour chaque run, réutilise le résultat en cache ou exécute le script sur
+des copies des entrées archivées. Au plus `execution.workers` scripts
+s'exécutent en même temps (1 par défaut).
+
+Toute erreur d'un script fait échouer toute l'analyse, même avec
+`completeness_threshold` inférieur à 1, avec un message qui nomme l'analyse, le
+run et la dernière ligne de l'erreur :
+
+```text
+analysis 'mode_share' failed for run 0e599693c300002e9a1c0dffe06ff0ff: ValueError: trips has no mode column; set mode_choice: true in the eqasim configuration
+```
+
+La sortie d'erreur complète se trouve dans
+`<campaign_root>/analyses-cache/logs/<analyse>-<runId>.log`. Corrigez le
+script et relancez `analyze` : les résultats déjà calculés sont réutilisés.
+
+`check`, y compris `check --smoke`, n'exécute pas les scripts d'analyse : ses
+runs de smoke ignorent les indicateurs qui lisent une sortie d'analyse. Un
+script défaillant n'apparaît qu'à `analyze` : essayez-le d'abord à la main.
+
+## Essayer un script à la main
+
+Dès qu'un run est archivé, appelez `compute` sur ses fichiers avec
+l'interpréteur d'eqasim. Enregistrez ce fichier sous `try_commute.py` dans le
+dossier du projet et remplacez `<runId>` par un identifiant réel (un nom de
+dossier sous `archives/`) :
+
+```python
+import importlib.util
+
+archive = "campaigns/mon-analyse-sa-grid/archives/<runId>"
+spec = importlib.util.spec_from_file_location("commute", "configs/analyses/commute.py")
+commute = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(commute)
+print(
+    commute.compute(
+        {
+            "trips_spatial": f"{archive}/trips_spatial.gpkg",
+            "persons": f"{archive}/persons.csv",
+        },
+        {"runId": "<runId>", "seed": 1201, "factors": {"sampling_rate": 0.001}},
+    )
+)
+```
+
+```bash
+uv run --project ../eqasim-france --locked python try_commute.py
+```
+
+Ici le script lit l'archive elle-même : il doit seulement la lire.
+
+## Cache et recalcul
+
+Chaque résultat est identifié par une empreinte : un SHA-256 (domaine
+`eqasim-sa:analysis-result:v1`) du nom de l'analyse, du contenu du script (fins
+de ligne normalisées), du SHA-256 de chaque fichier d'entrée, des paramètres du
+run et de l'empreinte de l'environnement. L'empreinte de l'environnement est un
+SHA-256 de la version de Python, des versions de pandas, numpy et pyarrow
+rapportées par l'interpréteur, et du SHA-256 de `uv.lock` dans le dossier
+eqasim. Par conséquent :
+
+- rien n'est recalculé si rien n'a changé ;
+- modifier un script ne recalcule que les résultats de cette analyse ;
+- de nouveaux runs ne calculent que leurs propres résultats ;
+- une autre version de Python, pandas, numpy ou pyarrow, ou un autre
+  `uv.lock`, recalcule tous les résultats ; une modification du seul code
+  d'eqasim, non (d'où la règle 1).
+
+Les résultats sont gardés dans
+`<campaign_root>/analyses-cache/<analyse>/<empreinte>.csv`, à côté de
+`<empreinte>.sha256`, le SHA-256 du CSV. Une entrée du cache dont le contenu ne
+correspond plus est supprimée et recalculée, et le champ `warnings` du résultat
+d'`analyze` le signale :
+
+```text
+analysis cache entry commute/<fingerprint>.csv was altered; it was removed and recomputed
+```
+
+Le cache peut être supprimé à tout moment quand aucune commande ne tourne :
+rien n'est perdu, `analyze` le recalcule.
+
+## Après une campagne sur un supercalculateur
+
+1. Planifiez et exécutez la campagne sur le supercalculateur, avec les sorties
+   dont les futurs scripts pourraient avoir besoin (voir
+   [Avant les runs](#avant-les-runs--archiver-assez)).
+2. Rapatriez le dossier de campagne sur votre ordinateur (`scp`, `sftp`...).
+   Le scratch et l'arborescence de données ne sont pas nécessaires.
+3. Refaites le rendu des chemins machine de la méta-configuration pour votre
+   ordinateur, écrivez les scripts et ajoutez `analyses` et les indicateurs
+   qui les lisent.
+4. Lancez `eqasim-sa analyze --meta-config configs/01-grid.yml`.
+
+L'ordinateur a besoin : du dossier de campagne, de la méta-configuration, des
+scripts, d'un fichier manifeste de données (le petit fichier JSON, pas les
+données) et du dossier eqasim avec son environnement Python, qui exécute les
+scripts (`uv run --locked` le crée à la première utilisation). Le code, la
+configuration et le `uv.lock` d'eqasim peuvent différer de ceux des runs :
+`analyze` vérifie la méta-configuration par rapport à ce que le plan a scellé
+(`modelDocument` et contexte), pas par rapport au dossier eqasim courant.
+`run`, en revanche, refuse de reprendre une campagne dès qu'eqasim a changé :
+terminez les runs avant de modifier eqasim. Voir
+[Analyser sur une autre machine](troubleshooting.md#analyser-sur-une-autre-machine).
+
+## Ce qui est enregistré
+
+L'analyse publiée enregistre, pour chaque sortie d'analyse et chaque run,
+l'empreinte du résultat, le SHA-256 du script, l'empreinte de l'environnement,
+le SHA-256 de chaque entrée, ainsi que le SHA-256 et la taille du résultat :
+
+- dans `captured-run-set.json` (version de schéma 2), sous `analyses` dans
+  chaque run ;
+- dans `analysis-generation.json` (version 8), sous `provenance.analyses`, par
+  analyse puis par `runId`.
+
+La définition d'un indicateur qui lit une sortie d'analyse la décrit par
+`{name, analysis, inputs, separator}` (domaine
+`eqasim-sa:indicator-definition:v4`). Voir
+[Workflow et résultats](workflow-and-results.md#scripts-danalyse).
+
+## Limites
+
+- `inputs` liste des sorties déclarées dans `outputs` dont le fichier est un
+  `.csv` ou un `.gpkg` ; une analyse ne peut pas lire une autre analyse.
+- Le `primary_indicator` d'une charte scientifique ne peut pas lire une sortie
+  d'analyse : les indicateurs calculés par des scripts sont secondaires.
+- Sans bloc `indicators`, les indicateurs par défaut ignorent les sorties
+  d'analyse : listez les indicateurs voulus.
+- Un nom d'analyse suit les règles des noms de sortie et doit différer de tout
+  nom de sortie, sans tenir compte de la casse ; `logs` est réservé.

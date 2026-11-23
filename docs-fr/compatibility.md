@@ -3,7 +3,8 @@
 [English](../docs/compatibility.md) | **Francais**
 
 Cette page décrit `eqasim-sa` 0.3.0 ainsi que les changements non publiés
-courants : facteurs structurés, et modèle eqasim identifié sans Git. Le
+courants : facteurs structurés, modèle eqasim identifié sans Git et scripts
+d'analyse. Le
 parseur Python et le code d'analyse sont normatifs. Il n'y a aucune
 compatibilite ascendante : seuls les formats courants sont lus et rien n'est
 migre.
@@ -18,7 +19,10 @@ migre.
 | `canonical_morris` | scientifique uniquement | `screening` ; `conditional_mean` ; CRN dans la trajectoire ; allocation pilote ou production declaree | v2 | `canonicalMorrisDesignVersion` v3 (SALib) | le v3 courant permet le criblage scientifique soumis au budget, a l'arret et a la robustesse |
 | `multiscramble_sobol` | scientifique uniquement | `fp` ou `ff` ; `finite_seed_factor` ; dependance independante ; au moins quatre scrambles independants explicites | v2 ; v3 avec facteur structure | `multiScrambleSobolDesignVersion` v3 (SALib) | le v3 courant permet la FP/FF scientifique soumise a une distribution de labels defendable, au budget, a l'arret et a la robustesse |
 
-Tous les plans utilisent `canonicalizationVersion` v1. Le schema v3 est ecrit
+Tous les plans utilisent `canonicalizationVersion` v1 et portent la
+métadonnée scellée `modelDocument` (la configuration eqasim canonique sans les
+clés propres à la machine ni `random_seed`) ; un plan qui ne la porte pas est
+refusé, Grid compris. Le schema v3 est ecrit
 uniquement pour un plan structure et ajoute la paire canonique exacte
 `structuredFactorsVersion: 1` et `structuredFactors`. Sous le schema de plan v3,
 Sobol de demonstration et Sobol multi-scramble recopient aussi le mapping complet
@@ -30,14 +34,15 @@ metadonnees scellees du plan, son contexte et son design SALib. Les analyseurs d
 demonstration valident leurs contrats propres. L'analyse Grid directe valide la forme et les
 labels v3, mais ne dispose d'aucune metadonnee de methode ni configuration modele
 pour lier les payloads. Le preflight applicatif CLI fait autorite pour cette liaison
-complete : il reconstruit tout plan structure depuis la meta-configuration avant
-l'analyse coeur.
+complete : il reconstruit tout plan structure depuis la meta-configuration et le
+`modelDocument` scelle avant l'analyse coeur.
 Il n'existe aucune migration semantique ou en place entre les versions de plan.
 
 ## Matrice d'analyse et de revendication
 
-Chaque analyse ecrit `analysis-generation.json` version 8 et
-`governed-report.json` version 1.
+Chaque analyse ecrit `analysis-generation.json` version 8 (avec
+`provenance.analyses`), `captured-run-set.json` en version de schéma 2 (avec
+`analyses` dans chaque run) et `governed-report.json` version 1.
 Pour une analyse scientifique v3, `provenance.numericalEngine` est
 exactement le descripteur scelle dans le plan.
 
@@ -78,6 +83,13 @@ actionnable et exclue des rangs de decision FP/FF.
 | Positions scientifiques au-dessus du budget declare apres reserve | rejete avant publication du plan |
 | Analyse OAT ou Sobol incomplete | rejetee car la completude doit valoir `1.0` |
 | Preuve d'arret non prise en charge ou non evaluable | echec ferme, donc non convergee |
+| Plan sans la métadonnée scellée `modelDocument` | refusé par `run`, `check`, `estimate` et `analyze` : `plan.parquet has no sealed modelDocument; plan a new campaign` |
+| Entrée d'analyse non déclarée dans `outputs`, autre analyse, ou fichier qui n'est ni `.csv` ni `.gpkg` | rejetée au chargement de la méta-configuration |
+| Script d'analyse absent, qui n'est pas un fichier `.py` ordinaire, ou lien symbolique | rejeté au chargement de la méta-configuration |
+| Analyse nommée comme une sortie (sans tenir compte de la casse) ou `logs` | rejetée au chargement de la méta-configuration |
+| `analyses` avec une `execution.invocation` qui ne se termine pas par `-m synpp` et sans `execution.python` | rejeté au chargement de la méta-configuration |
+| `primary_indicator` qui lit une sortie d'analyse | rejeté au chargement de la méta-configuration |
+| Erreur d'un script d'analyse pour un run quelconque | toute l'analyse échoue, quel que soit `completeness_threshold` |
 
 ## Modèle eqasim et sorties
 
@@ -93,9 +105,14 @@ actionnable et exclue des rangs de decision FP/FF.
 - Le plan scelle les sorties déclarées (`outputsDeclaration` : nom, `file`,
   `separator`) ; `category`, `simulated` et `references` peuvent changer entre
   les runs et l'analyse.
+- Le plan scelle aussi la configuration eqasim (`modelDocument`, sans les clés
+  propres à la machine) ; `analyze` vérifie la méta-configuration par rapport à
+  elle, si bien qu'eqasim peut changer après les runs sans bloquer l'analyse.
 - Les types d'indicateur sont `tv_distance`, `share` et `value`. Les calculs
-  personnalisés se font dans une étape d'analyse eqasim dont le fichier CSV est
-  lu avec `value`.
+  personnalisés sont des [scripts d'analyse](analysis-scripts.md) (`analyses`),
+  exécutés par `analyze` sur les fichiers archivés avec l'interpréteur Python
+  d'eqasim, ou une étape d'analyse eqasim dont le fichier CSV est lu avec
+  `value`.
 
 ## Frontieres de init et Nantes
 
@@ -127,6 +144,7 @@ ci-dessous :
 | Preuves d'exécution (`schemaVersion: 3`, `modelSourceSha256`) | `eqasim-sa:execution-evidence:v3` |
 | Identité logicielle d'`eqasim-sa` | `eqasim-sa:software-identity:v2` |
 | Définition d'indicateur (`tv_distance`, `share`, `value` ; une sortie d'analyse est décrite par `{name, analysis, inputs, separator}`) | `eqasim-sa:indicator-definition:v4` |
+| Résultat d'analyse (analyse, script, entrées, paramètres du run, environnement) | `eqasim-sa:analysis-result:v1` |
 
 Les entrées texte sont
 hachées après normalisation CRLF vers LF (voir le

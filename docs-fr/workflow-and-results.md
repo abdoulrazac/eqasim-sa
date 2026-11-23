@@ -21,6 +21,9 @@ flowchart TD
 dans les étapes d'exécution du pipeline. La calibration fournit ensuite les
 observations de durée, stockage durable et cache nécessaires au devis d'une
 cible.
+`analyze` peut être relancé à tout moment après les runs, par exemple avec de
+nouveaux [scripts d'analyse](#scripts-danalyse) ; il ne modifie jamais le plan
+ni les archives des runs.
 
 ## Identités scellées
 
@@ -37,6 +40,18 @@ sortie, son nom, son `file` et son `separator`. Ils déterminent ce que chaque
 run archive. Les colonnes lues par les indicateurs (`category`, `simulated`,
 `references`) et les indicateurs eux-mêmes ne sont pas scellés : ils sont lus
 dans la méta-configuration courante à chaque `analyze`.
+
+Le plan scelle aussi la configuration eqasim (`modelDocument`) : le JSON
+compact, à clés triées, de la configuration de base sans les clés exclues du
+`runId` (listées ci-dessous) ni `random_seed`. Modifier une clé propre à la
+machine (`data_path`, `processes`...) ne change donc ni le plan ni la reprise
+de `run`. `analyze` reconstruit les runs à partir de ce que le plan a scellé
+(`modelDocument` et contexte) et vérifie les facteurs, les étapes de `run:`,
+`output_formats` et `output_prefix` de la méta-configuration par rapport à
+`modelDocument`, pas par rapport au dossier eqasim courant : modifier le code,
+la configuration ou le `uv.lock` d'eqasim après les runs ne bloque pas
+`analyze`, alors que `run` refuse toujours la reprise. Un plan sans
+`modelDocument` est refusé.
 
 `runId` est constitué des 32 premiers hexadécimaux d'un SHA-256 sur la
 configuration canonique et la seed. La canonicalisation retire
@@ -127,6 +142,11 @@ campaigns/mon-analyse-sa-grid/
 │       ├── submission-intent.json  # tant que l'issue de soumission est inconnue
 │       ├── active-jobs.json        # tant que les jobs sont possédés
 │       └── submitit/
+├── analyses-cache/  # résultats recalculables des scripts d'analyse
+│   ├── <analyse>/
+│   │   ├── <empreinte>.csv
+│   │   └── <empreinte>.sha256
+│   └── logs/<analyse>-<runId>.log
 ├── analysis/
 │   ├── staging/
 │   └── generations/
@@ -150,6 +170,9 @@ déclarés.
 Les sorties d'analyse finales résident dans un unique répertoire immuable
 `analysis/generations/<generationId>/`. `analysis/staging/` ne contient que le
 travail transactionnel et reste vide après la fin normale d'une commande.
+`analyses-cache/` contient les résultats des [scripts d'analyse](#scripts-danalyse)
+et leurs journaux d'erreur ; il peut être supprimé quand aucune commande ne
+tourne.
 `.eqasim-sa/` regroupe la coordination technique durable propre à la campagne :
 leases privées aux modules, transactions run sur le même filesystem et état
 Submitit. Ce répertoire n'est pas du scratch, n'est jamais créé dans le parent
@@ -365,10 +388,58 @@ méthodes restent dans cette génération avec leurs hachages. La
 publication reste transactionnelle.
 
 Pour les méthodes scientifiques, l'adaptateur applicatif reconstruit le design
-depuis la méta-configuration courante et valide chaque identité de run avant
-l'analyse core. Le core seul ne reçoit pas la configuration modèle de base et ne
+depuis la méta-configuration et la configuration eqasim scellée dans le plan
+(`modelDocument`), et valide chaque identité de run avant l'analyse core. Le core seul ne reçoit pas la configuration modèle de base et ne
 peut donc pas recalculer ces identités; ce contrôle complet appartient au
 préflight de l'adaptateur, sans heuristique core affaiblie.
+
+`captured-run-set.json` (version de schéma 2) liste les runs lus par
+l'analyse ; chaque run porte un dictionnaire `analyses`, vide quand aucun
+indicateur ne lit de sortie d'analyse. Le manifeste reprend ces
+enregistrements sous `provenance.analyses`, par analyse puis par `runId`.
+
+## Scripts d'analyse
+
+Un script d'analyse, déclaré sous [`analyses`](yaml-reference.md#analyses),
+calcule une sortie d'analyse à partir des fichiers archivés de chaque run ; le
+guide [Écrire un script d'analyse](analysis-scripts.md) explique comment en
+écrire un. `analyze` n'exécute que les analyses lues par au moins un
+indicateur, après avoir capturé et vérifié les archives des runs, sous le
+lease `analysis.lock`. Chaque script s'exécute dans un processus séparé avec
+l'interpréteur d'eqasim, sur des copies des entrées archivées ; les archives et
+le plan ne sont jamais modifiés. Au plus `execution.workers` scripts
+s'exécutent à la fois. Toute erreur d'un script fait échouer toute l'analyse,
+même avec `completeness_threshold` inférieur à 1, avec
+`analysis '<nom>' failed for run <runId>: <dernière ligne de l'erreur>` ; la
+sortie d'erreur complète se trouve dans `analyses-cache/logs/<nom>-<runId>.log`.
+
+Chaque résultat est identifié par son empreinte, un SHA-256 de domaine
+`eqasim-sa:analysis-result:v1` du nom de l'analyse, du SHA-256 du script (fins
+de ligne normalisées), du SHA-256 de chaque entrée, des paramètres du run
+(`runId`, `seed`, `factors`) et de l'empreinte de l'environnement. L'empreinte
+de l'environnement est un SHA-256 des versions de Python, pandas, numpy et
+pyarrow rapportées par l'interpréteur et du SHA-256 de `uv.lock` dans le
+dossier eqasim, mesurée une fois par `analyze`. Les résultats sont gardés dans
+`analyses-cache/<analyse>/<empreinte>.csv`, publié atomiquement après
+`<empreinte>.sha256`. Un résultat dont l'empreinte est en cache est réutilisé ;
+une entrée altérée est supprimée, recalculée et signalée dans le champ
+`warnings` du résultat d'`analyze`. Supprimer le cache ne fait rien perdre.
+
+Pour chaque sortie d'analyse et chaque run, l'analyse publiée enregistre
+l'empreinte du résultat, le SHA-256 du script, l'empreinte de l'environnement,
+le SHA-256 de chaque entrée, ainsi que le SHA-256 et la taille du résultat. Les
+indicateurs qui lisent une sortie d'analyse la décrivent par `{name, analysis,
+inputs, separator}` dans leur définition (domaine
+`eqasim-sa:indicator-definition:v4`). Le `primary_indicator` d'une charte
+scientifique ne peut pas lire une sortie d'analyse.
+
+Déroulement type : planifier et exécuter la campagne sur un supercalculateur,
+rapatrier le dossier de campagne, ajouter à la méta-configuration les scripts
+et les indicateurs qui les lisent, puis lancer `analyze`. Comme `analyze`
+vérifie la méta-configuration par rapport à ce que le plan a scellé, eqasim
+peut changer sur la machine d'analyse ; `check` n'exécute pas les scripts (ses
+runs de smoke ignorent les indicateurs qui lisent une sortie d'analyse) : un
+script défaillant n'apparaît donc qu'à `analyze`.
 
 ## Idempotence et récupération
 

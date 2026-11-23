@@ -167,8 +167,9 @@ Vous pouvez tester une autre entrée scalaire du modèle, par exemple
 
 N'ajoutez `income_assignation_method` (`[uniform, bhepop2]`) que si vous
 disposez d'un indicateur de revenu adapté : les trois indicateurs du starter ne
-mesurent pas directement le revenu. Calculez une mesure de revenu dans une étape
-d'analyse eqasim et lisez-la avec un indicateur `value` (voir
+mesurent pas directement le revenu. Calculez une mesure de revenu avec un
+[script d'analyse](analysis-scripts.md) qui lit `households` et lisez-la avec un
+indicateur `value` (voir
 [Vos propres calculs](yaml-reference.md#vos-propres-calculs)). N'ajoutez `hts` que si les deux jeux de données préparés existent, car ce
 paramètre change à la fois les donneurs et les références HTS.
 

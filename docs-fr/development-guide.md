@@ -167,9 +167,10 @@ la publication atomique (complète ou absente) n'est pas affectée.
 ## Ajouter un type d'indicateur
 
 Les types d'indicateur sont `tv_distance`, `share` et `value`, tous intégrés. Un utilisateur qui a besoin
-d'une autre grandeur la calcule dans une étape d'analyse eqasim, déclare le
-fichier CSV sous `outputs` et le lit avec `value` ; ce code est alors couvert
-par l'empreinte du code d'eqasim.
+d'une autre grandeur écrit un [script d'analyse](analysis-scripts.md)
+(`analyses`) qui renvoie une table lue par ces types, ou la calcule dans une
+étape d'analyse eqasim, déclare le fichier CSV sous `outputs` et le lit avec
+`value`.
 
 Un nouveau type intégré est une modification d'eqasim-sa lui-même.
 Implémentez-le dans `core/indicators/` (calcul, définition canonique et

@@ -164,7 +164,8 @@ your eqasim configuration. The cost always follows `N(2D+2)`.
 
 Add `income_assignation_method` (`[uniform, bhepop2]`) only if you have a
 suitable income indicator: the starter's three indicators do not measure income
-directly. Compute an income measure in an eqasim analysis stage and read it with
+directly. Compute an income measure with an
+[analysis script](analysis-scripts.md) reading `households` and read it with
 a `value` indicator (see
 [Your own calculations](yaml-reference.md#your-own-calculations)). Add `hts` only if
 both prepared datasets exist, because this parameter changes both donors and

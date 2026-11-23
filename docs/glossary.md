@@ -31,6 +31,7 @@
 | **Machine option** | Infrastructure value under `execution.machine_options`, applied only at execution time, outside the design and outside the `runId`. |
 | **Output** | File written by eqasim for each run and kept by eqasim-sa, declared under `outputs` with its `file` and `separator` (defaults exist for the twelve known eqasim outputs) and, for indicators, its class column (`category`), simulated column (`simulated`), and reference columns (`references`). |
 | **Indicator** | Number computed from the outputs of one run, which the analysis studies: `tv_distance` (total variation distance between simulated and reference distributions), `share` (proportion of one class), or `value` (one number read in a table). |
+| **Analysis script** | Python file declared under `analyses` whose `compute(files, parameters)` function turns the archived files of one run into a table, the *analysis output*, read by indicators like an output. `analyze` runs it with eqasim's interpreter and caches its results in `analyses-cache/`. |
 | **Backend** | Batch execution mechanism, `local` or `slurm`. |
 | **eqasim code fingerprint** | SHA-256 of the eqasim code files (`*.py`, `*.java`, `pom.xml`, `pyproject.toml`, `uv.lock`) under `model.root`, independent of Git; it identifies the eqasim code in the `contextHash`. |
 | **`contextHash`** | Domain-separated SHA-256 of the eqasim code fingerprint, manifest, lockfile, and `eqasim-sa` version. |

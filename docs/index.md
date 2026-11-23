@@ -10,12 +10,13 @@ The Python parser is authoritative: the project does not provide a JSON Schema.
 1. [Getting started](getting-started.md): installation, `init`, and the first campaign.
 2. [Named structured configurations tutorial](structured-configurations-tutorial.md): compare ordered `matching_attributes` lists end to end.
 3. [YAML reference](yaml-reference.md): the complete meta-configuration contract.
-4. [Parameters and methods](parameters-and-methods.md): Grid, discrete OAT, canonical Morris, Sobol, and seeds.
-5. [Workflow and results](workflow-and-results.md): identities, storage, and resumption.
-6. [CLI reference](cli-reference.md): commands, JSON, and exit codes.
-7. [Troubleshooting](troubleshooting.md): common errors and safe remedies.
-8. [Glossary](glossary.md): precise project terminology.
-9. [Release compatibility](compatibility.md): schema, method, inference, refusal, and release matrices.
+4. [Writing an analysis script](analysis-scripts.md): add quantities computed from the archived files, even after the runs.
+5. [Parameters and methods](parameters-and-methods.md): Grid, discrete OAT, canonical Morris, Sobol, and seeds.
+6. [Workflow and results](workflow-and-results.md): identities, storage, and resumption.
+7. [CLI reference](cli-reference.md): commands, JSON, and exit codes.
+8. [Troubleshooting](troubleshooting.md): common errors and safe remedies.
+9. [Glossary](glossary.md): precise project terminology.
+10. [Release compatibility](compatibility.md): schema, method, inference, refusal, and release matrices.
 
 ## Method chooser
 
@@ -79,7 +80,8 @@ the resource observations used by `check` and `estimate`.
 
 - Run calibration before `check` or `estimate` for a target that references it.
 - Never edit `plan.parquet` or `runs/<runId>.parquet` manually.
-- Do not change the eqasim code or configuration during a campaign: both are part of its identity.
+- Do not change the eqasim code or configuration during a campaign: both are part of its identity. Once the runs are finished, `analyze` still works after such changes.
+- Declare under `outputs`, before planning, every file you may want to analyze later: analysis scripts read only archived files.
 - Add `analysis.synthesis.population` to `run:` in your eqasim configuration before using the `age`, `distance` or `nbr_vehicle` outputs.
 - Use a new `campaign` name (and so a new campaign folder) when the context or design changes.
 - Treat scratch as disposable, never as proof of completeness.

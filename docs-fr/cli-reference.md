@@ -140,12 +140,17 @@ eqasim-sa analyze --meta-config PATH
 Recalcule les indicateurs depuis les fichiers de sortie archivés et publie
 atomiquement les sorties d'analyse. Les colonnes des sorties (`category`,
 `simulated`, `references`) et les indicateurs sont lus dans la
-méta-configuration courante : on peut donc les corriger après les runs. Champs JSON : `status`, `path`, `runs`, `indicators`, `values`,
+méta-configuration courante : on peut donc les corriger après les runs. Les
+[scripts d'analyse](analysis-scripts.md) lus par les indicateurs s'exécutent
+ici, sur des copies des fichiers archivés, avec un cache sous
+`analyses-cache/`. Champs JSON : `status`, `path`, `runs`, `indicators`, `values`,
 `completionRate`, `expected`, `completed`, `missing`, `failed`,
 `dispersionPath`, `sensitivityMethod`, `sensitivityPath`, `convergencePath`,
 `rankReversalsPath`, `byScramblePath`, `diagnosticsPath`, `noiseFloorPath`,
 `replicationAllocationPath`, `outputSummaryPath`, `convergenceEvidencePath`,
-`governedReportPath`, `inferenceStatus`, `error`.
+`governedReportPath`, `inferenceStatus`, `warnings`, `error`.
+`warnings` liste les entrées altérées du cache d'analyse qui ont été supprimées
+puis recalculées (vide sinon).
 `rankReversalsPath` est propre à `canonical_morris`; les deux chemins de scramble
 sont propres à `multiscramble_sobol`.
 `multiscramble_sobol` est accepté pour une charte scientifique après
