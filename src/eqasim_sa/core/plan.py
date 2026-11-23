@@ -15,7 +15,6 @@ from decimal import Decimal
 from pathlib import Path
 
 import pyarrow as pa
-import pyarrow.parquet as pq
 
 from eqasim_sa.core.charter import (
     validate_scientific_contract,
@@ -66,6 +65,7 @@ from eqasim_sa.core.run import (
     validate_model_document,
 )
 from eqasim_sa.utils import platform
+from eqasim_sa.utils.arrow import read_parquet
 from eqasim_sa.utils.filesystem import (
     PublicationOutcomeUnknown,
     file_state,
@@ -1126,7 +1126,7 @@ def _read_committed_plan(
             else:
                 pending = False
                 with os.fdopen(os.dup(descriptor), "rb") as stream:
-                    table = pq.ParquetFile(stream).read()
+                    table = read_parquet(stream)
                 final = os.fstat(descriptor)
                 try:
                     visible = destination.lstat()

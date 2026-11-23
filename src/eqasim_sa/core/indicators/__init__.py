@@ -807,7 +807,7 @@ def read_csv_table(
         with os.fdopen(descriptor, "rb") as source:
             descriptor = -1
             parse = csv.ParseOptions(delimiter=separator)
-            read = csv.ReadOptions(block_size=CSV_BLOCK_SIZE)
+            read = csv.ReadOptions(block_size=CSV_BLOCK_SIZE, use_threads=False)
             # The header is read on its own, so every column can then be
             # declared as text before any value is converted.
             with csv.open_csv(

@@ -8,7 +8,6 @@ import tempfile
 import time
 from pathlib import Path
 
-import pyarrow.parquet as pq
 
 from eqasim_sa.adapters.data_manifest import generate_data_manifest, load_data_manifest
 from eqasim_sa.adapters.eqasim.artifacts import DEFAULT_OUTPUT_PREFIX
@@ -34,6 +33,7 @@ from eqasim_sa.core.analysis_publication import (
 )
 from eqasim_sa.core.ledger import archive_file_name
 from eqasim_sa.utils import platform
+from eqasim_sa.utils.arrow import read_parquet
 from eqasim_sa.utils.filesystem import (
     owned_by_current_user,
     publish_bytes,
@@ -575,7 +575,7 @@ def _durable_preflight(directory: Path, expected_artifacts: set[str]) -> None:
             continue
         _regular(plan, f"campaigns/{method}/plan.parquet")
         try:
-            run_ids = set(pq.read_table(plan, columns=["runId"])["runId"].to_pylist())
+            run_ids = set(read_parquet(plan, columns=["runId"])["runId"].to_pylist())
         except Exception as error:
             raise FileExistsError(f"invalid init campaign plan: {method}") from error
         if not run_ids or any(

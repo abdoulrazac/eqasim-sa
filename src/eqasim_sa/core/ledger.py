@@ -15,6 +15,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from eqasim_sa.utils import platform
+from eqasim_sa.utils.arrow import read_parquet
 from eqasim_sa.utils.filesystem import (
     DirectoryAnchor,
     FileState,
@@ -383,7 +384,7 @@ def completion_state(
                 if parquet.metadata.num_rows != 1:
                     raise ValueError("row count mismatch")
                 metadata = dict(parquet.schema_arrow.metadata or {})
-                table = parquet.read()
+                table = read_parquet(parquet)
                 codecs = {
                     parquet.metadata.row_group(group)
                     .column(column)

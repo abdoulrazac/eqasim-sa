@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix: commands could hang forever at exit after printing their result;
+  Arrow reads (Parquet and CSV) no longer use worker threads.
 - BREAKING: analysis scripts. A new optional `analyses` block declares Python
   scripts (`script`, relative to the meta-configuration or absolute; `inputs`,
   archived `.csv` or `.gpkg` outputs; optional `category`, `simulated`,

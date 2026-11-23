@@ -13,7 +13,6 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 import pyarrow as pa
-import pyarrow.parquet as pq
 import yaml
 
 from eqasim_sa.adapters.eqasim.config import load_yaml_document
@@ -26,6 +25,7 @@ from eqasim_sa.core.run import validate_model_document
 from eqasim_sa.core.sensitivity import engine_descriptor, morris_unit_trajectories
 from eqasim_sa.core.software_identity import read_software_identity
 from eqasim_sa.utils import platform
+from eqasim_sa.utils.arrow import read_parquet
 from eqasim_sa.utils.filesystem import resolve_root
 from eqasim_sa.utils.text_identity import canonical_json_sha256, lf_sha256
 
@@ -216,7 +216,7 @@ def _sealed_morris_plan(
     if platform.is_link(path) or not path.is_file():
         raise ValueError(f"plan.parquet must be a regular non-symlink file: {path}")
     try:
-        table = pq.ParquetFile(path).read()
+        table = read_parquet(path)
     except (OSError, pa.ArrowException) as error:
         raise ValueError(f"malformed plan.parquet: {path}: {error}") from error
     metadata = table.schema.metadata or {}

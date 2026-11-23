@@ -16,6 +16,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from eqasim_sa.utils import platform
+from eqasim_sa.utils.arrow import read_parquet
 from eqasim_sa.utils.filesystem import (
     FileState,
     StableFile,
@@ -203,7 +204,7 @@ class CampaignSnapshot:
         columns = len(parquet.schema_arrow)
         if rows > MAX_PLAN_POSITIONS or rows * columns > MAX_PLAN_CELLS:
             raise ValueError("plan exceeds the operational allocation cap")
-        table = parquet.read()
+        table = read_parquet(parquet)
         _verify_stable_state(source)
         return PlanSnapshot(source, table, context_descriptor(table))
 

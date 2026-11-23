@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 import pyarrow as pa
-import pyarrow.parquet as pq
 
 from eqasim_sa.core.analysis_publication import (
     AnalysisArtifact,
@@ -48,7 +47,7 @@ from eqasim_sa.core.reporting import (
     _output_summary_table,
 )
 from eqasim_sa.core.software_identity import read_software_identity
-from eqasim_sa.utils.arrow import rows_to_table
+from eqasim_sa.utils.arrow import read_parquet, rows_to_table
 from eqasim_sa.utils import platform
 from eqasim_sa.utils.filesystem import open_regular
 
@@ -790,7 +789,7 @@ def _failure_ids(campaign_root: Path, incomplete: set[str]) -> set[str]:
 
 
 def _dispersion_table(plan: Path, rows: list[tuple[str, str, float]]) -> pa.Table:
-    table = pq.read_table(plan)
+    table = read_parquet(plan)
     fixed = {"designId", "method", "role", "runId", "seed", "contextHash"}
     parameters = tuple(sorted(set(table.column_names) - fixed))
     reserved = {"indicator", "n", "mean", "std", "cv", "ci95_low", "ci95_high"}

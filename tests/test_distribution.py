@@ -62,6 +62,7 @@ def test_installed_metadata_and_commands(tmp_path: Path) -> None:
         check=True,
         text=True,
         capture_output=True,
+        timeout=300,
     )
     init_help = subprocess.run(
         [installed_script("eqasim-sa"), "init", "--help"],
@@ -69,11 +70,13 @@ def test_installed_metadata_and_commands(tmp_path: Path) -> None:
         check=True,
         text=True,
         capture_output=True,
+        timeout=300,
     )
     subprocess.run(
         [installed_script("eqasim-sa-fake-pipeline"), "--help"],
         cwd=tmp_path,
         check=True,
+        timeout=300,
     )
     assert "init" in help_result.stdout
     assert all(
@@ -219,6 +222,7 @@ def test_installed_init_generates_template_without_campaign_execution(tmp_path: 
         check=True,
         text=True,
         capture_output=True,
+        timeout=300,
     )
 
     payload = json.loads(completed.stdout)
@@ -329,20 +333,20 @@ def test_installed_plan_creates_replays_and_refuses_conflict(tmp_path: Path) -> 
     meta.write_text(template.format(root="campaign", values="0.1, 0.2"))
     command = [installed_script("eqasim-sa"), "plan", "--meta-config", meta]
     created = subprocess.run(
-        command, cwd=tmp_path, check=True, text=True, capture_output=True
+        command, cwd=tmp_path, check=True, text=True, capture_output=True, timeout=300
     )
     before = (tmp_path / "campaign" / "plan.parquet").read_bytes()
     unchanged = subprocess.run(
-        command, cwd=tmp_path, check=True, text=True, capture_output=True
+        command, cwd=tmp_path, check=True, text=True, capture_output=True, timeout=300
     )
     meta.write_text(template.format(root="campaign", values="0.3"))
-    failed = subprocess.run(command, cwd=tmp_path, text=True, capture_output=True)
+    failed = subprocess.run(command, cwd=tmp_path, text=True, capture_output=True, timeout=300)
     assert json.loads(created.stdout)["status"] == "created"
     assert json.loads(unchanged.stdout)["status"] == "unchanged"
     assert failed.returncode == 1 and json.loads(failed.stdout)["status"] == "failed"
     assert (tmp_path / "campaign" / "plan.parquet").read_bytes() == before
     meta.write_text(template.format(root="campaign-2", values="0.1, 0.2"))
-    subprocess.run(command, cwd=tmp_path, check=True, text=True, capture_output=True)
+    subprocess.run(command, cwd=tmp_path, check=True, text=True, capture_output=True, timeout=300)
     assert (tmp_path / "campaign-2" / "plan.parquet").read_bytes() == before
     scratch = tmp_path / "scratch"
     scratch.mkdir()
@@ -360,6 +364,7 @@ def test_installed_plan_creates_replays_and_refuses_conflict(tmp_path: Path) -> 
         check=True,
         text=True,
         capture_output=True,
+        timeout=300,
     )
     assert json.loads(executed.stdout) == {
         "status": "completed",
@@ -381,6 +386,7 @@ def test_installed_plan_creates_replays_and_refuses_conflict(tmp_path: Path) -> 
         [installed_script("eqasim-sa"), "plan", "--meta-config", meta],
         cwd=tmp_path,
         check=True,
+        timeout=300,
     )
     estimate = subprocess.run(
         [
@@ -395,6 +401,7 @@ def test_installed_plan_creates_replays_and_refuses_conflict(tmp_path: Path) -> 
         check=True,
         text=True,
         capture_output=True,
+        timeout=300,
     )
     payload = json.loads(estimate.stdout)
     marker_bytes = sum(
@@ -427,6 +434,7 @@ def test_installed_plan_creates_replays_and_refuses_conflict(tmp_path: Path) -> 
         check=True,
         text=True,
         capture_output=True,
+        timeout=300,
     )
     static_payload = json.loads(static.stdout)
     assert static_payload["status"] == "valid"
@@ -455,6 +463,7 @@ def test_installed_plan_creates_replays_and_refuses_conflict(tmp_path: Path) -> 
         check=True,
         text=True,
         capture_output=True,
+        timeout=300,
     )
     smoke_payload = json.loads(smoke.stdout)
     assert smoke_payload["status"] == "valid" and smoke_payload["checks"][-1] == {
@@ -471,6 +480,7 @@ def test_installed_plan_creates_replays_and_refuses_conflict(tmp_path: Path) -> 
         check=True,
         text=True,
         capture_output=True,
+        timeout=300,
     )
     assert json.loads(resumed.stdout) == {
         "status": "completed",
@@ -522,6 +532,7 @@ def test_installed_campaign_interrupts_resumes_then_is_noop(tmp_path: Path) -> N
         [installed_script("eqasim-sa"), "plan", "--meta-config", meta],
         cwd=tmp_path,
         check=True,
+        timeout=300,
     )
     environment = os.environ.copy()
     record = tmp_path / "record.json"
@@ -542,6 +553,7 @@ def test_installed_campaign_interrupts_resumes_then_is_noop(tmp_path: Path) -> N
         check=True,
         text=True,
         capture_output=True,
+        timeout=300,
     )
     noop = subprocess.run(
         command,
@@ -550,6 +562,7 @@ def test_installed_campaign_interrupts_resumes_then_is_noop(tmp_path: Path) -> N
         check=True,
         text=True,
         capture_output=True,
+        timeout=300,
     )
     assert json.loads(resumed.stdout)["total"] == 1
     assert json.loads(noop.stdout) == {
@@ -594,10 +607,10 @@ def test_installed_cli_completes_then_skips(tmp_path: Path) -> None:
         tmp_path / "work",
     ]
     first = subprocess.run(
-        command, cwd=tmp_path, check=True, text=True, capture_output=True
+        command, cwd=tmp_path, check=True, text=True, capture_output=True, timeout=300
     )
     second = subprocess.run(
-        command, cwd=tmp_path, check=True, text=True, capture_output=True
+        command, cwd=tmp_path, check=True, text=True, capture_output=True, timeout=300
     )
     assert json.loads(first.stdout)["status"] == "completed"
     assert json.loads(second.stdout)["status"] == "skipped"
@@ -637,7 +650,7 @@ def test_fake_simulator_prefers_script_next_to_python(tmp_path: Path) -> None:
         tmp_path / "work",
     ]
     result = subprocess.run(
-        command, cwd=tmp_path, env=environment, text=True, capture_output=True
+        command, cwd=tmp_path, env=environment, text=True, capture_output=True, timeout=300
     )
     assert result.returncode == 0
     assert json.loads(result.stdout)["status"] == "completed"
@@ -669,6 +682,7 @@ def test_cli_reports_non_object_config_as_structured_failure(tmp_path: Path) -> 
             cwd=tmp_path,
             text=True,
             capture_output=True,
+            timeout=300,
         )
         assert result.returncode == 1
         assert json.loads(result.stdout)["status"] == "failed"
@@ -690,6 +704,7 @@ def test_fake_executable_requires_request_and_manifest(tmp_path: Path) -> None:
         cwd=tmp_path,
         text=True,
         capture_output=True,
+        timeout=300,
     )
     assert result.returncode != 0
 
@@ -740,6 +755,7 @@ def test_installed_cli_runs_eqasim_subprocess_then_skips(tmp_path: Path) -> None
         check=True,
         text=True,
         capture_output=True,
+        timeout=300,
     )
     first_record = json.loads(record.read_text())
     record.unlink()
@@ -750,6 +766,7 @@ def test_installed_cli_runs_eqasim_subprocess_then_skips(tmp_path: Path) -> None
         check=True,
         text=True,
         capture_output=True,
+        timeout=300,
     )
     first_result = json.loads(first.stdout)
     assert first_result["status"] == "completed"
@@ -817,6 +834,7 @@ def test_installed_cli_publishes_eqasim_failure_log(tmp_path: Path) -> None:
         env=environment,
         text=True,
         capture_output=True,
+        timeout=300,
     )
     payload = json.loads(result.stdout)
     assert result.returncode == 1
