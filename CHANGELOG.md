@@ -4,13 +4,15 @@
 
 - New `eqasim-sa plot --meta-config PATH [--figure NAME ...]` command. It draws,
   from the published analysis generation and after verifying the sha256 of each
-  table, only the figures valid for the campaign's method and published tables
+  published output it reads, only the figures valid for the campaign's method and published tables
   (`output-summary`, `grid-response`, `oat-effects`, `sobol-indices`,
   `morris-plane`, `morris-convergence`, `morris-rank-reversals`,
   `morris-noise-floor`, `multiscramble-indices`, `multiscramble-convergence`,
   `multiscramble-by-scramble`), as PNG files plus `figures.json` in
   `figures/<generationId>/`. The figures are not part of the sealed generation
-  and nothing is written under `analysis/`. See `docs/workflow-and-results.md`.
+  and nothing is written under `analysis/`. Rerunning `eqasim-sa init` on the
+  project accepts the `figures/` directory that `plot` writes. See
+  `docs/workflow-and-results.md`.
 - Fix: commands could hang forever at exit after printing their result;
   Arrow reads (Parquet and CSV) no longer use worker threads.
 - BREAKING: analysis scripts. A new optional `analyses` block declares Python

@@ -7,8 +7,9 @@ normalement un objet JSON sur la sortie standard. Les avertissements, notamment
 la capacité Sobol, vont sur la sortie d'erreur. `--help` et l'absence de
 sous-commande affichent du texte, pas du JSON. Une erreur de syntaxe `argparse`
 affiche l'usage et renvoie 2. Une interruption peut terminer à 130 sans garantir
-qu'un objet JSON complet ait été écrit. `show-config` fait exception : elle
-affiche du YAML, jamais du JSON.
+qu'un objet JSON complet ait été écrit. `show-config` et `plot` font exception :
+`show-config` affiche du YAML, jamais du JSON ; `plot` affiche du JSON en cas de
+succès mais écrit ses erreurs en texte brut sur la sortie d'erreur.
 
 ## `init`
 
@@ -168,7 +169,7 @@ eqasim-sa plot --meta-config PATH [--figure NAME ...]
 
 Dessine les figures valables pour la génération d'analyse publiée dans
 `figures/<generationId>/` (PNG et `figures.json`), après avoir vérifié le sha256
-de chaque table lue. Elle exige un `analyze` préalable et n'écrit rien sous
+de chaque sortie publiée lue. Elle exige un `analyze` préalable et n'écrit rien sous
 `analysis/`. `--figure` est répétable et limite le dessin aux figures nommées ;
 une figure qui n'est pas valable pour la méthode de la campagne et les tables
 publiées est une erreur qui liste les figures valables. Le dossier de la
@@ -219,6 +220,6 @@ le run archive exactement ces fichiers. Réponse : `runId`, `status`, `error`.
 | 130 | interruption clavier gérée au niveau de l'application |
 
 Les erreurs applicatives sont normalement encodées dans le JSON ; `show-config`
-les écrit en texte brut sur la sortie d'erreur. `init` et
+et `plot` les écrivent en texte brut sur la sortie d'erreur. `init` et
 `check` masquent les chemins absolus dans leurs messages; cette garantie n'est
 pas appliquée uniformément aux autres commandes.

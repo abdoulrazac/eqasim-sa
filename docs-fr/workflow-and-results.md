@@ -196,8 +196,8 @@ Le scratch contient les caches synpp et tentatives temporaires. Il est jetable.
 ## Figures
 
 `eqasim-sa plot` dessine des figures à partir de la génération d'analyse
-publiée. Elle lit `analysis-generation.json`, vérifie le sha256 de chaque table
-avant de s'en servir, et écrit des PNG ainsi qu'un index `figures.json` dans
+publiée. Elle lit `analysis-generation.json`, vérifie le sha256 de chaque sortie
+publiée (table ou document JSON) avant de la lire, et écrit des PNG ainsi qu'un index `figures.json` dans
 `figures/<generationId>/`. Elle ne lit pas les runs ; elle vérifie seulement la
 méta-configuration contre le plan scellé, donc `plot` a besoin de la
 méta-configuration de la campagne et de son plan scellé. Elle n'écrit rien sous
@@ -225,23 +225,32 @@ dont la table de dispersion est publiée.
 | `morris-convergence` | `canonical_morris` | table de convergence | `mu_star` et son IC selon `checkpoint_trajectories`, une courbe par facteur. |
 | `morris-rank-reversals` | `canonical_morris` | table d'inversions de rang | Carte `factor_a` × `factor_b` de la probabilité que l'ordre publié de la paire soit inversé, au dernier point de contrôle. Affichée n/a quand aucune probabilité n'est publiée pour la paire (par exemple en cas d'égalité). |
 | `morris-noise-floor` | `canonical_morris` | `noise-floor.parquet` | Deux séries distinctes par trajectoire et par rang : l'écart-type intrinsèque et l'erreur-type Monte-Carlo de la moyenne (pas sd ± mcse). `replication-allocation.json` n'est publié qu'en phase pilote ; quand il l'est et que son `targetMcse` est fini, la ligne de référence `targetMcse` n'est tracée que sur la figure de son `primaryIndicator`. |
-| `multiscramble-indices` | `multiscramble_sobol` | table de sensibilité | `first_order_mean` et `total_order_mean` avec leur IC au dernier point de contrôle. Les facteurs non actionnables (le facteur graine) sont grisés, hachurés, placés à part et sans rang. |
-| `multiscramble-convergence` | `multiscramble_sobol` | table de convergence, rapport gouverné | La largeur de l'IC, par facteur actionnable, de l'ordre qui correspond à l'objectif (premier ordre pour `fp`, ordre total pour `ff`), plus la courbe du maximum utilisée par le critère d'arrêt. Le facteur graine est grisé et exclu de ce maximum. Le seuil `ci_width` est tracé sur l'indicateur principal seulement, quand le rapport gouverné en définit un. |
-| `multiscramble-by-scramble` | `multiscramble_sobol` | table par scramble | Un point par scramble et par facteur, au dernier point de contrôle. |
+| `multiscramble-indices` | `multiscramble_sobol` | table de sensibilité | `first_order_mean` et `total_order_mean` avec leur IC au dernier point de contrôle, c'est-à-dire la plus grande taille d'échantillon de base N (le titre donne N et le nombre de scrambles). Chaque facteur actionnable porte son rang, et le titre énonce la règle de rang de l'objectif : pour `ff`, borne haute de l'IC de l'ordre total croissante (rang 1 = meilleur candidat à fixer) ; pour `fp`, premier ordre moyen décroissant (rang 1 = facteur le plus influent). Les facteurs à égalité partagent leur rang moyen, affiché tel quel (par exemple 2.5). Les facteurs non actionnables (le facteur graine) sont grisés, hachurés, placés à part et sans rang. |
+| `multiscramble-convergence` | `multiscramble_sobol` | table de convergence, rapport gouverné | La largeur de l'IC en fonction de la taille d'échantillon de base N de chaque point de contrôle (le nombre de scrambles reste fixe), par facteur actionnable, pour l'ordre qui correspond à l'objectif (premier ordre pour `fp`, ordre total pour `ff`), plus le maximum sur les facteurs actionnables. Le facteur graine est grisé et exclu de ce maximum. Le critère d'arrêt ne lit que l'indicateur principal : sur celui-ci, le maximum est légendé comme critère et le seuil `ci_width` est tracé quand le rapport gouverné en définit un ; sur les autres indicateurs, la courbe est seulement légendée « max des facteurs actionnables », sans seuil. |
+| `multiscramble-by-scramble` | `multiscramble_sobol` | table par scramble | Un point par scramble et par facteur, au dernier point de contrôle (la plus grande taille d'échantillon de base N, donnée dans le titre). |
 
 Tous les intervalles de confiance sont tracés exactement comme publiés, jamais
 tronqués, même lorsqu'un IC bootstrap ne contient pas son estimation. Chaque
-figure porte en pied une ligne `méthode · inferenceStatus · claimAuthorized=false ·
-reasonCodes · génération <12 premiers caractères>`, et un bandeau rouge
-« campagne incomplète » quand le statut est `incomplete_noninferential`. Avec
-plusieurs indicateurs, l'indicateur principal passe en premier et les fichiers
-se nomment `<figure>-<indicateur>.png` ; `output-summary.png` n'a pas de suffixe
-d'indicateur.
+figure porte en pied une ligne `méthode · inferenceStatus · claimAuthorized=<true|false> ·
+reasonCodes · génération <12 premiers caractères>`, où `claimAuthorized` est lu
+dans le rapport gouverné (toujours `false` à ce jour), repliée sur plusieurs
+lignes quand elle est trop longue pour la largeur de la figure, et un bandeau
+rouge « campagne incomplète » quand le statut est `incomplete_noninferential`.
+Avec plusieurs indicateurs, l'indicateur principal de la décision de la charte
+(`decision.primary_indicator` dans le rapport gouverné) passe en premier, puis
+les autres par ordre alphabétique ; sans décision de charte, l'ordre est
+alphabétique. Les fichiers se nomment `<figure>-<indicateur>.png` ;
+`output-summary.png` n'a pas de suffixe d'indicateur. Dans le nom de fichier,
+tout caractère de l'indicateur hors de `[A-Za-z0-9_-]` devient `_` (par exemple
+`grid-response-tv_distance_age__ref_reference_.png`). Si deux figures devaient
+porter le même nom de fichier, la commande échoue avant toute écriture.
 
 `figures.json` contient `generationId`, `method`, `inferenceStatus`, `figures`
 (chacune avec `name`, `indicator`, `file`, `sources`, le rôle et le sha256 de
-chaque table dessinée, et `omitted`, ce qui n'a pas pu être tracé) et `skipped`
-(figures ignorées avec leur `reason`).
+chaque sortie publiée dont la figure est tirée, pas seulement les tables :
+`governedReport` (le tampon) est toujours listé, et `replicationAllocation`
+quand sa ligne de cible est tracée ; et `omitted`, ce qui n'a pas pu être tracé)
+et `skipped` (figures ignorées avec leur `reason`).
 
 ## Marqueur de complétude
 

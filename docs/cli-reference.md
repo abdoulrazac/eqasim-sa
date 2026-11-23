@@ -7,7 +7,9 @@ writes a JSON object to standard output. Warnings, notably about Sobol capacity,
 are written to standard error. `--help` and omitting the subcommand display text,
 not JSON. An `argparse` syntax error displays usage information and returns 2. An
 interrupt may terminate with 130 without guaranteeing that a complete JSON object
-has been written. `show-config` is the exception: it prints YAML, never JSON.
+has been written. `show-config` and `plot` are the exceptions: `show-config`
+prints YAML, never JSON; `plot` prints JSON on success but writes its errors as
+plain text on standard error.
 
 ## `init`
 
@@ -169,7 +171,7 @@ eqasim-sa plot --meta-config PATH [--figure NAME ...]
 
 Draws the figures valid for the published analysis generation into
 `figures/<generationId>/` (PNG files and `figures.json`), after verifying the
-sha256 of every table it reads. It requires a previous `analyze` and writes
+sha256 of every published output it reads. It requires a previous `analyze` and writes
 nothing under `analysis/`. `--figure` is repeatable and restricts the drawing to
 the named figures; a figure that is not valid for the campaign's method and
 published tables is an error that lists the valid figures. The directory of the
@@ -218,7 +220,7 @@ the run archives exactly these files. Response: `runId`, `status`, `error`.
 | 2 | invalid CLI arguments reported by `argparse` |
 | 130 | keyboard interrupt handled at the application level |
 
-Application errors are normally encoded in JSON; `show-config` writes them as
-plain text on standard error. `init` and `check` redact
+Application errors are normally encoded in JSON; `show-config` and `plot` write
+them as plain text on standard error. `init` and `check` redact
 absolute paths from their messages; this guarantee is not applied uniformly to
 the other commands.

@@ -194,8 +194,8 @@ Scratch space contains synpp caches and temporary attempts. It is disposable.
 ## Figures
 
 `eqasim-sa plot` draws figures from the published analysis generation. It reads
-`analysis-generation.json`, checks the sha256 of every table before drawing from
-it, and writes PNG files plus an index `figures.json` to
+`analysis-generation.json`, checks the sha256 of every published output (table
+or JSON document) before reading it, and writes PNG files plus an index `figures.json` to
 `figures/<generationId>/`. It does not read the runs; it only checks the
 meta-configuration against the sealed plan, so `plot` needs the campaign's
 meta-configuration and sealed plan. It writes nothing under `analysis/`. The figures are not part of the sealed generation and
@@ -221,22 +221,31 @@ campaign whose dispersion table is published.
 | `morris-convergence` | `canonical_morris` | convergence table | `mu_star` and its CI along `checkpoint_trajectories`, one line per factor. |
 | `morris-rank-reversals` | `canonical_morris` | rank-reversal table | A `factor_a` by `factor_b` map of the probability that the published order of the pair is reversed, at the last checkpoint. Shown as n/a when no probability is published for the pair (for example a tie). |
 | `morris-noise-floor` | `canonical_morris` | `noise-floor.parquet` | Two separate series per trajectory and rank: the intrinsic standard deviation and the Monte Carlo standard error of the mean (not sd +/- mcse). `replication-allocation.json` is published in the pilot phase only; when it is, and its `targetMcse` is finite, the `targetMcse` reference line is drawn on the figure of its `primaryIndicator` only. |
-| `multiscramble-indices` | `multiscramble_sobol` | sensitivity table | `first_order_mean` and `total_order_mean` with their CI at the last checkpoint. Non-actionable factors (the seed factor) are grey, hatched, placed apart, and show no rank. |
-| `multiscramble-convergence` | `multiscramble_sobol` | convergence table, governed report | The CI width, per actionable factor, of the order that matches the objective (first order for `fp`, total order for `ff`), plus the maximum curve used by the stopping criterion. The seed factor is grey and excluded from that maximum. The `ci_width` threshold is drawn on the primary indicator only, when the governed report defines one. |
-| `multiscramble-by-scramble` | `multiscramble_sobol` | by-scramble table | One point per scramble and per factor, at the last checkpoint. |
+| `multiscramble-indices` | `multiscramble_sobol` | sensitivity table | `first_order_mean` and `total_order_mean` with their CI at the last checkpoint, that is the largest base sample size N (the title gives N and the number of scrambles). Each actionable factor shows its rank, and the title states the ranking rule of the objective: for `ff`, increasing upper CI bound of the total order (rank 1 = best candidate to fix); for `fp`, decreasing mean first order (rank 1 = most influential factor). Tied factors share their average rank, printed as is (for example 2.5). Non-actionable factors (the seed factor) are grey, hatched, placed apart, and show no rank. |
+| `multiscramble-convergence` | `multiscramble_sobol` | convergence table, governed report | The CI width against the base sample size N of each checkpoint (the number of scrambles stays fixed), per actionable factor, of the order that matches the objective (first order for `fp`, total order for `ff`), plus the maximum over the actionable factors. The seed factor is grey and excluded from that maximum. The stopping criterion reads the primary indicator only: there the maximum is labelled as the criterion and the `ci_width` threshold is drawn when the governed report defines one; on the other indicators the curve is only labelled "max des facteurs actionnables", with no threshold. |
+| `multiscramble-by-scramble` | `multiscramble_sobol` | by-scramble table | One point per scramble and per factor, at the last checkpoint (the largest base sample size N, given in the title). |
 
 Every confidence interval is drawn exactly as published, never clamped, even
 when a bootstrap interval does not contain its estimate. Every figure carries a
-foot line `method · inferenceStatus · claimAuthorized=false · reasonCodes ·
-génération <first 12 characters>`, and a red "campagne incomplète" banner when
-the status is `incomplete_noninferential`. With several indicators, the primary
-indicator comes first and files are named `<figure>-<indicator>.png`;
-`output-summary.png` has no indicator suffix.
+foot line `method · inferenceStatus · claimAuthorized=<true|false> · reasonCodes ·
+génération <first 12 characters>`, with `claimAuthorized` read from the governed
+report (currently always `false`), wrapped onto several lines when it is too
+long for the figure width, and a red "campagne incomplète" banner when the
+status is `incomplete_noninferential`. With several indicators, the primary
+indicator of the charter decision (`decision.primary_indicator` in the governed
+report) comes first, then the others in alphabetical order; without a charter
+decision the order is alphabetical. Files are named `<figure>-<indicator>.png`;
+`output-summary.png` has no indicator suffix. In the file name, every character
+of the indicator outside `[A-Za-z0-9_-]` becomes `_` (for example
+`grid-response-tv_distance_age__ref_reference_.png`). If two figures would get
+the same file name, the command fails before anything is written.
 
 `figures.json` holds `generationId`, `method`, `inferenceStatus`, `figures` (each
 with `name`, `indicator`, `file`, `sources`, the role and sha256 of every
-table drawn, and `omitted`, what could not be drawn) and `skipped` (figures
-skipped with their `reason`).
+published output the figure is drawn from, not only tables: `governedReport`
+(the stamp) is always listed, and `replicationAllocation` when its target line
+is drawn; and `omitted`, what could not be drawn) and `skipped` (figures skipped
+with their `reason`).
 
 ## Completion Marker
 
