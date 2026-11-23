@@ -13,7 +13,7 @@ import pytest
 import yaml
 
 from eqasim_sa.adapters import analysis_execution
-from eqasim_sa.adapters.analysis_execution import AnalysisCache
+from eqasim_sa.adapters.analysis_execution import AnalysisCache, environment_digest
 from eqasim_sa.adapters import checks
 from eqasim_sa.adapters.application import (
     analyze_from_meta_config,
@@ -283,11 +283,24 @@ def test_publication_records_analysis_provenance(tmp_path: Path, spy: None) -> N
     assert record["sha256"] == hashlib.sha256(cached.read_bytes()).hexdigest()
     assert record["size"] == cached.stat().st_size
     assert len(record["environmentFingerprint"]) == 64
+    assert "environment" not in record
+    environment = manifest["provenance"]["analysisEnvironments"]["commute"]
+    assert set(environment) == {
+        "python",
+        "pandas",
+        "numpy",
+        "pyarrow",
+        "geopandas",
+        "shapely",
+        "pyogrio",
+        "lockfileSha256",
+    }
+    assert environment_digest(environment) == record["environmentFingerprint"]
     run_set_path = tmp_path / "campaign" / manifest["outputs"]["capturedRunSet"]["path"]
     run_set = json.loads(run_set_path.read_text())
     assert run_set["schemaVersion"] == 2
     [described] = run_set["runs"]
-    assert described["analyses"] == {"commute": record}
+    assert described["analyses"] == {"commute": {**record, "environment": environment}}
     assert [item["name"] for item in described["artifacts"]] == ["age", "trips"]
 
 
@@ -300,7 +313,7 @@ def test_analyze_without_analyses_is_unchanged(
     def forbidden(*args, **kwargs):  # type: ignore[no-untyped-def]
         raise AssertionError("analysis machinery called")
 
-    monkeypatch.setattr(analysis_execution, "environment_fingerprint", forbidden)
+    monkeypatch.setattr(analysis_execution, "environment_document", forbidden)
     monkeypatch.setattr(analysis_execution, "run_analysis", forbidden)
     plan_from_meta_config(meta)
     run_from_meta_config(meta)
@@ -313,6 +326,7 @@ def test_analyze_without_analyses_is_unchanged(
     assert not (tmp_path / "campaign" / "analyses-cache").exists()
     manifest = _manifest(tmp_path)
     assert manifest["provenance"]["analyses"] == {}
+    assert manifest["provenance"]["analysisEnvironments"] == {}
     run_set = json.loads(
         (tmp_path / "campaign" / manifest["outputs"]["capturedRunSet"]["path"]).read_text()
     )

@@ -326,13 +326,13 @@ Each result is identified by a fingerprint: a SHA-256 (domain
 `eqasim-sa:analysis-result:v1`) of the analysis name, the script content
 (line endings normalized), the SHA-256 of each input file, the run parameters,
 and the environment fingerprint. The environment fingerprint is a SHA-256 of
-the Python version, the pandas, numpy, and pyarrow versions reported by the
-interpreter, and the SHA-256 of `uv.lock` in the eqasim folder. Consequently:
+the Python version, the pandas, numpy, pyarrow, geopandas, shapely, and pyogrio
+versions reported by the interpreter (`null` when a library is absent), and the SHA-256 of `uv.lock` in the eqasim folder. Consequently:
 
 - nothing is recomputed when nothing changed;
 - editing a script recomputes the results of that analysis only;
 - new runs compute only their own results;
-- another Python, pandas, numpy, or pyarrow version, or another `uv.lock`,
+- another Python, pandas, numpy, pyarrow, geopandas, shapely, or pyogrio version, or another `uv.lock`,
   recomputes every result; a change of the eqasim code alone does not (hence
   rule 1).
 
@@ -377,7 +377,10 @@ SHA-256 of each input, and the SHA-256 and size of the result:
 
 - in `captured-run-set.json` (schema version 2), under `analyses` in each run;
 - in `analysis-generation.json` (version 8), under `provenance.analyses`, by
-  analysis then by `runId`.
+  analysis then by `runId`; the reported versions and the `uv.lock` SHA-256
+  that make up the environment fingerprint are recorded once per analysis
+  under `provenance.analysisEnvironments` (an additive field: the manifest
+  stays at version 8).
 
 The definition of an indicator that reads an analysis output describes it by
 `{name, analysis, inputs, separator}` (domain

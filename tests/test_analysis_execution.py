@@ -14,6 +14,7 @@ from eqasim_sa.adapters.analysis_execution import (
     AnalysisCache,
     AnalysisResult,
     AnalysisScriptError,
+    environment_document,
     environment_fingerprint,
     result_fingerprint,
     run_analysis,
@@ -247,6 +248,13 @@ def _wrapper(tmp_path: Path, body: str) -> tuple[str, ...]:
     return (sys.executable, str(wrapper))
 
 
+def _installed(name: str):
+    try:
+        return __import__(name).__version__
+    except ImportError:
+        return None
+
+
 def _expected_environment(versions: dict, lockfile_sha256) -> str:
     document = {**versions, "lockfileSha256": lockfile_sha256}
     payload = json.dumps(
@@ -271,6 +279,9 @@ def test_probe_reports_null_for_missing_pyarrow(tmp_path):
             "pandas": pandas.__version__,
             "numpy": numpy.__version__,
             "pyarrow": None,
+            "geopandas": _installed("geopandas"),
+            "shapely": _installed("shapely"),
+            "pyogrio": _installed("pyogrio"),
         },
         None,
     )
@@ -283,7 +294,7 @@ def test_environment_fingerprint_uses_reported_versions(tmp_path):
     lockfile.write_bytes(b"version = 1\r\n")
     python = _wrapper(
         tmp_path,
-        "for name in ('pandas', 'numpy', 'pyarrow'):\n"
+        "for name in ('pandas', 'numpy', 'pyarrow', 'geopandas', 'shapely'):\n"
         "    module = types.ModuleType(name)\n"
         "    module.__version__ = name + '-reported'\n"
         "    sys.modules[name] = module",
@@ -297,6 +308,9 @@ def test_environment_fingerprint_uses_reported_versions(tmp_path):
             "pandas": "pandas-reported",
             "numpy": "numpy-reported",
             "pyarrow": "pyarrow-reported",
+            "geopandas": "geopandas-reported",
+            "shapely": "shapely-reported",
+            "pyogrio": _installed("pyogrio"),
         },
         hashlib.sha256(b"version = 1\n").hexdigest(),
     )
@@ -428,3 +442,70 @@ def test_log_write_failure_keeps_the_script_error(tmp_path, monkeypatch):
     )
     assert isinstance(caught.value.__cause__, OSError)
     assert str(caught.value.__cause__) == "disk full"
+
+
+def test_environment_document_lists_every_reported_version(tmp_path):
+    model = tmp_path / "model"
+    model.mkdir()
+    python = _wrapper(
+        tmp_path, "sys.modules['geopandas'] = None\nsys.modules['pyogrio'] = None"
+    )
+
+    document = environment_document(python, model, model / "uv.lock")
+
+    assert set(document) == {
+        "python",
+        "pandas",
+        "numpy",
+        "pyarrow",
+        "geopandas",
+        "shapely",
+        "pyogrio",
+        "lockfileSha256",
+    }
+    assert document["geopandas"] is None
+    assert document["pyogrio"] is None
+    assert document["lockfileSha256"] is None
+    assert environment_fingerprint(python, model, model / "uv.lock") == (
+        hashlib.sha256(
+            json.dumps(
+                document, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode("utf-8")
+        ).hexdigest()
+    )
+
+
+def test_cleanup_failure_does_not_fail_a_computed_result(tmp_path, monkeypatch):
+    campaign, model, archive = _campaign(tmp_path)
+    script = tmp_path / "ok.py"
+    script.write_text(
+        "import pandas\n\ndef compute(files, parameters):\n"
+        "    return pandas.DataFrame({'a': [1]})\n",
+        encoding="utf-8",
+    )
+
+    def locked(*args, **kwargs):
+        raise PermissionError("held by an indexer")
+
+    monkeypatch.setattr(analysis_execution.shutil, "rmtree", locked)
+    monkeypatch.setattr(analysis_execution.time, "sleep", lambda _seconds: None)
+
+    result = _run(_declaration("ok", script), archive, campaign, model)
+
+    assert read_csv_table(result.path, ",", "ok").num_rows == 1
+
+
+def test_cache_get_ignores_a_linked_analysis_directory(tmp_path):
+    cache = analysis_execution.AnalysisCache(tmp_path)
+    cache.root.mkdir()
+    target = tmp_path / "elsewhere"
+    target.mkdir()
+    fingerprint = "a" * 64
+    (target / f"{fingerprint}.csv").write_text("a\n1\n", encoding="utf-8")
+    try:
+        (cache.root / "x").symlink_to(target, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symbolic links unavailable")
+
+    with pytest.raises((OSError, ValueError)):
+        cache.get("x", fingerprint)

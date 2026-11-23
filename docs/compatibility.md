@@ -40,7 +40,7 @@ migration between plan versions.
 ## Analysis and claim matrix
 
 Every analysis writes `analysis-generation.json` version 8 (with
-`provenance.analyses`), `captured-run-set.json` schema version 2 (with
+`provenance.analyses` and `provenance.analysisEnvironments`), `captured-run-set.json` schema version 2 (with
 `analyses` in each run), and `governed-report.json` version 1.
 For a scientific v3 analysis, `provenance.numericalEngine` is exactly the
 descriptor sealed in the plan.

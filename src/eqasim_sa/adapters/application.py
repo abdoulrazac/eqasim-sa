@@ -247,9 +247,10 @@ def _derived_outputs(meta, warnings: list[str], scripts: Path):  # type: ignore[
     if not used:
         return None
     python, model_root = meta.analysis_python, meta.model_root
-    environment = analysis_execution.environment_fingerprint(
+    environment_document = analysis_execution.environment_document(
         python, model_root, model_root / "uv.lock"
     )
+    environment = analysis_execution.environment_digest(environment_document)
     cache = analysis_execution.AnalysisCache(meta.campaign_root)
     declarations = {}
     for name in used:
@@ -283,6 +284,8 @@ def _derived_outputs(meta, warnings: list[str], scripts: Path):  # type: ignore[
                     "resultFingerprint": result.fingerprint,
                     "scriptSha256": result.script_sha256,
                     "environmentFingerprint": result.environment,
+                    # Hoisted once per analysis into the manifest provenance.
+                    "environment": dict(environment_document),
                     "inputsSha256": dict(result.inputs_sha256),
                     # Recorded by the cache: the copy is verified against it.
                     "sha256": result.path.with_name(f"{result.fingerprint}.sha256")

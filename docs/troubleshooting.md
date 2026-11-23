@@ -460,7 +460,7 @@ python]` or the path of the `python` of eqasim's virtual environment. See
 ## `analysis interpreter probe failed: ...`
 
 Cause: before running any script, `analyze` starts the analysis interpreter
-once to read the Python, pandas, numpy, and pyarrow versions, and that start
+once to read the Python, pandas, numpy, pyarrow, geopandas, shapely, and pyogrio versions, and that start
 failed; the message ends with the last line of its error output (for example
 pandas missing, or `uv` unable to create eqasim's environment). Remedy: check
 that the command of `execution.python` (or the default) works in the eqasim

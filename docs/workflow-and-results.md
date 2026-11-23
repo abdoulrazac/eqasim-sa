@@ -419,9 +419,9 @@ Each result is identified by its fingerprint, a SHA-256 under domain
 `eqasim-sa:analysis-result:v1` of the analysis name, the script SHA-256 (line
 endings normalized), the SHA-256 of each input, the run parameters
 (`runId`, `seed`, `factors`), and the environment fingerprint. The environment
-fingerprint is a SHA-256 of the Python, pandas, numpy, and pyarrow versions
-reported by the interpreter and of the SHA-256 of `uv.lock` in the eqasim
-folder, measured once per `analyze`. Results are cached in
+fingerprint is a SHA-256 of the Python, pandas, numpy, pyarrow, geopandas,
+shapely, and pyogrio versions reported by the interpreter and of the SHA-256
+of `uv.lock` in the eqasim folder, measured once per `analyze`. Results are cached in
 `analyses-cache/<analysis>/<fingerprint>.csv`, published atomically after
 `<fingerprint>.sha256`. A result whose fingerprint is cached is reused; an
 altered entry is removed, recomputed, and reported in the `warnings` field of
@@ -429,7 +429,9 @@ the `analyze` result. Deleting the cache loses nothing.
 
 For every analysis output and every run, the published analysis records the
 result fingerprint, the script SHA-256, the environment fingerprint, the
-SHA-256 of each input, and the SHA-256 and size of the result. Indicators
+SHA-256 of each input, and the SHA-256 and size of the result; the reported
+versions are recorded once per analysis in `provenance.analysisEnvironments`.
+Indicators
 reading an analysis output describe it by `{name, analysis, inputs,
 separator}` in their definition (domain `eqasim-sa:indicator-definition:v4`).
 A scientific charter's `primary_indicator` cannot read an analysis output.

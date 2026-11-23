@@ -103,8 +103,26 @@ class RunCapture:
         analyses: dict[str, dict[str, dict]] = {}
         for run in self.run_set_document["runs"]:  # type: ignore[union-attr]
             for name, record in run["analyses"].items():
-                analyses.setdefault(name, {})[run["runId"]] = dict(record)
+                record = dict(record)
+                record.pop("environment", None)
+                analyses.setdefault(name, {})[run["runId"]] = record
         return analyses
+
+    @property
+    def analysis_environments(self) -> dict[str, dict]:
+        """The interpreter environment each analysis ran in, once per analysis."""
+
+        environments: dict[str, dict] = {}
+        for run in self.run_set_document["runs"]:  # type: ignore[union-attr]
+            for name, record in run["analyses"].items():
+                environment = record.get("environment")
+                if name in environments and environments[name] != environment:
+                    raise ValueError(
+                        f"analysis {name!r} reports different environments across runs"
+                    )
+                if environment is not None:
+                    environments[name] = dict(environment)
+        return environments
 
 
 @dataclass(frozen=True)
@@ -525,6 +543,7 @@ class AnalysisPublication:
                 runs.scientific_execution_evidence_sha256
             ),
             "analyses": runs.analyses,
+            "analysisEnvironments": runs.analysis_environments,
             "dependencies": dependency_versions(software_identity),
             "indicators": [dict(identity) for identity in indicator_identities],
         }

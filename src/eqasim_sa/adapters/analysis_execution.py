@@ -26,6 +26,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -54,6 +55,8 @@ __all__ = (
     "AnalysisResult",
     "AnalysisScriptError",
     "analysis_interpreter",
+    "environment_digest",
+    "environment_document",
     "environment_fingerprint",
     "result_fingerprint",
     "run_analysis",
@@ -63,7 +66,7 @@ RESULT_DOMAIN = b"eqasim-sa:analysis-result:v1\0"
 RUNNER = Path(__file__).with_name("analysis_runner.py")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _NAME = re.compile(r"[A-Za-z0-9_-]+")
-_VERSIONS = ("python", "pandas", "numpy", "pyarrow")
+_VERSIONS = ("python", "pandas", "numpy", "pyarrow", "geopandas", "shapely", "pyogrio")
 _CREATE = (
     os.O_CREAT
     | os.O_EXCL
@@ -165,16 +168,32 @@ def _last_line(text: str, returncode: int) -> str:
 def environment_fingerprint(
     python: Sequence[str], model_root: Path, lockfile: Path | None
 ) -> str:
-    """SHA-256 of the interpreter's reported versions and eqasim's lockfile.
+    """SHA-256 of :func:`environment_document`."""
 
-    The versions of Python, pandas, numpy and pyarrow (``null`` when a
-    library is absent) are reported by a probe run with the interpreter; the
-    lockfile (normally ``model.root/uv.lock``) is hashed with LF line endings,
-    or ``null`` when it does not exist.
+    return environment_digest(environment_document(python, model_root, lockfile))
+
+
+def environment_digest(document: Mapping[str, object]) -> str:
+    """SHA-256 of an environment document."""
+
+    return hashlib.sha256(_canonical(document)).hexdigest()
+
+
+def environment_document(
+    python: Sequence[str], model_root: Path, lockfile: Path | None
+) -> dict[str, str | None]:
+    """The interpreter's reported versions and eqasim's lockfile identity.
+
+    The versions of Python, pandas, numpy, pyarrow, geopandas, shapely and
+    pyogrio (``null`` when a library is absent) are reported by a probe run
+    with the interpreter; the lockfile (normally ``model.root/uv.lock``) is
+    hashed with LF line endings, or ``null`` when it does not exist.
     """
 
     command = analysis_interpreter(python, model_root)
-    with tempfile.TemporaryDirectory(prefix="eqasim-sa-probe-") as temporary:
+    with tempfile.TemporaryDirectory(
+        prefix="eqasim-sa-probe-", ignore_cleanup_errors=True
+    ) as temporary:
         directory = Path(temporary)
         runner = _copy_runner(directory)
         report = directory / "versions.json"
@@ -200,8 +219,7 @@ def environment_fingerprint(
     lockfile_sha256 = (
         lf_sha256(lockfile) if lockfile is not None and lockfile.is_file() else None
     )
-    document = {**versions, "lockfileSha256": lockfile_sha256}
-    return hashlib.sha256(_canonical(document)).hexdigest()
+    return {**versions, "lockfileSha256": lockfile_sha256}
 
 
 def result_fingerprint(
@@ -290,6 +308,11 @@ class AnalysisCache:
 
         _sha256(fingerprint, "result fingerprint")
         directory = self._directory(name, create=False)
+        if not os.path.lexists(directory):
+            return None
+        # Same rule as put: a linked cache directory is never read.
+        secure_directory(self.root)
+        secure_directory(directory)
         result = directory / f"{fingerprint}.csv"
         digest = directory / f"{fingerprint}.sha256"
         if not os.path.lexists(result):
@@ -340,6 +363,24 @@ def _remove_tree(path: Path) -> None:
         function(target)
 
     shutil.rmtree(path, onexc=writable)
+
+
+def _remove_tree_best_effort(path: Path) -> None:
+    """Remove a temporary tree; a result must survive a locked leftover.
+
+    On Windows an indexer or antivirus can hold files for a moment: retry
+    briefly, then leave the (system-temporary) leftovers.
+    """
+
+    for attempt in range(5):
+        try:
+            _remove_tree(path)
+            return
+        except FileNotFoundError:
+            return
+        except OSError:
+            if attempt < 4:
+                time.sleep(0.1 * (attempt + 1))
 
 
 def run_analysis(
@@ -450,4 +491,4 @@ def run_analysis(
         read_csv_table(output, ",", declaration.name)
         return result(cache.put(declaration.name, fingerprint, output))
     finally:
-        _remove_tree(directory)
+        _remove_tree_best_effort(directory)

@@ -48,6 +48,9 @@ def _probe(destination):
         "pandas": _version("pandas"),
         "numpy": _version("numpy"),
         "pyarrow": _version("pyarrow"),
+        "geopandas": _version("geopandas"),
+        "shapely": _version("shapely"),
+        "pyogrio": _version("pyogrio"),
     }
     with open(destination, "w", encoding="utf-8") as stream:
         json.dump(versions, stream, ensure_ascii=False)
