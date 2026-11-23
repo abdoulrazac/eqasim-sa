@@ -137,7 +137,7 @@ When a key is omitted, eqasim-sa applies the following default values.
 | `execution.backend` | `local` (only when an `execution` block is present) |
 | `execution.workers` | `1` (only when an `execution` block is present) |
 | `execution.invocation` | `[uv, run, --locked, python, -m, synpp]` (only when an `execution` block is present) |
-| `execution.python` | `execution.invocation` without its final `-m synpp`, or `[uv, run, --locked, python]` without an `execution` block; `show-config` does not write it |
+| `execution.python` | `execution.invocation` without its final `-m synpp`, or `[uv, run, --locked, python]` without an `execution` block. `show-config` writes it when an `execution` block is present and `invocation` ends with `-m synpp`; it writes nothing without an `execution` block (writing one would require `scratch`) or when `invocation` does not end with `-m synpp` (then no interpreter is derived, and a file declaring `analyses` must write `python`) |
 | `analyses.NAME.references` | an empty list; `show-config` does not write it |
 
 Paths are relative to the directory of the YAML file, so the default campaign
@@ -868,12 +868,13 @@ you may add or change analyses after the runs. The guide
 ```yaml
 outputs:
   persons: {}
-  trips_spatial:
-    file: "{prefix}trips.gpkg"
+  trips: {}
+  activities_spatial:
+    file: "{prefix}activities.gpkg"
 analyses:
   commute:
     script: analyses/commute.py
-    inputs: [trips_spatial, persons]
+    inputs: [trips, activities_spatial, persons]
 indicators:
   - value: {output: commute, column: mean_commute_km, where: {group: all}}
 ```
@@ -1376,6 +1377,11 @@ execution:
   - python
   - -m
   - synpp
+  python:
+  - uv
+  - run
+  - --locked
+  - python
 calibration:
   meta_configs:
   - 00-calibration.yml
@@ -1522,8 +1528,8 @@ execution:
 
 ### Grid with an analysis script
 
-This variant of the Grid starter archives the spatial trips file and adds the
-mean home-to-work distance of the guide
+This variant of the Grid starter adds the mean home-to-work distance of the
+guide
 [Writing an analysis script](analysis-scripts.md#a-complete-example). The
 script is `configs/analyses/commute.py`, next to this file:
 
@@ -1537,8 +1543,8 @@ parameters:
 outputs:
   persons: {}
   trips: {}
-  trips_spatial:
-    file: "{prefix}trips.gpkg"
+  activities_spatial:
+    file: "{prefix}activities.gpkg"
   age:
     category: Age class
     simulated: Proportion_EQASIM
@@ -1546,7 +1552,7 @@ outputs:
 analyses:
   commute:
     script: analyses/commute.py
-    inputs: [trips_spatial, persons]
+    inputs: [trips, activities_spatial, persons]
 indicators:
   - tv_distance: {output: age, reference: INSEE}
   - value: {output: commute, column: mean_commute_km, where: {group: all}}

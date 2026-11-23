@@ -45,6 +45,15 @@ SA=(uv run --project "$ROOT/eqasim-sa" --locked eqasim-sa)
 Le lockfile d'`eqasim-sa` fixe l'environnement du runner. Le lockfile référencé
 dans une méta-configuration entre, lui, dans le contexte scientifique scellé.
 
+Les dossiers `eqasim-sa/`, `eqasim-france/` et `eqasim-data/` côte à côte sous
+une même racine ne sont qu'un exemple. Chacun peut se trouver n'importe où :
+donnez des chemins absolus à `--project`, `--model-root`, `--data-path`,
+`--directory` et `--scratch`. `init` écrit les chemins des starters relativement
+à leur dossier `configs/` (en absolu sous Windows quand le dossier est sur un
+autre lecteur) ; si vous déplacez ensuite le projet sans ces dossiers,
+modifiez les chemins sous le commentaire « Rempli par eqasim-sa init » de
+chaque starter.
+
 ## Initialiser un projet
 
 ```bash

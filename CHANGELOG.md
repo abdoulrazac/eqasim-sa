@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- Fixes from the end-to-end test on real eqasim and Nantes data:
+  - BREAKING: `check` items set `error` only for `failed` and `warning`;
+    `passed` and `skipped` items explain themselves in `note`
+    (`path_length` gives its estimate there, `same_machine` its skip reason).
+  - `check --smoke`: `elapsedSeconds` is the duration of the whole command,
+    smoke runs included.
+  - `estimate`: Grid now fills `formula` (`R*prod(L)`) and `formulaInputs`
+    (`{"R": seeds, "L": {parameter: number of values}}`) like the other
+    methods; both are `null` only in a failed result.
+  - `show-config` writes `execution.python` when it derives from
+    `execution.invocation` (the invocation without its final `-m synpp`).
+  - `analyze`: new `analyses` field, `{name: {"computed": n, "cached": m}}`
+    per analysis read by an indicator; the failure envelope also carries
+    `analyses` and `warnings`.
+  - `init`: on Windows, a model, data, or scratch folder on another drive is
+    written as an absolute path in the starters (no relative path exists);
+    the generated README states the starters' `workers: 2`.
+  - Docs: real scratch layout (`scratch/esa/<campaign>/w<slot>/`), the nine
+    `check` items, what can be deleted and when, the analysis example rewritten
+    on `trips` + `activities_spatial` with the default `tv_distance`
+    indicators kept, paths anywhere, and resuming `run` from another shell or
+    IDE (`same_machine`).
 - Fix: commands could hang forever at exit after printing their result;
   Arrow reads (Parquet and CSV) no longer use worker threads.
 - BREAKING: analysis scripts. A new optional `analyses` block declares Python

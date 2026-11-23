@@ -419,12 +419,36 @@ message names each cause in plain words, followed by the `differing` fields:
 | `eqasim-sa installation changed` | `eqasim_sa_sha256` | `eqasim-sa` was updated or reinstalled |
 
 Remedy: prepare a new campaign (new `campaign_root`) on this machine, or restore
-what changed. Per-session variables (terminal and SSH session identifiers such as
-`WT_SESSION`, `TERM_SESSION_ID`, `SSH_CONNECTION`, `DISPLAY`, `SHLVL`, `PWD`) are
-ignored, so opening a new terminal does not trigger the refusal; other variables
-are part of the environment hash, so resume from an environment like the one that
-started the campaign. For the `slurm` backend, `same_machine` is skipped on the submitting
-host and enforced inside the Slurm job.
+what changed. For the `slurm` backend, `same_machine` is skipped on the
+submitting host and enforced inside the Slurm job.
+
+### Resuming from another shell or IDE
+
+The machine identity includes the environment variables of the process that
+runs eqasim-sa: both their names and their values. Every variable counts
+except these per-session ones: `DISPLAY`, `HOSTNAME`, `ITERM_SESSION_ID`, `OLDPWD`, `PWD`, `SECURITYSESSIONID`, `SHLVL`, `SSH_AUTH_SOCK`, `SSH_CLIENT`, `SSH_CONNECTION`, `SSH_TTY`, `TEMP`, `TERM_PROGRAM_VERSION`, `TERM_SESSION_ID`, `TMP`, `TMPDIR`, `WINDOWID`, `WT_PROFILE_ID`, `WT_SESSION`, `XDG_SESSION_ID`, `XDG_VTNR`, `_`, and every variable whose name starts with
+`SLURM_` or `SUBMITIT_`. Opening a new terminal of the same kind therefore does
+not trigger the refusal, but resuming `run` from a different environment may:
+another `PATH`, an activated or deactivated virtual environment
+(`VIRTUAL_ENV`), or an IDE terminal that adds its own variables (for example
+`TERM_PROGRAM` or `VSCODE_*`) where the campaign started in a plain terminal.
+
+To resume consistently:
+
+- start and resume a campaign from the same kind of terminal (the same plain
+  terminal application, or the same IDE), with the same virtual environment
+  activated or none;
+- launch eqasim-sa with the same command each time, for example the `SA`
+  array of the generated README;
+- before resuming, run `check` on the meta-configuration: its `same_machine`
+  item tells, without running anything, whether `run` would accept to resume;
+- to find the variable that differs, save the environment before the first
+  `run` and compare it later: `env | sort > env-start.txt` then
+  `env | sort | diff env-start.txt -` on Linux and macOS;
+  `Get-ChildItem Env: | ForEach-Object { "$($_.Name)=$($_.Value)" } | Sort-Object | Set-Content env-start.txt`
+  then
+  `Compare-Object (Get-Content env-start.txt) (Get-ChildItem Env: | ForEach-Object { "$($_.Name)=$($_.Value)" } | Sort-Object)`
+  in PowerShell on Windows.
 
 ## `analysis '...' failed for run ...`
 

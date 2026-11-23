@@ -36,7 +36,8 @@ planifier la campagne. Ajouter une sortie ensuite demande une nouvelle
 campagne. Archivez donc largement dès le départ : la population (`persons`,
 `households`), les trajets et activités (`trips`, `activities`) et, si vous
 risquez d'avoir besoin de distances ou de lieux, les fichiers spatiaux écrits
-par eqasim :
+par eqasim (les starters archivent `activities_spatial`, pas
+`trips_spatial`) :
 
 ```yaml
 outputs:
@@ -70,36 +71,62 @@ mon-analyse-sa/
     └── mon-analyse-sa-grid/
 ```
 
-La méta-configuration déclare les sorties que lisent les scripts, les deux
-analyses et les indicateurs qui les utilisent :
+La méta-configuration garde les sorties du starter Grid, qui archivent déjà
+tout ce que lisent les scripts, et déclare les deux analyses et les
+indicateurs :
 
 ```yaml
-outputs:
+outputs:                               # les sorties du starter Grid, inchangées
   persons: {}
+  households: {}
   trips: {}
-  trips_spatial:
-    file: "{prefix}trips.gpkg"
+  activities: {}
+  activities_spatial:
+    file: "{prefix}activities.gpkg"
+  age:
+    category: Age class
+    simulated: Proportion_EQASIM
+    references: [INSEE]
+  distance:
+    category: Distance class
+    simulated: Proportion_EQASIM
+    references: [HTS]
+  nbr_vehicle:
+    category: Number of vehicles class
+    simulated: Proportion_EQASIM
+    references: [HTS]
 analyses:
   commute:
     script: analyses/commute.py        # relatif à ce fichier YAML
-    inputs: [trips_spatial, persons]   # sorties archivées transmises au script
+    inputs: [trips, activities_spatial, persons]   # sorties archivées transmises au script
   mode_share:
     script: analyses/mode_share.py
     inputs: [trips]
     category: mode                     # colonnes du tableau renvoyé par le script
     simulated: share
 indicators:
+  - tv_distance: {outputs: [age, distance, nbr_vehicle]}   # indicateurs par défaut du starter, conservés
   - value: {output: commute, column: mean_commute_km, where: {group: all}}
   - share: {output: mode_share, category: car}
 ```
+
+> **Déclarer un bloc `indicators` remplace les indicateurs par défaut.** Sans
+> ce bloc, chaque sortie qui a des références reçoit un indicateur
+> `tv_distance` ; avec lui, seuls les indicateurs listés sont calculés. La
+> première ligne ci-dessus garde les trois indicateurs `tv_distance` du
+> starter ; supprimez-la et ils disparaissent des résultats.
 
 La [référence YAML](yaml-reference.md#analyses) décrit chaque clé
 d'`analyses`, et son [exemple complet](yaml-reference.md#grid-avec-un-script-danalyse)
 montre un fichier entier.
 
-`configs/analyses/commute.py` mesure la longueur à vol d'oiseau de chaque trajet
-du domicile au travail, en kilomètres, et en fait la moyenne pour l'ensemble
-des actifs qui se déplacent et pour chaque sexe :
+`configs/analyses/commute.py` mesure la distance à vol d'oiseau de chaque
+trajet du domicile au travail, en kilomètres, et en fait la moyenne pour
+l'ensemble des actifs qui se déplacent et pour chaque sexe. Le fichier des
+trajets n'a pas de géométrie : chaque trajet désigne ses activités précédente et
+suivante (`preceding_activity_index`, `following_activity_index`), dont les
+lieux sont dans le fichier spatial des activités. Le script joint les deux pour
+obtenir les points du domicile et du travail :
 
 ```python
 """Mean home-to-work distance of one run, for all commuters and by sex."""
@@ -109,23 +136,50 @@ import pandas
 
 
 def compute(files, parameters):
-    trips = geopandas.read_file(files["trips_spatial"])
+    trips = pandas.read_csv(
+        files["trips"],
+        sep=";",
+        usecols=[
+            "person_id",
+            "preceding_activity_index",
+            "following_activity_index",
+            "preceding_purpose",
+            "following_purpose",
+        ],
+    )
+    activities = geopandas.read_file(files["activities_spatial"])
     persons = pandas.read_csv(files["persons"], sep=";", usecols=["person_id", "sex"])
 
-    if trips.crs is None or not trips.crs.is_projected:
-        raise ValueError("trips_spatial must use projected coordinates in metres")
+    if activities.crs is None or not activities.crs.is_projected:
+        raise ValueError("activities_spatial must use projected coordinates in metres")
 
-    is_commute = (trips["preceding_purpose"] == "home") & (
-        trips["following_purpose"] == "work"
+    # A trip goes from its preceding activity to its following activity:
+    # join both to the activity places to get the home and work points.
+    commutes = trips[
+        (trips["preceding_purpose"] == "home") & (trips["following_purpose"] == "work")
+    ]
+    places = activities[["person_id", "activity_index", "geometry"]]
+    commutes = commutes.merge(
+        places,
+        left_on=["person_id", "preceding_activity_index"],
+        right_on=["person_id", "activity_index"],
+    ).merge(
+        places,
+        left_on=["person_id", "following_activity_index"],
+        right_on=["person_id", "activity_index"],
+        suffixes=("_home", "_work"),
     )
-    commutes = pandas.DataFrame(
-        {
-            "person_id": trips.loc[is_commute, "person_id"].to_numpy(),
-            "distance_km": trips.loc[is_commute].geometry.length.to_numpy() / 1000.0,
-        }
-    ).merge(persons, on="person_id")
     if commutes.empty:
         raise ValueError("no home-to-work trip in this run")
+
+    home = geopandas.GeoSeries(commutes["geometry_home"], crs=activities.crs)
+    work = geopandas.GeoSeries(commutes["geometry_work"], crs=activities.crs)
+    commutes = pandas.DataFrame(
+        {
+            "person_id": commutes["person_id"].to_numpy(),
+            "distance_km": home.distance(work).to_numpy() / 1000.0,
+        }
+    ).merge(persons, on="person_id")
 
     groups = [("all", commutes)] + [
         (str(sex), table) for sex, table in commutes.groupby("sex")
@@ -139,17 +193,18 @@ def compute(files, parameters):
     )
 ```
 
-Pour un run d'une petite population nantaise, il renvoie :
+Pour un run d'une petite population nantaise (`sampling_rate: 0.001`,
+seed 1201), il renvoie :
 
 ```text
 group,commuters,mean_commute_km
-all,460,9.696102057336434
-female,208,8.721819935082106
-male,252,10.500271428086036
+all,478,9.775963185677492
+female,218,9.37974123148458
+male,260,10.108180054962318
 ```
 
 L'indicateur `value(commute, mean_commute_km, group=all)` lit la première
-ligne : 9,70 km pour ce run.
+ligne : 9,78 km pour ce run.
 
 `configs/analyses/mode_share.py` compte les trajets de chaque mode :
 
@@ -192,8 +247,8 @@ def compute(files, parameters):
 ```
 
 `files` associe à chaque nom listé dans `inputs` le chemin d'une copie du
-fichier archivé, par exemple `{"trips_spatial": ".../trips_spatial.gpkg",
-"persons": ".../persons.csv"}`. La copie garde le nom de l'archive,
+fichier archivé, par exemple `{"trips": ".../trips.csv",
+"activities_spatial": ".../activities_spatial.gpkg", "persons": ".../persons.csv"}`. La copie garde le nom de l'archive,
 `<nom de la sortie><extension>`. Lisez le fichier avec le séparateur
 qu'eqasim a utilisé : `;` pour les fichiers de population (`persons`,
 `trips`...), `,` pour les fichiers d'`analysis_population` ;
@@ -314,7 +369,8 @@ spec.loader.exec_module(commute)
 print(
     commute.compute(
         {
-            "trips_spatial": f"{archive}/trips_spatial.gpkg",
+            "trips": f"{archive}/trips.csv",
+            "activities_spatial": f"{archive}/activities_spatial.gpkg",
             "persons": f"{archive}/persons.csv",
         },
         {"runId": "<runId>", "seed": 1201, "factors": {"sampling_rate": 0.001}},
@@ -355,6 +411,15 @@ d'`analyze` le signale :
 
 ```text
 analysis cache entry commute/<fingerprint>.csv was altered; it was removed and recomputed
+```
+
+Le champ `analyses` du résultat d'`analyze` indique, pour chaque analyse,
+combien de résultats de runs ont été calculés et combien ont été relus depuis
+le cache. Après modification de `commute.py` dans l'exemple ci-dessus, sur une
+campagne de quatre runs :
+
+```json
+"analyses": {"commute": {"computed": 4, "cached": 0}, "mode_share": {"computed": 0, "cached": 4}}
 ```
 
 Le cache peut être supprimé à tout moment quand aucune commande ne tourne :
@@ -409,6 +474,8 @@ La définition d'un indicateur qui lit une sortie d'analyse la décrit par
 - Le `primary_indicator` d'une charte scientifique ne peut pas lire une sortie
   d'analyse : les indicateurs calculés par des scripts sont secondaires.
 - Sans bloc `indicators`, les indicateurs par défaut ignorent les sorties
-  d'analyse : listez les indicateurs voulus.
+  d'analyse : listez les indicateurs voulus. Un bloc `indicators` déclaré
+  remplace les indicateurs `tv_distance` par défaut : listez-les aussi pour
+  les garder.
 - Un nom d'analyse suit les règles des noms de sortie et doit différer de tout
   nom de sortie, sans tenir compte de la casse ; `logs` est réservé.

@@ -438,13 +438,37 @@ clair, suivie des champs `differing` :
 | `eqasim-sa installation changed` | `eqasim_sa_sha256` | `eqasim-sa` a été mis à jour ou réinstallé |
 
 Remède : préparer une nouvelle campagne (nouveau `campaign_root`) sur cette
-machine, ou rétablir ce qui a changé. Les variables propres à la session
-(identifiants de terminal et de session SSH comme `WT_SESSION`,
-`TERM_SESSION_ID`, `SSH_CONNECTION`, `DISPLAY`, `SHLVL`, `PWD`) sont ignorées :
-ouvrir un nouveau terminal ne déclenche pas le refus ; les autres variables entrent
-dans le hash d'environnement, reprenez donc depuis un environnement semblable à
-celui qui a démarré la campagne. Pour le backend `slurm`, `same_machine` est ignoré sur la machine qui
-soumet et appliqué dans le job Slurm.
+machine, ou rétablir ce qui a changé. Pour le backend `slurm`, `same_machine` est
+ignoré sur la machine qui soumet et appliqué dans le job Slurm.
+
+### Reprendre depuis un autre shell ou un IDE
+
+L'identité de la machine inclut les variables d'environnement du processus qui
+exécute eqasim-sa : leurs noms et leurs valeurs. Toutes les variables comptent,
+sauf celles-ci, propres à la session : `DISPLAY`, `HOSTNAME`, `ITERM_SESSION_ID`, `OLDPWD`, `PWD`, `SECURITYSESSIONID`, `SHLVL`, `SSH_AUTH_SOCK`, `SSH_CLIENT`, `SSH_CONNECTION`, `SSH_TTY`, `TEMP`, `TERM_PROGRAM_VERSION`, `TERM_SESSION_ID`, `TMP`, `TMPDIR`, `WINDOWID`, `WT_PROFILE_ID`, `WT_SESSION`, `XDG_SESSION_ID`, `XDG_VTNR`, `_`, et toute variable dont le nom
+commence par `SLURM_` ou `SUBMITIT_`. Ouvrir un nouveau terminal du même type ne
+déclenche donc pas le refus, mais reprendre `run` depuis un environnement
+différent peut le déclencher : autre `PATH`, environnement virtuel activé ou
+désactivé (`VIRTUAL_ENV`), ou terminal d'IDE qui ajoute ses propres variables
+(par exemple `TERM_PROGRAM` ou `VSCODE_*`) alors que la campagne a démarré dans
+un terminal ordinaire.
+
+Pour reprendre de façon cohérente :
+
+- démarrez et reprenez une campagne depuis le même type de terminal (la même
+  application de terminal, ou le même IDE), avec le même environnement virtuel
+  activé, ou aucun ;
+- lancez eqasim-sa avec la même commande à chaque fois, par exemple le tableau
+  `SA` du README généré ;
+- avant de reprendre, lancez `check` sur la méta-configuration : son élément
+  `same_machine` indique, sans rien exécuter, si `run` accepterait de reprendre ;
+- pour trouver la variable qui diffère, enregistrez l'environnement avant le
+  premier `run` et comparez-le plus tard : `env | sort > env-start.txt` puis
+  `env | sort | diff env-start.txt -` sous Linux et macOS ;
+  `Get-ChildItem Env: | ForEach-Object { "$($_.Name)=$($_.Value)" } | Sort-Object | Set-Content env-start.txt`
+  puis
+  `Compare-Object (Get-Content env-start.txt) (Get-ChildItem Env: | ForEach-Object { "$($_.Name)=$($_.Value)" } | Sort-Object)`
+  dans PowerShell sous Windows.
 
 ## `analysis '...' failed for run ...`
 

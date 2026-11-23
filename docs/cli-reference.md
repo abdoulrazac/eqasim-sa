@@ -47,6 +47,8 @@ Prints the complete meta-configuration, with every default value applied (see
 file is validated as for `plan` (eqasim folder and configuration found, factors
 present in the model configuration), but the scratch and data directories need not exist and
 no `execution` block is required.
+`execution.python` is written when it derives from `execution.invocation` (see
+the table of defaults).
 
 On success, the resolved YAML is written to standard output and the exit code is
 0. Paths are printed as written in the file, so the output is itself a valid
@@ -75,15 +77,28 @@ eqasim-sa check --meta-config PATH \
 `--calibration-meta-config` is repeatable and is appended to the paths from the
 YAML `calibration` block; duplicates are removed while preserving order.
 
-Without `--smoke`, the checks are:
+Without `--smoke`, the checks are, in this order:
 
-| Check | Verification |
-| --- | --- |
-| `metaConfig` | YAML, eqasim code fingerprint and context, factors, declared outputs, and paths |
-| `sealedPlan` | equality of the plan with the recomputed design |
-| `uniqueConfigSeedPairs` | no Grid duplicates; sealed validation for discrete OAT, canonical Morris, and Sobol |
-| `eqasimEnvironment` | when `execution.invocation` ends with `-m synpp`, the invocation with those two elements replaced by `-c "import synpp"` must exit 0; otherwise the probe is skipped: the check has `status: skipped` (which keeps the overall status `valid`) and carries `note: synpp probe skipped: invocation does not end with -m synpp` |
-| `diskSpace` | durable and scratch space based on available observations |
+| Check | Verification | Statuses |
+| --- | --- | --- |
+| `metaConfig` | YAML, eqasim code fingerprint and context, factors, declared outputs, and paths | `passed`, `failed` |
+| `sealedPlan` | equality of the plan with the recomputed design | `passed`, `failed` |
+| `uniqueConfigSeedPairs` | no Grid duplicates; sealed validation for discrete OAT, canonical Morris, and Sobol | `passed`, `failed` |
+| `eqasimEnvironment` | when `execution.invocation` ends with `-m synpp`, the invocation with those two elements replaced by `-c "import synpp"` must exit 0; otherwise the probe is skipped, with `note: synpp probe skipped: invocation does not end with -m synpp` | `passed`, `skipped`, `failed` |
+| `backend` | the `slurm` backend runs only on Linux | `passed`, `failed` |
+| `path_length` | estimated longest path below `execution.scratch`: eqasim-sa's worker layout, the `check --smoke` layout, and 240 characters for eqasim's own cache. The limit is 260 on Windows (passes above it when Windows long paths are enabled, otherwise fails and says how short `execution.scratch` must be), 1024 on macOS and 4096 on Linux (a `warning` above it). `note` gives the estimate | `passed`, `warning`, `failed` |
+| `same_machine` | the completed runs of the campaign were executed on this machine with the same executable, environment variables, model configuration, and eqasim-sa installation (see [Troubleshooting](troubleshooting.md#campaign-runs-were-executed-on-another-machine)). `skipped` before any completed run, for an empty plan, and for the `slurm` backend (compared on the compute node); `note` says which | `passed`, `skipped`, `failed` |
+| `diskSpace` | durable and scratch space based on available observations | `passed`, `failed` |
+
+`backend`, `path_length`, and `same_machine` appear only when the
+meta-configuration loads and has an `execution` block; `same_machine` also
+needs a valid `sealedPlan`. `--smoke` adds a ninth item, `smoke` (`passed` or
+`failed`).
+
+Each item is `{name, status, error}`, plus `note` for some. `error` is set only
+when the status is `failed` or `warning`, and is `null` otherwise; `note`
+carries information for `passed` and `skipped` items. Only `failed` makes the
+overall status `invalid`; `warning` and `skipped` keep it `valid`.
 
 The static check has an overall budget of 55 seconds, and the environment probe
 uses at most 20 seconds of that budget.
@@ -101,7 +116,8 @@ the test.
 
 JSON fields: `status` (`valid` or `invalid`), `checkVersion`,
 `elapsedSeconds`, `checks`, the `estimated/required/free/missing` measurements
-for durable and scratch disk space, then `error`.
+for durable and scratch disk space, then `error`. `elapsedSeconds` is the
+duration of the whole command, smoke runs included.
 
 ## `estimate`
 
@@ -121,6 +137,19 @@ JSON fields: `status`, `estimateVersion`, `method`, `formula`,
 `meanDurationSeconds`, `meanDurableBytesPerRun`, `estimatedComputeHours`,
 `estimatedDiskBytes`, `workers`, `observedScratchBytesPerWorker`,
 `estimatedScratchBytes`, `error`.
+
+`formula` gives the number of design positions for the method, and
+`formulaInputs` its values; `designPositions` equals the formula evaluated on
+them:
+
+| Method | `formula` | `formulaInputs` |
+| --- | --- | --- |
+| Grid | `R*prod(L)` | `R`: number of seeds; `L`: number of values of each parameter, e.g. `{"R": 2, "L": {"sampling_rate": 2}}` |
+| Discrete OAT, canonical Morris | `T(D+1)R` | `D`: parameters; `T`: trajectories; `R`: seeds |
+| Sobol | `N(2D+2)` | `D`: parameters plus the seed; `N`: base sample size |
+| Multi-scramble Sobol | `S*N(2D+2)` | `D`: parameters plus the seed; `N`: largest base sample size; `S`: scramble seeds |
+
+Both are `null` only in a `failed` result.
 
 ## `run`
 
@@ -149,9 +178,13 @@ indicators run here, on copies of the archived files, with a cache under
 `dispersionPath`, `sensitivityMethod`, `sensitivityPath`, `convergencePath`,
 `rankReversalsPath`, `byScramblePath`, `diagnosticsPath`, `noiseFloorPath`,
 `replicationAllocationPath`, `outputSummaryPath`, `convergenceEvidencePath`,
-`governedReportPath`, `inferenceStatus`, `warnings`, `error`.
+`governedReportPath`, `inferenceStatus`, `analyses`, `warnings`, `error`.
 `warnings` lists altered analysis cache entries that were removed and
-recomputed (empty otherwise).
+recomputed (empty otherwise). `analyses` maps each analysis read by an
+indicator to `{"computed": n, "cached": m}`: the number of runs whose result
+was computed by running the script, and the number read back from
+`analyses-cache/`. After editing one script, only that analysis has
+`computed` results. It is `{}` when no indicator reads an analysis output.
 `rankReversalsPath` is specific to `canonical_morris`; the two scramble paths are
 specific to `multiscramble_sobol`.
 scientific analysis accepts `multiscramble_sobol` after reconstructing the

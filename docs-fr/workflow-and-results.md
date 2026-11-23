@@ -111,7 +111,10 @@ taille du marqueur et de tous les fichiers de son archive.
 - maximum `scratchBytes` observé × nombre de workers pour le scratch.
 
 Ce sont des extrapolations moyennes, pas des garanties de quota ou de durée.
-Les observations de la cible déjà complète sont également prises en compte.
+Les observations de la cible déjà complète sont également prises en compte. Le
+résultat donne aussi le nombre de positions du design comme formule de la
+méthode (`formula`, `formulaInputs` ; voir la
+[référence CLI](cli-reference.md#estimate)).
 
 ## Arborescences de stockage
 
@@ -172,7 +175,7 @@ Les sorties d'analyse finales résident dans un unique répertoire immuable
 travail transactionnel et reste vide après la fin normale d'une commande.
 `analyses-cache/` contient les résultats des [scripts d'analyse](#scripts-danalyse)
 et leurs journaux d'erreur ; il peut être supprimé quand aucune commande ne
-tourne.
+tourne (voir [Nettoyage](#nettoyage)).
 `.eqasim-sa/` regroupe la coordination technique durable propre à la campagne :
 leases privées aux modules, transactions run sur le même filesystem et état
 Submitit. Ce répertoire n'est pas du scratch, n'est jamais créé dans le parent
@@ -180,14 +183,32 @@ de la campagne et disparaît avec elle. `init` refuse une campagne contenant
 `.submitit`, `.eqasim-sa-tmp` ou `.eqasim-sa-run-locks`.
 
 ```text
-scratch/eqasim-sa/<campaign>/workers/<slot>/
-├── lease.lock
-├── state-<contextHash>.json
-├── cache/<contextHash>/
-└── attempt-<uuid>/
+scratch/                      # execution.scratch
+├── esa/
+│   └── <campaign>/
+│       └── w<slot>/          # un par slot de worker : w0, w1, ...
+│           ├── lease.lock    # lease privé du slot
+│           ├── c<hash>.json  # campagne et contextHash complet du cache
+│           ├── s<hash>.json  # état du cache : active ou clean
+│           ├── c<hash>/      # répertoire de travail synpp (cache d'eqasim)
+│           └── a<12 hex>/    # une tentative : run en cours ou run échoué
+│               ├── config.yml
+│               ├── run.log
+│               ├── output/
+│               └── collected/
+└── .smoke-<8 hex>/           # seulement pendant check --smoke
 ```
 
-Le scratch contient les caches synpp et tentatives temporaires. Il est jetable.
+`<hash>` désigne les 12 premiers caractères hexadécimaux du `contextHash` de la
+campagne ; les noms restent courts pour que les chemins profonds d'eqasim
+tiennent dans la limite Windows de 260 caractères (voir la vérification
+`path_length` dans la [référence CLI](cli-reference.md#check)). Un répertoire de
+tentative contient la configuration eqasim écrite pour le run, son journal, le
+dossier de sortie d'eqasim et les copies des sorties déclarées avant archivage.
+eqasim-sa supprime le répertoire de tentative une fois le run archivé ; la
+tentative d'un run échoué reste, et son journal est copié dans
+`<campaign_root>/logs/<runId>.log`. Le scratch est jetable : voir
+[Nettoyage](#nettoyage).
 
 ## Marqueur de complétude
 
@@ -423,7 +444,9 @@ SHA-256 de `uv.lock` dans le dossier eqasim, mesurée une fois par `analyze`. Le
 `analyses-cache/<analyse>/<empreinte>.csv`, publié atomiquement après
 `<empreinte>.sha256`. Un résultat dont l'empreinte est en cache est réutilisé ;
 une entrée altérée est supprimée, recalculée et signalée dans le champ
-`warnings` du résultat d'`analyze`. Supprimer le cache ne fait rien perdre.
+`warnings` du résultat d'`analyze` ; son champ `analyses` compte, par analyse,
+les résultats calculés et ceux relus depuis le cache. Supprimer le cache ne
+fait rien perdre.
 
 Pour chaque sortie d'analyse et chaque run, l'analyse publiée enregistre
 l'empreinte du résultat, le SHA-256 du script, l'empreinte de l'environnement,
@@ -463,14 +486,37 @@ puis relancez la même commande.
 
 Les runs sont distribués en lots entre au plus `workers` slots. Chaque slot
 traite son lot en série et réutilise son cache. Un lease privé empêche deux
-processus d'utiliser le même cache. `state-<contextHash>.json` vaut `active` ou
-`clean`; un état absent, invalide ou non propre entraîne la purge du cache avant
+processus d'utiliser le même cache. `s<hash>.json` vaut `active` ou `clean` ;
+un état absent, invalide ou non propre entraîne la purge du cache avant
 réutilisation.
 
 Un lease par `runId` complète cette protection entre invocations. La publication
 d'analyse et le journal SLURM possèdent chacun leur lease privée. Aucun lock
 d'orchestration global n'existe. Les caches ne sont jamais partagés entre slots
 ou contextes.
+
+## Nettoyage
+
+eqasim-sa ne supprime jamais de lui-même une arborescence de scratch, le cache
+d'analyse ou une génération d'analyse. Il ne retire que ses propres fichiers
+temporaires : le répertoire de tentative d'un run une fois archivé, le
+répertoire `.smoke-<8 hex>/` de `check --smoke`, le travail transactionnel sous
+`analysis/staging/` et une entrée de cache altérée avant de la recalculer. Tout
+le reste s'accumule jusqu'à ce que vous le supprimiez. Ne supprimez rien
+pendant qu'une commande `run`, `check --smoke` ou `analyze` tourne sur la
+campagne.
+
+| Quoi | Quand le supprimer | Conséquence |
+| --- | --- | --- |
+| `<execution.scratch>/esa/<campaign>/` (ou tout `esa/`) | une fois les runs de la campagne terminés, ou après un échec | rien n'est perdu ; le run suivant de cette campagne reconstruit le cache synpp de chaque slot, donc son premier run par slot est plus lent. Gardez le dossier `execution.scratch` lui-même : il doit exister |
+| `analyses-cache/` (en entier, ou un `analyses-cache/<analysis>/`) | à tout moment | rien n'est perdu ; le prochain `analyze` relance les scripts pour chaque run |
+| `analysis/generations/<generationId>/` autre que la génération courante | à tout moment | retire un ancien résultat d'analyse. Supprimez le répertoire entier, jamais une partie |
+
+La génération courante est celle que désigne `generationPath` dans
+`analysis-generation.json` ; ne la supprimez jamais. Chaque `analyze` dont le
+résultat diffère publie une nouvelle génération et laisse les précédentes en
+place. Ne supprimez jamais `plan.parquet`, `runs/`, `archives/`,
+`analysis-generation.json` ni `.eqasim-sa/` : ils constituent la campagne.
 
 ## Local et SLURM
 

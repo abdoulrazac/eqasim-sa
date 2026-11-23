@@ -111,7 +111,9 @@ the marker and all files in its archive. `estimate` calculates:
 - maximum observed `scratchBytes` × number of workers for scratch space.
 
 These are mean extrapolations, not quota or duration guarantees. Observations
-from the target that are already complete are also included.
+from the target that are already complete are also included. The result also
+gives the number of design positions as a formula of the method (`formula`,
+`formulaInputs`; see the [CLI reference](cli-reference.md#estimate)).
 
 ## Storage Trees
 
@@ -170,7 +172,8 @@ Final analysis outputs live in one immutable
 `analysis/generations/<generationId>/` directory. `analysis/staging/` contains
 only transactional work and is empty after a normal command completes.
 `analyses-cache/` holds the results of [analysis scripts](#analysis-scripts)
-and their error logs; it can be deleted when no command is running.
+and their error logs; it can be deleted when no command is running (see
+[Cleaning up](#cleaning-up)).
 `.eqasim-sa/` contains durable technical coordination local to this campaign:
 module-private leases, same-filesystem run transactions, and Submitit state.
 It is not scratch, but it disappears with the campaign and is never created in
@@ -178,14 +181,31 @@ the campaign parent. `init` refuses a campaign containing
 `.submitit`, `.eqasim-sa-tmp`, or `.eqasim-sa-run-locks`.
 
 ```text
-scratch/eqasim-sa/<campaign>/workers/<slot>/
-├── lease.lock
-├── state-<contextHash>.json
-├── cache/<contextHash>/
-└── attempt-<uuid>/
+scratch/                      # execution.scratch
+├── esa/
+│   └── <campaign>/
+│       └── w<slot>/          # one per worker slot: w0, w1, ...
+│           ├── lease.lock    # private lease of the slot
+│           ├── c<hash>.json  # campaign and full contextHash of the cache
+│           ├── s<hash>.json  # cache state: active or clean
+│           ├── c<hash>/      # synpp working directory (eqasim's cache)
+│           └── a<12 hex>/    # one attempt: a run in progress, or a failed run
+│               ├── config.yml
+│               ├── run.log
+│               ├── output/
+│               └── collected/
+└── .smoke-<8 hex>/           # only while check --smoke runs
 ```
 
-Scratch space contains synpp caches and temporary attempts. It is disposable.
+`<hash>` is the first 12 hexadecimal characters of the campaign's
+`contextHash`; names are kept short so that eqasim's own deep paths fit the
+Windows 260-character limit (see the `path_length` check in the
+[CLI reference](cli-reference.md#check)). An attempt directory holds the eqasim
+configuration written for the run, its log, eqasim's output folder, and the
+copies of the declared outputs before archiving. eqasim-sa deletes the attempt
+directory once the run is archived; the attempt of a failed run stays, and its
+log is copied to `<campaign_root>/logs/<runId>.log`. The scratch space is
+disposable: see [Cleaning up](#cleaning-up).
 
 ## Completion Marker
 
@@ -425,7 +445,8 @@ of `uv.lock` in the eqasim folder, measured once per `analyze`. Results are cach
 `analyses-cache/<analysis>/<fingerprint>.csv`, published atomically after
 `<fingerprint>.sha256`. A result whose fingerprint is cached is reused; an
 altered entry is removed, recomputed, and reported in the `warnings` field of
-the `analyze` result. Deleting the cache loses nothing.
+the `analyze` result; its `analyses` field counts, per analysis, the results
+computed and those read from the cache. Deleting the cache loses nothing.
 
 For every analysis output and every run, the published analysis records the
 result fingerprint, the script SHA-256, the environment fingerprint, the
@@ -464,14 +485,35 @@ command.
 
 Runs are distributed in batches among at most `workers` slots. Each slot
 processes its batch serially and reuses its cache. A private lease prevents two
-processes from using the same cache. `state-<contextHash>.json` is `active` or
-`clean`; a
+processes from using the same cache. `s<hash>.json` is `active` or `clean`; a
 missing, invalid, or unclean state causes the cache to be purged before reuse.
 
 A lease per `runId` supplements this protection across invocations. Analysis
 publication and SLURM journal ownership each have a separate module-private
 lease. There is no campaign-wide orchestration lock. Caches are never shared
 between slots or contexts.
+
+## Cleaning up
+
+eqasim-sa never deletes a scratch tree, the analysis cache, or an analysis
+generation on its own. It removes only its own temporary files: the attempt
+directory of a run once it is archived, the `.smoke-<8 hex>/` directory of
+`check --smoke`, the transaction work under `analysis/staging/`, and an
+altered cache entry before recomputing it. Everything else accumulates until you
+delete it. Delete only when no `run`, `check --smoke`, or `analyze` command is
+running on the campaign.
+
+| What | When it can be deleted | Consequence |
+| --- | --- | --- |
+| `<execution.scratch>/esa/<campaign>/` (or all of `esa/`) | once the campaign's runs are finished, or after a failure | nothing is lost; the next run of that campaign rebuilds the synpp cache of each slot, so its first run per slot is slower. Keep the `execution.scratch` folder itself: it must exist |
+| `analyses-cache/` (whole, or one `analyses-cache/<analysis>/`) | at any time | nothing is lost; the next `analyze` reruns the scripts for every run |
+| `analysis/generations/<generationId>/` other than the current one | at any time | removes an old analysis result. Delete the whole directory, never part of it |
+
+The current generation is the one named by `generationPath` in
+`analysis-generation.json`; never delete it. Each `analyze` whose result
+differs publishes a new generation and leaves the previous ones in place.
+Never delete `plan.parquet`, `runs/`, `archives/`, `analysis-generation.json`,
+or `.eqasim-sa/`: they are the campaign itself.
 
 ## Local and SLURM
 
