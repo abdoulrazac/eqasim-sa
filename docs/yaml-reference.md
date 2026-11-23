@@ -1731,7 +1731,7 @@ Analyses with an invocation that does not start synpp as a module:
 
 ```yaml
 execution:
-  invocation: [eqasim-run]
+  invocation: [./run-eqasim.sh]
 ```
 
 > analyses need execution.python because execution.invocation does not end

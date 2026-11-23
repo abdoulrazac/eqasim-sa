@@ -134,6 +134,39 @@ uv build
 Inspect and test the newly produced artifacts; do not assume that pre-existing
 `build/` or `dist/` directories reflect the current source.
 
+## Internal commands
+
+`eqasim-sa` has two internal subcommands, used by the tests and to execute one
+isolated run by hand. They are not part of the user workflow: they do not
+appear in `eqasim-sa --help` or in the [CLI reference](cli-reference.md).
+
+### `fake-run`
+
+```text
+eqasim-sa fake-run --campaign-root PATH --campaign NAME --config JSON \
+  --seed INT --expected-context-hash HASH --current-context-hash HASH \
+  --workdir PATH
+```
+
+`--config` identifies a JSON file. The run is executed by the
+`eqasim-sa-fake-pipeline` script, searched next to the Python interpreter, then
+on `PATH`. Response: `runId`, `status`, `error`.
+
+### `eqasim-run`
+
+```text
+eqasim-sa eqasim-run --campaign-root PATH --campaign NAME \
+  --config-yaml PATH --eqasim-root PATH --invocation-json JSON \
+  --scratch PATH --seed INT --expected-context-hash HASH \
+  --current-context-hash HASH --outputs-json JSON
+```
+
+`--invocation-json` must be a JSON array of strings. `--outputs-json` is a JSON
+object mapping each declared output name to exactly
+`{"file": ..., "separator": ...}` (the `file` may use `{prefix}`), for example
+`{"age": {"file": "analysis_population/{prefix}age.csv", "separator": ","}}`;
+the run archives exactly these files. Response: `runId`, `status`, `error`.
+
 ## Observed testing strategy
 
 - Unit tests for identities, plans, the ledger, indicators, and statistics.
@@ -201,6 +234,8 @@ errors, computation on CSV text columns, and source purity.
 
 Setuptools discovers packages under `src` and includes `templates/*.yml` and
 `templates/*.md`. The installed scripts are `eqasim-sa` and
-`eqasim-sa-fake-pipeline`. The declared Python support is intentionally narrow;
+`eqasim-sa-fake-pipeline`; the second one is kept because the internal
+`fake-run` command and the distribution tests execute it as an installed
+script. The declared Python support is intentionally narrow;
 do not broaden it in the documentation without changing and testing the package
 contract.

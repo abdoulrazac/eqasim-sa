@@ -79,6 +79,8 @@ def test_installed_metadata_and_commands(tmp_path: Path) -> None:
         timeout=300,
     )
     assert "init" in help_result.stdout
+    assert "fake-run" not in help_result.stdout
+    assert "eqasim-run" not in help_result.stdout
     assert all(
         option in init_help.stdout
         for option in (

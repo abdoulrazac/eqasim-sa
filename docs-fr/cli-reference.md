@@ -333,37 +333,6 @@ figures. La sortie standard est un objet JSON avec `status`, `generationId`,
 `directory`, `figures` et `skipped`. En cas d'erreur, le message va sur stderr,
 rien n'est écrit sur stdout et le code de sortie est 1.
 
-## Commandes internes
-
-Ces interfaces servent aux tests et à l'exécution d'un run isolé. Elles ne font
-pas partie du workflow utilisateur normal.
-
-### Interne : `fake-run`
-
-```text
-eqasim-sa fake-run --campaign-root PATH --campaign NAME --config JSON \
-  --seed INT --expected-context-hash HASH --current-context-hash HASH \
-  --workdir PATH
-```
-
-`--config` désigne un fichier JSON. Réponse : `runId`, `status`, `error`.
-
-### Interne : `eqasim-run`
-
-```text
-eqasim-sa eqasim-run --campaign-root PATH --campaign NAME \
-  --config-yaml PATH --eqasim-root PATH --invocation-json JSON \
-  --scratch PATH --seed INT --expected-context-hash HASH \
-  --current-context-hash HASH --outputs-json JSON
-```
-
-`--invocation-json` doit être un tableau JSON de chaînes. `--outputs-json` est
-un objet JSON qui associe à chaque nom de sortie déclarée exactement
-`{"file": ..., "separator": ...}` (le `file` peut utiliser `{prefix}`), par
-exemple
-`{"age": {"file": "analysis_population/{prefix}age.csv", "separator": ","}}` ;
-le run archive exactement ces fichiers. Réponse : `runId`, `status`, `error`.
-
 ## Codes de sortie
 
 | Code | Sens |

@@ -12,6 +12,16 @@ from typing import Any
 from eqasim_sa.core.run import RunSpec, run_one
 
 EQASIM_PARAMETERS = {"sampling_rate", "hts", "income_assignation_method"}
+PUBLIC_COMMANDS = (
+    "init",
+    "show-config",
+    "plan",
+    "run",
+    "estimate",
+    "check",
+    "analyze",
+    "plot",
+)
 
 
 def installed_version() -> str:
@@ -48,13 +58,19 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument(
         "--version", action=_VersionAction, help="print the installed version and exit"
     )
-    commands = result.add_subparsers(dest="command")
+    # The internal commands fake-run and eqasim-run are left out of the usage
+    # line (explicit metavar) and of the command list in --help (they are added
+    # without help=, so argparse lists no entry for them).
+    commands = result.add_subparsers(
+        dest="command", metavar="{" + ",".join(PUBLIC_COMMANDS) + "}"
+    )
     init = commands.add_parser(
         "init",
         help="create a complete sensitivity-analysis project",
         description=(
-            "Generate a Nantes sensitivity-analysis project template and local data "
-            "manifest without planning or executing any campaign."
+            "Create a sensitivity-analysis project for an eqasim folder: starter "
+            "meta-configurations, a README, and the data manifest, without "
+            "planning or executing any campaign."
         ),
         epilog=(
             "Example: eqasim-sa init --project-name my-study --model-root eqasim-france "
@@ -108,19 +124,25 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--meta-config", type=Path, required=True)
     run = commands.add_parser("run", help="execute every unique run in a sealed plan")
     run.add_argument("--meta-config", type=Path, required=True)
-    estimate = commands.add_parser("estimate", help="estimate a sealed campaign")
+    estimate = commands.add_parser(
+        "estimate", help="estimate the compute time and disk space of a planned campaign"
+    )
     estimate.add_argument("--meta-config", type=Path, required=True)
     estimate.add_argument(
         "--calibration-meta-config", type=Path, action="append", default=[]
     )
-    check = commands.add_parser("check", help="validate a sealed campaign")
+    check = commands.add_parser("check", help="check a planned campaign before running it")
     check.add_argument("--meta-config", type=Path, required=True)
     check.add_argument(
         "--calibration-meta-config", type=Path, action="append", default=[]
     )
-    check.add_argument("--smoke", action="store_true")
+    check.add_argument(
+        "--smoke",
+        action="store_true",
+        help="also execute two temporary real eqasim runs (sampling_rate 0.001)",
+    )
     analyze = commands.add_parser(
-        "analyze", help="rebuild indicators from run archives"
+        "analyze", help="compute indicators and sensitivity results from run archives"
     )
     analyze.add_argument("--meta-config", type=Path, required=True)
     analyze.add_argument(
@@ -139,7 +161,7 @@ def parser() -> argparse.ArgumentParser:
         metavar="NAME",
         help="draw only this figure; repeat for several (default: every valid figure)",
     )
-    fake = commands.add_parser("fake-run", help="execute one installed fake run")
+    fake = commands.add_parser("fake-run")
     fake.add_argument("--campaign-root", type=Path, required=True)
     fake.add_argument("--campaign", required=True)
     fake.add_argument("--config", type=Path, required=True)
@@ -147,7 +169,7 @@ def parser() -> argparse.ArgumentParser:
     fake.add_argument("--expected-context-hash", required=True)
     fake.add_argument("--current-context-hash", required=True)
     fake.add_argument("--workdir", type=Path, required=True)
-    eqasim = commands.add_parser("eqasim-run", help="execute one installed eqasim run")
+    eqasim = commands.add_parser("eqasim-run")
     eqasim.add_argument("--campaign-root", type=Path, required=True)
     eqasim.add_argument("--campaign", required=True)
     eqasim.add_argument("--config-yaml", type=Path, required=True)

@@ -612,6 +612,25 @@ def test_init_cli_v3_schema_and_removed_manifest_option(monkeypatch, capsys) -> 
     assert "--data-manifest" not in parser().format_help()
 
 
+def test_help_hides_internal_commands_but_they_still_parse() -> None:
+    top_help = parser().format_help()
+    for command in ("init", "show-config", "plan", "run", "estimate", "check", "analyze", "plot"):
+        assert command in top_help
+    assert "fake-run" not in top_help
+    assert "eqasim-run" not in top_help
+    assert "Nantes" not in " ".join(
+        parser()._subparsers._group_actions[0].choices["init"].format_help().split()
+    )
+    arguments = parser().parse_args(
+        [
+            "fake-run", "--campaign-root", "c", "--campaign", "n", "--config", "x.json",
+            "--seed", "1", "--expected-context-hash", "a",
+            "--current-context-hash", "a", "--workdir", "w",
+        ]
+    )
+    assert arguments.command == "fake-run"
+
+
 def test_init_cli_failure_uses_v3_schema(monkeypatch, capsys) -> None:
     def fail(*arguments):
         raise ValueError("invalid init")

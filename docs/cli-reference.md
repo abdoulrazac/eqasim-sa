@@ -325,36 +325,6 @@ validity. Stdout is a JSON object with `status`, `generationId`, `directory`,
 `figures` and `skipped`. On error, the message goes to stderr, nothing is
 written to stdout, and the exit code is 1.
 
-## Internal Commands
-
-These interfaces are used for tests and for executing an isolated run. They are
-not part of the normal user workflow.
-
-### Internal: `fake-run`
-
-```text
-eqasim-sa fake-run --campaign-root PATH --campaign NAME --config JSON \
-  --seed INT --expected-context-hash HASH --current-context-hash HASH \
-  --workdir PATH
-```
-
-`--config` identifies a JSON file. Response: `runId`, `status`, `error`.
-
-### Internal: `eqasim-run`
-
-```text
-eqasim-sa eqasim-run --campaign-root PATH --campaign NAME \
-  --config-yaml PATH --eqasim-root PATH --invocation-json JSON \
-  --scratch PATH --seed INT --expected-context-hash HASH \
-  --current-context-hash HASH --outputs-json JSON
-```
-
-`--invocation-json` must be a JSON array of strings. `--outputs-json` is a JSON
-object mapping each declared output name to exactly
-`{"file": ..., "separator": ...}` (the `file` may use `{prefix}`), for example
-`{"age": {"file": "analysis_population/{prefix}age.csv", "separator": ","}}`;
-the run archives exactly these files. Response: `runId`, `status`, `error`.
-
 ## Exit Codes
 
 | Code | Meaning |

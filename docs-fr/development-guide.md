@@ -137,6 +137,41 @@ uv build
 Inspectez et testez les archives nouvellement produites ; ne supposez pas que des
 répertoires `build/` ou `dist/` préexistants reflètent la source actuelle.
 
+## Commandes internes
+
+`eqasim-sa` a deux sous-commandes internes, utilisées par les tests et pour
+exécuter un run isolé à la main. Elles ne font pas partie du parcours
+utilisateur : elles n'apparaissent ni dans `eqasim-sa --help` ni dans la
+[référence CLI](cli-reference.md).
+
+### `fake-run`
+
+```text
+eqasim-sa fake-run --campaign-root PATH --campaign NAME --config JSON \
+  --seed INT --expected-context-hash HASH --current-context-hash HASH \
+  --workdir PATH
+```
+
+`--config` désigne un fichier JSON. Le run est exécuté par le script
+`eqasim-sa-fake-pipeline`, cherché à côté de l'interpréteur Python, puis dans le
+`PATH`. Réponse : `runId`, `status`, `error`.
+
+### `eqasim-run`
+
+```text
+eqasim-sa eqasim-run --campaign-root PATH --campaign NAME \
+  --config-yaml PATH --eqasim-root PATH --invocation-json JSON \
+  --scratch PATH --seed INT --expected-context-hash HASH \
+  --current-context-hash HASH --outputs-json JSON
+```
+
+`--invocation-json` doit être un tableau JSON de chaînes. `--outputs-json` est
+un objet JSON qui associe à chaque nom de sortie déclarée exactement
+`{"file": ..., "separator": ...}` (le `file` peut utiliser `{prefix}`), par
+exemple
+`{"age": {"file": "analysis_population/{prefix}age.csv", "separator": ","}}` ;
+le run archive exactement ces fichiers. Réponse : `runId`, `status`, `error`.
+
 ## Stratégie de test observée
 
 - Tests unitaires des identités, plans, registre des runs, indicateurs et statistiques.
@@ -211,6 +246,7 @@ sources.
 
 Setuptools découvre les paquets sous `src` et inclut `templates/*.yml` et
 `templates/*.md`. Les scripts installés sont `eqasim-sa` et
-`eqasim-sa-fake-pipeline`. La prise en charge Python déclarée est volontairement
+`eqasim-sa-fake-pipeline` ; le second est conservé parce que la commande interne
+`fake-run` et les tests de distribution l'exécutent comme script installé. La prise en charge Python déclarée est volontairement
 étroite ; ne l'élargissez pas dans la documentation sans modifier et tester le
 contrat du paquet.
