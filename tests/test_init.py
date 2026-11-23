@@ -695,3 +695,18 @@ def test_starter_paths_are_absolute_when_no_relative_path_exists(
     assert templates._relative(target, tmp_path / "project" / "configs") == str(
         Path(os.path.abspath(target))
     )
+
+
+def test_init_rerun_accepts_a_failed_attempt_left_in_scratch(tmp_path: Path) -> None:
+    # A failed run leaves its attempt directory as the eqasim simulator wrote it.
+    _, root, model, data = initialize(tmp_path, "project")
+    attempt = root / "scratch" / "esa" / "project-grid" / "w0" / ("a" + "0" * 12)
+    (attempt / "output").mkdir(parents=True)
+    (attempt / "collected").mkdir()
+    (attempt / "config.yml").write_text("config: {}\n")
+    (attempt / "run.log").write_text("Traceback\n")
+
+    payload = init_from_inputs("project", root, model, data, None, invocation())
+
+    assert payload["status"] == "unchanged", payload
+    assert (attempt / "collected").is_dir()

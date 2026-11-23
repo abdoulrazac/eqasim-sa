@@ -399,7 +399,7 @@ class WorkerWorkspace:
                     raise FileExistsError("foreign content in init scratch") from error
             else:
                 if not item.is_dir() or {path.name for path in item.iterdir()} - {
-                    "config.yml", "run.log", "output", "normalized"
+                    "config.yml", "run.log", "output", "collected"
                 }:
                     raise FileExistsError("foreign content in init scratch")
                 try:
