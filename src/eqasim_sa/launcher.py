@@ -1,18 +1,15 @@
 """Console entry point that checks the interpreter before loading the application.
 
 This module only imports the standard library, so that a tool environment whose
-Python does not match the installed packages (for example a uv tool environment
-whose interpreter link now points to another Python version) reports a clear
+Python does not match the installed packages (for example an environment whose
+interpreter link now points to another Python version) reports a clear
 message instead of an import error from a compiled dependency.
 """
 
 import sys
 
 REQUIRED_PYTHON = (3, 13)
-REINSTALL_COMMAND = (
-    "uv tool uninstall eqasim-sa && "
-    "uv tool install --python 3.13 git+https://github.com/abdoulrazac/eqasim-sa@latest"
-)
+REINSTALL_COMMAND = "uv sync --locked --python 3.13"
 
 
 def interpreter_error(version=None, executable=None):
@@ -28,7 +25,7 @@ def interpreter_error(version=None, executable=None):
         + running
         + " ("
         + str(executable)
-        + "). Reinstall the tool with Python 3.13: "
+        + "). In the eqasim-sa folder, recreate the environment with Python 3.13: "
         + REINSTALL_COMMAND
     )
 

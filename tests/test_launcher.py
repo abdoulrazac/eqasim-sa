@@ -16,9 +16,8 @@ def test_other_interpreter_is_named_with_the_reinstall_command():
 
     assert message == (
         "eqasim-sa requires Python 3.13, but this environment runs Python 3.11.11 "
-        "(/tool/bin/python). Reinstall the tool with Python 3.13: "
-        "uv tool uninstall eqasim-sa && "
-        "uv tool install --python 3.13 git+https://github.com/abdoulrazac/eqasim-sa@latest"
+        "(/tool/bin/python). In the eqasim-sa folder, recreate the environment "
+        "with Python 3.13: uv sync --locked --python 3.13"
     )
 
 
