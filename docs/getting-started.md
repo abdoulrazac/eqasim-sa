@@ -52,6 +52,15 @@ uv tool install git+https://github.com/abdoulrazac/eqasim-sa@v0.4.0
 SA=(eqasim-sa)
 ```
 
+This pins eqasim-sa's direct dependencies; their own dependencies take the
+newest compatible versions. To install exactly the versions tested for the
+release, add the `constraints.txt` file attached to it:
+
+```bash
+uv tool install --constraints https://github.com/abdoulrazac/eqasim-sa/releases/download/v0.4.0/constraints.txt \
+  git+https://github.com/abdoulrazac/eqasim-sa@v0.4.0
+```
+
 The `eqasim-sa` lockfile pins the runner environment. The lockfile referenced
 in a meta-configuration, however, is part of the sealed scientific context.
 

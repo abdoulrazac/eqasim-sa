@@ -330,7 +330,7 @@ written to stdout, and the exit code is 1.
 | Code | Meaning |
 | ---: | --- |
 | 0 | success, help without a command, configuration shown, unchanged plan, or run already complete |
-| 1 | failed validation (including an invalid file for `show-config`), application failure, or at least one failed run |
+| 1 | failed validation (including an invalid file for `show-config`), application failure, at least one failed run, or a Python other than 3.13 |
 | 2 | invalid CLI arguments reported by `argparse` |
 | 130 | keyboard interrupt handled at the application level |
 

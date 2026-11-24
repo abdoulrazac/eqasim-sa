@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- The `eqasim-sa` command first checks that it runs on Python 3.13. Started
+  from another Python (for example a uv tool environment whose interpreter
+  link now points to another version), it prints `eqasim-sa requires Python
+  3.13, but this environment runs Python X.Y.Z (...)` with the reinstall
+  command and exits with code 1, instead of failing inside a compiled
+  dependency (`No module named 'pyarrow.lib'`).
+- Each GitHub release carries `constraints.txt`, the runtime dependency
+  versions of `uv.lock`; `uv tool install --constraints <url> ...` installs
+  exactly the tested versions.
+
+### Changed
+
+- The `test` extra declares `cloudpickle` and `pillow`, which the tests import
+  directly, at the versions already locked.
+
 ## 0.4.0 - 2026-11-23
 
 Entries marked BREAKING change a file format, an identity, a JSON field, or a

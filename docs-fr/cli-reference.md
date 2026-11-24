@@ -338,7 +338,7 @@ rien n'est écrit sur stdout et le code de sortie est 1.
 | Code | Sens |
 | ---: | --- |
 | 0 | succès, aide sans commande, configuration affichée, plan inchangé ou run déjà complet |
-| 1 | validation invalide (y compris un fichier invalide pour `show-config`), échec métier ou au moins un run échoué |
+| 1 | validation invalide (y compris un fichier invalide pour `show-config`), échec métier, au moins un run échoué ou un Python autre que 3.13 |
 | 2 | arguments CLI invalides produits par `argparse` |
 | 130 | interruption clavier gérée au niveau de l'application |
 

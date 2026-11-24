@@ -74,6 +74,16 @@ uv tool install git+https://github.com/abdoulrazac/eqasim-sa@v0.4.0
 eqasim-sa --version
 ```
 
+Les dépendances directes d'eqasim-sa sont figées ; leurs propres dépendances
+prennent les dernières versions compatibles. Pour installer exactement les
+versions testées pour la version publiée, ajoutez le fichier `constraints.txt`
+qui l'accompagne :
+
+```bash
+uv tool install --constraints https://github.com/abdoulrazac/eqasim-sa/releases/download/v0.4.0/constraints.txt \
+  git+https://github.com/abdoulrazac/eqasim-sa@v0.4.0
+```
+
 Avec l'outil installé, utilisez `SA=(eqasim-sa)` dans les exemples ci-dessous. Pour
 travailler depuis une copie des sources, depuis ce répertoire :
 
