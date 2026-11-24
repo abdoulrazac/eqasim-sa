@@ -5,7 +5,11 @@ from __future__ import annotations
 import copy
 import hashlib
 
-from eqasim_sa.adapters.eqasim.artifacts import KNOWN_OUTPUTS
+from eqasim_sa.adapters.eqasim.artifacts import (
+    DEFAULT_OUTPUT_FORMATS,
+    KNOWN_OUTPUTS,
+    is_csv_file,
+)
 
 DEFAULT_INVOCATION: tuple[str, ...] = ("uv", "run", "--locked", "python", "-m", "synpp")
 _SYNPP_MODULE = ("-m", "synpp")
@@ -25,7 +29,28 @@ def default_design_seed(campaign: str) -> int:
     return int.from_bytes(digest[:8], "big") >> 1
 
 
-def resolve_meta_config_document(document: object) -> object:
+def output_formats(eqasim_config: object) -> object:
+    """eqasim ``output_formats`` of a config block, with eqasim's default.
+
+    ``None`` when the config block is unknown.
+    """
+
+    if not isinstance(eqasim_config, dict):
+        return None
+    return eqasim_config.get("output_formats", list(DEFAULT_OUTPUT_FORMATS))
+
+
+def resolve_meta_config_document(
+    document: object, eqasim_config: object = None
+) -> object:
+    """Return ``document`` with every default applied.
+
+    ``eqasim_config`` (the ``config:`` block of the eqasim config) gives
+    ``output_formats``, which chooses the file of a spatial output; without
+    it, a spatial output declared without ``file`` is left as written.
+    """
+
+    formats = output_formats(eqasim_config)
     resolved = copy.deepcopy(document)
     if not isinstance(resolved, dict):
         return resolved
@@ -69,11 +94,19 @@ def resolve_meta_config_document(document: object) -> object:
             if not isinstance(output, dict):
                 continue
             known = KNOWN_OUTPUTS.get(name) if isinstance(name, str) else None
-            if known is not None:
-                output.setdefault("file", known.file)
-                output.setdefault("separator", known.separator)
-            elif "file" in output:
-                output.setdefault("separator", UNKNOWN_OUTPUT_SEPARATOR)
+            if known is not None and "file" not in output:
+                file = known.default_file(formats)
+                if file is not None:
+                    output["file"] = file
+            file = output.get("file")
+            # Only a CSV table has a separator.
+            if isinstance(file, str) and is_csv_file(file):
+                default = (
+                    known.separator
+                    if known is not None and known.separator is not None
+                    else UNKNOWN_OUTPUT_SEPARATOR
+                )
+                output.setdefault("separator", default)
 
     if "indicators" not in resolved:
         referenced = (

@@ -135,17 +135,21 @@ def test_analysis_name_collision_with_output_is_rejected(
         (["trips", "trips"], "must not contain duplicates"),
         (["missing"], "analysis 'commute' input 'missing' is not declared in outputs"),
         (["other"], "analysis 'commute' input 'other' is an analysis"),
-        (["parquet"], "analysis 'commute' input 'parquet' file 'x.parquet' must be a .csv or .gpkg file"),
+        (
+            ["text"],
+            "analysis 'commute' input 'text' file 'x.txt' must be a .csv, .gpkg, "
+            ".parquet or .geoparquet file",
+        ),
     ],
 )
-def test_analysis_inputs_must_be_declared_csv_or_gpkg_outputs(
+def test_analysis_inputs_must_be_declared_outputs_with_a_table_suffix(
     tmp_path: Path, inputs: list[str], message: str
 ) -> None:
     meta = _with_analysis(tmp_path)
     _script(tmp_path, "other.py")
 
     def edit(document: dict) -> None:
-        document["outputs"]["parquet"] = {"file": "x.parquet"}
+        document["outputs"]["text"] = {"file": "x.txt"}
         document["outputs"]["zones"] = {"file": "zones.GPKG"}
         document["analyses"]["commute"]["inputs"] = inputs
         document["analyses"]["other"] = {
@@ -158,9 +162,18 @@ def test_analysis_inputs_must_be_declared_csv_or_gpkg_outputs(
         load_meta_config(meta, verify_data=False)
 
 
-def test_analysis_gpkg_input_is_accepted(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "file", ["zones.gpkg", "zones.parquet", "zones.geoparquet"]
+)
+def test_analysis_gpkg_parquet_and_geoparquet_inputs_are_accepted(
+    tmp_path: Path, file: str
+) -> None:
     meta = _with_analysis(tmp_path)
-    _edit(meta, lambda document: document["outputs"].update(zones={"file": "zones.gpkg"}))
+    config = Path(load_meta_config(meta, verify_data=False).model_config)
+    document = yaml.safe_load(config.read_text())
+    document["config"]["output_formats"] = ["csv", "gpkg", "geoparquet"]
+    config.write_text(yaml.safe_dump(document, sort_keys=False))
+    _edit(meta, lambda document: document["outputs"].update(zones={"file": file}))
     _edit(meta, lambda document: document["analyses"]["commute"].update(inputs=["zones"]))
 
     assert load_meta_config(meta, verify_data=False).analyses["commute"].inputs == (

@@ -15,13 +15,48 @@ from eqasim_sa.utils import platform
 DEFAULT_OUTPUT_PREFIX = "ile_de_france_"
 
 
+# What eqasim's synthesis/output.py does when output_formats is not set.
+DEFAULT_OUTPUT_FORMATS = ("csv", "gpkg")
+
+
 @dataclass(frozen=True)
 class KnownOutput:
-    """Default file, separator and producing stage of an output eqasim writes."""
+    """Files, separator and producing stage of an output eqasim writes.
 
-    file: str
-    separator: str
+    ``files`` pairs each ``output_formats`` entry that makes eqasim write the
+    output with the file it then writes, in order of preference; ``None``
+    means the file does not depend on ``output_formats``.  ``separator`` is
+    ``None`` for a file that is not a CSV table.  ``mode_choice`` outputs are
+    written only when ``mode_choice`` is true in the eqasim config.
+    """
+
+    files: tuple[tuple[str | None, str], ...]
+    separator: str | None
     stage: str
+    mode_choice: bool = False
+
+    def default_file(self, formats: object = None) -> str | None:
+        """Default file; for a choice of files, the first ``formats`` enables.
+
+        An output with a single file always defaults to it (a missing format
+        is the loader's error to report).  ``None`` when ``formats`` (the
+        eqasim ``output_formats`` list) is unknown or enables no file.
+        """
+
+        if len(self.files) == 1:
+            return self.files[0][1]
+        if not isinstance(formats, (list, tuple)):
+            return None
+        return next((file for fmt, file in self.files if fmt in formats), None)
+
+    def format_of(self, file: str) -> str | None:
+        """``output_formats`` entry that makes eqasim write ``file``."""
+
+        return next((fmt for fmt, item in self.files if item == file), None)
+
+    @property
+    def formats(self) -> tuple[str, ...]:
+        return tuple(fmt for fmt, _ in self.files if fmt is not None)
 
 
 POPULATION = (
@@ -32,21 +67,56 @@ POPULATION = (
     "vehicle_types",
     "vehicles",
 )
+SPATIAL = ("activities", "homes", "commutes", "trips")
+MODE_CHOICE = ("legs", "pt_legs")
 ANALYSIS = ("age", "age_purpose", "distance", "license", "nbr_vehicle", "travel")
+SYNTHESIS_OUTPUT = "synthesis.output"
 KNOWN_OUTPUTS: Mapping[str, KnownOutput] = {
     **{
-        name: KnownOutput(f"{{prefix}}{name}.csv", ";", "synthesis.output")
+        name: KnownOutput(
+            (("csv", f"{{prefix}}{name}.csv"),), ";", SYNTHESIS_OUTPUT
+        )
         for name in POPULATION
     },
     **{
+        f"{name}_parquet": KnownOutput(
+            (("parquet", f"{{prefix}}{name}.parquet"),), None, SYNTHESIS_OUTPUT
+        )
+        for name in POPULATION
+    },
+    **{
+        f"{name}_spatial": KnownOutput(
+            (
+                ("gpkg", f"{{prefix}}{name}.gpkg"),
+                ("geoparquet", f"{{prefix}}{name}.geoparquet"),
+            ),
+            None,
+            SYNTHESIS_OUTPUT,
+        )
+        for name in SPATIAL
+    },
+    # Copied, decompressed, from the MATSim mode choice output (";" tables).
+    **{
         name: KnownOutput(
-            f"analysis_population/{{prefix}}{name}.csv",
+            ((None, f"{{prefix}}{name}.csv"),), ";", SYNTHESIS_OUTPUT, True
+        )
+        for name in MODE_CHOICE
+    },
+    **{
+        name: KnownOutput(
+            ((None, f"analysis_population/{{prefix}}{name}.csv"),),
             ",",
             "analysis.synthesis.population",
         )
         for name in ANALYSIS
     },
 }
+
+
+def is_csv_file(file: str) -> bool:
+    """Whether ``file`` is a CSV table (the only files with a separator)."""
+
+    return file.lower().endswith(".csv")
 
 
 def collect_outputs(

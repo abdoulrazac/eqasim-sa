@@ -9,7 +9,12 @@ import pytest
 
 import eqasim_sa.adapters.eqasim.artifacts as artifacts_module
 import eqasim_sa.core.indicators as indicators_module
-from eqasim_sa.adapters.eqasim.artifacts import KNOWN_OUTPUTS, collect_outputs
+from eqasim_sa.adapters.eqasim.artifacts import (
+    ANALYSIS,
+    KNOWN_OUTPUTS,
+    POPULATION,
+    collect_outputs,
+)
 from eqasim_sa.adapters.eqasim.config import EqasimSettings, load_config
 from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator
 from eqasim_sa.core.indicators import OutputDeclaration, read_csv_table
@@ -17,8 +22,9 @@ from eqasim_sa.ports.simulator import SimulationError
 from tests.conftest import make_symlink, pid_alive
 
 ALL_OUTPUTS = {
-    name: OutputDeclaration(known.file, known.separator)
+    name: OutputDeclaration(known.default_file(), known.separator)
     for name, known in KNOWN_OUTPUTS.items()
+    if name in (*POPULATION, *ANALYSIS)
 }
 PERSONS = {"persons": ALL_OUTPUTS["persons"]}
 
@@ -236,8 +242,8 @@ def test_real_spy_subprocess_collects_exact_declared_inventory(
         (artifact.name, artifact.path.name, artifact.source_path)
         for artifact in manifest.artifacts
     } == {
-        (name, f"{name}.csv", known.file.replace("{prefix}", "nantes_"))
-        for name, known in KNOWN_OUTPUTS.items()
+        (name, f"{name}.csv", declaration.source_path("nantes_"))
+        for name, declaration in ALL_OUTPUTS.items()
     }
     observed = json.loads(record.read_text())
     assert observed["pid"] != os.getpid()

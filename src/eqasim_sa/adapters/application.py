@@ -26,6 +26,7 @@ from eqasim_sa.adapters.eqasim.execution import (
     EqasimBatchExecutor,
     _apply_execution_overrides,
 )
+from eqasim_sa.adapters.eqasim.artifacts import DEFAULT_OUTPUT_PREFIX
 from eqasim_sa.adapters.eqasim.simulator import EqasimSimulator
 from eqasim_sa.adapters.fake.simulator import FakeSimulator
 from eqasim_sa.adapters.estimate import estimate_from_meta_config
@@ -395,11 +396,63 @@ def analyze_from_meta_config(path: Path, descriptive_only: bool = False) -> dict
 
 
 def show_config_from_meta_config(path: Path) -> str:
-    """Validate a meta-config and render it with every default applied."""
+    """Validate a meta-config and render it with every default applied.
 
-    load_meta_config(path, verify_data=False)
-    resolved = resolve_meta_config_document(load_yaml_document(path))
-    return yaml.safe_dump(resolved, sort_keys=False, allow_unicode=True)
+    Each output ``file`` keeps its ``{prefix}`` template (what is sealed) and
+    is followed by a comment naming the file for the eqasim ``output_prefix``.
+    """
+
+    meta = load_meta_config(path, verify_data=False)
+    eqasim_config = meta.model_document["config"]
+    resolved = resolve_meta_config_document(load_yaml_document(path), eqasim_config)
+    text = yaml.safe_dump(resolved, sort_keys=False, allow_unicode=True)
+    prefix = eqasim_config.get("output_prefix", DEFAULT_OUTPUT_PREFIX)
+    return _comment_output_files(text, resolved, meta.outputs, prefix)
+
+
+def _comment_output_files(
+    text: str,
+    resolved: dict,
+    outputs: dict[str, OutputDeclaration],
+    prefix: str,
+) -> str:
+    """Add ``# <file for this prefix>`` after each templated output ``file``.
+
+    Only ``    file:`` lines directly under an output of the top-level
+    ``outputs:`` block whose value is that output's file are commented; the
+    text is returned unchanged unless it still loads to ``resolved``.
+    """
+
+    lines = text.split("\n")
+    in_outputs, current = False, None
+    for index, line in enumerate(lines):
+        if line and not line.startswith(" "):
+            in_outputs, current = line == "outputs:", None
+            continue
+        if not in_outputs:
+            continue
+        if line.startswith("  ") and not line.startswith("   ") and line.endswith(":"):
+            current = line.strip()[:-1]
+            continue
+        if current not in outputs or not line.startswith("    file: "):
+            continue
+        try:
+            value = yaml.safe_load(line[len("    file: "):])
+        except yaml.YAMLError:
+            continue
+        declaration = outputs[current]
+        if value != declaration.file:
+            continue
+        source = declaration.source_path(prefix)
+        if source != value:
+            lines[index] = f"{line}  # {source}"
+    commented = "\n".join(lines)
+    try:
+        if yaml.safe_load(commented) == resolved:
+            return commented
+    except yaml.YAMLError:
+        pass
+    return text
 
 
 def main() -> int:

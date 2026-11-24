@@ -118,9 +118,9 @@ def test_init_is_a_pure_atomic_template_generator(
         assert "  sampling_rate: [" in text
         assert "config: \"config.yml\"" in text
         assert "analysis.synthesis.population" in text
-        for name in ("persons", "households", "trips", "activities"):
+        for name in ("persons", "households", "trips", "activities", "activities_spatial"):
             assert f"\n  {name}: {{}}\n" in text
-        assert '    file: "{prefix}activities.gpkg"' in text
+        assert "activities.gpkg" not in text
         assert "# matching_minimum_age: [0, 5, 12]" in text
         assert "age_scheme" not in text and "projection_" + "year" not in text
     readme = (root / "README.md").read_text()

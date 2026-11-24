@@ -9,7 +9,7 @@ import pyarrow.csv as pa_csv
 import pytest
 
 from eqasim_sa.adapters import checks as check_service
-from eqasim_sa.adapters.eqasim.artifacts import KNOWN_OUTPUTS
+from eqasim_sa.adapters.eqasim.artifacts import ANALYSIS, KNOWN_OUTPUTS, POPULATION
 from eqasim_sa.core.indicators import (
     OutputDeclaration,
     TableArtifact,
@@ -499,8 +499,9 @@ def test_smoke_applies_run_overrides_and_computes_every_indicator(
         model_bytes=b"x",
         structured_factors={},
         outputs={
-            name: OutputDeclaration(known.file, known.separator)
+            name: OutputDeclaration(known.default_file(), known.separator)
             for name, known in KNOWN_OUTPUTS.items()
+            if name in (*POPULATION, *ANALYSIS)
         },
         indicators=indicators,
         software_identity=read_software_identity(),

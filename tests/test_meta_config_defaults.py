@@ -96,3 +96,40 @@ def test_default_indicators_skip_outputs_without_references():
 def test_default_design_seed_is_pinned():
     # sha256(b"eqasim-sa:design-seed:v1\0" + campaign)[:8], big-endian, >> 1
     assert default_design_seed("demo") == 7846582582423296551
+
+
+def test_spatial_outputs_follow_the_eqasim_output_formats():
+    document = {"outputs": {"homes_spatial": {}, "trips_spatial": None, "legs": {}}}
+    # Without the eqasim config the spatial file is left to the loader.
+    assert resolve_meta_config_document(document)["outputs"] == {
+        "homes_spatial": {},
+        "trips_spatial": {},
+        "legs": {"file": "{prefix}legs.csv", "separator": ";"},
+    }
+    for config, expected in (
+        ({}, "gpkg"),
+        ({"output_formats": ["geoparquet"]}, "geoparquet"),
+        ({"output_formats": ["geoparquet", "gpkg"]}, "gpkg"),
+    ):
+        outputs = resolve_meta_config_document(document, config)["outputs"]
+        assert outputs["homes_spatial"] == {"file": f"{{prefix}}homes.{expected}"}
+    # No spatial format: nothing is filled, the loader names the problem.
+    outputs = resolve_meta_config_document(document, {"output_formats": ["csv"]})
+    assert outputs["outputs"]["homes_spatial"] == {}
+
+
+def test_separator_is_filled_for_csv_files_only():
+    resolved = resolve_meta_config_document(
+        {
+            "outputs": {
+                "persons_parquet": {},
+                "mine": {"file": "mine.gpkg"},
+                "table": {"file": "table.CSV"},
+            }
+        }
+    )
+    assert resolved["outputs"] == {
+        "persons_parquet": {"file": "{prefix}persons.parquet"},
+        "mine": {"file": "mine.gpkg"},
+        "table": {"file": "table.CSV", "separator": ","},
+    }

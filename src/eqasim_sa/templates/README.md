@@ -113,7 +113,8 @@ read from the eqasim folder). Two things to check in that configuration:
   `parameters` (each starter shows the commented line).
 
 The starters also keep the raw `persons`, `households`, `trips`, `activities`
-and `activities_spatial` (`{prefix}activities.gpkg`) files of every run, so a
+and `activities_spatial` (`{prefix}activities.gpkg`, or `.geoparquet` when
+`output_formats` has `geoparquet` but not `gpkg`) files of every run, so a
 later analysis does not need new simulations. They have no references, so they
 produce no indicator.
 

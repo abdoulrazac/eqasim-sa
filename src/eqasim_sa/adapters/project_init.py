@@ -700,7 +700,9 @@ def _publish_scaffold(
             platform.remove_tree(staging)
 
 
-def _declared_archive_files(starters: dict[str, bytes], prefix: str) -> set[str]:
+def _declared_archive_files(
+    starters: dict[str, bytes], prefix: str, eqasim_config: dict
+) -> set[str]:
     """Archive file names of the outputs declared by the starters.
 
     A declaration that cannot name an archive file adds nothing: checking it
@@ -712,7 +714,7 @@ def _declared_archive_files(starters: dict[str, bytes], prefix: str) -> set[str]
         if not name.endswith(".yml"):
             continue
         document = resolve_meta_config_document(
-            load_yaml_source(content.decode("utf-8"))
+            load_yaml_source(content.decode("utf-8")), eqasim_config
         )
         outputs = document.get("outputs") if isinstance(document, dict) else None
         if not isinstance(outputs, dict):
@@ -856,7 +858,7 @@ def init_from_inputs(
             _validate_project_manifest(absolute / "manifest.json")
         # Archives follow the outputs of the starters as they are on disk.
         _durable_preflight(
-            absolute, _declared_archive_files(effective, prefix), campaigns
+            absolute, _declared_archive_files(effective, prefix, model_document["config"]), campaigns
         )
         selected_scratch = _directory_or_create(selected_scratch, "scratch")
     WorkerWorkspace.validate_scratch(selected_scratch, campaign_names)

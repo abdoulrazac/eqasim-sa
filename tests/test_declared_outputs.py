@@ -626,3 +626,277 @@ def test_csv_columns_are_read_as_text() -> None:
     assert persons["has_driving_license"].to_pylist()[:2] == ["False", "True"]
     assert purpose.column_names[0] == "age_class"
     assert purpose["Home<>Work"].to_pylist()[3] == "63000.0"
+
+
+# Every output eqasim's synthesis/output.py writes is a known output.
+
+POPULATION_NAMES = (
+    "persons",
+    "households",
+    "activities",
+    "trips",
+    "vehicle_types",
+    "vehicles",
+)
+SPATIAL_NAMES = ("activities", "homes", "commutes", "trips")
+
+
+def _set_model_config(config: Path, **values: object) -> None:
+    document = yaml.safe_load(config.read_text())
+    document["config"].update(values)
+    config.write_text(yaml.safe_dump(document, sort_keys=False))
+
+
+def test_every_output_py_file_is_a_known_output(tmp_path: Path) -> None:
+    outputs = {
+        **{name: {} for name in POPULATION_NAMES},
+        **{f"{name}_parquet": {} for name in POPULATION_NAMES},
+        **{f"{name}_spatial": {} for name in SPATIAL_NAMES},
+        "legs": {},
+        "pt_legs": {},
+    }
+    meta, config = project(tmp_path, outputs, run=["synthesis.output"])
+    _set_model_config(
+        config, output_formats=["csv", "parquet", "gpkg"], mode_choice=True
+    )
+    loaded = load_meta_config(meta, verify_data=False).outputs
+    assert {name: (item.file, item.separator) for name, item in loaded.items()} == {
+        **{name: (f"{{prefix}}{name}.csv", ";") for name in POPULATION_NAMES},
+        **{
+            f"{name}_parquet": (f"{{prefix}}{name}.parquet", ",")
+            for name in POPULATION_NAMES
+        },
+        **{
+            f"{name}_spatial": (f"{{prefix}}{name}.gpkg", ",")
+            for name in SPATIAL_NAMES
+        },
+        "legs": ("{prefix}legs.csv", ";"),
+        "pt_legs": ("{prefix}pt_legs.csv", ";"),
+    }
+
+
+@pytest.mark.parametrize(
+    ("formats", "expected"),
+    [
+        (["csv", "geoparquet"], "{prefix}homes.geoparquet"),
+        (["geoparquet", "gpkg"], "{prefix}homes.gpkg"),
+        (None, "{prefix}homes.gpkg"),
+    ],
+    ids=["geoparquet", "gpkg-preferred", "eqasim-default"],
+)
+def test_spatial_output_follows_output_formats(
+    tmp_path: Path, formats: list | None, expected: str
+) -> None:
+    meta, config = project(tmp_path, {"homes_spatial": {}}, run=["synthesis.output"])
+    if formats is not None:
+        _set_model_config(config, output_formats=formats)
+    assert load_meta_config(meta, verify_data=False).outputs[
+        "homes_spatial"
+    ] == OutputDeclaration(expected, ",")
+    shown = yaml.safe_load(show_config_from_meta_config(meta))
+    assert shown["outputs"] == {"homes_spatial": {"file": expected}}
+
+
+def test_spatial_output_without_a_spatial_format_is_rejected(tmp_path: Path) -> None:
+    meta, config = project(tmp_path, {"homes_spatial": {}}, run=["synthesis.output"])
+    _set_model_config(config, output_formats=["csv", "parquet"])
+    with pytest.raises(ValueError) as error:
+        load_meta_config(meta, verify_data=False)
+    assert str(error.value) == (
+        "output 'homes_spatial' needs gpkg or geoparquet in output_formats of "
+        f"{config.resolve()}; add one"
+    )
+
+
+def test_spatial_output_with_an_explicit_file_keeps_it(tmp_path: Path) -> None:
+    meta, config = project(
+        tmp_path,
+        {"homes_spatial": {"file": "{prefix}homes.geoparquet"}},
+        run=["synthesis.output"],
+    )
+    _set_model_config(config, output_formats=["gpkg", "geoparquet"])
+    assert load_meta_config(meta, verify_data=False).outputs[
+        "homes_spatial"
+    ].file == "{prefix}homes.geoparquet"
+
+
+@pytest.mark.parametrize(
+    ("outputs", "formats", "message"),
+    [
+        (
+            {"persons_parquet": {}},
+            None,
+            "output 'persons_parquet' is a Parquet file but output_formats of "
+            "{config} is ['csv', 'gpkg']; add parquet to output_formats",
+        ),
+        (
+            {"homes": {"file": "{prefix}homes.geoparquet"}},
+            ["csv", "gpkg"],
+            "output 'homes' is a GeoParquet file but output_formats of "
+            "{config} is ['csv', 'gpkg']; add geoparquet to output_formats",
+        ),
+        (
+            {"spatial": {"file": "{prefix}activities.gpkg"}},
+            ["csv"],
+            "output 'spatial' is a GeoPackage file but output_formats of "
+            "{config} is ['csv']; add gpkg to output_formats",
+        ),
+    ],
+    ids=["parquet-default-formats", "geoparquet", "gpkg-explicit-file"],
+)
+def test_output_format_requirements_cover_every_format(
+    tmp_path: Path, outputs: dict, formats: list | None, message: str
+) -> None:
+    meta, config = project(tmp_path, outputs, run=["synthesis.output"])
+    if formats is not None:
+        _set_model_config(config, output_formats=formats)
+    with pytest.raises(ValueError) as error:
+        load_meta_config(meta, verify_data=False)
+    assert str(error.value) == message.format(config=config.resolve())
+
+
+def test_absent_output_formats_defaults_to_eqasim_csv_and_gpkg(tmp_path: Path) -> None:
+    meta, _ = project(
+        tmp_path,
+        {"persons": {}, "activities_spatial": {}},
+        run=["synthesis.output"],
+    )
+    assert set(load_meta_config(meta, verify_data=False).outputs) == {
+        "persons",
+        "activities_spatial",
+    }
+
+
+@pytest.mark.parametrize("value", [None, False], ids=["absent", "false"])
+@pytest.mark.parametrize("name", ["legs", "pt_legs"])
+def test_mode_choice_outputs_need_mode_choice(
+    tmp_path: Path, name: str, value: object
+) -> None:
+    meta, config = project(tmp_path, {name: {}}, run=["synthesis.output"])
+    if value is not None:
+        _set_model_config(config, mode_choice=value)
+    with pytest.raises(ValueError) as error:
+        load_meta_config(meta, verify_data=False)
+    assert str(error.value) == (
+        f"output {name!r} is written only when mode_choice is true in "
+        f"{config.resolve()}"
+    )
+
+
+@pytest.mark.parametrize(
+    "outputs",
+    [
+        {"persons_parquet": {"separator": ";"}},
+        {"spatial": {"file": "{prefix}activities.gpkg", "separator": ","}},
+        {"persons": {"file": "{prefix}persons.parquet", "separator": ";"}},
+    ],
+    ids=["known-parquet", "unknown-gpkg", "overridden-known"],
+)
+def test_separator_on_a_non_csv_output_is_rejected(
+    tmp_path: Path, outputs: dict
+) -> None:
+    meta, config = project(tmp_path, outputs, run=["synthesis.output"])
+    _set_model_config(config, output_formats=["csv", "parquet", "gpkg"])
+    with pytest.raises(ValueError) as error:
+        load_meta_config(meta, verify_data=False)
+    name = next(iter(outputs))
+    assert str(error.value) == f"separator applies only to .csv files (output {name!r})"
+
+
+def test_overridden_known_output_with_a_non_csv_file_has_no_separator(
+    tmp_path: Path,
+) -> None:
+    resolved = resolve_meta_config_document(
+        {"outputs": {"persons": {"file": "{prefix}persons.parquet"}}}
+    )
+    assert resolved["outputs"] == {"persons": {"file": "{prefix}persons.parquet"}}
+
+
+def test_non_csv_outputs_seal_like_before(tmp_path: Path) -> None:
+    # Before known spatial outputs, the starters declared the file and the
+    # loader gave it the default separator: the sealed declaration is unchanged.
+    meta, config = project(
+        tmp_path, {"activities_spatial": {}}, run=["synthesis.output"]
+    )
+    implicit = load_meta_config(meta, verify_data=False).outputs
+    meta, _ = project(
+        tmp_path / "explicit",
+        {"activities_spatial": {"file": "{prefix}activities.gpkg"}},
+        run=["synthesis.output"],
+    )
+    explicit = load_meta_config(meta, verify_data=False).outputs
+    assert implicit == explicit
+    assert implicit["activities_spatial"].sealed() == {
+        "file": "{prefix}activities.gpkg",
+        "separator": ",",
+    }
+
+
+def test_show_config_comments_the_resolved_file_names(tmp_path: Path) -> None:
+    meta, config = project(
+        tmp_path,
+        {"persons": {}, "age": {}, "homes_spatial": {}, "mine": {"file": "mine.csv"}},
+    )
+    text = show_config_from_meta_config(meta)
+    assert "    file: '{prefix}persons.csv'  # nantes_persons.csv\n" in text
+    assert (
+        "    file: analysis_population/{prefix}age.csv"
+        "  # analysis_population/nantes_age.csv\n"
+    ) in text
+    assert "    file: '{prefix}homes.gpkg'  # nantes_homes.gpkg\n" in text
+    assert "    file: mine.csv\n" in text
+    shown = yaml.safe_load(text)
+    assert "separator" not in shown["outputs"]["homes_spatial"]
+    again = tmp_path / "again.yml"
+    again.write_text(text)
+    assert (
+        load_meta_config(again, verify_data=False).outputs
+        == load_meta_config(meta, verify_data=False).outputs
+    )
+
+
+def test_geoparquet_and_parquet_outputs_are_archived_flat(tmp_path: Path) -> None:
+    from eqasim_sa.adapters.eqasim.artifacts import collect_outputs
+
+    output = tmp_path / "attempt" / "output"
+    output.mkdir(parents=True)
+    contents = {
+        "nantes_homes.geoparquet": b"PAR1\0homes\r\nPAR1",
+        "nantes_persons.parquet": b"PAR1\0persons\nPAR1",
+        "nantes_legs.csv": b"person_id;leg_index\r\n1;0\r\n",
+    }
+    for file, content in contents.items():
+        (output / file).write_bytes(content)
+    artifacts = collect_outputs(
+        output,
+        tmp_path / "attempt" / "collected",
+        "nantes_",
+        {
+            "homes_spatial": OutputDeclaration("{prefix}homes.geoparquet", ","),
+            "persons_parquet": OutputDeclaration("{prefix}persons.parquet", ","),
+            "legs": OutputDeclaration("{prefix}legs.csv", ";"),
+        },
+    )
+    assert {item.path.name: item.path.read_bytes() for item in artifacts} == {
+        "homes_spatial.geoparquet": contents["nantes_homes.geoparquet"],
+        "persons_parquet.parquet": contents["nantes_persons.parquet"],
+        "legs.csv": contents["nantes_legs.csv"],
+    }
+
+
+@pytest.mark.parametrize("output", ["persons_parquet", "homes_spatial"])
+def test_indicator_on_a_parquet_or_spatial_output_is_rejected(
+    tmp_path: Path, output: str
+) -> None:
+    meta, config = project(
+        tmp_path,
+        {output: {"category": "a", "simulated": "b", "references": ["c"]}},
+        run=["synthesis.output"],
+        extra=yaml.safe_dump(
+            {"indicators": [{"share": {"output": output, "category": "a"}}]},
+            sort_keys=False,
+        ),
+    )
+    _set_model_config(config, output_formats=["csv", "parquet", "gpkg"])
+    with pytest.raises(ValueError, match="indicators read CSV tables only"):
+        load_meta_config(meta, verify_data=False)

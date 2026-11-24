@@ -13,7 +13,7 @@ from eqasim_sa.core.ledger import archive_file_name
 from eqasim_sa.adapters.eqasim.artifacts import (
     DEFAULT_OUTPUT_PREFIX,
     KNOWN_OUTPUTS,
-    POPULATION,
+    is_csv_file,
 )
 from eqasim_sa.adapters.eqasim.source_fingerprint import (
     eqasim_source_exclusions,
@@ -29,7 +29,11 @@ from eqasim_sa.adapters.eqasim.config import (
     yaml_error_reason,
 )
 from eqasim_sa.adapters.eqasim.workspace import CAMPAIGN_MAX
-from eqasim_sa.adapters.meta_config_defaults import resolve_meta_config_document
+from eqasim_sa.adapters.meta_config_defaults import (
+    UNKNOWN_OUTPUT_SEPARATOR,
+    output_formats,
+    resolve_meta_config_document,
+)
 from eqasim_sa.adapters.eqasim.simulator import DEDICATED, validate_transport
 from eqasim_sa.core.charter import (
     AllocationPhase,
@@ -143,7 +147,15 @@ EXPERIMENT_KEYS = {
 }
 OUTPUT_KEYS = ("file", "separator", "category", "simulated", "references")
 ANALYSIS_KEYS = ("script", "inputs", "category", "simulated", "references")
-ANALYSIS_INPUT_SUFFIXES = (".csv", ".gpkg")
+ANALYSIS_INPUT_SUFFIXES = (".csv", ".gpkg", ".parquet", ".geoparquet")
+FORMAT_KINDS = {
+    "csv": "a CSV",
+    "parquet": "a Parquet",
+    "gpkg": "a GeoPackage",
+    "geoparquet": "a GeoParquet",
+}
+# Only eqasim's synthesis/output.py writes these, whatever the output name.
+SPATIAL_SUFFIX_FORMATS = {".gpkg": "gpkg", ".geoparquet": "geoparquet"}
 DEFAULT_ANALYSIS_PYTHON = ("uv", "run", "--locked", "python")
 SYNPP_MODULE = ("-m", "synpp")
 SEED_FACTOR_METHODS = {"sobol", "multiscramble_sobol"}
@@ -522,7 +534,20 @@ def _strings(value: object, name: str, allow_empty: bool = False) -> tuple[str, 
     return tuple(value)
 
 
-def _outputs(document: dict) -> dict[str, OutputDeclaration]:
+def _formats(model_document: dict, config: Path) -> list[str]:
+    """eqasim ``output_formats`` (eqasim's default when absent), validated."""
+
+    formats = output_formats(model_document.get("config"))
+    if not isinstance(formats, list) or not all(
+        isinstance(item, str) for item in formats
+    ):
+        raise ValueError(f"output_formats of {config} must be a list of strings")
+    return formats
+
+
+def _outputs(
+    document: dict, model_document: dict, config: Path
+) -> dict[str, OutputDeclaration]:
     raw_outputs = _mapping(document.get("outputs", {}), "outputs")
     if not raw_outputs:
         raise ValueError(
@@ -532,6 +557,7 @@ def _outputs(document: dict) -> dict[str, OutputDeclaration]:
         validate_output_name(name)
         validate_portable_name(name, "output")
     reject_case_collisions(list(raw_outputs), "output")
+    formats = _formats(model_document, config)
     outputs = {}
     for name, value in raw_outputs.items():
         declaration = _mapping(value, f"output {name!r}")
@@ -541,21 +567,37 @@ def _outputs(document: dict) -> dict[str, OutputDeclaration]:
                 f"output {name!r} keys must be among {', '.join(OUTPUT_KEYS)}; "
                 f"unknown: {', '.join(unknown)}"
             )
-        if "file" not in declaration:
+        known = KNOWN_OUTPUTS.get(name)
+        if "file" in declaration:
+            file = declaration["file"]
+        elif known is None:
             raise ValueError(
                 f"output {name!r} is not a known eqasim output; declare its file "
                 "(relative to eqasim's output_path, e.g. "
                 f"analysis_population/{{prefix}}{name}.csv)"
             )
-        file, separator = declaration["file"], declaration["separator"]
+        else:
+            file = known.default_file(formats)
+            if file is None:
+                raise ValueError(
+                    f"output {name!r} needs {' or '.join(known.formats)} in "
+                    f"output_formats of {config}; add one"
+                )
         try:
             validate_output_file(file)
         except ValueError as error:
             raise ValueError(f"output {name!r} file: {error}") from error
-        try:
-            validate_separator(separator)
-        except ValueError as error:
-            raise ValueError(f"output {name!r} separator: {error}") from error
+        if is_csv_file(file):
+            separator = declaration.get("separator", UNKNOWN_OUTPUT_SEPARATOR)
+            try:
+                validate_separator(separator)
+            except ValueError as error:
+                raise ValueError(f"output {name!r} separator: {error}") from error
+        elif "separator" in declaration:
+            raise ValueError(f"separator applies only to .csv files (output {name!r})")
+        else:
+            # Never read; sealed as before so plan identities do not change.
+            separator = UNKNOWN_OUTPUT_SEPARATOR
         category, simulated = declaration.get("category"), declaration.get("simulated")
         for label, item in (("category", category), ("simulated", simulated)):
             if item is not None and (not isinstance(item, str) or not item):
@@ -625,7 +667,8 @@ def _analyses(
             file = outputs[item].file
             if not file.lower().endswith(ANALYSIS_INPUT_SUFFIXES):
                 raise ValueError(
-                    f"{label} input {item!r} file {file!r} must be a .csv or .gpkg file"
+                    f"{label} input {item!r} file {file!r} must be a .csv, .gpkg, "
+                    ".parquet or .geoparquet file"
                 )
         category, simulated = declaration.get("category"), declaration.get("simulated")
         references = _strings(
@@ -673,18 +716,28 @@ def _reads_analysis_output(indicator: Indicator) -> str | None:
 def _require_output_stages(
     outputs: dict[str, OutputDeclaration], model_document: dict, config: Path
 ) -> None:
-    """Refuse a known output left at its default file whose stage is not run."""
+    """Refuse a known output left at a default file that eqasim will not write.
+
+    Its stage must be in ``run:``, and a mode choice output needs
+    ``mode_choice`` (read as eqasim does: any true value).
+    """
 
     stages = set(run_stages(model_document.get("run")))
+    nested = model_document.get("config")
+    mode_choice = bool(nested.get("mode_choice", False)) if isinstance(nested, dict) else False
     for name, declaration in outputs.items():
         known = KNOWN_OUTPUTS.get(name)
-        if known is None or declaration.file != known.file:
+        if known is None or declaration.file not in {file for _, file in known.files}:
             continue
         if known.stage not in stages:
             raise ValueError(
                 f"output {name!r} is written by eqasim stage {known.stage!r}, "
                 f"which is not in run: of {config}; "
                 "add it to run: in your eqasim config"
+            )
+        if known.mode_choice and not mode_choice:
+            raise ValueError(
+                f"output {name!r} is written only when mode_choice is true in {config}"
             )
 
 
@@ -699,20 +752,22 @@ def _require_writable_outputs(
     if isinstance(prefix, str):
         for name, declaration in outputs.items():
             archive_file_name(name, declaration.source_path(prefix))
-    formats = nested.get("output_formats")
-    if not isinstance(formats, list):
-        return
-    population_files = {KNOWN_OUTPUTS[name].file for name in POPULATION}
+    formats = _formats(model_document, config)
+    known_files = {
+        file: fmt
+        for known in KNOWN_OUTPUTS.values()
+        for fmt, file in known.files
+        if fmt is not None
+    }
     for name, declaration in outputs.items():
-        if declaration.file in population_files and "csv" not in formats:
-            kind, missing = "a CSV", "csv"
-        elif declaration.file.lower().endswith(".gpkg") and "gpkg" not in formats:
-            kind, missing = "a GeoPackage", "gpkg"
-        else:
+        missing = known_files.get(declaration.file) or SPATIAL_SUFFIX_FORMATS.get(
+            Path(declaration.file).suffix.lower()
+        )
+        if missing is None or missing in formats:
             continue
         raise ValueError(
-            f"output {name!r} is {kind} file but output_formats of {config} "
-            f"is {formats!r}; add {missing} to output_formats"
+            f"output {name!r} is {FORMAT_KINDS[missing]} file but output_formats "
+            f"of {config} is {formats!r}; add {missing} to output_formats"
         )
 
 
@@ -1375,7 +1430,7 @@ def load_meta_config(
         if "calibration" in document
         else ()
     )
-    outputs = _outputs(document)
+    outputs = _outputs(document, experiment_document, config)
     _require_output_stages(outputs, experiment_document, config)
     _require_writable_outputs(outputs, experiment_document, config)
     analyses = _analyses(document, base, outputs)

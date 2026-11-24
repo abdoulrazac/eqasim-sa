@@ -553,3 +553,42 @@ def test_interpreter_probe_does_not_inherit_the_virtual_env(tmp_path, monkeypatc
     environment_document(PYTHON, model, None)
 
     assert calls and all(env is not None and "VIRTUAL_ENV" not in env for env in calls)
+
+
+def test_parquet_and_geoparquet_inputs_reach_the_script_unchanged(tmp_path):
+    campaign, model, _ = _campaign(tmp_path)
+    contents = {
+        "persons_parquet": ("persons_parquet.parquet", b"PAR1\0persons\r\nPAR1"),
+        "homes_spatial": ("homes_spatial.geoparquet", b"PAR1\0homes\nPAR1"),
+    }
+    archived = {}
+    for name, (file, content) in contents.items():
+        path = tmp_path / "archive" / file
+        path.write_bytes(content)
+        archived[name] = path
+    script = tmp_path / "inputs.py"
+    script.write_text(
+        "import hashlib, os, pandas\n"
+        "def compute(files, parameters):\n"
+        "    names = sorted(files)\n"
+        "    return pandas.DataFrame({\n"
+        "        'input': names,\n"
+        "        'file': [os.path.basename(files[n]) for n in names],\n"
+        "        'sha256': [hashlib.sha256(open(files[n], 'rb').read()).hexdigest()\n"
+        "                   for n in names],\n"
+        "    })\n",
+        encoding="utf-8",
+    )
+    declaration = _declaration("inputs", script, tuple(contents))
+    record = run_analysis(
+        declaration, archived, _parameters(), PYTHON, model, campaign, ENVIRONMENT
+    )
+    rows = read_csv_table(record.path, ",", "inputs").to_pylist()
+    assert rows == [
+        {
+            "input": name,
+            "file": contents[name][0],
+            "sha256": hashlib.sha256(contents[name][1]).hexdigest(),
+        }
+        for name in sorted(contents)
+    ]
