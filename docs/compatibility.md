@@ -2,7 +2,7 @@
 
 **English** | [Français](../docs-fr/compatibility.md)
 
-This page describes `eqasim-sa` 0.4.2; the [changelog](../CHANGELOG.md) lists
+This page describes `eqasim-sa` 0.4.3; the [changelog](../CHANGELOG.md) lists
 its changes since 0.3.0, among them structured factors,
 an eqasim model identified without Git, analysis scripts, `show-config`, and
 `plot`. The Python parser and analysis code are authoritative. There is no backward compatibility:
@@ -157,6 +157,7 @@ Nantes protocol has been planned or executed.
 
 | Release | Python | Plan schemas read/written | Analysis manifest | Migration |
 | --- | --- | --- | --- | --- |
+| 0.4.3 | `>=3.13,<3.14` | plan schemas v1/v2/v3; scientific design v3 only | v8 | none |
 | 0.4.2 | `>=3.13,<3.14` | plan schemas v1/v2/v3; scientific design v3 only | v8 | none |
 | 0.4.1 | `>=3.13,<3.14` | plan schemas v1/v2/v3; scientific design v3 only | v8 | none |
 | 0.4.0 | `>=3.13,<3.14` | plan schemas v1/v2/v3; scientific design v3 only | v8 | none |
