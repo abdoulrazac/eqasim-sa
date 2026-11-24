@@ -26,10 +26,10 @@ Repository = "https://github.com/abdoulrazac/eqasim-sa"
 Changelog = "https://github.com/abdoulrazac/eqasim-sa/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
-test = ["pytest==9.0.2"]
+test = ["pytest==9.0.2", "cloudpickle==3.1.2", "pillow==12.3.0"]
 
 [project.scripts]
-eqasim-sa = "eqasim_sa.adapters.application:main"
+eqasim-sa = "eqasim_sa.launcher:main"
 eqasim-sa-fake-pipeline = "eqasim_sa.adapters.fake.executable:main"
 
 [tool.setuptools.packages.find]
