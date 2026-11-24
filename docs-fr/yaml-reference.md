@@ -877,6 +877,11 @@ outputs:
     separator: ";"
 ```
 
+Pour conserver le résultat d'une étape eqasim qui n'écrit rien dans le dossier
+de sortie (par exemple la population enrichie de
+`synthesis.population.enriched`), écrivez vous-même une telle étape : voir
+[Archiver la sortie d'une autre étape du pipeline](archiving-pipeline-steps.md).
+
 `file` est un chemin relatif écrit avec `/`, sans `..`, `\`, `:` ni chemin
 absolu. Vous pouvez aussi changer le `file` d'une sortie connue, par exemple
 pour lire sous un nom connu un fichier écrit par votre propre étape eqasim ; la
@@ -1133,8 +1138,9 @@ eqasim. Voir [`analyses`](#analyses).
 Vous pouvez aussi calculer la grandeur dans eqasim : écrivez une étape
 d'analyse eqasim qui enregistre une petite table CSV dans le dossier de sortie,
 ajoutez cette étape à `run:` dans votre configuration eqasim, déclarez le
-fichier sous `outputs` avant de planifier et lisez-le avec `value`. Par
-exemple, si votre étape écrit `analysis_population/{prefix}summary.csv` :
+fichier sous `outputs` avant de planifier et lisez-le avec `value` (voir
+[Archiver la sortie d'une autre étape du pipeline](archiving-pipeline-steps.md)
+pour une étape complète). Par exemple, si votre étape écrit `analysis_population/{prefix}summary.csv` :
 
 ```yaml
 outputs:

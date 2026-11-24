@@ -55,6 +55,11 @@ contains `gpkg`, which is its default, or as `.geoparquet` when it contains
 `geoparquet`; add `parquet` to `output_formats` and declare `persons_parquet`,
 `trips_parquet`, ... to archive the Parquet copies of the population tables.
 
+A script can also read the result of an eqasim step that writes nothing to the
+output folder, such as the enriched population of
+`synthesis.population.enriched`, once a small stage of your own writes it
+there: see [Archiving the output of another pipeline step](archiving-pipeline-steps.md).
+
 ## A complete example
 
 This example adds the mean home-to-work distance of each run to a Grid

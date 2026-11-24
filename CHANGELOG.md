@@ -19,6 +19,17 @@
   do not need. A rerun of `init` after a change of `output_formats` or
   `mode_choice` keeps the existing starters and lists them in `kept`.
 
+### Documentation
+
+- New guide "Archiving the output of another pipeline step" (English and
+  French), linked from the documentation index, the YAML reference and the
+  analysis-script guide: to keep the result of an eqasim step that writes
+  nothing to `output_path` (for example `synthesis.population.enriched`), add
+  a small export stage of your own to the eqasim folder and to `run:`, and
+  declare its file under `outputs`. eqasim-sa itself is unchanged: it still
+  archives only declared files of `output_path` and never reads the synpp
+  cache.
+
 ## 0.4.2 - 2026-11-24
 
 ### Added

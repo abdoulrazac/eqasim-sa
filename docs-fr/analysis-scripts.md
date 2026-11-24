@@ -57,6 +57,11 @@ configuration contient `gpkg`, ce qui est sa valeur par défaut, ou en
 `output_formats` et déclarez `persons_parquet`, `trips_parquet`... pour
 archiver les copies Parquet des tables de population.
 
+Un script peut aussi lire le résultat d'une étape eqasim qui n'écrit rien dans
+le dossier de sortie, comme la population enrichie de
+`synthesis.population.enriched`, dès qu'une petite étape à vous l'y écrit :
+voir [Archiver la sortie d'une autre étape du pipeline](archiving-pipeline-steps.md).
+
 ## Un exemple complet
 
 Cet exemple ajoute à une campagne Grid la distance moyenne domicile-travail de

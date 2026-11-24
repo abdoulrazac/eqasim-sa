@@ -848,6 +848,11 @@ outputs:
     separator: ";"
 ```
 
+To keep the result of an eqasim step that writes nothing to the output folder
+(for example the enriched population of `synthesis.population.enriched`),
+write such a stage yourself: see
+[Archiving the output of another pipeline step](archiving-pipeline-steps.md).
+
 `file` is a relative path written with `/`, without `..`, `\`, `:`, or an
 absolute path. You may also change the `file` of a known output, for example
 to read a file written by your own eqasim stage under a known name; the stage
@@ -1093,7 +1098,9 @@ It can be added after the runs, without running eqasim again. See
 You may also compute the quantity inside eqasim: write an eqasim analysis stage
 that saves a small CSV table in the output folder, add that stage to `run:` in
 your eqasim configuration, declare the file under `outputs` before planning,
-and read it with `value`. For example, if your stage writes
+and read it with `value` (see
+[Archiving the output of another pipeline step](archiving-pipeline-steps.md)
+for a complete stage). For example, if your stage writes
 `analysis_population/{prefix}summary.csv`:
 
 ```yaml

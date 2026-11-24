@@ -11,13 +11,14 @@ Le parseur Python est normatif : le projet ne fournit pas de JSON Schema.
 2. [Tutoriel des configurations structurées nommées](structured-configurations-tutorial.md) : comparer de bout en bout des listes `matching_attributes` ordonnées.
 3. [Référence YAML](yaml-reference.md) : contrat complet d'une méta-configuration.
 4. [Écrire un script d'analyse](analysis-scripts.md) : ajouter des grandeurs calculées à partir des fichiers archivés, même après les runs.
-5. [Paramètres et méthodes](parameters-and-methods.md) : Grid, OAT discret, Morris canonique, Sobol et seeds.
-6. [Déroulement et résultats](workflow-and-results.md) : identités, stockage, reprise et figures.
-7. [Référence CLI](cli-reference.md) : commandes, JSON et codes de sortie.
-8. [Dépannage](troubleshooting.md) : erreurs fréquentes et remèdes sûrs.
-9. [Glossaire](glossary.md) : vocabulaire précis du projet.
-10. [Compatibilité de version](compatibility.md) : matrices des schémas, méthodes, statuts, refus et versions.
-11. [Exemple de campagne scientifique](../protocols/nantes-scientific/README.md) (en anglais) : le protocole nantais, pilote et production Morris canonique puis Sobol multi-scramble FP et FF, rédigé pour une étude (non généré par `init`).
+5. [Archiver la sortie d'une autre étape du pipeline](archiving-pipeline-steps.md) : conserver le résultat de toute étape eqasim avec une petite étape d'export à vous.
+6. [Paramètres et méthodes](parameters-and-methods.md) : Grid, OAT discret, Morris canonique, Sobol et seeds.
+7. [Déroulement et résultats](workflow-and-results.md) : identités, stockage, reprise et figures.
+8. [Référence CLI](cli-reference.md) : commandes, JSON et codes de sortie.
+9. [Dépannage](troubleshooting.md) : erreurs fréquentes et remèdes sûrs.
+10. [Glossaire](glossary.md) : vocabulaire précis du projet.
+11. [Compatibilité de version](compatibility.md) : matrices des schémas, méthodes, statuts, refus et versions.
+12. [Exemple de campagne scientifique](../protocols/nantes-scientific/README.md) (en anglais) : le protocole nantais, pilote et production Morris canonique puis Sobol multi-scramble FP et FF, rédigé pour une étude (non généré par `init`).
 
 ## Choisir une méthode
 
