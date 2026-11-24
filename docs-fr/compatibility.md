@@ -98,7 +98,7 @@ actionnable et exclue des rangs de décision FP/FF.
 ## Plateformes et domaines de hachage
 
 `eqasim-sa` prend en charge nativement Windows 10+, macOS 13+ et Linux avec le
-backend `local` (la suite est testée sous Linux, Python 3.13 : 1558 réussis,
+backend `local` (la suite est testée sous Linux, Python 3.13 : 1599 réussis,
 4 ignorés ; le flux d'intégration continue GitHub Actions
 `.github/workflows/tests.yml` l'exécute sous Ubuntu, macOS et Windows, et aucun
 résultat Windows ou macOS n'est revendiqué tant que l'intégration continue n'a

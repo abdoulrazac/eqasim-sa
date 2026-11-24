@@ -178,7 +178,7 @@ the run archives exactly these files. Response: `runId`, `status`, `error`.
 - Interruption, resumption, idempotency, and concurrency tests.
 
 The SLURM tests do not demonstrate operation on a real cluster. The suite is tested
-on Linux (Python 3.13: 1558 passed, 4 skipped); the GitHub Actions CI workflow
+on Linux (Python 3.13: 1599 passed, 4 skipped); the GitHub Actions CI workflow
 `.github/workflows/tests.yml` runs it on Ubuntu, macOS, and Windows, and no
 Windows or macOS result is claimed until CI has run. Platform test
 markers: `posix_only`, `windows_only`, and `linux_only` (slurm backend) are skipped

@@ -4,7 +4,7 @@
 
 ## Prerequisites
 
-- Windows 10 or later, macOS 13 or later, or Linux (supported; the suite is tested on Linux, Python 3.13: 1558 passed, 4 skipped; the GitHub Actions CI workflow `.github/workflows/tests.yml` runs it on Ubuntu, macOS, and Windows, and no Windows or macOS result is claimed until CI has run). The `local` backend behaves the same on all three; the `slurm` backend requires Linux (see [Troubleshooting](troubleshooting.md#slurm-backend-on-windows-or-macos)). No administrator rights are needed, except on Windows without long paths, where a real eqasim run needs an administrator to enable them once (see [Short scratch on Windows](#short-scratch-on-windows)).
+- Windows 10 or later, macOS 13 or later, or Linux (supported; the suite is tested on Linux, Python 3.13: 1599 passed, 4 skipped; the GitHub Actions CI workflow `.github/workflows/tests.yml` runs it on Ubuntu, macOS, and Windows, and no Windows or macOS result is claimed until CI has run). The `local` backend behaves the same on all three; the `slurm` backend requires Linux (see [Troubleshooting](troubleshooting.md#slurm-backend-on-windows-or-macos)). No administrator rights are needed, except on Windows without long paths, where a real eqasim run needs an administrator to enable them once (see [Short scratch on Windows](#short-scratch-on-windows)).
 - Campaigns, scratch, and data on a local NTFS, APFS, ext4, or xfs disk, or on the cluster's shared filesystem. FAT/exFAT volumes and SMB shares are not supported for campaigns (not detected: eqasim-sa does not refuse them, so check where your paths live).
 - Exactly Python 3.13 within the declared range `>=3.13,<3.14`.
 - `uv` available. Git is not required.

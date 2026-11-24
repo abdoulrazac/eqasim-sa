@@ -50,7 +50,7 @@ automatiquement les critères d'arrêt satisfaits.
 
 Le paquet cible exactement Python 3.13 (`>=3.13,<3.14`), installé avec `uv` sans
 droits administrateur. Il est écrit pour Windows 10+, macOS 13+ et Linux : la suite est
-testée sous Linux (Python 3.13 : 1558 réussis, 4 ignorés), et le flux
+testée sous Linux (Python 3.13 : 1599 réussis, 4 ignorés), et le flux
 d'intégration continue GitHub Actions `.github/workflows/tests.yml` l'exécute
 sous Ubuntu, macOS et Windows ; aucun résultat Windows ou macOS n'est revendiqué
 tant que l'intégration continue n'a pas tourné. Sous

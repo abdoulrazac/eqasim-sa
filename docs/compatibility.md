@@ -95,7 +95,7 @@ excluded from FP/FF decision ranks.
 ## Platforms and hash domains
 
 `eqasim-sa` supports Windows 10+, macOS 13+, and Linux natively with the `local`
-backend (the suite is tested on Linux, Python 3.13: 1558 passed, 4 skipped; the
+backend (the suite is tested on Linux, Python 3.13: 1599 passed, 4 skipped; the
 GitHub Actions CI workflow `.github/workflows/tests.yml` runs it on Ubuntu,
 macOS, and Windows, and no Windows or macOS result is claimed until CI has run);
 `slurm` is Linux only.
