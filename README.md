@@ -59,31 +59,22 @@ one machine; analysis can be done on another one. See
 [Troubleshooting](docs/troubleshooting.md) (Windows path length, line endings).
 The shell examples below are Bash; on Windows, run them from Git Bash.
 
-Releases are published on GitHub only: the release page of each version
-carries its wheel and sdist. To install release 0.4.1 as a uv tool:
+Install eqasim-sa from a clone of its repository: uv creates its environment
+with exactly the versions recorded in `uv.lock`.
 
 ```bash
-uv tool install git+https://github.com/abdoulrazac/eqasim-sa@v0.4.1
-eqasim-sa --version
-```
-
-This pins eqasim-sa's direct dependencies; their own dependencies take the
-newest compatible versions. To install exactly the versions tested for the
-release, add the `constraints.txt` file attached to it:
-
-```bash
-uv tool install --constraints https://github.com/abdoulrazac/eqasim-sa/releases/download/v0.4.1/constraints.txt \
-  git+https://github.com/abdoulrazac/eqasim-sa@v0.4.1
-```
-
-With the tool installed, use `SA=(eqasim-sa)` in the examples below. To work from a
-source checkout instead, from this directory:
-
-```bash
+git clone --branch v0.4.1 https://github.com/abdoulrazac/eqasim-sa.git
+cd eqasim-sa
 uv sync --locked
 uv run --locked eqasim-sa --version
 uv run --locked eqasim-sa --help
 ```
+
+Without Git, download the "Source code" archive of a release from the
+[GitHub release page](https://github.com/abdoulrazac/eqasim-sa/releases),
+unpack it, and run `uv sync --locked` in the unpacked folder. The examples
+below run eqasim-sa with `uv run --project <eqasim-sa folder> --locked
+eqasim-sa`, stored in `SA`.
 
 ## Initialize a study
 

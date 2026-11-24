@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Installation is documented from a clone of the repository (or the "Source
+  code" archive of a release) with `uv sync --locked`, which installs exactly
+  the versions of `uv.lock`. `uv tool install` is no longer documented.
+- On a Python other than 3.13, `eqasim-sa` now tells to run
+  `uv sync --locked --python 3.13` in the eqasim-sa folder.
+
+### Removed
+
+- Releases no longer carry `constraints.txt`.
+
 ## 0.4.1 - 2026-11-24
 
 ### Added

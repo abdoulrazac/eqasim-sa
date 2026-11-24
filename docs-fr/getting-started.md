@@ -33,34 +33,22 @@ lancez-les depuis Git Bash, ou en PowerShell écrivez la commande complète
 
 ## Installer avec uv
 
-À la racine du dépôt `openmole-eqasim` :
+Récupérez eqasim-sa en clonant son dépôt à l'étiquette d'une version, par
+exemple `git clone --branch v0.4.1 https://github.com/abdoulrazac/eqasim-sa.git`.
+Sans Git, téléchargez l'archive « Source code » d'une version depuis la
+[page des versions GitHub](https://github.com/abdoulrazac/eqasim-sa/releases)
+et décompressez-la. Puis, à la racine qui la contient :
 
 ```bash
 ROOT="$PWD"
-uv sync --project "$ROOT/eqasim-sa" --extra test --locked
+uv sync --project "$ROOT/eqasim-sa" --locked
 uv sync --project "$ROOT/eqasim-france" --locked
 SA=(uv run --project "$ROOT/eqasim-sa" --locked eqasim-sa)
 ```
 
 Pour vérifier l'installation, `"${SA[@]}" --version` affiche la version
-installée, par exemple `eqasim-sa 0.4.1`.
-
-Sans copie des sources, installez une version publiée sur GitHub comme outil uv :
-
-```bash
-uv tool install git+https://github.com/abdoulrazac/eqasim-sa@v0.4.1
-SA=(eqasim-sa)
-```
-
-Les dépendances directes d'eqasim-sa sont figées ; leurs propres dépendances
-prennent les dernières versions compatibles. Pour installer exactement les
-versions testées pour la version publiée, ajoutez le fichier `constraints.txt`
-qui l'accompagne :
-
-```bash
-uv tool install --constraints https://github.com/abdoulrazac/eqasim-sa/releases/download/v0.4.1/constraints.txt \
-  git+https://github.com/abdoulrazac/eqasim-sa@v0.4.1
-```
+installée, par exemple `eqasim-sa 0.4.1`. `uv sync --locked` installe
+exactement les versions du `uv.lock` d'eqasim-sa.
 
 Le lockfile d'`eqasim-sa` fixe l'environnement d'exécution d'eqasim-sa. Le lockfile référencé
 dans une méta-configuration entre, lui, dans le contexte scientifique scellé.

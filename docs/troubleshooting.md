@@ -4,23 +4,17 @@
 
 ## `eqasim-sa requires Python 3.13, but this environment runs Python ...` or `No module named 'pyarrow.lib'`
 
-The interpreter of eqasim-sa's tool environment is not the Python 3.13 the
-packages were installed for. This happens when the link `bin/python` of a uv
-tool environment points to another Python after the installation (for
-example after Python versions managed by uv were reinstalled). Since 0.4.1,
-eqasim-sa reports it with the first message; version 0.4.0 fails inside
-pyarrow with the second one. Recreate the tool environment with
-Python 3.13:
+The interpreter of eqasim-sa's environment is not the Python 3.13 the
+packages were installed for. This happens when the link `.venv/bin/python`
+(or `.venv\Scripts\python.exe`) points to another Python after the
+installation, for example after the Python versions managed by uv were
+reinstalled. Since 0.4.1, eqasim-sa reports it with the first message;
+version 0.4.0 fails inside pyarrow with the second one. In the eqasim-sa
+folder, recreate the environment with Python 3.13:
 
 ```bash
-uv tool uninstall eqasim-sa
-uv tool install --python 3.13 git+https://github.com/abdoulrazac/eqasim-sa@latest
+uv sync --locked --python 3.13
 ```
-
-If `eqasim-sa --version` still points elsewhere, run `which -a eqasim-sa` (or
-`where eqasim-sa` on Windows): an older installation in another environment
-(for example a conda `pip install -e`) may come first on `PATH`; uninstall it
-from that environment.
 
 ## `model.config not found: ... (a relative path is read from model.root)`
 

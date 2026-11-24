@@ -4,23 +4,17 @@
 
 ## `eqasim-sa requires Python 3.13, but this environment runs Python ...` ou `No module named 'pyarrow.lib'`
 
-L'interpréteur de l'environnement d'outil d'eqasim-sa n'est pas le Python 3.13
-pour lequel les paquets ont été installés. Cela arrive quand le lien
-`bin/python` d'un environnement d'outil uv pointe vers un autre Python après
-l'installation (par exemple après la réinstallation des versions de Python
-gérées par uv). Depuis la version 0.4.1, eqasim-sa le signale avec le premier
-message ; la version 0.4.0 échoue dans pyarrow avec le second.
-Recréez l'environnement de l'outil avec Python 3.13 :
+L'interpréteur de l'environnement d'eqasim-sa n'est pas le Python 3.13 pour
+lequel les paquets ont été installés. Cela arrive quand le lien
+`.venv/bin/python` (ou `.venv\Scripts\python.exe`) pointe vers un autre Python
+après l'installation, par exemple après la réinstallation des versions de
+Python gérées par uv. Depuis la version 0.4.1, eqasim-sa le signale avec le
+premier message ; la version 0.4.0 échoue dans pyarrow avec le second. Dans le
+dossier d'eqasim-sa, recréez l'environnement avec Python 3.13 :
 
 ```bash
-uv tool uninstall eqasim-sa
-uv tool install --python 3.13 git+https://github.com/abdoulrazac/eqasim-sa@latest
+uv sync --locked --python 3.13
 ```
-
-Si `eqasim-sa --version` pointe toujours ailleurs, lancez `which -a eqasim-sa`
-(ou `where eqasim-sa` sous Windows) : une installation plus ancienne dans un
-autre environnement (par exemple un `pip install -e` dans conda) peut passer
-avant dans le `PATH` ; désinstallez-la de cet environnement.
 
 ## `model.config not found: ... (a relative path is read from model.root)`
 
