@@ -162,6 +162,11 @@ distance is computed for every output against each of its references. Custom
 quantities (a mean commute distance, a modal share) come from short Python
 [analysis scripts](docs/analysis-scripts.md) that read the archived files of
 each run; they can be added after the runs, without running eqasim again.
+`init` lists in `outputs` every file eqasim's `synthesis.output` stage writes
+with your eqasim configuration (`output_formats`, `mode_choice`); remove the
+ones you do not need to save disk space. To keep the result of another
+pipeline step, add a small export stage of your own: see
+[Archiving the output of another pipeline step](docs/archiving-pipeline-steps.md).
 To see the complete configuration, defaults included:
 
 ```bash
@@ -217,6 +222,7 @@ the [practical structured-configurations tutorial](docs/structured-configuration
 - [CLI reference](docs/cli-reference.md)
 - [YAML reference](docs/yaml-reference.md)
 - [Writing an analysis script](docs/analysis-scripts.md)
+- [Archiving the output of another pipeline step](docs/archiving-pipeline-steps.md)
 - [Parameters and methods](docs/parameters-and-methods.md)
 - [Workflow and results](docs/workflow-and-results.md)
 - [Troubleshooting](docs/troubleshooting.md)

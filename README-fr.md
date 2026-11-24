@@ -173,7 +173,12 @@ ses références. Les grandeurs personnalisées (une distance moyenne
 domicile-travail, une part modale) viennent de courts
 [scripts d'analyse](docs-fr/analysis-scripts.md) en Python qui lisent les
 fichiers archivés de chaque run ; on peut les ajouter après les runs, sans
-relancer eqasim. Pour voir la configuration complète, valeurs par défaut
+relancer eqasim. `init` liste dans `outputs` tous les fichiers qu'écrit l'étape
+`synthesis.output` d'eqasim avec votre configuration eqasim (`output_formats`,
+`mode_choice`) ; retirez ceux dont vous n'avez pas besoin pour économiser de la
+place. Pour conserver le résultat d'une autre étape du pipeline, ajoutez une
+petite étape d'export à vous : voir
+[Archiver la sortie d'une autre étape du pipeline](docs-fr/archiving-pipeline-steps.md). Pour voir la configuration complète, valeurs par défaut
 comprises :
 
 ```bash
@@ -230,6 +235,7 @@ nom de campagne pour la cible dérivée. Consultez le
 - [Référence CLI](docs-fr/cli-reference.md)
 - [Référence YAML](docs-fr/yaml-reference.md)
 - [Écrire un script d'analyse](docs-fr/analysis-scripts.md)
+- [Archiver la sortie d'une autre étape du pipeline](docs-fr/archiving-pipeline-steps.md)
 - [Paramètres et méthodes](docs-fr/parameters-and-methods.md)
 - [Déroulement et résultats](docs-fr/workflow-and-results.md)
 - [Dépannage](docs-fr/troubleshooting.md)
