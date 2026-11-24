@@ -827,7 +827,7 @@ def init_from_inputs(
         selected_scratch = _directory(selected_scratch, "scratch")
     expected = render_project(
         absolute, project_name, model, data, selected_scratch,
-        invocation, model_config,
+        invocation, model_document["config"], model_config,
     )
     campaigns = _starter_campaigns(absolute, expected)
     campaign_names = set(campaigns.values())

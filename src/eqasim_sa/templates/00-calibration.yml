@@ -11,12 +11,9 @@ parameters:
   # To vary another parameter, write it in the config: section of your eqasim
   # configuration first, then add it here, e.g.
   # matching_minimum_age: [0, 5, 12]
-outputs:
-  persons: {}
-  households: {}
-  trips: {}
-  activities: {}
-  activities_spatial: {}
+@EQASIM_OUTPUTS@
+  # Analysis tables the default indicators read
+  # (written by analysis.synthesis.population).
   age:
     category: Age class
     simulated: Proportion_EQASIM

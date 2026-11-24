@@ -112,11 +112,16 @@ read from the eqasim folder). Two things to check in that configuration:
   To vary `matching_minimum_age`, add it to `config:` first, then add it to
   `parameters` (each starter shows the commented line).
 
-The starters also keep the raw `persons`, `households`, `trips`, `activities`
-and `activities_spatial` (`{prefix}activities.gpkg`, or `.geoparquet` when
-`output_formats` has `geoparquet` but not `gpkg`) files of every run, so a
-later analysis does not need new simulations. They have no references, so they
-produce no indicator.
+The starters also keep every file eqasim's `synthesis.output` stage writes with
+the eqasim configuration given to `init` (`@MODEL_CONFIG_PATH@`): the six CSV
+tables when `output_formats` has `csv`, their `<table>_parquet` copies when it
+has `parquet`, the four `<table>_spatial` files when it has `gpkg` or
+`geoparquet` (eqasim's default `output_formats` is `[csv, gpkg]`), and `legs`
+and `pt_legs` when `mode_choice` is true. A later analysis therefore needs no
+new simulation. These files have no references, so they produce no indicator.
+Every run copies them into its archive: remove the ones you do not need from
+`outputs` to save disk space, the spatial files above all at high sampling
+rates.
 
 ### Named matching configurations
 

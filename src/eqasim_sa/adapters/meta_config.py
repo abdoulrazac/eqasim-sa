@@ -31,6 +31,7 @@ from eqasim_sa.adapters.eqasim.config import (
 from eqasim_sa.adapters.eqasim.workspace import CAMPAIGN_MAX
 from eqasim_sa.adapters.meta_config_defaults import (
     UNKNOWN_OUTPUT_SEPARATOR,
+    mode_choice,
     output_formats,
     resolve_meta_config_document,
 )
@@ -723,8 +724,7 @@ def _require_output_stages(
     """
 
     stages = set(run_stages(model_document.get("run")))
-    nested = model_document.get("config")
-    mode_choice = bool(nested.get("mode_choice", False)) if isinstance(nested, dict) else False
+    writes_mode_choice = mode_choice(model_document.get("config"))
     for name, declaration in outputs.items():
         known = KNOWN_OUTPUTS.get(name)
         if known is None or declaration.file not in {file for _, file in known.files}:
@@ -735,7 +735,7 @@ def _require_output_stages(
                 f"which is not in run: of {config}; "
                 "add it to run: in your eqasim config"
             )
-        if known.mode_choice and not mode_choice:
+        if known.mode_choice and not writes_mode_choice:
             raise ValueError(
                 f"output {name!r} is written only when mode_choice is true in {config}"
             )

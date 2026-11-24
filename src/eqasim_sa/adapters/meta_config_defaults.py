@@ -40,6 +40,14 @@ def output_formats(eqasim_config: object) -> object:
     return eqasim_config.get("output_formats", list(DEFAULT_OUTPUT_FORMATS))
 
 
+def mode_choice(eqasim_config: object) -> bool:
+    """eqasim ``mode_choice`` of a config block, read as eqasim does (any true value)."""
+
+    if not isinstance(eqasim_config, dict):
+        return False
+    return bool(eqasim_config.get("mode_choice", False))
+
+
 def resolve_meta_config_document(
     document: object, eqasim_config: object = None
 ) -> object:

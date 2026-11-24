@@ -692,8 +692,13 @@ def test_rendered_grid_starter_is_short_and_loads(tmp_path: Path) -> None:
         "@",
     ):
         assert absent not in text
-    body = [line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
-    assert len(body) <= 40
+    # Not counting the synthesis.output files, which follow the eqasim config.
+    body = [
+        line for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+        and not re.fullmatch(r"  \w+: \{\}", line)
+    ]
+    assert len(body) <= 31
     loaded = load_meta_config(project / "configs/01-grid.yml")
     assert loaded.campaign_root == (project / "campaigns" / "study-grid").resolve()
 
@@ -787,6 +792,7 @@ def test_starter_paths_are_absolute_when_no_relative_path_exists(
         tmp_path / "data",
         tmp_path / "scratch",
         invocation(),
+        {},
     )
 
     starters = {
@@ -1280,3 +1286,120 @@ def test_init_rerun_tolerates_unusual_outputs_in_a_kept_starter(
     result = init_from_inputs("project", root, model, data, None, invocation())
 
     assert result["kept"] == ["configs/01-grid.yml"]
+
+
+CSV_TABLES = ["persons", "households", "activities", "trips", "vehicle_types", "vehicles"]
+SPATIAL_TABLES = [
+    "activities_spatial", "homes_spatial", "commutes_spatial", "trips_spatial",
+]
+ANALYSIS_OUTPUTS = ["age", "distance", "nbr_vehicle"]
+STARTERS = ("00-calibration", "01-grid", "02-discrete-oat", "03-sobol")
+
+
+def _write_eqasim_config(model: Path, extra: str) -> None:
+    (model / "config.yml").write_text(
+        "working_directory: /cache\nrun: [synthesis.output, analysis.synthesis.population]\n"
+        "config:\n  processes: 4\n  sampling_rate: 0.001\n  data_path: /data\n"
+        "  output_path: /output\n  output_prefix: nantes_\n" + extra
+    )
+
+
+@pytest.mark.parametrize(
+    ("extra", "expected", "spatial_suffix"),
+    [
+        ("", CSV_TABLES + SPATIAL_TABLES, ".gpkg"),
+        ("  output_formats: [csv, gpkg]\n", CSV_TABLES + SPATIAL_TABLES, ".gpkg"),
+        (
+            "  output_formats: [csv, parquet, geoparquet]\n",
+            CSV_TABLES + [f"{name}_parquet" for name in CSV_TABLES] + SPATIAL_TABLES,
+            ".geoparquet",
+        ),
+        ("  output_formats: [parquet]\n", [f"{name}_parquet" for name in CSV_TABLES], None),
+        (
+            "  mode_choice: true\n",
+            CSV_TABLES + SPATIAL_TABLES + ["legs", "pt_legs"],
+            ".gpkg",
+        ),
+    ],
+    ids=["absent", "csv-gpkg", "csv-parquet-geoparquet", "parquet", "mode-choice"],
+)
+def test_starters_declare_every_output_synthesis_output_writes(
+    tmp_path: Path, extra: str, expected: list[str], spatial_suffix: str | None
+) -> None:
+    model, data = inputs(tmp_path)
+    _write_eqasim_config(model, extra)
+    project = tmp_path / "study"
+    init_from_inputs("study", project, model, data, None, DEFAULT_INVOCATION)
+    for name in STARTERS:
+        path = project / "configs" / f"{name}.yml"
+        outputs = yaml.safe_load(path.read_text())["outputs"]
+        assert list(outputs) == expected + ANALYSIS_OUTPUTS
+        assert all(outputs[output] == {} for output in expected)
+        loaded = load_meta_config(path)
+        assert list(loaded.outputs) == expected + ANALYSIS_OUTPUTS
+        if spatial_suffix is not None:
+            assert loaded.outputs["activities_spatial"].file == (
+                "{prefix}activities" + spatial_suffix
+            )
+
+
+def test_starter_outputs_block_is_commented_and_stable(tmp_path: Path) -> None:
+    _, root, _, _ = initialize(tmp_path)
+    text = (root / "configs/01-grid.yml").read_text()
+    start = text.index("# Every file")
+    end = text.index("  age:\n")
+    assert text[start:end] == (
+        "# Every file eqasim's synthesis.output stage writes with output_formats\n"
+        "# [csv, gpkg] (eqasim's default) and mode_choice false in your eqasim\n"
+        "# configuration. Remove the ones you do not need to save disk space\n"
+        "# (spatial files are large at high sampling rates).\n"
+        "outputs:\n"
+        "  persons: {}\n"
+        "  households: {}\n"
+        "  activities: {}\n"
+        "  trips: {}\n"
+        "  vehicle_types: {}\n"
+        "  vehicles: {}\n"
+        "  activities_spatial: {}\n"
+        "  homes_spatial: {}\n"
+        "  commutes_spatial: {}\n"
+        "  trips_spatial: {}\n"
+        "  # Analysis tables the default indicators read\n"
+        "  # (written by analysis.synthesis.population).\n"
+    )
+
+
+def test_starter_outputs_comment_names_explicit_formats_and_mode_choice(
+    tmp_path: Path,
+) -> None:
+    model, data = inputs(tmp_path)
+    _write_eqasim_config(
+        model, "  output_formats: [csv, parquet]\n  mode_choice: true\n"
+    )
+    project = tmp_path / "study"
+    init_from_inputs("study", project, model, data, None, DEFAULT_INVOCATION)
+    text = " ".join((project / "configs/01-grid.yml").read_text().replace("#", "").split())
+    assert (
+        "Every file eqasim's synthesis.output stage writes with output_formats "
+        "[csv, parquet] and mode_choice true in your eqasim configuration."
+    ) in text
+
+
+def test_init_rerun_keeps_starters_whose_outputs_follow_an_older_eqasim_config(
+    tmp_path: Path,
+) -> None:
+    _, root, model, data = initialize(tmp_path, "project")
+    before = {
+        path.name: path.read_bytes() for path in (root / "configs").glob("*.yml")
+    }
+    config = model / "config.yml"
+    config.write_text(config.read_text() + "  output_formats: [csv, parquet, gpkg]\n")
+
+    result = init_from_inputs("project", root, model, data, None, invocation())
+
+    assert result["status"] == "unchanged"
+    assert result["kept"] == [f"configs/{name}.yml" for name in STARTERS]
+    assert result["restored"] == []
+    assert {
+        path.name: path.read_bytes() for path in (root / "configs").glob("*.yml")
+    } == before

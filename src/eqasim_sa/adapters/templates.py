@@ -6,7 +6,12 @@ import re
 import shlex
 from pathlib import Path
 
-from eqasim_sa.adapters.meta_config_defaults import DEFAULT_INVOCATION
+from eqasim_sa.adapters.eqasim.artifacts import synthesis_outputs
+from eqasim_sa.adapters.meta_config_defaults import (
+    DEFAULT_INVOCATION,
+    mode_choice,
+    output_formats,
+)
 from eqasim_sa.templates import project_templates
 
 
@@ -29,6 +34,39 @@ def _runner() -> str:
     return shlex.join(command)
 
 
+def _outputs_block(eqasim_config: dict) -> str:
+    """Commented ``outputs:`` head declaring every file synthesis.output writes."""
+
+    formats = output_formats(eqasim_config)
+    writes_mode_choice = mode_choice(eqasim_config)
+    shown = (
+        f"[{', '.join(map(str, formats))}]"
+        if isinstance(formats, list)
+        else json.dumps(formats, default=str)
+    )
+    if "output_formats" not in eqasim_config:
+        shown += " (eqasim's default)"
+    comment = (
+        "# Every file eqasim's synthesis.output stage writes with output_formats "
+        f"{shown} and mode_choice {str(writes_mode_choice).lower()} in your "
+        "eqasim configuration. Remove the ones you do not need to save disk "
+        "space (spatial files are large at high sampling rates)."
+    )
+    lines, line = [], ""
+    for word in comment.split(" "):
+        if line and len(line) + 1 + len(word) > 72:
+            lines.append(line)
+            line = "#"
+        line = f"{line} {word}" if line else word
+    lines.append(line)
+    lines.append("outputs:")
+    lines.extend(
+        f"  {name}: {{}}"
+        for name in synthesis_outputs(formats, writes_mode_choice)
+    )
+    return "\n".join(lines)
+
+
 def render_project(
     directory: Path,
     project_name: str,
@@ -36,9 +74,14 @@ def render_project(
     data: Path,
     scratch: Path,
     invocation: tuple[str, ...],
+    eqasim_config: dict,
     model_config: Path = Path("config.yml"),
 ) -> dict[str, bytes]:
-    """Render every packaged starter with project-relative paths and commands."""
+    """Render every packaged starter with project-relative paths and commands.
+
+    ``eqasim_config`` (the ``config:`` block of the selected eqasim
+    configuration) decides which synthesis.output files the starters declare.
+    """
 
     configs = directory / "configs"
     config_text = (
@@ -60,6 +103,7 @@ def render_project(
         ),
         "@DATA_PATH@": json.dumps(_relative(data, configs)),
         "@RUNNER@": _runner(),
+        "@EQASIM_OUTPUTS@": _outputs_block(eqasim_config),
     }
     pattern = "|".join(map(re.escape, values))
     return {

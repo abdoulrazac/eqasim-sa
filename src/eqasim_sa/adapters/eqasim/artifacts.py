@@ -113,6 +113,23 @@ KNOWN_OUTPUTS: Mapping[str, KnownOutput] = {
 }
 
 
+def synthesis_outputs(formats: object, mode_choice: bool) -> tuple[str, ...]:
+    """Known outputs eqasim's synthesis/output.py writes, in declaration order.
+
+    ``formats`` is the eqasim ``output_formats`` list (eqasim's default
+    already applied); anything else enables no format-dependent output.
+    """
+
+    enabled = formats if isinstance(formats, (list, tuple)) else ()
+    return tuple(
+        name
+        for name, known in KNOWN_OUTPUTS.items()
+        if known.stage == SYNTHESIS_OUTPUT
+        and (mode_choice or not known.mode_choice)
+        and (not known.formats or any(fmt in enabled for fmt in known.formats))
+    )
+
+
 def is_csv_file(file: str) -> bool:
     """Whether ``file`` is a CSV table (the only files with a separator)."""
 
