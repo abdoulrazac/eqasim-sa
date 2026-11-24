@@ -2,7 +2,36 @@
 
 ## Unreleased
 
+### Added
+
+- Every file eqasim's `synthesis.output` stage writes is a known output, with
+  its default `file`: `persons_parquet`, ..., `vehicles_parquet`
+  (`{prefix}<table>.parquet`, needs `parquet` in `output_formats`);
+  `activities_spatial`, `homes_spatial`, `commutes_spatial`, `trips_spatial`
+  (`{prefix}<table>.gpkg` when `output_formats` contains `gpkg`, otherwise
+  `{prefix}<table>.geoparquet`); `legs` and `pt_legs` (`{prefix}<name>.csv`,
+  separator `;`, written only when `mode_choice` is true). Loading refuses a
+  spatial output when `output_formats` has neither `gpkg` nor `geoparquet`
+  (`output 'homes_spatial' needs gpkg or geoparquet in output_formats of ...;
+  add one`), `legs` or `pt_legs` without `mode_choice` (`output 'legs' is
+  written only when mode_choice is true in ...`), and a `.parquet` or
+  `.geoparquet` file whose format is missing from `output_formats`.
+- `show-config` follows each output `file` with a comment naming the file for
+  the eqasim `output_prefix` (`file: '{prefix}persons.csv'  #
+  nantes_persons.csv`); the printed file still loads to the same campaign.
+- Analysis scripts may take `.parquet` and `.geoparquet` inputs, copied
+  unchanged.
+
 ### Changed
+
+- BREAKING: `separator` applies only to `.csv` files. It is no longer filled in
+  nor printed by `show-config` for another file, and declaring it on one stops
+  loading with `separator applies only to .csv files (output '<name>')`. The
+  sealed declaration of a non-CSV output is unchanged, so existing plans keep
+  their identity.
+- Without `output_formats` in the eqasim configuration, eqasim-sa now checks
+  outputs against eqasim's default `[csv, gpkg]` (before, nothing was checked).
+- The starters declare `activities_spatial: {}` instead of its explicit file.
 
 - Installation is documented from a clone of the repository (or the "Source
   code" archive of a release) with `uv sync --locked`, which installs exactly

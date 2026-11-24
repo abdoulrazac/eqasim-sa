@@ -44,14 +44,16 @@ outputs:
   households: {}
   trips: {}
   activities: {}
-  trips_spatial:
-    file: "{prefix}trips.gpkg"
-  activities_spatial:
-    file: "{prefix}activities.gpkg"
+  trips_spatial: {}
+  activities_spatial: {}
 ```
 
-eqasim writes the `.gpkg` files when `output_formats` of its configuration
-contains `gpkg`, which is its default.
+These are [known outputs](yaml-reference.md#known-outputs-and-their-files):
+eqasim-sa knows every file eqasim's `synthesis.output` stage writes. eqasim
+writes the spatial files as `.gpkg` when `output_formats` of its configuration
+contains `gpkg`, which is its default, or as `.geoparquet` when it contains
+`geoparquet`; add `parquet` to `output_formats` and declare `persons_parquet`,
+`trips_parquet`, ... to archive the Parquet copies of the population tables.
 
 ## A complete example
 
@@ -84,8 +86,7 @@ outputs:                               # the Grid starter's outputs, unchanged
   households: {}
   trips: {}
   activities: {}
-  activities_spatial:
-    file: "{prefix}activities.gpkg"
+  activities_spatial: {}
   age:
     category: Age class
     simulated: Proportion_EQASIM
@@ -266,9 +267,17 @@ def compute(files, parameters):
 `files` maps each name listed in `inputs` to the path of a copy of the
 archived file, for example `{"trips": ".../trips.csv",
 "activities_spatial": ".../activities_spatial.gpkg", "persons": ".../persons.csv"}`. The copy keeps the archive name,
-`<output name><extension>`. Read the file with the separator eqasim used: `;`
-for the population files (`persons`, `trips`, ...), `,` for the
-`analysis_population` files; `geopandas.read_file` reads `.gpkg` files.
+`<output name><extension>`. Inputs may be `.csv`, `.gpkg`, `.parquet` or
+`.geoparquet` files, and each copy is byte-identical to the file eqasim wrote.
+The script runs with eqasim's Python, which has pandas and geopandas; choose
+the reader from the extension:
+
+| Extension | Reader |
+| --- | --- |
+| `.csv` | `pandas.read_csv(path, sep=...)` with the separator eqasim used: `;` for the population files (`persons`, `trips`, ..., `legs`, `pt_legs`), `,` for the `analysis_population` files |
+| `.parquet` | `pandas.read_parquet(path)` |
+| `.gpkg` | `geopandas.read_file(path)` |
+| `.geoparquet` | `geopandas.read_parquet(path)` |
 
 `parameters` describes the run:
 
@@ -503,8 +512,9 @@ The definition of an indicator that reads an analysis output describes it by
 
 ## Limits
 
-- `inputs` lists outputs declared in `outputs` whose file is a `.csv` or a
-  `.gpkg`; an analysis cannot read another analysis.
+- `inputs` lists outputs declared in `outputs` whose file is a `.csv`, a
+  `.gpkg`, a `.parquet` or a `.geoparquet`; an analysis cannot read another
+  analysis.
 - A scientific charter's `primary_indicator` cannot read an analysis output:
   indicators computed by scripts are secondary.
 - Without an `indicators` block, the default indicators ignore analysis

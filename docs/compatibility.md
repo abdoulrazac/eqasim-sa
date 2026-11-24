@@ -74,7 +74,9 @@ excluded from FP/FF decision ranks.
 | Missing, unsupported, noncanonical, tampered, or context-incompatible sealed scientific plan metadata | rejected before analysis publication by the canonical Morris and multi-scramble Sobol analyzers |
 | Known output left at its default `file` whose eqasim stage is missing from `run:` | rejected when the meta-configuration is loaded |
 | Output whose `file` suffix (after `{prefix}` is replaced) cannot name an archive file | rejected when the meta-configuration is loaded |
-| Known population CSV output, or `.gpkg` output, when `output_formats` of the eqasim config is present and lacks `csv`, or `gpkg` | rejected when the meta-configuration is loaded |
+| Output whose file eqasim would not write because `output_formats` of the eqasim config (default `[csv, gpkg]`) lacks its format: known population `.csv` or `_parquet` output at its default file, any `.gpkg` or `.geoparquet` file, or a spatial output without `file` when neither `gpkg` nor `geoparquet` is listed | rejected when the meta-configuration is loaded |
+| `legs` or `pt_legs` at their default file while `mode_choice` is not true in the eqasim config | rejected when the meta-configuration is loaded |
+| `separator` declared on an output whose `file` is not a `.csv` file | rejected when the meta-configuration is loaded |
 | `share`, `value`, or `tv_distance` indicator on an output whose `file` is not a `.csv` file | rejected when the meta-configuration is loaded |
 | Indicator entry whose key is not `tv_distance`, `share`, or `value` | rejected when the meta-configuration is loaded |
 | `share.category` or a `where` value that is not a quoted YAML string | rejected when the meta-configuration is loaded |
@@ -83,7 +85,7 @@ excluded from FP/FF decision ranks.
 | Incomplete OAT or Sobol analysis | rejected because completeness must equal `1.0` |
 | Unsupported or unevaluable stopping evidence | fails closed as not converged |
 | Plan without the sealed `modelDocument` | rejected by `run`, `check`, `estimate`, and `analyze`: `plan.parquet has no sealed modelDocument; plan a new campaign` |
-| Analysis input not declared in `outputs`, another analysis, or a file that is not `.csv` or `.gpkg` | rejected when the meta-configuration is loaded |
+| Analysis input not declared in `outputs`, another analysis, or a file that is not `.csv`, `.gpkg`, `.parquet` or `.geoparquet` | rejected when the meta-configuration is loaded |
 | Analysis script missing, not a regular `.py` file, or a symbolic link | rejected when the meta-configuration is loaded |
 | Analysis named like an output (ignoring case) or `logs` | rejected when the meta-configuration is loaded |
 | `analyses` with an `execution.invocation` not ending with `-m synpp` and no `execution.python` | rejected when the meta-configuration is loaded |

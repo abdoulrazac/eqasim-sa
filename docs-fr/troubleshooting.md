@@ -116,11 +116,44 @@ copie de la configuration, avant de planifier. Voir
 
 ## `output '...' is not a known eqasim output; declare its file`
 
-Cause : un nom de sortie hors des douze sorties eqasim connues n'a pas de
-`file`. Remède : ajouter `file`, relatif au dossier de sortie d'eqasim, par
-exemple `file: "analysis_population/{prefix}summary.csv"`, et `separator` si ce
-n'est pas une virgule. Voir
+Cause : un nom de sortie hors des sorties eqasim connues n'a pas de `file`.
+Remède : ajouter `file`, relatif au dossier de sortie d'eqasim, par exemple
+`file: "analysis_population/{prefix}summary.csv"`, et, pour un fichier `.csv`,
+`separator` si ce n'est pas une virgule. Vérifiez d'abord l'orthographe : tout
+fichier de l'étape eqasim `synthesis.output` a un nom connu
+(`persons_parquet`, `homes_spatial`, `legs`...). Voir
 [Sorties connues](yaml-reference.md#sorties-connues-et-leurs-fichiers).
+
+## `output '...' is a ... file but output_formats of ... is [...]; add ... to output_formats`
+
+Cause : eqasim n'écrit ce fichier que si `output_formats`, dans la section
+`config:` de votre configuration eqasim, contient son format (`csv`,
+`parquet`, `gpkg` ou `geoparquet`) ; sans `output_formats`, eqasim n'écrit que
+`csv` et `gpkg`. Remède : ajouter le format nommé à `output_formats` dans votre
+copie de la configuration eqasim, ou retirer la sortie.
+
+## `output '...' needs gpkg or geoparquet in output_formats of ...; add one`
+
+Cause : une sortie spatiale (`activities_spatial`, `homes_spatial`,
+`commutes_spatial`, `trips_spatial`) est déclarée sans `file`, et
+`output_formats` de votre configuration eqasim ne contient ni `gpkg` ni
+`geoparquet` : eqasim n'écrit alors aucun fichier spatial. Remède : ajouter
+`gpkg` (ou `geoparquet`) à `output_formats`, ou retirer la sortie.
+
+## `output '...' is written only when mode_choice is true in ...`
+
+Cause : `legs` et `pt_legs` sont copiées par eqasim depuis le choix modal
+MATSim, qui ne s'exécute que si `mode_choice` est vrai dans la section
+`config:` de votre configuration eqasim. Remède : mettre `mode_choice: true`
+(MATSim s'exécute alors dans chaque run, ce qui demande Java et beaucoup plus
+de temps), ou retirer la sortie.
+
+## `separator applies only to .csv files (output '...')`
+
+Cause : `separator` est déclaré sur une sortie dont le `file` n'est pas un
+fichier `.csv` (par exemple `persons_parquet` ou `homes_spatial`) ; un tel
+fichier n'a pas de séparateur de colonnes. Remède : retirer `separator` de
+cette sortie.
 
 ## `eqasim did not write declared output '...' (expected ...)`
 
@@ -619,7 +652,7 @@ l'analyse :
 | --- | --- |
 | `analysis 'commute' input 'trips_spatial' is not declared in outputs` | déclarer la sortie sous `outputs` ; après les runs, seules les sorties déjà archivées peuvent être lues |
 | `analysis 'commute' input 'mode_share' is an analysis; inputs must be outputs declared in outputs` | une analyse ne peut pas lire une autre analyse ; lire les sorties archivées dans un seul script |
-| `analysis 'commute' input 'x' file '...' must be a .csv or .gpkg file` | les scripts ne lisent que des fichiers `.csv` et `.gpkg` |
+| `analysis 'commute' input 'x' file '...' must be a .csv, .gpkg, .parquet or .geoparquet file` | les scripts ne lisent que des fichiers `.csv`, `.gpkg`, `.parquet` et `.geoparquet` |
 | `analysis 'commute' script '...' does not exist` | le chemin est relatif au fichier YAML (ou absolu) |
 | `analysis 'commute' script must be a .py file`, `... must be a regular file`, `... must not be a symlink` | faire pointer `script` sur le fichier `.py` lui-même |
 | `analysis name 'trips' is already an output name` | donner un autre nom à l'analyse |

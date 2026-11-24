@@ -45,14 +45,17 @@ outputs:
   households: {}
   trips: {}
   activities: {}
-  trips_spatial:
-    file: "{prefix}trips.gpkg"
-  activities_spatial:
-    file: "{prefix}activities.gpkg"
+  trips_spatial: {}
+  activities_spatial: {}
 ```
 
-eqasim écrit les fichiers `.gpkg` quand `output_formats` de sa configuration
-contient `gpkg`, ce qui est sa valeur par défaut.
+Ce sont des [sorties connues](yaml-reference.md#sorties-connues-et-leurs-fichiers) :
+eqasim-sa connaît tous les fichiers qu'écrit l'étape eqasim `synthesis.output`.
+eqasim écrit les fichiers spatiaux en `.gpkg` quand `output_formats` de sa
+configuration contient `gpkg`, ce qui est sa valeur par défaut, ou en
+`.geoparquet` quand il contient `geoparquet` ; ajoutez `parquet` à
+`output_formats` et déclarez `persons_parquet`, `trips_parquet`... pour
+archiver les copies Parquet des tables de population.
 
 ## Un exemple complet
 
@@ -85,8 +88,7 @@ outputs:                               # les sorties du fichier de départ Grid,
   households: {}
   trips: {}
   activities: {}
-  activities_spatial:
-    file: "{prefix}activities.gpkg"
+  activities_spatial: {}
   age:
     category: Age class
     simulated: Proportion_EQASIM
@@ -271,10 +273,18 @@ def compute(files, parameters):
 `files` associe à chaque nom listé dans `inputs` le chemin d'une copie du
 fichier archivé, par exemple `{"trips": ".../trips.csv",
 "activities_spatial": ".../activities_spatial.gpkg", "persons": ".../persons.csv"}`. La copie garde le nom de l'archive,
-`<nom de la sortie><extension>`. Lisez le fichier avec le séparateur
-qu'eqasim a utilisé : `;` pour les fichiers de population (`persons`,
-`trips`...), `,` pour les fichiers d'`analysis_population` ;
-`geopandas.read_file` lit les fichiers `.gpkg`.
+`<nom de la sortie><extension>`. Les entrées peuvent être des fichiers `.csv`,
+`.gpkg`, `.parquet` ou `.geoparquet`, et chaque copie est identique à l'octet
+près au fichier écrit par eqasim. Le script s'exécute avec le Python d'eqasim,
+qui dispose de pandas et de geopandas ; choisissez le lecteur d'après
+l'extension :
+
+| Extension | Lecteur |
+| --- | --- |
+| `.csv` | `pandas.read_csv(path, sep=...)` avec le séparateur qu'eqasim a utilisé : `;` pour les fichiers de population (`persons`, `trips`..., `legs`, `pt_legs`), `,` pour les fichiers d'`analysis_population` |
+| `.parquet` | `pandas.read_parquet(path)` |
+| `.gpkg` | `geopandas.read_file(path)` |
+| `.geoparquet` | `geopandas.read_parquet(path)` |
 
 `parameters` décrit le run :
 
@@ -523,7 +533,8 @@ La définition d'un indicateur qui lit une sortie d'analyse la décrit par
 ## Limites
 
 - `inputs` liste des sorties déclarées dans `outputs` dont le fichier est un
-  `.csv` ou un `.gpkg` ; une analyse ne peut pas lire une autre analyse.
+  `.csv`, un `.gpkg`, un `.parquet` ou un `.geoparquet` ; une analyse ne peut
+  pas lire une autre analyse.
 - Le `primary_indicator` d'une charte scientifique ne peut pas lire une sortie
   d'analyse : les indicateurs calculés par des scripts sont secondaires.
 - Sans bloc `indicators`, les indicateurs par défaut ignorent les sorties

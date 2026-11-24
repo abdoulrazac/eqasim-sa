@@ -55,8 +55,7 @@ outputs:
   households: {}
   trips: {}
   activities: {}
-  activities_spatial:
-    file: "{prefix}activities.gpkg"
+  activities_spatial: {}
   age:
     category: Age class
     simulated: Proportion_EQASIM
@@ -103,9 +102,8 @@ Lisez-le de haut en bas :
   valeurs à essayer. Le fichier de départ ne fait varier que `sampling_rate`, que la
   configuration officielle d'eqasim contient déjà.
 - `outputs` liste les fichiers de chaque run qu'eqasim-sa conserve. Une sortie
-  eqasim connue comme `persons` n'a besoin de rien d'autre (`{}`) ;
-  `activities_spatial` n'est pas un nom connu, son fichier est donc écrit
-  explicitement. Pour les trois distributions `age`, `distance` et
+  eqasim connue comme `persons` ou `activities_spatial` (le fichier spatial des
+  activités) n'a besoin de rien d'autre (`{}`). Pour les trois distributions `age`, `distance` et
   `nbr_vehicle`, le bloc indique aussi la colonne des classes (`category`), la
   colonne des proportions simulées (`simulated`) et les colonnes de référence
   auxquelles les comparer (`references`). Sans bloc `indicators`, la distance
@@ -142,8 +140,8 @@ Quand une clé est omise, eqasim-sa applique les valeurs par défaut suivantes.
 | `analysis.completeness_threshold` | `1.0` (toutes les méthodes) |
 | `analysis.bootstrap_resamples` | `999` (Sobol, Morris canonique) |
 | `analysis.confidence_level` | `0.95` (Sobol, Morris canonique, Sobol multi-scramble) |
-| `outputs.NOM.file`, `outputs.NOM.separator` (sortie connue) | le fichier et le séparateur eqasim indiqués dans [Sorties connues](#sorties-connues-et-leurs-fichiers) |
-| `outputs.NOM.separator` (autre sortie) | `,` |
+| `outputs.NOM.file`, `outputs.NOM.separator` (sortie connue) | le fichier et le séparateur eqasim indiqués dans [Sorties connues](#sorties-connues-et-leurs-fichiers) ; pour une sortie spatiale, le fichier suit `output_formats` de la configuration eqasim |
+| `outputs.NOM.separator` (autre sortie `.csv`) | `,` ; un fichier qui n'est pas un fichier `.csv` n'a pas de séparateur |
 | `outputs.NOM.references` | une liste vide ; `show-config` ne l'écrit pas |
 | `indicators` | une distance de variation totale pour chaque sortie qui a au moins une référence |
 | `execution.backend` | `local` (seulement si un bloc `execution` est présent) |
@@ -165,9 +163,11 @@ une campagne change sa `design_seed` par défaut, donc son design ; écrivez
 
 Les valeurs par défaut ne changent jamais en silence sous une campagne en cours.
 Le fichier résolu ne dépend que des octets de votre fichier YAML (scellés dans
-`metaConfigSha256`) et de la version d'eqasim-sa (incluse dans le `contextHash`,
-qui refuse déjà de reprendre une campagne avec une autre version). Rien de plus
-n'est écrit sur le disque.
+`metaConfigSha256`), d'`output_formats` dans votre configuration eqasim, qui
+choisit le fichier d'une sortie spatiale (toute la configuration est scellée
+dans le plan, et une configuration modifiée est refusée à la reprise), et de la
+version d'eqasim-sa (incluse dans le `contextHash`, qui refuse déjà de reprendre
+une campagne avec une autre version). Rien de plus n'est écrit sur le disque.
 
 Pour voir le fichier complet qu'eqasim-sa utilise réellement :
 
@@ -181,7 +181,11 @@ près que le répertoire de travail temporaire et `machine_options.data_path`
 n'ont pas besoin d'exister encore, puis affiche le YAML complet sur la sortie
 standard, toutes valeurs par défaut appliquées. Les chemins sont
 affichés tels que vous les avez écrits : la sortie est elle-même une
-méta-configuration valide. Si le fichier est invalide, le message d'erreur part
+méta-configuration valide. Chaque `file` de sortie garde son `{prefix}`, qui est
+ce que le plan scelle, suivi d'un commentaire YAML qui donne le nom du fichier
+pour l'`output_prefix` de votre configuration eqasim, par exemple
+`file: '{prefix}persons.csv'  # nantes_persons.csv` ; YAML ignore le
+commentaire, donc charger le fichier affiché donne la même campagne. Si le fichier est invalide, le message d'erreur part
 sur la sortie d'erreur et le code de sortie vaut 1 ; contrairement aux autres
 sous-commandes, `show-config` n'affiche pas d'enveloppe JSON. Pour le fichier de départ
 ci-dessus, la sortie figure dans
@@ -786,8 +790,7 @@ colonnes que les indicateurs peuvent y lire. Au moins une sortie est requise :
 ```yaml
 outputs:
   persons: {}
-  activities_spatial:
-    file: "{prefix}activities.gpkg"
+  activities_spatial: {}
   age:
     category: Age class
     simulated: Proportion_EQASIM
@@ -799,7 +802,7 @@ Chaque sortie accepte cinq clés, toutes facultatives pour une sortie connue :
 | Clé | Contenu |
 | --- | --- |
 | `file` | chemin du fichier, relatif au dossier de sortie d'eqasim (`output_path`) |
-| `separator` | séparateur de colonnes d'un fichier CSV, un seul caractère |
+| `separator` | séparateur de colonnes, un seul caractère ; seulement pour un fichier `.csv` |
 | `category` | la colonne des classes (par exemple les classes d'âge) |
 | `simulated` | la colonne des valeurs produites par la simulation |
 | `references` | les colonnes des valeurs de référence (recensement, enquête…) |
@@ -810,42 +813,76 @@ refusés sur tous les systèmes.
 
 ### Sorties connues et leurs fichiers
 
-eqasim-sa connaît les douze fichiers qu'eqasim écrit dans ses étapes standard.
-Pour ces noms, `file` et `separator` ont une valeur par défaut : `persons: {}`
-suffit.
+eqasim-sa connaît tous les fichiers qu'écrit l'étape eqasim `synthesis.output`
+(`synthesis/output.py`), et les six tables de l'étape
+`analysis.synthesis.population`. Pour ces noms, `file` et, pour un fichier CSV,
+`separator` ont une valeur par défaut : `persons: {}` suffit.
 
-| Sorties | `file` par défaut | `separator` par défaut | Écrites par l'étape eqasim |
-| --- | --- | --- | --- |
-| `persons`, `households`, `activities`, `trips`, `vehicle_types`, `vehicles` | `{prefix}<nom>.csv` | `;` | `synthesis.output` |
-| `age`, `age_purpose`, `distance`, `license`, `nbr_vehicle`, `travel` | `analysis_population/{prefix}<nom>.csv` | `,` | `analysis.synthesis.population` |
+| Sorties | `file` par défaut | `separator` par défaut | Écrites quand | Écrites par l'étape eqasim |
+| --- | --- | --- | --- | --- |
+| `persons`, `households`, `activities`, `trips`, `vehicle_types`, `vehicles` | `{prefix}<nom>.csv` | `;` | `output_formats` contient `csv` | `synthesis.output` |
+| `persons_parquet`, `households_parquet`, `activities_parquet`, `trips_parquet`, `vehicle_types_parquet`, `vehicles_parquet` | `{prefix}<table>.parquet` (par exemple `{prefix}persons.parquet`) | aucun | `output_formats` contient `parquet` | `synthesis.output` |
+| `activities_spatial`, `homes_spatial`, `commutes_spatial`, `trips_spatial` | `{prefix}<table>.gpkg` quand `output_formats` contient `gpkg`, sinon `{prefix}<table>.geoparquet` | aucun | `output_formats` contient `gpkg` ou `geoparquet` | `synthesis.output` |
+| `legs`, `pt_legs` | `{prefix}<nom>.csv` | `;` | `mode_choice` est vrai | `synthesis.output` |
+| `age`, `age_purpose`, `distance`, `license`, `nbr_vehicle`, `travel` | `analysis_population/{prefix}<nom>.csv` | `,` | toujours | `analysis.synthesis.population` |
 
 `{prefix}` désigne l'`output_prefix` de votre configuration eqasim (par défaut
-`ile_de_france_` dans eqasim) ; c'est la seule valeur à remplacer permise dans `file`. Pour
-tout autre nom, `file` est requis et `separator` vaut `,` par défaut. C'est
-ainsi que les fichiers de départ conservent le fichier spatial des activités :
+`ile_de_france_` dans eqasim) ; c'est la seule valeur à remplacer permise dans
+`file`. `output_formats` est lu dans la section `config:` de votre
+configuration eqasim ; quand il est absent, eqasim écrit `csv` et `gpkg`, et
+eqasim-sa prend la même valeur par défaut. Quand il contient à la fois `gpkg`
+et `geoparquet`, une sortie spatiale prend par défaut le fichier `.gpkg` ;
+écrivez son `file` pour garder l'autre :
 
 ```yaml
 outputs:
-  activities_spatial:
-    file: "{prefix}activities.gpkg"
+  homes_spatial:
+    file: "{prefix}homes.geoparquet"
+```
+
+`legs` et `pt_legs` sont les tables des étapes (*legs*) du choix modal MATSim,
+qu'eqasim copie (décompressées) dans son dossier de sortie seulement quand
+`mode_choice` est vrai.
+
+Pour tout autre nom, `file` est requis, et `separator` vaut `,` par défaut
+quand le fichier est un fichier `.csv`. `separator` ne s'applique qu'aux
+fichiers `.csv` : il n'est jamais complété, ni affiché par `show-config`, pour
+un autre fichier, et le déclarer sur un autre fichier est refusé. Par exemple,
+pour un fichier écrit par votre propre étape eqasim :
+
+```yaml
+outputs:
+  zones:
+    file: "{prefix}zones.csv"
+    separator: ";"
 ```
 
 `file` est un chemin relatif écrit avec `/`, sans `..`, `\`, `:` ni chemin
 absolu. Vous pouvez aussi changer le `file` d'une sortie connue, par exemple
 pour lire sous un nom connu un fichier écrit par votre propre étape eqasim ; la
 vérification d'étape décrite dans [Ce qu'eqasim exécute](#ce-queqasim-exécute)
-ne s'applique alors pas à elle.
+et celle de `mode_choice` ne s'appliquent alors pas à elle.
 
 Le chargement refuse aussi, avec un message qui nomme la sortie :
 
 - un `file` dont l'extension, une fois `{prefix}` remplacé, ne peut pas nommer
   un fichier d'archive (lettres, chiffres, `_` et `-` seulement ; par exemple
   `.csv~` est refusé) ;
-- quand votre configuration eqasim fixe `config.output_formats`, une sortie
-  connue de la population (`persons`, `households`, `activities`, `trips`,
-  `vehicle_types`, `vehicles`) laissée à son fichier `.csv` par défaut alors
-  qu'`output_formats` ne contient pas `csv`, ou une sortie `.gpkg` alors qu'il
-  ne contient pas `gpkg` : eqasim n'écrirait pas ce fichier ;
+- un fichier qu'eqasim n'écrirait pas parce qu'`output_formats` (ou sa valeur
+  par défaut `[csv, gpkg]`) ne contient pas son format : une sortie connue de
+  la population laissée à son fichier `.csv` par défaut sans `csv`, une sortie
+  connue `_parquet` laissée à son fichier par défaut sans `parquet`, tout
+  fichier `.gpkg` sans `gpkg`, tout fichier `.geoparquet` sans `geoparquet`
+  (`output 'persons_parquet' is a Parquet file but output_formats of ... is
+  ['csv', 'gpkg']; add parquet to output_formats`) ;
+- une sortie spatiale déclarée sans `file` alors qu'`output_formats` ne
+  contient ni `gpkg` ni `geoparquet` (`output 'homes_spatial' needs gpkg or
+  geoparquet in output_formats of ...; add one`) ;
+- `legs` ou `pt_legs` laissées à leur fichier par défaut alors que
+  `mode_choice` n'est pas vrai (`output 'legs' is written only when
+  mode_choice is true in ...`) ;
+- un `separator` sur un fichier qui n'est pas un fichier `.csv` (`separator
+  applies only to .csv files (output 'persons_parquet')`) ;
 - un indicateur (`share`, `value`, `tv_distance`) sur une sortie dont le `file`
   n'est pas un fichier `.csv` : les indicateurs ne lisent que des tables CSV.
 
@@ -853,7 +890,8 @@ Le chargement refuse aussi, avec un message qui nomme la sortie :
 
 À la fin de chaque run réussi, chaque fichier déclaré est copié à l'octet près
 dans l'archive du run, sous le nom `<nom de la sortie><extension du fichier>` :
-`age.csv`, `persons.csv`, `activities_spatial.gpkg`, etc. Le manifeste du run
+`age.csv`, `persons.csv`, `activities_spatial.gpkg`, `persons_parquet.parquet`,
+`homes_spatial.geoparquet`, etc. Le manifeste du run
 enregistre pour chaque fichier son chemin d'origine sous le dossier de sortie
 d'eqasim (par exemple `analysis_population/nantes_age.csv`), sa taille et son
 SHA-256. Un fichier déclaré qu'eqasim n'a pas écrit fait échouer le run avec un
@@ -863,10 +901,11 @@ configuration eqasim. Les fichiers non déclarés ne sont pas conservés.
 Les [scripts d'analyse](#analyses) ne lisent que ces fichiers archivés :
 déclarez, avant de planifier, tous les fichiers que vous voudrez peut-être
 analyser plus tard (population, trajets, activités et leurs fichiers
-spatiaux `.gpkg`).
+spatiaux).
 
 Seuls `file` et `separator` déterminent ce qui est archivé : seules ces deux
-clés, avec le nom de la sortie, sont scellées dans le plan. `category`,
+clés, avec le nom de la sortie, sont scellées dans le plan (un fichier qui n'est
+pas un fichier `.csv` est scellé avec le séparateur inutilisé `,`). `category`,
 `simulated` et `references` relèvent de l'analyse : vous pouvez les ajouter ou
 les corriger après les runs et recalculer l'analyse sans rien relancer.
 Ajouter, retirer ou renommer une sortie, ou changer son `file` ou son
@@ -914,8 +953,7 @@ un.
 outputs:
   persons: {}
   trips: {}
-  activities_spatial:
-    file: "{prefix}activities.gpkg"
+  activities_spatial: {}
 analyses:
   commute:
     script: analyses/commute.py
@@ -940,7 +978,8 @@ sortie et de tout autre nom d'analyse, sans tenir compte de la casse, et `logs`
 est réservé (le cache y range ses journaux d'erreur). `script` doit être un
 fichier `.py` ordinaire existant ; son dernier composant ne doit pas être un
 lien symbolique. Chaque nom de `inputs` doit être déclaré dans `outputs` avec
-un fichier `.csv` ou `.gpkg` ; une analyse ne peut pas lire une autre analyse.
+un fichier `.csv`, `.gpkg`, `.parquet` ou `.geoparquet` ; une analyse ne peut
+pas lire une autre analyse.
 `category`, `simulated` et `references` suivent les règles des
 [colonnes lues par les indicateurs](#colonnes-lues-par-les-indicateurs) et
 nomment des colonnes de la table que renvoie le script.
@@ -1380,40 +1419,39 @@ analysis:
   completeness_threshold: 1.0
 outputs:
   persons:
-    file: '{prefix}persons.csv'
+    file: '{prefix}persons.csv'  # ile_de_france_persons.csv
     separator: ;
   households:
-    file: '{prefix}households.csv'
+    file: '{prefix}households.csv'  # ile_de_france_households.csv
     separator: ;
   trips:
-    file: '{prefix}trips.csv'
+    file: '{prefix}trips.csv'  # ile_de_france_trips.csv
     separator: ;
   activities:
-    file: '{prefix}activities.csv'
+    file: '{prefix}activities.csv'  # ile_de_france_activities.csv
     separator: ;
   activities_spatial:
-    file: '{prefix}activities.gpkg'
-    separator: ','
+    file: '{prefix}activities.gpkg'  # ile_de_france_activities.gpkg
   age:
     category: Age class
     simulated: Proportion_EQASIM
     references:
     - INSEE
-    file: analysis_population/{prefix}age.csv
+    file: analysis_population/{prefix}age.csv  # analysis_population/ile_de_france_age.csv
     separator: ','
   distance:
     category: Distance class
     simulated: Proportion_EQASIM
     references:
     - HTS
-    file: analysis_population/{prefix}distance.csv
+    file: analysis_population/{prefix}distance.csv  # analysis_population/ile_de_france_distance.csv
     separator: ','
   nbr_vehicle:
     category: Number of vehicles class
     simulated: Proportion_EQASIM
     references:
     - HTS
-    file: analysis_population/{prefix}nbr_vehicle.csv
+    file: analysis_population/{prefix}nbr_vehicle.csv  # analysis_population/ile_de_france_nbr_vehicle.csv
     separator: ','
 indicators:
 - tv_distance:
@@ -1445,8 +1483,10 @@ calibration:
   - 00-calibration.yml
 ```
 
-Sous cette forme affichée, les sorties connues montrent leur `file` et leur
-`separator` par défaut.
+Sous cette forme affichée, les sorties connues montrent leur `file` par défaut
+et, pour un fichier CSV, leur `separator`. Les commentaires donnent les fichiers
+pour l'`output_prefix` de la configuration eqasim, ici `ile_de_france_`, la
+valeur par défaut d'eqasim.
 
 ### OAT discret
 
@@ -1465,8 +1505,7 @@ outputs:
   households: {}
   trips: {}
   activities: {}
-  activities_spatial:
-    file: "{prefix}activities.gpkg"
+  activities_spatial: {}
   age:
     category: Age class
     simulated: Proportion_EQASIM
@@ -1514,8 +1553,7 @@ outputs:
   households: {}
   trips: {}
   activities: {}
-  activities_spatial:
-    file: "{prefix}activities.gpkg"
+  activities_spatial: {}
   age:
     category: Age class
     simulated: Proportion_EQASIM
@@ -1610,8 +1648,7 @@ parameters:
 outputs:
   persons: {}
   trips: {}
-  activities_spatial:
-    file: "{prefix}activities.gpkg"
+  activities_spatial: {}
   age:
     category: Age class
     simulated: Proportion_EQASIM

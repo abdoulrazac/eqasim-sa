@@ -77,7 +77,9 @@ actionnable et exclue des rangs de décision FP/FF.
 | Métadonnées scellées d'un plan scientifique absentes, non prises en charge, non canoniques, altérées ou incompatibles avec le contexte | rejeté avant publication par les analyseurs Morris canonique et Sobol multi-scramble |
 | Sortie connue laissée à son `file` par défaut dont l'étape eqasim manque dans `run:` | rejetée au chargement de la méta-configuration |
 | Sortie dont le suffixe de `file` (une fois `{prefix}` remplacé) ne peut pas nommer un fichier d'archive | rejetée au chargement de la méta-configuration |
-| Sortie CSV connue de la population, ou sortie `.gpkg`, quand `output_formats` de la configuration eqasim est présent sans `csv`, ou sans `gpkg` | rejetée au chargement de la méta-configuration |
+| Sortie dont eqasim n'écrirait pas le fichier parce qu'`output_formats` de la configuration eqasim (par défaut `[csv, gpkg]`) ne contient pas son format : sortie connue de la population `.csv` ou `_parquet` à son fichier par défaut, tout fichier `.gpkg` ou `.geoparquet`, ou sortie spatiale sans `file` quand ni `gpkg` ni `geoparquet` n'est listé | rejetée au chargement de la méta-configuration |
+| `legs` ou `pt_legs` à leur fichier par défaut alors que `mode_choice` n'est pas vrai dans la configuration eqasim | rejetée au chargement de la méta-configuration |
+| `separator` déclaré sur une sortie dont le `file` n'est pas un fichier `.csv` | rejeté au chargement de la méta-configuration |
 | Indicateur `share`, `value` ou `tv_distance` sur une sortie dont le `file` n'est pas un fichier `.csv` | rejeté au chargement de la méta-configuration |
 | Entrée d'indicateur dont la clé n'est pas `tv_distance`, `share` ou `value` | rejetée au chargement de la méta-configuration |
 | `share.category` ou valeur de `where` qui n'est pas une chaîne YAML entre guillemets | rejeté au chargement de la méta-configuration |
@@ -86,7 +88,7 @@ actionnable et exclue des rangs de décision FP/FF.
 | Analyse OAT ou Sobol incomplète | rejetée car la complétude doit valoir `1.0` |
 | Preuve d'arrêt non prise en charge ou non évaluable | échec fermé, donc non convergée |
 | Plan sans la métadonnée scellée `modelDocument` | refusé par `run`, `check`, `estimate` et `analyze` : `plan.parquet has no sealed modelDocument; plan a new campaign` |
-| Entrée d'analyse non déclarée dans `outputs`, autre analyse, ou fichier qui n'est ni `.csv` ni `.gpkg` | rejetée au chargement de la méta-configuration |
+| Entrée d'analyse non déclarée dans `outputs`, autre analyse, ou fichier qui n'est ni `.csv`, ni `.gpkg`, ni `.parquet`, ni `.geoparquet` | rejetée au chargement de la méta-configuration |
 | Script d'analyse absent, qui n'est pas un fichier `.py` ordinaire, ou lien symbolique | rejeté au chargement de la méta-configuration |
 | Analyse nommée comme une sortie (sans tenir compte de la casse) ou `logs` | rejetée au chargement de la méta-configuration |
 | `analyses` avec une `execution.invocation` qui ne se termine pas par `-m synpp` et sans `execution.python` | rejeté au chargement de la méta-configuration |

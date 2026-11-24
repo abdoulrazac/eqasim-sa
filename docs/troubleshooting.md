@@ -109,10 +109,42 @@ before planning. See [What eqasim runs](yaml-reference.md#what-eqasim-runs).
 
 ## `output '...' is not a known eqasim output; declare its file`
 
-Cause: an output name outside the twelve known eqasim outputs has no `file`.
+Cause: an output name outside the known eqasim outputs has no `file`.
 Remedy: add `file`, relative to eqasim's output folder, for example
-`file: "analysis_population/{prefix}summary.csv"`, and `separator` if it is not
-a comma. See [Known outputs](yaml-reference.md#known-outputs-and-their-files).
+`file: "analysis_population/{prefix}summary.csv"`, and, for a `.csv` file,
+`separator` if it is not a comma. Check the spelling first: every file of
+eqasim's `synthesis.output` stage has a known name (`persons_parquet`,
+`homes_spatial`, `legs`, ...). See
+[Known outputs](yaml-reference.md#known-outputs-and-their-files).
+
+## `output '...' is a ... file but output_formats of ... is [...]; add ... to output_formats`
+
+Cause: eqasim writes this file only when `output_formats`, in the `config:`
+section of your eqasim configuration, lists its format (`csv`, `parquet`,
+`gpkg` or `geoparquet`); without `output_formats`, eqasim writes `csv` and
+`gpkg` only. Remedy: add the named format to `output_formats` in your copy of
+the eqasim configuration, or remove the output.
+
+## `output '...' needs gpkg or geoparquet in output_formats of ...; add one`
+
+Cause: a spatial output (`activities_spatial`, `homes_spatial`,
+`commutes_spatial`, `trips_spatial`) is declared without `file`, and
+`output_formats` of your eqasim configuration lists neither `gpkg` nor
+`geoparquet`, so eqasim writes no spatial file. Remedy: add `gpkg` (or
+`geoparquet`) to `output_formats`, or remove the output.
+
+## `output '...' is written only when mode_choice is true in ...`
+
+Cause: `legs` and `pt_legs` are copied by eqasim from the MATSim mode choice,
+which runs only when `mode_choice` is true in the `config:` section of your
+eqasim configuration. Remedy: set `mode_choice: true` (MATSim then runs inside
+every run, which needs Java and much more time), or remove the output.
+
+## `separator applies only to .csv files (output '...')`
+
+Cause: `separator` is declared on an output whose `file` is not a `.csv` file
+(for example `persons_parquet` or `homes_spatial`); such a file has no column
+separator. Remedy: remove `separator` from that output.
 
 ## `eqasim did not write declared output '...' (expected ...)`
 
@@ -588,7 +620,7 @@ These messages stop loading the meta-configuration; each names the analysis:
 | --- | --- |
 | `analysis 'commute' input 'trips_spatial' is not declared in outputs` | declare the output under `outputs`; after the runs, only already archived outputs can be read |
 | `analysis 'commute' input 'mode_share' is an analysis; inputs must be outputs declared in outputs` | an analysis cannot read another analysis; read the archived outputs in one script |
-| `analysis 'commute' input 'x' file '...' must be a .csv or .gpkg file` | scripts read `.csv` and `.gpkg` files only |
+| `analysis 'commute' input 'x' file '...' must be a .csv, .gpkg, .parquet or .geoparquet file` | scripts read `.csv`, `.gpkg`, `.parquet` and `.geoparquet` files only |
 | `analysis 'commute' script '...' does not exist` | the path is relative to the YAML file (or absolute) |
 | `analysis 'commute' script must be a .py file`, `... must be a regular file`, `... must not be a symlink` | point `script` at the `.py` file itself |
 | `analysis name 'trips' is already an output name` | give the analysis another name |

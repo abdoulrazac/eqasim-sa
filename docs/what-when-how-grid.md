@@ -116,8 +116,7 @@ outputs:
   households: {}
   trips: {}
   activities: {}
-  activities_spatial:
-    file: "{prefix}activities.gpkg"
+  activities_spatial: {}
   age:
     category: Age class
     simulated: Proportion_EQASIM
