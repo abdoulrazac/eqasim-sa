@@ -2,7 +2,7 @@
 
 [English](../docs/compatibility.md) | **Français**
 
-Cette page décrit `eqasim-sa` 0.4.1 ; le [journal des modifications](../CHANGELOG.md)
+Cette page décrit `eqasim-sa` 0.4.2 ; le [journal des modifications](../CHANGELOG.md)
 liste ses changements depuis la 0.3.0, parmi lesquels
 les facteurs structurés, le modèle eqasim identifié sans Git, les scripts
 d'analyse, `show-config` et `plot`. L'analyseur syntaxique Python et le code
@@ -165,5 +165,6 @@ protocole Nantes réel a été planifié ou exécuté.
 
 | Version | Python | Schémas de plan lus/écrits | Manifeste d'analyse | Migration |
 | --- | --- | --- | --- | --- |
+| 0.4.2 | `>=3.13,<3.14` | schémas de plan v1/v2/v3 ; design scientifique v3 uniquement | v8 | aucune |
 | 0.4.1 | `>=3.13,<3.14` | schémas de plan v1/v2/v3 ; design scientifique v3 uniquement | v8 | aucune |
 | 0.4.0 | `>=3.13,<3.14` | schémas de plan v1/v2/v3 ; design scientifique v3 uniquement | v8 | aucune |

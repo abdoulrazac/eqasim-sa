@@ -34,7 +34,7 @@ from Git Bash, or in PowerShell write the full `uv run --project <path>
 ## Install with uv
 
 Get eqasim-sa by cloning its repository at a release tag, for example
-`git clone --branch v0.4.1 https://github.com/abdoulrazac/eqasim-sa.git`.
+`git clone --branch v0.4.2 https://github.com/abdoulrazac/eqasim-sa.git`.
 Without Git, download the "Source code" archive of a release from the
 [GitHub release page](https://github.com/abdoulrazac/eqasim-sa/releases) and
 unpack it. Then, at the root that contains it:
@@ -47,7 +47,7 @@ SA=(uv run --project "$ROOT/eqasim-sa" --locked eqasim-sa)
 ```
 
 To check the installation, `"${SA[@]}" --version` prints the installed version,
-for example `eqasim-sa 0.4.1`. `uv sync --locked` installs exactly the
+for example `eqasim-sa 0.4.2`. `uv sync --locked` installs exactly the
 versions of eqasim-sa's `uv.lock`.
 
 The `eqasim-sa` lockfile pins the runner environment. The lockfile referenced

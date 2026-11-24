@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.2 - 2026-11-24
 
 ### Added
 
@@ -32,7 +32,6 @@
 - Without `output_formats` in the eqasim configuration, eqasim-sa now checks
   outputs against eqasim's default `[csv, gpkg]` (before, nothing was checked).
 - The starters declare `activities_spatial: {}` instead of its explicit file.
-
 - Installation is documented from a clone of the repository (or the "Source
   code" archive of a release) with `uv sync --locked`, which installs exactly
   the versions of `uv.lock`. `uv tool install` is no longer documented.

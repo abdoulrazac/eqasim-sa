@@ -69,7 +69,7 @@ Installez eqasim-sa depuis un clone de son dépôt : uv crée son environnement
 avec exactement les versions enregistrées dans `uv.lock`.
 
 ```bash
-git clone --branch v0.4.1 https://github.com/abdoulrazac/eqasim-sa.git
+git clone --branch v0.4.2 https://github.com/abdoulrazac/eqasim-sa.git
 cd eqasim-sa
 uv sync --locked
 uv run --locked eqasim-sa --version

@@ -34,7 +34,7 @@ lancez-les depuis Git Bash, ou en PowerShell écrivez la commande complète
 ## Installer avec uv
 
 Récupérez eqasim-sa en clonant son dépôt à l'étiquette d'une version, par
-exemple `git clone --branch v0.4.1 https://github.com/abdoulrazac/eqasim-sa.git`.
+exemple `git clone --branch v0.4.2 https://github.com/abdoulrazac/eqasim-sa.git`.
 Sans Git, téléchargez l'archive « Source code » d'une version depuis la
 [page des versions GitHub](https://github.com/abdoulrazac/eqasim-sa/releases)
 et décompressez-la. Puis, à la racine qui la contient :
@@ -47,7 +47,7 @@ SA=(uv run --project "$ROOT/eqasim-sa" --locked eqasim-sa)
 ```
 
 Pour vérifier l'installation, `"${SA[@]}" --version` affiche la version
-installée, par exemple `eqasim-sa 0.4.1`. `uv sync --locked` installe
+installée, par exemple `eqasim-sa 0.4.2`. `uv sync --locked` installe
 exactement les versions du `uv.lock` d'eqasim-sa.
 
 Le lockfile d'`eqasim-sa` fixe l'environnement d'exécution d'eqasim-sa. Le lockfile référencé
