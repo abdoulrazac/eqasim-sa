@@ -75,9 +75,8 @@ Les versions sont publiées uniquement sur GitHub. Pousser une étiquette
 `vX.Y.Z` (égale à la `version` de `pyproject.toml`) lance
 `.github/workflows/release.yml`, qui vérifie le fichier de verrouillage, exécute
 les tests, construit la roue (wheel) et l'archive source (sdist), exécute le
-contrôle de la roue ci-dessus, exporte les versions d'exécution de `uv.lock`
-dans `constraints.txt` et crée la version GitHub avec les deux archives et
-`constraints.txt` joints.
+contrôle de la roue ci-dessus et crée la version GitHub avec les deux archives
+jointes.
 
 ## Proposer la modification
 

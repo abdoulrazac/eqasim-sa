@@ -26,8 +26,6 @@ jobs:
           uv run --locked python .github/scripts/verify_release_wheel.py \
             "dist/eqasim_sa-${version}-py3-none-any.whl"
           test -f "dist/eqasim_sa-${version}.tar.gz"
-      - name: Export the tested runtime versions
-        run: uv export --locked --no-hashes --no-emit-project --no-header --format requirements-txt -o dist/constraints.txt
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -37,7 +35,6 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             "dist/eqasim_sa-${version}-py3-none-any.whl" \
             "dist/eqasim_sa-${version}.tar.gz" \
-            dist/constraints.txt \
             --title "eqasim-sa ${version}" \
             --notes "See CHANGELOG.md for the changes in this release." \
             --verify-tag

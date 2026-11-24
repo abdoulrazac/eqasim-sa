@@ -67,9 +67,7 @@ evidence for the current source tree.
 Releases are published on GitHub only. Pushing a tag `vX.Y.Z` (matching the
 `version` in `pyproject.toml`) starts `.github/workflows/release.yml`, which
 checks the lockfile, runs the tests, builds the wheel and the sdist, runs the
-wheel check above, exports the runtime versions of `uv.lock` to
-`constraints.txt`, and creates the GitHub release with the two archives and
-`constraints.txt` attached.
+wheel check above, and creates the GitHub release with both archives attached.
 
 ## Proposing the change
 
