@@ -67,10 +67,10 @@ depuis Git Bash.
 
 Les versions sont publiées uniquement sur GitHub : la page de chaque version
 porte sa roue (wheel) et son archive source (sdist). Pour installer la version
-0.4.0 comme outil uv :
+0.4.1 comme outil uv :
 
 ```bash
-uv tool install git+https://github.com/abdoulrazac/eqasim-sa@v0.4.0
+uv tool install git+https://github.com/abdoulrazac/eqasim-sa@v0.4.1
 eqasim-sa --version
 ```
 
@@ -80,8 +80,8 @@ versions testées pour la version publiée, ajoutez le fichier `constraints.txt`
 qui l'accompagne :
 
 ```bash
-uv tool install --constraints https://github.com/abdoulrazac/eqasim-sa/releases/download/v0.4.0/constraints.txt \
-  git+https://github.com/abdoulrazac/eqasim-sa@v0.4.0
+uv tool install --constraints https://github.com/abdoulrazac/eqasim-sa/releases/download/v0.4.1/constraints.txt \
+  git+https://github.com/abdoulrazac/eqasim-sa@v0.4.1
 ```
 
 Avec l'outil installé, utilisez `SA=(eqasim-sa)` dans les exemples ci-dessous. Pour

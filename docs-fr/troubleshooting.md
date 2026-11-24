@@ -8,8 +8,8 @@ L'interpréteur de l'environnement d'outil d'eqasim-sa n'est pas le Python 3.13
 pour lequel les paquets ont été installés. Cela arrive quand le lien
 `bin/python` d'un environnement d'outil uv pointe vers un autre Python après
 l'installation (par exemple après la réinstallation des versions de Python
-gérées par uv). À partir de la prochaine version, eqasim-sa le signale avec le
-premier message ; la version 0.4.0 échoue dans pyarrow avec le second.
+gérées par uv). Depuis la version 0.4.1, eqasim-sa le signale avec le premier
+message ; la version 0.4.0 échoue dans pyarrow avec le second.
 Recréez l'environnement de l'outil avec Python 3.13 :
 
 ```bash

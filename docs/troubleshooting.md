@@ -7,9 +7,9 @@
 The interpreter of eqasim-sa's tool environment is not the Python 3.13 the
 packages were installed for. This happens when the link `bin/python` of a uv
 tool environment points to another Python after the installation (for
-example after Python versions managed by uv were reinstalled). From the next
-release, eqasim-sa reports it with the first message; version 0.4.0 fails
-inside pyarrow with the second one. Recreate the tool environment with
+example after Python versions managed by uv were reinstalled). Since 0.4.1,
+eqasim-sa reports it with the first message; version 0.4.0 fails inside
+pyarrow with the second one. Recreate the tool environment with
 Python 3.13:
 
 ```bash

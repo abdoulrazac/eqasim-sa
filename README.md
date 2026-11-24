@@ -60,10 +60,10 @@ one machine; analysis can be done on another one. See
 The shell examples below are Bash; on Windows, run them from Git Bash.
 
 Releases are published on GitHub only: the release page of each version
-carries its wheel and sdist. To install release 0.4.0 as a uv tool:
+carries its wheel and sdist. To install release 0.4.1 as a uv tool:
 
 ```bash
-uv tool install git+https://github.com/abdoulrazac/eqasim-sa@v0.4.0
+uv tool install git+https://github.com/abdoulrazac/eqasim-sa@v0.4.1
 eqasim-sa --version
 ```
 
@@ -72,8 +72,8 @@ newest compatible versions. To install exactly the versions tested for the
 release, add the `constraints.txt` file attached to it:
 
 ```bash
-uv tool install --constraints https://github.com/abdoulrazac/eqasim-sa/releases/download/v0.4.0/constraints.txt \
-  git+https://github.com/abdoulrazac/eqasim-sa@v0.4.0
+uv tool install --constraints https://github.com/abdoulrazac/eqasim-sa/releases/download/v0.4.1/constraints.txt \
+  git+https://github.com/abdoulrazac/eqasim-sa@v0.4.1
 ```
 
 With the tool installed, use `SA=(eqasim-sa)` in the examples below. To work from a

@@ -65,7 +65,7 @@ uvx ruff check src tests protocols --select F401,F841,F811 --no-cache
 git diff --check
 uv build
 uv run --locked python .github/scripts/verify_release_wheel.py \
-  dist/eqasim_sa-0.4.0-py3-none-any.whl
+  dist/eqasim_sa-0.4.1-py3-none-any.whl
 ```
 
 Inspectez les archives nouvellement construites. Les fichiers préexistants dans

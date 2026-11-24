@@ -43,12 +43,12 @@ SA=(uv run --project "$ROOT/eqasim-sa" --locked eqasim-sa)
 ```
 
 Pour vérifier l'installation, `"${SA[@]}" --version` affiche la version
-installée, par exemple `eqasim-sa 0.4.0`.
+installée, par exemple `eqasim-sa 0.4.1`.
 
 Sans copie des sources, installez une version publiée sur GitHub comme outil uv :
 
 ```bash
-uv tool install git+https://github.com/abdoulrazac/eqasim-sa@v0.4.0
+uv tool install git+https://github.com/abdoulrazac/eqasim-sa@v0.4.1
 SA=(eqasim-sa)
 ```
 
@@ -58,8 +58,8 @@ versions testées pour la version publiée, ajoutez le fichier `constraints.txt`
 qui l'accompagne :
 
 ```bash
-uv tool install --constraints https://github.com/abdoulrazac/eqasim-sa/releases/download/v0.4.0/constraints.txt \
-  git+https://github.com/abdoulrazac/eqasim-sa@v0.4.0
+uv tool install --constraints https://github.com/abdoulrazac/eqasim-sa/releases/download/v0.4.1/constraints.txt \
+  git+https://github.com/abdoulrazac/eqasim-sa@v0.4.1
 ```
 
 Le lockfile d'`eqasim-sa` fixe l'environnement d'exécution d'eqasim-sa. Le lockfile référencé

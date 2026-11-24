@@ -13,7 +13,7 @@ prints YAML, never JSON; `plot` prints JSON on success but writes its errors as
 plain text on standard error.
 
 `eqasim-sa --version` prints the installed version as plain text (for example
-`eqasim-sa 0.4.0`) and returns 0.
+`eqasim-sa 0.4.1`) and returns 0.
 
 ## `init`
 
