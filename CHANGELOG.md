@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- The starters written by `init` declare every output eqasim's
+  `synthesis.output` stage writes for the eqasim configuration given with
+  `--model-config`: the six CSV tables (`persons`, `households`, `activities`,
+  `trips`, `vehicle_types`, `vehicles`) when `output_formats` contains `csv`,
+  the six `<table>_parquet` when it contains `parquet`, the four
+  `<table>_spatial` when it contains `gpkg` or `geoparquet` (eqasim's default
+  `output_formats` is `[csv, gpkg]`), and `legs` and `pt_legs` when
+  `mode_choice` is true; then, as before, `age`, `distance` and `nbr_vehicle`.
+  Before, they declared only `persons`, `households`, `trips`, `activities` and
+  `activities_spatial`. A comment above `outputs` names the `output_formats`
+  and `mode_choice` used. Every declared file is archived for every run, and
+  the spatial files are large at high sampling rates: remove the outputs you
+  do not need. A rerun of `init` after a change of `output_formats` or
+  `mode_choice` keeps the existing starters and lists them in `kept`.
+
 ## 0.4.2 - 2026-11-24
 
 ### Added

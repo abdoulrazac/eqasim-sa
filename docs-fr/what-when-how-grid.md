@@ -106,20 +106,28 @@ la variabilité aléatoire. Le plan contient ici :
 
 ### 4. Choisir ce que l'on mesure
 
-Le fichier généré déclare déjà les sorties à conserver de chaque run. Les
-fichiers de population (`persons`, `households`, `trips`, `activities` et les
-activités spatiales `activities_spatial`) sont archivés pour qu'une analyse
+Le fichier généré déclare déjà les sorties à conserver de chaque run. Tous les
+fichiers qu'écrit l'étape eqasim `synthesis.output` avec votre configuration
+eqasim (ici les six tables CSV et les quatre fichiers spatiaux de la valeur par
+défaut de `output_formats`, `[csv, gpkg]`) sont archivés pour qu'une analyse
 ultérieure n'exige aucune nouvelle simulation ; ils n'ont pas de référence et ne
-produisent donc aucun indicateur. Trois distributions sont comparées aux
-données de référence :
+produisent donc aucun indicateur. Retirez ceux dont vous n'avez pas besoin pour
+économiser de la place disque : les fichiers spatiaux deviennent volumineux aux
+taux d'échantillonnage élevés. Trois distributions sont comparées aux données
+de référence :
 
 ```yaml
 outputs:
   persons: {}
   households: {}
-  trips: {}
   activities: {}
+  trips: {}
+  vehicle_types: {}
+  vehicles: {}
   activities_spatial: {}
+  homes_spatial: {}
+  commutes_spatial: {}
+  trips_spatial: {}
   age:
     category: Age class
     simulated: Proportion_EQASIM

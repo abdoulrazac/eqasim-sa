@@ -160,8 +160,13 @@ long run. See [Troubleshooting](troubleshooting.md#path_length-check-fails-on-wi
 ## Read a generated configuration
 
 Each file in `configs/` is short: the campaign name, the method and its seeds,
-the parameter values to try, the model outputs to compare with reference data,
-and, under a comment line, the paths that `init` filled in for this machine.
+the parameter values to try, the files of each run to keep, the model outputs
+to compare with reference data, and, under a comment line, the paths that
+`init` filled in for this machine. The files to keep are every file eqasim's
+`synthesis.output` stage writes with the eqasim configuration given by
+`--model-config` (its `output_formats` and `mode_choice`); every run copies
+them into its archive, so remove the ones you do not need to save disk space,
+the spatial files above all at high sampling rates.
 Everything else takes a default value. The
 [YAML reference](yaml-reference.md#a-first-file) reads the Grid starter line by
 line. To see the complete configuration that eqasim-sa will use, with every
@@ -273,7 +278,7 @@ The `plan` commands return a JSON object with `status`, `designPositions`, and
 
 | Stage | Minimum JSON on first execution | Expected files after `run`/`analyze` |
 | --- | --- | --- |
-| Calibration | `plan`: `created`, 3 positions, 3 unique runs; `run`: `completed`, 3 completed | `campaigns/mon-analyse-sa-calibration/plan.parquet`, 3 markers under `runs/`, 3 archives with eight files each (`persons.csv`, ..., `activities_spatial.gpkg`, `age.csv`, `distance.csv`, `nbr_vehicle.csv`) |
+| Calibration | `plan`: `created`, 3 positions, 3 unique runs; `run`: `completed`, 3 completed | `campaigns/mon-analyse-sa-calibration/plan.parquet`, 3 markers under `runs/`, 3 archives with thirteen files each with eqasim's default `output_formats` (`persons.csv`, ..., `vehicles.csv`, `activities_spatial.gpkg`, ..., `trips_spatial.gpkg`, `age.csv`, `distance.csv`, `nbr_vehicle.csv`) |
 | Grid | `plan`: `created`, 4 positions, 4 unique runs; `run`: 4 completed; `analyze`: `completed` | `analysis-generation.json`; selected generation: `indicators.parquet`, `replication-dispersion.parquet`, `output-summary.parquet`, `governed-report.json` |
 | Discrete OAT | `plan`: `created`, 8 positions, 6 unique runs; `run`: 6 completed; `analyze`: sensitivity `discrete_oat` | `analysis-generation.json`; selected generation: `indicators.parquet`, `replication-dispersion.parquet`, `discrete-oat-effects.parquet`, `output-summary.parquet`, `governed-report.json` |
 | Sobol | `plan`: `created`, 48 positions, 4 unique runs; `run`: 4 completed; `analyze`: sensitivity `sobol` | `analysis-generation.json`; selected generation: `indicators.parquet`, `sobol-indices.parquet`, `output-summary.parquet`, `governed-report.json` |

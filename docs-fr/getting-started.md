@@ -171,9 +171,14 @@ tout run long. Voir le
 ## Lire une configuration générée
 
 Chaque fichier de `configs/` est court : le nom de la campagne, la méthode et ses
-graines, les valeurs de paramètres à essayer, les sorties du modèle à comparer
-aux données de référence et, sous une ligne de commentaire, les chemins
-qu'`init` a remplis pour cette machine. Tout le reste prend une valeur par
+graines, les valeurs de paramètres à essayer, les fichiers de chaque run à
+conserver, les sorties du modèle à comparer aux données de référence et, sous
+une ligne de commentaire, les chemins qu'`init` a remplis pour cette machine.
+Les fichiers conservés sont tous ceux qu'écrit l'étape eqasim
+`synthesis.output` avec la configuration eqasim donnée par `--model-config`
+(son `output_formats` et son `mode_choice`) ; chaque run les copie dans son
+archive, retirez donc ceux dont vous n'avez pas besoin pour économiser de la
+place disque, surtout les fichiers spatiaux aux taux d'échantillonnage élevés. Tout le reste prend une valeur par
 défaut. La [référence YAML](yaml-reference.md#un-premier-fichier) lit le fichier de départ
 Grid ligne par ligne. Pour voir la configuration complète qu'eqasim-sa
 utilisera, toutes valeurs par défaut écrites :
@@ -288,7 +293,7 @@ Les commandes `plan` renvoient un objet JSON avec `status`, `designPositions` et
 
 | Étape | JSON minimal à la première exécution | Fichiers attendus après `run`/`analyze` |
 | --- | --- | --- |
-| Calibration | `plan` : `created`, 3 positions, 3 runs uniques ; `run` : `completed`, 3 complétés | `campaigns/mon-analyse-sa-calibration/plan.parquet`, 3 marqueurs sous `runs/`, 3 archives de huit fichiers chacune (`persons.csv`, …, `activities_spatial.gpkg`, `age.csv`, `distance.csv`, `nbr_vehicle.csv`) |
+| Calibration | `plan` : `created`, 3 positions, 3 runs uniques ; `run` : `completed`, 3 complétés | `campaigns/mon-analyse-sa-calibration/plan.parquet`, 3 marqueurs sous `runs/`, 3 archives de treize fichiers chacune avec la valeur par défaut d'eqasim pour `output_formats` (`persons.csv`, …, `vehicles.csv`, `activities_spatial.gpkg`, …, `trips_spatial.gpkg`, `age.csv`, `distance.csv`, `nbr_vehicle.csv`) |
 | Grid | `plan` : `created`, 4 positions, 4 runs uniques ; `run` : 4 complétés ; `analyze` : `completed` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `replication-dispersion.parquet`, `output-summary.parquet`, `governed-report.json` |
 | OAT discret | `plan` : `created`, 8 positions, 6 runs uniques ; `run` : 6 complétés ; `analyze` : sensibilité `discrete_oat` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `replication-dispersion.parquet`, `discrete-oat-effects.parquet`, `output-summary.parquet`, `governed-report.json` |
 | Sobol | `plan` : `created`, 48 positions, 4 runs uniques ; `run` : 4 complétés ; `analyze` : sensibilité `sobol` | `analysis-generation.json` ; génération désignée : `indicators.parquet`, `sobol-indices.parquet`, `output-summary.parquet`, `governed-report.json` |

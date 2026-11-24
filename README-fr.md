@@ -140,9 +140,14 @@ parameters:
 outputs:
   persons: {}
   households: {}
-  trips: {}
   activities: {}
+  trips: {}
+  vehicle_types: {}
+  vehicles: {}
   activities_spatial: {}
+  homes_spatial: {}
+  commutes_spatial: {}
+  trips_spatial: {}
   age:
     category: Age class
     simulated: Proportion_EQASIM

@@ -135,7 +135,12 @@ campaigns/mon-analyse-sa-grid/
 │       ├── households.csv
 │       ├── trips.csv
 │       ├── activities.csv
+│       ├── vehicle_types.csv
+│       ├── vehicles.csv
 │       ├── activities_spatial.gpkg
+│       ├── homes_spatial.gpkg
+│       ├── commutes_spatial.gpkg
+│       ├── trips_spatial.gpkg
 │       ├── age.csv
 │       ├── distance.csv
 │       └── nbr_vehicle.csv

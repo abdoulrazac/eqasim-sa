@@ -48,12 +48,23 @@ experiment:
   seeds: [1201, 1202]
 parameters:
   sampling_rate: [0.001, 0.002]
+# Every file eqasim's synthesis.output stage writes with output_formats
+# [csv, gpkg] (eqasim's default) and mode_choice false in your eqasim
+# configuration. Remove the ones you do not need to save disk space
+# (spatial files are large at high sampling rates).
 outputs:
   persons: {}
   households: {}
-  trips: {}
   activities: {}
+  trips: {}
+  vehicle_types: {}
+  vehicles: {}
   activities_spatial: {}
+  homes_spatial: {}
+  commutes_spatial: {}
+  trips_spatial: {}
+  # Analysis tables the default indicators read
+  # (written by analysis.synthesis.population).
   age:
     category: Age class
     simulated: Proportion_EQASIM
@@ -98,9 +109,17 @@ Read it from top to bottom:
 - `parameters` lists, for each eqasim parameter you vary, the values to try.
   The starter varies only `sampling_rate`, which the official eqasim
   configuration already contains.
-- `outputs` lists the files of each run that eqasim-sa keeps. A known eqasim
-  output such as `persons` or `activities_spatial` (the spatial activities
-  file) needs nothing more (`{}`). For the three
+- `outputs` lists the files of each run that eqasim-sa keeps. `init` declares
+  every file eqasim's `synthesis.output` stage writes with the eqasim
+  configuration given by `--model-config`: the six CSV tables when
+  `output_formats` contains `csv`, their `<table>_parquet` copies when it
+  contains `parquet`, the four `<table>_spatial` files when it contains `gpkg`
+  or `geoparquet` (eqasim's default `output_formats` is `[csv, gpkg]`), and
+  `legs` and `pt_legs` when `mode_choice` is true. A known eqasim output such
+  as `persons` or `activities_spatial` (the spatial activities file) needs
+  nothing more (`{}`). Every declared file is copied into the archive of every
+  run: remove the ones you do not need to save disk space, the spatial files
+  above all, which grow large at high sampling rates. For the three
   distributions `age`, `distance` and `nbr_vehicle`, the block also says which
   column holds the classes (`category`), which one holds the simulated
   proportions (`simulated`), and which reference columns to compare them with
@@ -1383,14 +1402,26 @@ outputs:
   households:
     file: '{prefix}households.csv'  # ile_de_france_households.csv
     separator: ;
-  trips:
-    file: '{prefix}trips.csv'  # ile_de_france_trips.csv
-    separator: ;
   activities:
     file: '{prefix}activities.csv'  # ile_de_france_activities.csv
     separator: ;
+  trips:
+    file: '{prefix}trips.csv'  # ile_de_france_trips.csv
+    separator: ;
+  vehicle_types:
+    file: '{prefix}vehicle_types.csv'  # ile_de_france_vehicle_types.csv
+    separator: ;
+  vehicles:
+    file: '{prefix}vehicles.csv'  # ile_de_france_vehicles.csv
+    separator: ;
   activities_spatial:
     file: '{prefix}activities.gpkg'  # ile_de_france_activities.gpkg
+  homes_spatial:
+    file: '{prefix}homes.gpkg'  # ile_de_france_homes.gpkg
+  commutes_spatial:
+    file: '{prefix}commutes.gpkg'  # ile_de_france_commutes.gpkg
+  trips_spatial:
+    file: '{prefix}trips.gpkg'  # ile_de_france_trips.gpkg
   age:
     category: Age class
     simulated: Proportion_EQASIM
@@ -1458,12 +1489,23 @@ experiment:
   design_seed: 20260817
 parameters:
   sampling_rate: [0.001, 0.002, 0.003]
+# Every file eqasim's synthesis.output stage writes with output_formats
+# [csv, gpkg] (eqasim's default) and mode_choice false in your eqasim
+# configuration. Remove the ones you do not need to save disk space
+# (spatial files are large at high sampling rates).
 outputs:
   persons: {}
   households: {}
-  trips: {}
   activities: {}
+  trips: {}
+  vehicle_types: {}
+  vehicles: {}
   activities_spatial: {}
+  homes_spatial: {}
+  commutes_spatial: {}
+  trips_spatial: {}
+  # Analysis tables the default indicators read
+  # (written by analysis.synthesis.population).
   age:
     category: Age class
     simulated: Proportion_EQASIM
@@ -1506,12 +1548,23 @@ experiment:
   base_sample_size: 8
 parameters:
   sampling_rate: [0.001, 0.002]
+# Every file eqasim's synthesis.output stage writes with output_formats
+# [csv, gpkg] (eqasim's default) and mode_choice false in your eqasim
+# configuration. Remove the ones you do not need to save disk space
+# (spatial files are large at high sampling rates).
 outputs:
   persons: {}
   households: {}
-  trips: {}
   activities: {}
+  trips: {}
+  vehicle_types: {}
+  vehicles: {}
   activities_spatial: {}
+  homes_spatial: {}
+  commutes_spatial: {}
+  trips_spatial: {}
+  # Analysis tables the default indicators read
+  # (written by analysis.synthesis.population).
   age:
     category: Age class
     simulated: Proportion_EQASIM

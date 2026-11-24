@@ -104,19 +104,27 @@ design contains:
 
 ### 4. Choose what to measure
 
-The generated file already declares the outputs to keep from each run. The
-population files (`persons`, `households`, `trips`, `activities`, and the
-spatial activities `activities_spatial`) are archived so that a later analysis
-needs no new simulation; they have no reference, so they produce no indicator.
-Three distributions are compared with reference data:
+The generated file already declares the outputs to keep from each run. Every
+file eqasim's `synthesis.output` stage writes with your eqasim configuration
+(here the six CSV tables and the four spatial files of the default
+`output_formats`, `[csv, gpkg]`) is archived so that a later analysis needs no
+new simulation; these files have no reference, so they produce no indicator.
+Remove the ones you do not need to save disk space: the spatial files grow
+large at high sampling rates. Three distributions are compared with reference
+data:
 
 ```yaml
 outputs:
   persons: {}
   households: {}
-  trips: {}
   activities: {}
+  trips: {}
+  vehicle_types: {}
+  vehicles: {}
   activities_spatial: {}
+  homes_spatial: {}
+  commutes_spatial: {}
+  trips_spatial: {}
   age:
     category: Age class
     simulated: Proportion_EQASIM

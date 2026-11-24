@@ -36,8 +36,8 @@ planifier la campagne. Ajouter une sortie ensuite demande une nouvelle
 campagne. Archivez donc largement dès le départ : la population (`persons`,
 `households`), les trajets et activités (`trips`, `activities`) et, si vous
 risquez d'avoir besoin de distances ou de lieux, les fichiers spatiaux écrits
-par eqasim (les fichiers de départ archivent `activities_spatial`, pas
-`trips_spatial`) :
+par eqasim (les fichiers de départ archivent tous les fichiers qu'écrit l'étape
+eqasim `synthesis.output`, y compris les fichiers spatiaux) :
 
 ```yaml
 outputs:
@@ -86,9 +86,14 @@ tout ce que lit le script, et déclare l'analyse et les indicateurs :
 outputs:                               # les sorties du fichier de départ Grid, inchangées
   persons: {}
   households: {}
-  trips: {}
   activities: {}
+  trips: {}
+  vehicle_types: {}
+  vehicles: {}
   activities_spatial: {}
+  homes_spatial: {}
+  commutes_spatial: {}
+  trips_spatial: {}
   age:
     category: Age class
     simulated: Proportion_EQASIM

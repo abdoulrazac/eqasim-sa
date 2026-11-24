@@ -35,8 +35,8 @@ declared under [`outputs`](yaml-reference.md#outputs) before the campaign is
 planned. Adding an output afterwards needs a new campaign. So archive
 generously from the start: the population (`persons`, `households`), the trips
 and activities (`trips`, `activities`), and, if you may need distances or
-places, the spatial files written by eqasim (the starters archive
-`activities_spatial`, not `trips_spatial`):
+places, the spatial files written by eqasim (the starters archive every file
+eqasim's `synthesis.output` stage writes, the spatial ones included):
 
 ```yaml
 outputs:
@@ -84,9 +84,14 @@ indicators:
 outputs:                               # the Grid starter's outputs, unchanged
   persons: {}
   households: {}
-  trips: {}
   activities: {}
+  trips: {}
+  vehicle_types: {}
+  vehicles: {}
   activities_spatial: {}
+  homes_spatial: {}
+  commutes_spatial: {}
+  trips_spatial: {}
   age:
     category: Age class
     simulated: Proportion_EQASIM
