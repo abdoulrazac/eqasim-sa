@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `run` works with synpp 1.7.0, which the official eqasim-france now requires
+  (`synpp>=1.7.0`). synpp 1.7.0 reads a configuration override as
+  `--config KEY VALUE` and refuses the `--KEY VALUE` form of synpp 1.6, so
+  every run failed with `RuntimeError: Config path already provided`. Before
+  executing, eqasim-sa now asks the model's interpreter for its synpp version
+  and writes the overrides in the form that version reads: `--config KEY VALUE`
+  from 1.7.0 on, `--KEY VALUE` before. Both versions convert the value to the
+  type already written in `config:`, so a run sets the same configuration
+  either way. An `execution.invocation` that does not end with `-m synpp`
+  cannot be asked and is assumed to run synpp 1.7.0 or later.
+
 ## 0.4.3 - 2026-11-24
 
 ### Changed

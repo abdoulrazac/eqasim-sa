@@ -139,7 +139,9 @@ def test_data_path_override_is_hashed_and_passed_as_the_same_absolute_path(
 
     assert loaded.execution is not None
     assert loaded.execution.data_path == alternate.resolve()
-    assert arguments[arguments.index("--data_path") + 1] == str(alternate.resolve())
+    index = arguments.index("data_path")
+    assert arguments[index - 1] == "--config"
+    assert arguments[index + 1] == str(alternate.resolve())
     assert payload["completed"] == 1
 
 

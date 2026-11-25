@@ -6,7 +6,7 @@ import math
 import re
 import subprocess
 import threading
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import yaml
@@ -30,6 +30,15 @@ PREFIX = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 OPTION = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 DEDICATED = {"output_path", "output_prefix", "random_seed", "run", "working_directory"}
 TERMINATION_GRACE_SECONDS = 2.0
+# How synpp's command line receives a configuration override. synpp 1.7.0
+# replaced ``--KEY VALUE`` with ``--config KEY VALUE``; neither version accepts
+# the other's form. Both convert the string to the type of the value already in
+# the YAML ``config:`` block, so the two forms set the same configuration.
+SYNPP_CONFIG_FLAG = "config"
+SYNPP_LEGACY_FLAG = "legacy"
+SYNPP_DIALECTS = frozenset({SYNPP_CONFIG_FLAG, SYNPP_LEGACY_FLAG})
+SYNPP_CONFIG_FLAG_SINCE = (1, 7)
+_VERSION = re.compile(r"^(\d+)\.(\d+)")
 
 
 class EqasimSimulator:
@@ -49,7 +58,11 @@ class EqasimSimulator:
         software_guard: SoftwareSourceGuard | None = None,
         *,
         outputs: Mapping[str, OutputDeclaration],
+        synpp_dialect: str | None = None,
     ) -> None:
+        if synpp_dialect is not None and synpp_dialect not in SYNPP_DIALECTS:
+            raise ValueError(f"unknown synpp dialect: {synpp_dialect!r}")
+        self._synpp_dialect = synpp_dialect
         if not isinstance(outputs, Mapping) or not outputs:
             raise ValueError("eqasim simulator requires at least one declared output")
         for name, declaration in outputs.items():
@@ -71,6 +84,22 @@ class EqasimSimulator:
         self.structured_factors = copy.deepcopy(structured_factors or {})
         self.execution_seal = execution_seal
         self.software_guard = software_guard
+
+    def _detect_synpp_dialect(self) -> str:
+        """Override form of the model's synpp, asked once per simulator.
+
+        The question runs like a simulation: owned by this simulator so that
+        an interruption stops it, without a time limit since ``uv run`` may
+        first have to synchronize the model environment.
+        """
+
+        if self._synpp_dialect is None:
+            self._synpp_dialect = detect_synpp_dialect(
+                self.settings.invocation,
+                self.settings.eqasim_root,
+                runner=self._run_owned,
+            )
+        return self._synpp_dialect
 
     def interrupt(self) -> None:
         self._interrupted.set()
@@ -160,22 +189,20 @@ class EqasimSimulator:
             )
         else:
             snapshot.write_bytes(self.config_bytes)
+        try:
+            dialect = self._detect_synpp_dialect()
+        except RuntimeError as error:
+            log.write_text(f"{error}\n", encoding="utf-8")
+            raise SimulationError(str(error), log, attempt) from error
         command = [
             *self.settings.invocation,
             str(snapshot),
             "--working-directory",
             str(self.workspace.cache),
         ]
-        command.extend(
-            (
-                "--random_seed",
-                str(seed),
-                "--output_path",
-                str(output),
-                "--output_prefix",
-                prefix,
-            )
-        )
+        command.extend(synpp_override("random_seed", str(seed), dialect))
+        command.extend(synpp_override("output_path", str(output), dialect))
+        command.extend(synpp_override("output_prefix", prefix, dialect))
         for key in sorted(nested):
             if not OPTION.fullmatch(key) or "\0" in key:
                 raise ValueError(f"invalid synpp option name: {key!r}")
@@ -190,7 +217,9 @@ class EqasimSimulator:
             if key in structured_changes:
                 continue
             validate_transport(key, nested[key])
-            command.extend((f"--{key}", _scalar_argument(key, nested[key])))
+            command.extend(
+                synpp_override(key, _scalar_argument(key, nested[key]), dialect)
+            )
         with log.open("w", encoding="utf-8") as stream:
             stream.write(json.dumps({"command": command}, ensure_ascii=False) + "\n")
             stream.flush()
@@ -306,6 +335,94 @@ def probe_environment(
     return None
 
 
+def synpp_override(key: str, value: str, dialect: str) -> tuple[str, ...]:
+    """Command-line arguments that set ``config.<key>`` in the given dialect."""
+
+    if dialect == SYNPP_CONFIG_FLAG:
+        return ("--config", key, value)
+    if dialect == SYNPP_LEGACY_FLAG:
+        return (f"--{key}", value)
+    raise ValueError(f"unknown synpp dialect: {dialect!r}")
+
+
+def synpp_dialect_for_version(version: str) -> str:
+    """Map an installed synpp version to the override form it parses."""
+
+    match = _VERSION.match(version.strip())
+    if match is None:
+        raise RuntimeError(f"cannot read the synpp version {version.strip()!r}")
+    release = (int(match.group(1)), int(match.group(2)))
+    return (
+        SYNPP_CONFIG_FLAG if release >= SYNPP_CONFIG_FLAG_SINCE else SYNPP_LEGACY_FLAG
+    )
+
+
+_VERSION_SCRIPT = "import importlib.metadata as m; print(m.version('synpp'))"
+_STDERR_LINES = 10
+
+
+def detect_synpp_dialect(
+    invocation: tuple[str, ...],
+    root: Path,
+    environment: Mapping[str, str] | None = None,
+    timeout: float | None = None,
+    runner: Callable[..., subprocess.CompletedProcess] | None = None,
+) -> str:
+    """Ask the model's interpreter which synpp it runs.
+
+    Only an invocation ending with ``-m synpp`` can be asked: those two
+    elements become ``-c`` and a script printing the installed version. Any
+    other invocation is assumed to run synpp 1.7.0 or later. ``runner``
+    replaces :func:`subprocess.run` and then chooses the environment itself.
+    """
+
+    if tuple(invocation[-2:]) != ("-m", "synpp"):
+        return SYNPP_CONFIG_FLAG
+    command = [*invocation[:-2], "-c", _VERSION_SCRIPT]
+    label = " ".join(invocation)
+    options = {
+        "cwd": root,
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "shell": False,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+    }
+    try:
+        if runner is None:
+            completed = subprocess.run(
+                command,
+                env=(
+                    dict(environment)
+                    if environment is not None
+                    else child_process_environment()
+                ),
+                timeout=timeout,
+                check=False,
+                **options,
+            )
+        else:
+            completed = runner(command, **options)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RuntimeError(
+            f"cannot read the synpp version of invocation {label!r}: "
+            f"{error.__class__.__name__}: {error}"
+        ) from error
+    stderr = (completed.stderr or "").strip().splitlines()[-_STDERR_LINES:]
+    detail = ("\n" + "\n".join(stderr)) if stderr else ""
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"cannot read the synpp version of invocation {label!r} "
+            f"(returncode={completed.returncode}){detail}"
+        )
+    lines = [line for line in (completed.stdout or "").splitlines() if line.strip()]
+    if not lines:
+        raise RuntimeError(f"invocation {label!r} printed no synpp version{detail}")
+    return synpp_dialect_for_version(lines[-1])
+
+
 def validate_transport(name: str, value: object, label: str | None = None) -> None:
     """Validate a scalar value that can cross the synpp CLI boundary.
 
@@ -321,7 +438,9 @@ def validate_transport(name: str, value: object, label: str | None = None) -> No
 def _scalar_argument(key: str, value: object, label: str | None = None) -> str:
     subject = label or f"synpp option {key!r}"
     if isinstance(value, bool) or not isinstance(value, (int, float, str)):
-        raise TypeError(f"{subject} is not faithfully representable by synpp 1.6.2")
+        raise TypeError(
+            f"{subject} is not faithfully representable on the synpp command line"
+        )
     if isinstance(value, float) and not math.isfinite(value):
         raise ValueError(f"{subject} must be finite")
     argument = str(value)

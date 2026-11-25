@@ -7,9 +7,28 @@ import time
 from pathlib import Path
 
 
+def overrides(argv: list[str]) -> dict[str, str]:
+    """Parse configuration overrides as synpp 1.7 (``--config KEY VALUE``)
+    or synpp 1.6 (``--KEY VALUE``) does; a positional argument is the config."""
+
+    result: dict[str, str] = {}
+    k = 0
+    while k < len(argv):
+        if argv[k] in {"--working-directory", "--run"}:
+            k += 2
+        elif argv[k] == "--config":
+            result[argv[k + 1]] = argv[k + 2]
+            k += 3
+        elif argv[k].startswith("--"):
+            result[argv[k][2:]] = argv[k + 1]
+            k += 2
+        else:
+            k += 1
+    return result
+
+
 def option(name: str) -> str:
-    index = sys.argv.index(name)
-    return sys.argv[index + 1]
+    return overrides(sys.argv[1:])[name.removeprefix("--")]
 
 
 def write(

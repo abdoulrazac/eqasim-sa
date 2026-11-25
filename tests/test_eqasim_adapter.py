@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -253,11 +254,14 @@ def test_real_spy_subprocess_collects_exact_declared_inventory(
         str(attempt / "config.yml"),
         "--working-directory",
         str(current.workspace(0).cache),
-        "--random_seed",
+        "--config",
+        "random_seed",
         "42",
-        "--output_path",
+        "--config",
+        "output_path",
         str(attempt / "output"),
-        "--output_prefix",
+        "--config",
+        "output_prefix",
         "nantes_",
     ]
     assert current.config_path.read_bytes() != before
@@ -996,3 +1000,181 @@ def test_eqasim_does_not_inherit_the_virtual_env_without_a_seal(
     adapter.simulate(load_config(current.config_path, 42), 42, current.workdir)
 
     assert json.loads(record.read_text())["virtualEnv"] is None
+
+
+def _fake_synpp_distribution(root: Path, version: str) -> None:
+    info = root / f"synpp-{version}.dist-info"
+    info.mkdir()
+    (info / "METADATA").write_text(
+        f"Metadata-Version: 2.1\nName: synpp\nVersion: {version}\n", encoding="utf-8"
+    )
+
+
+@pytest.mark.parametrize(
+    ("version", "dialect"),
+    [
+        ("1.5.1", "legacy"),
+        ("1.6.2", "legacy"),
+        ("1.7.0", "config"),
+        ("1.7.1.dev0", "config"),
+        ("2.0.0", "config"),
+    ],
+)
+def test_synpp_version_selects_the_override_form(version: str, dialect: str) -> None:
+    from eqasim_sa.adapters.eqasim.simulator import synpp_dialect_for_version
+
+    assert synpp_dialect_for_version(version) == dialect
+
+
+def test_unreadable_synpp_version_is_refused() -> None:
+    from eqasim_sa.adapters.eqasim.simulator import synpp_dialect_for_version
+
+    with pytest.raises(RuntimeError, match="cannot read the synpp version"):
+        synpp_dialect_for_version("unknown")
+
+
+@pytest.mark.parametrize(("version", "dialect"), [("1.6.2", "legacy"), ("1.7.0", "config")])
+def test_detection_reads_the_version_installed_for_the_invocation(
+    tmp_path: Path, version: str, dialect: str
+) -> None:
+    from eqasim_sa.adapters.eqasim.simulator import detect_synpp_dialect
+
+    _fake_synpp_distribution(tmp_path, version)
+    assert detect_synpp_dialect((sys.executable, "-m", "synpp"), tmp_path) == dialect
+
+
+def test_detection_fails_when_the_interpreter_has_no_synpp(tmp_path: Path) -> None:
+    from eqasim_sa.adapters.eqasim.simulator import detect_synpp_dialect
+
+    # The first -c runs instead of the version script and exits like a failed
+    # importlib.metadata.version("synpp").
+    with pytest.raises(RuntimeError, match="cannot read the synpp version.*returncode=1"):
+        detect_synpp_dialect(
+            (sys.executable, "-c", "raise SystemExit(1)", "-m", "synpp"), tmp_path
+        )
+
+
+def test_detection_fails_when_no_version_is_printed(tmp_path: Path) -> None:
+    from eqasim_sa.adapters.eqasim.simulator import detect_synpp_dialect
+
+    with pytest.raises(RuntimeError, match="printed no synpp version"):
+        detect_synpp_dialect((sys.executable, "-c", "pass", "-m", "synpp"), tmp_path)
+
+
+def test_detection_assumes_current_synpp_without_trailing_m_synpp(
+    tmp_path: Path,
+) -> None:
+    from eqasim_sa.adapters.eqasim.simulator import detect_synpp_dialect
+
+    assert detect_synpp_dialect(("uv", "run", "synpp"), tmp_path) == "config"
+
+
+@pytest.mark.parametrize(
+    ("dialect", "expected"),
+    [
+        ("config", ["--config", "random_seed", "42"]),
+        ("legacy", ["--random_seed", "42"]),
+    ],
+)
+def test_simulator_writes_overrides_in_the_detected_form(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dialect: str, expected: list[str]
+) -> None:
+    current = settings(tmp_path)
+    adapter = EqasimSimulator(
+        current,
+        load_config(current.config_path, 42),
+        outputs=ALL_OUTPUTS,
+        synpp_dialect=dialect,
+    )
+    resolved = load_config(current.config_path, 42)
+    resolved["config"]["processes"] = 3
+    observed = {}
+
+    def run(command, **options):  # type: ignore[no-untyped-def]
+        observed["command"] = command
+        return type("Completed", (), {"returncode": 7})()
+
+    monkeypatch.setattr(adapter, "_run_owned", run)
+    with pytest.raises(SimulationError, match="code 7"):
+        adapter.simulate(resolved, 42, current.workdir)
+    arguments = observed["command"][len(current.invocation) + 3 :]
+    assert arguments[: len(expected)] == expected
+    processes = (
+        ["--config", "processes", "3"] if dialect == "config" else ["--processes", "3"]
+    )
+    assert any(
+        arguments[i : i + len(processes)] == processes for i in range(len(arguments))
+    )
+
+
+def test_simulator_rejects_an_unknown_dialect(tmp_path: Path) -> None:
+    current = settings(tmp_path)
+    with pytest.raises(ValueError, match="unknown synpp dialect"):
+        EqasimSimulator(
+            current,
+            load_config(current.config_path, 42),
+            outputs=ALL_OUTPUTS,
+            synpp_dialect="newest",
+        )
+
+
+def test_detection_failure_keeps_the_interpreter_message(tmp_path: Path) -> None:
+    from eqasim_sa.adapters.eqasim.simulator import detect_synpp_dialect
+
+    code = "import sys; print('lockfile needs to be updated', file=sys.stderr); sys.exit(2)"
+    with pytest.raises(
+        RuntimeError, match=r"returncode=2\)\nlockfile needs to be updated"
+    ):
+        detect_synpp_dialect((sys.executable, "-c", code, "-m", "synpp"), tmp_path)
+
+
+def _settings_with(tmp_path: Path, invocation: tuple[str, ...]) -> EqasimSettings:
+    current = settings(tmp_path)
+    return EqasimSettings(
+        config_path=current.config_path,
+        eqasim_root=current.eqasim_root,
+        invocation=invocation,
+        campaign=current.campaign,
+        scratch=current.scratch,
+        context_hash=current.context_hash,
+    )
+
+
+def test_simulator_asks_the_model_interpreter_once_and_uses_its_form(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    current = _settings_with(tmp_path, (sys.executable, "-m", "synpp"))
+    _fake_synpp_distribution(tmp_path, "1.6.2")
+    adapter = EqasimSimulator(
+        current, load_config(current.config_path, 42), outputs=ALL_OUTPUTS
+    )
+    real = adapter._run_owned
+    commands = []
+
+    def run(command, **options):  # type: ignore[no-untyped-def]
+        commands.append(command)
+        if "-c" in command:
+            return real(command, **options)
+        return subprocess.CompletedProcess(command, 7)
+
+    monkeypatch.setattr(adapter, "_run_owned", run)
+    for _ in range(2):
+        with pytest.raises(SimulationError, match="code 7"):
+            adapter.simulate(
+                load_config(current.config_path, 42), 42, current.workdir
+            )
+    assert [command[1] for command in commands] == ["-c", "-m", "-m"]
+    assert commands[1][commands[1].index("--random_seed") + 1] == "42"
+    assert "--config" not in commands[1]
+
+
+def test_failed_detection_is_a_failed_run_with_its_log(tmp_path: Path) -> None:
+    code = "import sys; print('lockfile needs to be updated', file=sys.stderr); sys.exit(2)"
+    current = _settings_with(tmp_path, (sys.executable, "-c", code, "-m", "synpp"))
+    adapter = EqasimSimulator(
+        current, load_config(current.config_path, 42), outputs=ALL_OUTPUTS
+    )
+    with pytest.raises(SimulationError, match="cannot read the synpp version") as failure:
+        adapter.simulate(load_config(current.config_path, 42), 42, current.workdir)
+    log = failure.value.attempt_directory / "run.log"
+    assert "lockfile needs to be updated" in log.read_text(encoding="utf-8")

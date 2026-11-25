@@ -689,7 +689,7 @@ def test_simulator_writes_structured_snapshot_and_omits_list_cli_override(
 
     snapshot = load_yaml_document(failure.value.attempt_directory / "config.yml")
     assert snapshot["config"]["matching_attributes"] == ["sex"]
-    assert "--matching_attributes" not in observed["command"]
+    assert "matching_attributes" not in observed["command"]
 
 
 @pytest.mark.parametrize("undeclared", [["x"], {"x": 1}])
@@ -716,7 +716,8 @@ def test_simulator_keeps_scalar_cli_behavior(
     monkeypatch.setattr(simulator, "_run_owned", run)
     with pytest.raises(SimulationError):
         simulator.simulate(resolved, 42, simulator.workspace.root)
-    index = observed["command"].index("--sampling_rate")
+    index = observed["command"].index("sampling_rate")
+    assert observed["command"][index - 1] == "--config"
     assert observed["command"][index + 1] == "0.25"
     assert (
         next(simulator.workspace.root.glob("a*/config.yml"))
@@ -822,7 +823,7 @@ def test_slurm_callable_preserves_structured_snapshot_without_list_cli(
 
     assert result[0].value.status == "failed"
     assert observed[0][1]["config"]["matching_attributes"] == ["sex"]
-    assert "--matching_attributes" not in observed[0][0]
+    assert "matching_attributes" not in observed[0][0]
 
 
 def test_public_smoke_check_preserves_structured_snapshot_without_list_cli(
@@ -890,4 +891,4 @@ def test_public_smoke_check_preserves_structured_snapshot_without_list_cli(
         snapshot["config"]["matching_attributes"] == ["sex"]
         for _, snapshot in observed
     )
-    assert all("--matching_attributes" not in command for command, _ in observed)
+    assert all("matching_attributes" not in command for command, _ in observed)
