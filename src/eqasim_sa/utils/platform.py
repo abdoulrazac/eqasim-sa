@@ -18,6 +18,7 @@ __all__ = (
     "IS_WINDOWS",
     "LOCK_OFFSET",
     "RETRY_DELAYS",
+    "change_time_ns",
     "current_uid",
     "fsync_directory",
     "hostname",
@@ -164,6 +165,19 @@ def _retry_writable(operation, path) -> None:  # type: ignore[no-untyped-def]
             if not is_link(Path(path)):
                 os.chmod(path, stat.S_IWRITE)
             time.sleep(delay)
+
+
+def change_time_ns(info: os.stat_result) -> int:
+    """Return the change time that stability checks may compare.
+
+    On POSIX ``st_ctime_ns`` changes only when the file's metadata or content
+    changes. On Windows it is the NTFS change time, which the system updates
+    when a file is merely opened or read, so a path ``lstat`` and the ``fstat``
+    of the opened handle differ; it is left out there (0) and the other fields
+    (volume, file id, size, modification time) carry the check.
+    """
+
+    return 0 if IS_WINDOWS else info.st_ctime_ns
 
 
 def current_uid() -> int | None:

@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- On Windows, `init` (and every other file stability check) no longer fails
+  with `data entry changed while opening: <file>`. Windows updates a file's
+  change time (`st_ctime`) when the file is merely opened or read, so the path
+  and the opened handle reported different values for an unchanged file. The
+  change time is no longer compared on Windows; volume, file id, size and
+  modification time still are. Nothing changes on Linux and macOS.
+
 ## 0.4.4 - 2026-11-25
 
 ### Fixed

@@ -119,7 +119,7 @@ def file_state(info: os.stat_result) -> FileState:
         file_identity(info),
         info.st_size,
         info.st_mtime_ns,
-        info.st_ctime_ns,
+        platform.change_time_ns(info),
     )
 
 
