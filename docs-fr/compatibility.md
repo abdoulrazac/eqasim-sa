@@ -2,7 +2,7 @@
 
 [English](../docs/compatibility.md) | **Français**
 
-Cette page décrit `eqasim-sa` 0.4.3 ; le [journal des modifications](../CHANGELOG.md)
+Cette page décrit `eqasim-sa` 0.4.4 ; le [journal des modifications](../CHANGELOG.md)
 liste ses changements depuis la 0.3.0, parmi lesquels
 les facteurs structurés, le modèle eqasim identifié sans Git, les scripts
 d'analyse, `show-config` et `plot`. L'analyseur syntaxique Python et le code
@@ -127,6 +127,11 @@ utilise `<scratch>/esa/<campagne>/w<slot>/`, qui contient son dossier de cache
   contenu, et `model.config` est lu relativement à `model.root` (ou comme un
   chemin absolu).
 - synpp exécute la liste `run:` de la configuration eqasim sans la modifier.
+- Avant le premier run, eqasim-sa demande à l'interpréteur du modèle sa
+  version de synpp et passe chaque surcharge sous la forme
+  `--config CLÉ VALEUR` à partir de synpp 1.7.0, `--CLÉ VALEUR` avant. Une
+  `execution.invocation` qui ne se termine pas par `-m synpp` est supposée
+  exécuter synpp 1.7.0 ou plus récent.
 - Chaque sortie déclarée est archivée à l'octet près sous le nom
   `<nom><extension>` (par exemple `age.csv`), avec son chemin d'origine dans le
   manifeste du run. Les résultats d'analyse (`indicators.parquet`, tables de
@@ -165,6 +170,7 @@ protocole Nantes réel a été planifié ou exécuté.
 
 | Version | Python | Schémas de plan lus/écrits | Manifeste d'analyse | Migration |
 | --- | --- | --- | --- | --- |
+| 0.4.4 | `>=3.13,<3.14` | schémas de plan v1/v2/v3 ; design scientifique v3 uniquement | v8 | aucune |
 | 0.4.3 | `>=3.13,<3.14` | schémas de plan v1/v2/v3 ; design scientifique v3 uniquement | v8 | aucune |
 | 0.4.2 | `>=3.13,<3.14` | schémas de plan v1/v2/v3 ; design scientifique v3 uniquement | v8 | aucune |
 | 0.4.1 | `>=3.13,<3.14` | schémas de plan v1/v2/v3 ; design scientifique v3 uniquement | v8 | aucune |

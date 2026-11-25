@@ -13,7 +13,7 @@ qu'un objet JSON complet ait été écrit. `show-config` et `plot` font exceptio
 succès mais écrit ses erreurs en texte brut sur la sortie d'erreur.
 
 `eqasim-sa --version` affiche la version installée en texte brut (par exemple
-`eqasim-sa 0.4.3`) et renvoie 0.
+`eqasim-sa 0.4.4`) et renvoie 0.
 
 ## `init`
 

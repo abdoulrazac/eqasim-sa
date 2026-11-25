@@ -49,12 +49,12 @@ def test_release_version_and_plan_schema_matrix(tmp_path: Path) -> None:
     project = Path(__file__).resolve().parents[1]
     pyproject = tomllib.loads((project / "pyproject.toml").read_text())
     lock = tomllib.loads((project / "uv.lock").read_text())
-    assert importlib.metadata.version("eqasim-sa") == "0.4.3"
-    assert pyproject["project"]["version"] == "0.4.3"
+    assert importlib.metadata.version("eqasim-sa") == "0.4.4"
+    assert pyproject["project"]["version"] == "0.4.4"
     locked_package = next(
         package for package in lock["package"] if package["name"] == "eqasim-sa"
     )
-    assert locked_package["version"] == "0.4.3"
+    assert locked_package["version"] == "0.4.4"
     assert pyproject["tool"]["setuptools"]["package-data"] == {
         "eqasim_sa": ["templates/*.yml", "templates/*.md"]
     }
@@ -122,7 +122,7 @@ def test_release_version_and_plan_schema_matrix(tmp_path: Path) -> None:
 
 def test_release_wheel_verifier_without_prebuilt_distribution(tmp_path: Path) -> None:
     project = Path(__file__).resolve().parents[1]
-    wheel = tmp_path / "eqasim_sa-0.4.3-py3-none-any.whl"
+    wheel = tmp_path / "eqasim_sa-0.4.4-py3-none-any.whl"
     required = (
         "00-calibration.yml",
         "01-grid.yml",

@@ -2,7 +2,7 @@
 
 **English** | [Français](../docs-fr/compatibility.md)
 
-This page describes `eqasim-sa` 0.4.3; the [changelog](../CHANGELOG.md) lists
+This page describes `eqasim-sa` 0.4.4; the [changelog](../CHANGELOG.md) lists
 its changes since 0.3.0, among them structured factors,
 an eqasim model identified without Git, analysis scripts, `show-config`, and
 `plot`. The Python parser and analysis code are authoritative. There is no backward compatibility:
@@ -121,6 +121,10 @@ directory `c<12 hex>/` and its attempt directories `a<12 hex>/`.
   required: the code is identified by a content fingerprint, and
   `model.config` is read relative to `model.root` (or as an absolute path).
 - synpp runs the `run:` list of the eqasim configuration unchanged.
+- Before the first run, eqasim-sa asks the model's interpreter for its synpp
+  version and passes each override as `--config KEY VALUE` from synpp 1.7.0
+  on, `--KEY VALUE` before. An `execution.invocation` that does not end with
+  `-m synpp` is assumed to run synpp 1.7.0 or later.
 - Each declared output is archived byte for byte as `<name><suffix>` (for
   example `age.csv`), with its original path in the run manifest. The analysis
   results (`indicators.parquet`, sensitivity tables) are Parquet files.
@@ -157,6 +161,7 @@ Nantes protocol has been planned or executed.
 
 | Release | Python | Plan schemas read/written | Analysis manifest | Migration |
 | --- | --- | --- | --- | --- |
+| 0.4.4 | `>=3.13,<3.14` | plan schemas v1/v2/v3; scientific design v3 only | v8 | none |
 | 0.4.3 | `>=3.13,<3.14` | plan schemas v1/v2/v3; scientific design v3 only | v8 | none |
 | 0.4.2 | `>=3.13,<3.14` | plan schemas v1/v2/v3; scientific design v3 only | v8 | none |
 | 0.4.1 | `>=3.13,<3.14` | plan schemas v1/v2/v3; scientific design v3 only | v8 | none |
