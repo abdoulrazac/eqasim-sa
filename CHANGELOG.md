@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.4 - 2026-11-25
 
 ### Fixed
 
@@ -10,11 +10,6 @@
   and the opened handle reported different values for an unchanged file. The
   change time is no longer compared on Windows; volume, file id, size and
   modification time still are. Nothing changes on Linux and macOS.
-
-## 0.4.4 - 2026-11-25
-
-### Fixed
-
 - `run` works with synpp 1.7.0, which the official eqasim-france now requires
   (`synpp>=1.7.0`). synpp 1.7.0 reads a configuration override as
   `--config KEY VALUE` and refuses the `--KEY VALUE` form of synpp 1.6, so
